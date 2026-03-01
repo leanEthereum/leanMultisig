@@ -7,7 +7,6 @@ use lean_prover::{
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
@@ -372,7 +371,7 @@ where
 {
     let (constraints, bus_flag, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
     let mut vars_counter = Counter::new();
-    let mut cache: HashMap<*const (), String> = HashMap::new();
+    let mut cache: HashMap<u32, String> = HashMap::new();
 
     let mut res = format!(
         "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, logup_alphas_eq_poly):\n",
@@ -384,14 +383,14 @@ where
     res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
     for (index, constraint) in constraints.iter().enumerate() {
         let dest = format!("constraints_buf + {} * DIM", index);
-        eval_air_constraint(constraint, Some(&dest), &mut cache, &mut res, &mut vars_counter);
+        eval_air_constraint(*constraint, Some(&dest), &mut cache, &mut res, &mut vars_counter);
     }
 
     // first: bus data
-    let flag = eval_air_constraint(&bus_flag, None, &mut cache, &mut res, &mut vars_counter);
+    let flag = eval_air_constraint(bus_flag, None, &mut cache, &mut res, &mut vars_counter);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
-        let data_str = eval_air_constraint(data, None, &mut cache, &mut res, &mut vars_counter);
+        let data_str = eval_air_constraint(*data, None, &mut cache, &mut res, &mut vars_counter);
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
@@ -424,9 +423,9 @@ where
 /// If `dest` is Some, writes the result directly there (avoids a copy_5).
 /// If `dest` is None, allocates an aux var. Returns the var/pointer where the result lives.
 fn eval_air_constraint(
-    expr: &SymbolicExpression<F>,
+    expr: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<*const (), String>,
+    cache: &mut HashMap<u32, String>,
     res: &mut String,
     ctr: &mut Counter,
 ) -> String {
@@ -437,27 +436,22 @@ fn eval_air_constraint(
             v
         }
         SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
-        SymbolicExpression::Operation(operation) => {
-            let key = Rc::as_ptr(operation) as *const ();
-            if let Some(v) = cache.get(&key) {
+        SymbolicExpression::Operation(idx) => {
+            if let Some(v) = cache.get(&idx) {
                 if let Some(d) = dest {
                     res.push_str(&format!("\n    copy_5({}, {})", v, d));
                 }
                 return v.clone();
             }
-            let (op, args) = &**operation;
-            let v = match *op {
+            let node = get_node::<F>(idx);
+            let v = match node.op {
                 SymbolicOperation::Neg => {
-                    assert_eq!(args.len(), 1);
-                    let a = eval_air_constraint(&args[0], None, cache, res, ctr);
+                    let a = eval_air_constraint(node.lhs, None, cache, res, ctr);
                     let v = format!("aux_{}", ctr.get_next());
                     res.push_str(&format!("\n    {} = opposite_extension_ret({})", v, a));
                     v
                 }
-                _ => {
-                    assert_eq!(args.len(), 2);
-                    eval_air_binop(*op, args, dest, cache, res, ctr)
-                }
+                _ => eval_air_binop(node.op, node.lhs, node.rhs, dest, cache, res, ctr),
             };
             // If dest was requested but the result landed elsewhere, copy it
             if let Some(d) = dest
@@ -465,7 +459,7 @@ fn eval_air_constraint(
             {
                 res.push_str(&format!("\n    copy_5({}, {})", v, d));
             }
-            cache.insert(key, v.clone());
+            cache.insert(idx, v.clone());
             v
         }
     }
@@ -475,17 +469,18 @@ fn eval_air_constraint(
 /// supports it, writes directly to dest and returns dest; otherwise allocates an aux var.
 fn eval_air_binop(
     op: SymbolicOperation,
-    args: &[SymbolicExpression<F>],
+    lhs: SymbolicExpression<F>,
+    rhs: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<*const (), String>,
+    cache: &mut HashMap<u32, String>,
     res: &mut String,
     ctr: &mut Counter,
 ) -> String {
-    let c0 = match &args[0] {
+    let c0 = match lhs {
         SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
         _ => None,
     };
-    let c1 = match &args[1] {
+    let c1 = match rhs {
         SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
         _ => None,
     };
@@ -493,8 +488,8 @@ fn eval_air_binop(
     match (c0, c1) {
         // Both extension
         (None, None) => {
-            let a = eval_air_constraint(&args[0], None, cache, res, ctr);
-            let b = eval_air_constraint(&args[1], None, cache, res, ctr);
+            let a = eval_air_constraint(lhs, None, cache, res, ctr);
+            let b = eval_air_constraint(rhs, None, cache, res, ctr);
             if let Some(d) = dest {
                 let f = match op {
                     SymbolicOperation::Mul => "mul_extension",
@@ -518,12 +513,12 @@ fn eval_air_binop(
         }
         // Mul/Add with a constant (commutative for base-ext)
         _ if matches!(op, SymbolicOperation::Mul | SymbolicOperation::Add) => {
-            let (c, ext_idx) = match (c0, c1) {
-                (Some(c), _) => (c, 1),
-                (_, Some(c)) => (c, 0),
+            let (c, ext_expr) = match (c0, c1) {
+                (Some(c), _) => (c, rhs),
+                (_, Some(c)) => (c, lhs),
                 _ => unreachable!(),
             };
-            let ext = eval_air_constraint(&args[ext_idx], None, cache, res, ctr);
+            let ext = eval_air_constraint(ext_expr, None, cache, res, ctr);
             if let Some(d) = dest {
                 let f = if matches!(op, SymbolicOperation::Mul) {
                     "dot_product_be"
@@ -545,14 +540,14 @@ fn eval_air_binop(
         }
         // Sub: base - ext
         (Some(c), _) => {
-            let ext = eval_air_constraint(&args[1], None, cache, res, ctr);
+            let ext = eval_air_constraint(rhs, None, cache, res, ctr);
             let v = format!("aux_{}", ctr.get_next());
             res.push_str(&format!("\n    {} = sub_base_extension_ret({}, {})", v, c, ext));
             v
         }
         // Sub: ext - base
         (_, Some(c)) => {
-            let ext = eval_air_constraint(&args[0], None, cache, res, ctr);
+            let ext = eval_air_constraint(lhs, None, cache, res, ctr);
             if let Some(d) = dest {
                 // add_be(tmp, dest, ext) asserts ext = tmp + dest, i.e. dest = ext - tmp
                 emit_base_precompile(res, ctr, "add_be", c, d, &ext);

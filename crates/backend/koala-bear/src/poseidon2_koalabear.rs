@@ -215,28 +215,28 @@ impl InternalLayerBaseParameters<KoalaBearParameters, 16> for KoalaBearInternalL
     fn internal_layer_mat_mul<R: PrimeCharacteristicRing>(state: &mut [R; 16], sum: R) {
         // The diagonal matrix is defined by the vector:
         // V = [-2, 1, 2, 1/2, 3, 4, -1/2, -3, -4, 1/2^8, 1/8, 1/2^24, -1/2^8, -1/8, -1/16, -1/2^24]
-        state[1] += sum.clone();
-        state[2] = state[2].double() + sum.clone();
-        state[3] = state[3].halve() + sum.clone();
-        state[4] = sum.clone() + state[4].double() + state[4].clone();
-        state[5] = sum.clone() + state[5].double().double();
-        state[6] = sum.clone() - state[6].halve();
-        state[7] = sum.clone() - (state[7].double() + state[7].clone());
-        state[8] = sum.clone() - state[8].double().double();
+        state[1] += sum;
+        state[2] = state[2].double() + sum;
+        state[3] = state[3].halve() + sum;
+        state[4] = sum + state[4].double() + state[4];
+        state[5] = sum + state[5].double().double();
+        state[6] = sum - state[6].halve();
+        state[7] = sum - (state[7].double() + state[7]);
+        state[8] = sum - state[8].double().double();
         state[9] = state[9].div_2exp_u64(8);
-        state[9] += sum.clone();
+        state[9] += sum;
         state[10] = state[10].div_2exp_u64(3);
-        state[10] += sum.clone();
+        state[10] += sum;
         state[11] = state[11].div_2exp_u64(24);
-        state[11] += sum.clone();
+        state[11] += sum;
         state[12] = state[12].div_2exp_u64(8);
-        state[12] = sum.clone() - state[12].clone();
+        state[12] = sum - state[12];
         state[13] = state[13].div_2exp_u64(3);
-        state[13] = sum.clone() - state[13].clone();
+        state[13] = sum - state[13];
         state[14] = state[14].div_2exp_u64(4);
-        state[14] = sum.clone() - state[14].clone();
+        state[14] = sum - state[14];
         state[15] = state[15].div_2exp_u64(24);
-        state[15] = sum - state[15].clone();
+        state[15] = sum - state[15];
     }
 }
 
@@ -247,44 +247,44 @@ impl InternalLayerBaseParameters<KoalaBearParameters, 24> for KoalaBearInternalL
     fn internal_layer_mat_mul<R: PrimeCharacteristicRing>(state: &mut [R; 24], sum: R) {
         // The diagonal matrix is defined by the vector:
         // V = [-2, 1, 2, 1/2, 3, 4, -1/2, -3, -4, 1/2^8, 1/4, 1/8, 1/16, 1/32, 1/64, 1/2^24, -1/2^8, -1/8, -1/16, -1/32, -1/64, -1/2^7, -1/2^9, -1/2^24]
-        state[1] += sum.clone();
-        state[2] = state[2].double() + sum.clone();
-        state[3] = state[3].halve() + sum.clone();
-        state[4] = sum.clone() + state[4].double() + state[4].clone();
-        state[5] = sum.clone() + state[5].double().double();
-        state[6] = sum.clone() - state[6].halve();
-        state[7] = sum.clone() - (state[7].double() + state[7].clone());
-        state[8] = sum.clone() - state[8].double().double();
+        state[1] += sum;
+        state[2] = state[2].double() + sum;
+        state[3] = state[3].halve() + sum;
+        state[4] = sum + state[4].double() + state[4];
+        state[5] = sum + state[5].double().double();
+        state[6] = sum - state[6].halve();
+        state[7] = sum - (state[7].double() + state[7]);
+        state[8] = sum - state[8].double().double();
         state[9] = state[9].div_2exp_u64(8);
-        state[9] += sum.clone();
+        state[9] += sum;
         state[10] = state[10].div_2exp_u64(2);
-        state[10] += sum.clone();
+        state[10] += sum;
         state[11] = state[11].div_2exp_u64(3);
-        state[11] += sum.clone();
+        state[11] += sum;
         state[12] = state[12].div_2exp_u64(4);
-        state[12] += sum.clone();
+        state[12] += sum;
         state[13] = state[13].div_2exp_u64(5);
-        state[13] += sum.clone();
+        state[13] += sum;
         state[14] = state[14].div_2exp_u64(6);
-        state[14] += sum.clone();
+        state[14] += sum;
         state[15] = state[15].div_2exp_u64(24);
-        state[15] += sum.clone();
+        state[15] += sum;
         state[16] = state[16].div_2exp_u64(8);
-        state[16] = sum.clone() - state[16].clone();
+        state[16] = sum - state[16];
         state[17] = state[17].div_2exp_u64(3);
-        state[17] = sum.clone() - state[17].clone();
+        state[17] = sum - state[17];
         state[18] = state[18].div_2exp_u64(4);
-        state[18] = sum.clone() - state[18].clone();
+        state[18] = sum - state[18];
         state[19] = state[19].div_2exp_u64(5);
-        state[19] = sum.clone() - state[19].clone();
+        state[19] = sum - state[19];
         state[20] = state[20].div_2exp_u64(6);
-        state[20] = sum.clone() - state[20].clone();
+        state[20] = sum - state[20];
         state[21] = state[21].div_2exp_u64(7);
-        state[21] = sum.clone() - state[21].clone();
+        state[21] = sum - state[21];
         state[22] = state[22].div_2exp_u64(9);
-        state[22] = sum.clone() - state[22].clone();
+        state[22] = sum - state[22];
         state[23] = state[23].div_2exp_u64(24);
-        state[23] = sum - state[23].clone();
+        state[23] = sum - state[23];
     }
 }
 

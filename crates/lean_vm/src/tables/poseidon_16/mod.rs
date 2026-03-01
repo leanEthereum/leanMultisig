@@ -141,25 +141,25 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                cols.flag.clone(),
+                cols.flag,
                 &[
                     AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
-                    cols.index_a.clone(),
-                    cols.index_b.clone(),
-                    cols.index_res.clone(),
+                    cols.index_a,
+                    cols.index_b,
+                    cols.index_res,
                 ],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[
                 AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
-                cols.index_a.clone(),
-                cols.index_b.clone(),
-                cols.index_res.clone(),
+                cols.index_a,
+                cols.index_b,
+                cols.index_res,
             ]);
         }
 
-        builder.assert_bool(cols.flag.clone());
+        builder.assert_bool(cols.flag);
 
         eval(builder, &cols)
     }
@@ -181,7 +181,7 @@ pub(super) struct Poseidon2Cols<T> {
 }
 
 fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
-    let mut state: [_; WIDTH] = local.inputs.clone();
+    let mut state: [_; WIDTH] = local.inputs;
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
 
@@ -242,8 +242,8 @@ fn eval_2_full_rounds<AB: AirBuilder>(
     }
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
     for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
-        builder.assert_eq(state_i.clone(), post_i.clone());
-        *state_i = post_i.clone();
+        builder.assert_eq(*state_i, *post_i);
+        *state_i = *post_i;
     }
 }
 
@@ -268,11 +268,11 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
     // add inputs to outputs (for compression)
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
-        *state_i += init_state_i.clone();
+        *state_i += *init_state_i;
     }
     for (state_i, output_i) in state.iter_mut().zip(outputs) {
-        builder.assert_eq(state_i.clone(), output_i.clone());
-        *state_i = output_i.clone();
+        builder.assert_eq(*state_i, *output_i);
+        *state_i = *output_i;
     }
 }
 
@@ -286,8 +286,8 @@ fn eval_partial_round<AB: AirBuilder>(
     add_koala_bear(&mut state[0], round_constant);
     state[0] = state[0].cube();
 
-    builder.assert_eq(state[0].clone(), post_partial_round.clone());
-    state[0] = post_partial_round.clone();
+    builder.assert_eq(state[0], *post_partial_round);
+    state[0] = *post_partial_round;
 
     GenericPoseidon2LinearLayersKoalaBear::internal_linear_layer(state);
 }

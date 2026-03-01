@@ -94,12 +94,12 @@ impl<F: PrimeField + InjectiveMonomial<D>, ExternalPerm, InternalPerm, const WID
         ExternalPerm: ExternalLayer<A, WIDTH, D>,
         InternalPerm: InternalLayer<A, WIDTH, D>,
     {
-        let initial_state = state.clone();
+        let initial_state = *state;
         self.external_layer.permute_state_initial(state);
         self.internal_layer.permute_state(state);
         self.external_layer.permute_state_terminal(state);
         state.iter_mut().zip(initial_state).for_each(|(s, i)| {
-            *s = s.clone() + i;
+            *s += i;
         });
     }
 }

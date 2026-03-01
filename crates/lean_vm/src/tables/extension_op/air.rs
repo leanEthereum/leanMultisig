@@ -31,13 +31,9 @@ pub(super) const COL_AUX_EXTENSION_OP: usize = 30;
 use backend::quintic_extension::extension::quintic_mul;
 
 #[inline]
-fn quintic_mul_air<T: PrimeCharacteristicRing + Clone>(a: &[T; 5], b: &[T; 5]) -> [T; 5] {
+fn quintic_mul_air<T: PrimeCharacteristicRing>(a: &[T; 5], b: &[T; 5]) -> [T; 5] {
     quintic_mul(a, b, |x, y| {
-        x[0].clone() * y[0].clone()
-            + x[1].clone() * y[1].clone()
-            + x[2].clone() * y[2].clone()
-            + x[3].clone() * y[3].clone()
-            + x[4].clone() * y[4].clone()
+        x[0] * y[0] + x[1] * y[1] + x[2] * y[2] + x[3] * y[3] + x[4] * y[4]
     })
 }
 
@@ -76,110 +72,102 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let up = builder.up();
         let down = builder.down();
 
-        let is_be = up[COL_IS_BE].clone();
-        let start = up[COL_START].clone();
-        let flag_add = up[COL_FLAG_ADD].clone();
-        let flag_mul = up[COL_FLAG_MUL].clone();
-        let flag_poly_eq = up[COL_FLAG_POLY_EQ].clone();
-        let len = up[COL_LEN].clone();
-        let idx_a = up[COL_IDX_A].clone();
-        let idx_b = up[COL_IDX_B].clone();
+        let is_be = up[COL_IS_BE];
+        let start = up[COL_START];
+        let flag_add = up[COL_FLAG_ADD];
+        let flag_mul = up[COL_FLAG_MUL];
+        let flag_poly_eq = up[COL_FLAG_POLY_EQ];
+        let len = up[COL_LEN];
+        let idx_a = up[COL_IDX_A];
+        let idx_b = up[COL_IDX_B];
 
-        let va: [AB::F; 5] = std::array::from_fn(|k| up[COL_VA + k].clone());
-        let vb: [AB::F; 5] = std::array::from_fn(|k| up[COL_VB + k].clone());
-        let vres: [AB::F; 5] = std::array::from_fn(|k| up[COL_VRES + k].clone());
-        let comp: [AB::F; 5] = std::array::from_fn(|k| up[COL_COMP + k].clone());
+        let va: [AB::F; 5] = std::array::from_fn(|k| up[COL_VA + k]);
+        let vb: [AB::F; 5] = std::array::from_fn(|k| up[COL_VB + k]);
+        let vres: [AB::F; 5] = std::array::from_fn(|k| up[COL_VRES + k]);
+        let comp: [AB::F; 5] = std::array::from_fn(|k| up[COL_COMP + k]);
 
-        let start_down = down[0].clone(); // COL_START
-        let is_be_down = down[1].clone(); // COL_IS_BE
-        let len_down = down[2].clone(); // COL_LEN
-        let flag_add_down = down[3].clone(); // COL_FLAG_ADD
-        let flag_mul_down = down[4].clone(); // COL_FLAG_MUL
-        let flag_poly_eq_down = down[5].clone(); // COL_FLAG_POLY_EQ
-        let idx_a_down = down[6].clone(); // COL_IDX_A
-        let idx_b_down = down[7].clone(); // COL_IDX_B
-        let comp_down: [AB::F; 5] = std::array::from_fn(|k| down[8 + k].clone()); // COL_COMP+0..5
+        let start_down = down[0]; // COL_START
+        let is_be_down = down[1]; // COL_IS_BE
+        let len_down = down[2]; // COL_LEN
+        let flag_add_down = down[3]; // COL_FLAG_ADD
+        let flag_mul_down = down[4]; // COL_FLAG_MUL
+        let flag_poly_eq_down = down[5]; // COL_FLAG_POLY_EQ
+        let idx_a_down = down[6]; // COL_IDX_A
+        let idx_b_down = down[7]; // COL_IDX_B
+        let comp_down: [AB::F; 5] = std::array::from_fn(|k| down[8 + k]); // COL_COMP+0..5
 
-        let active = flag_add.clone() + flag_mul.clone() + flag_poly_eq.clone();
-        let activation_flag = start.clone() * active.clone();
+        let active = flag_add + flag_mul + flag_poly_eq;
+        let activation_flag = start * active;
 
-        let aux = is_be.clone().double()
-            + flag_add.clone() * AB::F::from_usize(4)
-            + flag_mul.clone() * AB::F::from_usize(8)
-            + flag_poly_eq.clone() * AB::F::from_usize(16)
-            + len.clone() * AB::F::from_usize(EXT_OP_LEN_MULTIPLIER);
+        let aux = is_be.double()
+            + flag_add * AB::F::from_usize(4)
+            + flag_mul * AB::F::from_usize(8)
+            + flag_poly_eq * AB::F::from_usize(16)
+            + len * AB::F::from_usize(EXT_OP_LEN_MULTIPLIER);
 
-        let idx_r = up[COL_IDX_RES].clone();
+        let idx_r = up[COL_IDX_RES];
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 activation_flag,
-                &[aux, idx_a.clone(), idx_b.clone(), idx_r],
+                &[aux, idx_a, idx_b, idx_r],
             ));
         } else {
             builder.declare_values(&[activation_flag]);
-            builder.declare_values(&[aux, idx_a.clone(), idx_b.clone(), idx_r]);
+            builder.declare_values(&[aux, idx_a, idx_b, idx_r]);
         }
 
-        let is_ee = AB::F::ONE - is_be.clone();
-        let not_start_down = AB::F::ONE - start_down.clone();
+        let is_ee = AB::F::ONE - is_be;
+        let not_start_down = AB::F::ONE - start_down;
 
-        let va_f_or_ef: [AB::F; 5] = std::array::from_fn(|k| {
-            if k == 0 {
-                va[0].clone()
-            } else {
-                va[k].clone() * is_ee.clone()
-            }
-        });
+        let va_f_or_ef: [AB::F; 5] = std::array::from_fn(|k| if k == 0 { va[0] } else { va[k] * is_ee });
 
-        let comp_tail: [AB::F; 5] = std::array::from_fn(|k| comp_down[k].clone() * not_start_down.clone());
+        let comp_tail: [AB::F; 5] = std::array::from_fn(|k| comp_down[k] * not_start_down);
 
-        builder.assert_bool(is_be.clone());
-        builder.assert_bool(start.clone());
-        builder.assert_bool(flag_add.clone());
-        builder.assert_bool(flag_mul.clone());
-        builder.assert_bool(flag_poly_eq.clone());
+        builder.assert_bool(is_be);
+        builder.assert_bool(start);
+        builder.assert_bool(flag_add);
+        builder.assert_bool(flag_mul);
+        builder.assert_bool(flag_poly_eq);
 
         for k in 0..5 {
-            builder.assert_zero(
-                (comp[k].clone() - (va_f_or_ef[k].clone() + vb[k].clone() + comp_tail[k].clone())) * flag_add.clone(),
-            );
+            builder.assert_zero((comp[k] - (va_f_or_ef[k] + vb[k] + comp_tail[k])) * flag_add);
         }
 
         let va_times_vb = quintic_mul_air(&va_f_or_ef, &vb);
 
         for k in 0..5 {
-            builder.assert_zero((comp[k].clone() - (va_times_vb[k].clone() + comp_tail[k].clone())) * flag_mul.clone());
+            builder.assert_zero((comp[k] - (va_times_vb[k] + comp_tail[k])) * flag_mul);
         }
 
         let poly_eq_val: [AB::F; 5] = std::array::from_fn(|k| {
-            let base = va_times_vb[k].clone().double() - va_f_or_ef[k].clone() - vb[k].clone();
+            let base = va_times_vb[k].double() - va_f_or_ef[k] - vb[k];
             if k == 0 { base + AB::F::ONE } else { base }
         });
         let comp_down_or_one: [AB::F; 5] = std::array::from_fn(|k| {
             if k == 0 {
-                comp_down[0].clone() * not_start_down.clone() + start_down.clone()
+                comp_down[0] * not_start_down + start_down
             } else {
-                comp_down[k].clone() * not_start_down.clone()
+                comp_down[k] * not_start_down
             }
         });
         let poly_eq_result = quintic_mul_air(&poly_eq_val, &comp_down_or_one);
         for k in 0..5 {
-            builder.assert_zero((comp[k].clone() - poly_eq_result[k].clone()) * flag_poly_eq.clone());
+            builder.assert_zero((comp[k] - poly_eq_result[k]) * flag_poly_eq);
         }
 
         for k in 0..5 {
-            builder.assert_zero((comp[k].clone() - vres[k].clone()) * start.clone());
+            builder.assert_zero((comp[k] - vres[k]) * start);
         }
 
-        builder.assert_zero(not_start_down.clone() * (len.clone() - len_down - AB::F::ONE));
-        builder.assert_zero(not_start_down.clone() * (is_be.clone() - is_be_down));
-        builder.assert_zero(not_start_down.clone() * (flag_add - flag_add_down));
-        builder.assert_zero(not_start_down.clone() * (flag_mul - flag_mul_down));
-        builder.assert_zero(not_start_down.clone() * (flag_poly_eq - flag_poly_eq_down));
-        let a_increment = is_be.clone() + is_ee * AB::F::from_usize(crate::DIMENSION);
-        builder.assert_zero(not_start_down.clone() * (idx_a_down - idx_a - a_increment));
+        builder.assert_zero(not_start_down * (len - len_down - AB::F::ONE));
+        builder.assert_zero(not_start_down * (is_be - is_be_down));
+        builder.assert_zero(not_start_down * (flag_add - flag_add_down));
+        builder.assert_zero(not_start_down * (flag_mul - flag_mul_down));
+        builder.assert_zero(not_start_down * (flag_poly_eq - flag_poly_eq_down));
+        let a_increment = is_be + is_ee * AB::F::from_usize(crate::DIMENSION);
+        builder.assert_zero(not_start_down * (idx_a_down - idx_a - a_increment));
         builder.assert_zero(not_start_down * (idx_b_down - idx_b - AB::F::from_usize(crate::DIMENSION)));
 
         builder.assert_zero(start_down * (len - AB::F::ONE));
