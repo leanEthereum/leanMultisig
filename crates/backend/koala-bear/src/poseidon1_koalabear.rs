@@ -176,7 +176,7 @@ fn conv16_i64(lhs: [i64; 16], rhs: [i64; 16], output: &mut [i64; 16]) {
 
 /// Apply the 16x16 circulant MDS matrix using Karatsuba convolution.
 /// Specialized for KoalaBear: works in i64 with deferred modular reduction.
-#[inline]
+#[inline(always)]
 fn mds_circulant_16_karatsuba_i64(state: &mut [KoalaBear; 16]) {
     let lhs: [i64; 16] = std::array::from_fn(|i| state[i].value as i64);
     let mut output = [0i64; 16];
@@ -387,7 +387,7 @@ fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]
 /// Uses i64 fast path for scalar KoalaBear (deferred modular reduction).
 /// Uses precomputed Karatsuba constants for all other types (packed, extension fields, etc.).
 /// With Algebra<KoalaBear> bound, all multiplications are scalar (R * KoalaBear).
-#[inline]
+#[inline(always)]
 pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
     // Fast path for scalar KoalaBear: Karatsuba convolution in i64
     if TypeId::of::<R>() == TypeId::of::<KoalaBear>() {
@@ -405,26 +405,26 @@ pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [
 pub struct Poseidon1KoalaBear16 {}
 
 /// Get constants for initial full rounds (first 4 rounds).
-#[inline]
+#[inline(always)]
 pub fn poseidon1_initial_constants() -> &'static [[KoalaBear; 16]] {
     &POSEIDON1_ROUND_CONSTANTS[..POSEIDON1_HALF_FULL_ROUNDS]
 }
 
 /// Get constants for partial rounds (middle 20 rounds).
-#[inline]
+#[inline(always)]
 pub fn poseidon1_partial_constants() -> &'static [[KoalaBear; 16]] {
     &POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS]
 }
 
 /// Get constants for final full rounds (last 4 rounds).
-#[inline]
+#[inline(always)]
 pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
     &POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..]
 }
 
 impl Poseidon1KoalaBear16 {
     /// Apply the permutation to a state, works generically on any Algebra<KoalaBear>.
-    #[inline]
+    #[inline(always)]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
         // Initial full rounds
         for rc in poseidon1_initial_constants() {
@@ -466,7 +466,7 @@ impl Poseidon1KoalaBear16 {
     }
 
     /// Compression: output = perm(input) + input
-    #[inline]
+    #[inline(always)]
     pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
         let initial = state.clone();
         self.permute_generic(state);
