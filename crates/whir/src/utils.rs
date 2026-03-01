@@ -144,6 +144,10 @@ fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
             let block_index = i % dft_n_cols;
             let offset_in_block = i / dft_n_cols;
             let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+            // SAFETY: src_index = ((block_index * block_size) + offset_in_block) >> log_inv_rate.
+            // block_index < dft_n_cols = n_blocks (folding_factor power-of-2),
+            // offset_in_block < block_size = full_len / n_blocks,
+            // so the numerator < full_len, and right-shifting by log_inv_rate gives < evals.len().
             unsafe { *evals.get_unchecked(src_index) }
         })
         .collect()
@@ -171,10 +175,14 @@ fn prepare_evals_for_fft_packed_extension<EF: ExtensionField<PF<EF>>>(
             let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
             let packed_src_index = src_index >> log_packing;
             let offset_in_packing = src_index & packing_mask;
+            // SAFETY: src_index < evals.len() << log_packing (same argument as unpacked variant),
+            // so packed_src_index = src_index >> log_packing < evals.len().
             let packed = unsafe { evals.get_unchecked(packed_src_index) };
             let unpacked: &[PFPacking<EF>] = packed.as_basis_coefficients_slice();
             EF::from_basis_coefficients_fn(|i| unsafe {
+                // SAFETY: i < EF::D (extension degree), which equals unpacked.len() by construction.
                 let u: &PFPacking<EF> = unpacked.get_unchecked(i);
+                // SAFETY: offset_in_packing = src_index & packing_mask < packing width.
                 *u.as_slice().get_unchecked(offset_in_packing)
             })
         })
