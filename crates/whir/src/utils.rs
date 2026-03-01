@@ -200,9 +200,3 @@ pub(crate) fn global_dft<F: Field>() -> Arc<EvalsDft<F>> {
 pub fn precompute_dft_twiddles<F: TwoAdicField>(n: usize) {
     global_dft::<F>().update_twiddles(n);
 }
-
-/// Computes `ceil(log_2(n))`.
-#[must_use]
-pub const fn log2_ceil_usize(n: usize) -> usize {
-    (usize::BITS - n.saturating_sub(1).leading_zeros()) as usize
-}

@@ -31,6 +31,7 @@ pub fn poseidon16_compress_pair(left: [KoalaBear; 8], right: [KoalaBear; 8]) -> 
     poseidon16_compress(input)
 }
 
+/// Requires the length of the slice to be constant (not malleable), otherwise IV should be added
 pub fn poseidon_compress_slice(data: &[KoalaBear]) -> [KoalaBear; 8] {
     assert!(!data.is_empty());
     let len = data.len();

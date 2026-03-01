@@ -118,7 +118,7 @@ pub struct RoundConfig<EF: Field> {
 pub struct WhirConfig<EF: Field> {
     pub num_variables: usize,
 
-    pub committment_ood_samples: usize,
+    pub commitment_ood_samples: usize,
     pub starting_log_inv_rate: usize,
     pub starting_folding_pow_bits: usize,
 
@@ -168,7 +168,7 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables, whir_parameters.max_num_variables_to_send_coeffs);
 
-        let committment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
+        let commitment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
             whir_parameters.security_level,
             num_variables,
             log_inv_rate,
@@ -265,7 +265,7 @@ where
         );
 
         Self {
-            committment_ood_samples,
+            commitment_ood_samples,
             num_variables,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits: starting_folding_pow_bits as usize,

@@ -27,9 +27,9 @@ pub trait InternalLayerBaseParameters<MP: MontyParameters, const WIDTH: usize>: 
     #[inline(always)]
     fn generic_internal_linear_layer<R: PrimeCharacteristicRing>(state: &mut [R; WIDTH]) {
         // We mostly delegate to internal_layer_mat_mul but have to handle state[0] separately.
-        let part_sum: R = state[1..].iter().cloned().sum();
-        let full_sum = part_sum.clone() + state[0].clone();
-        state[0] = part_sum - state[0].clone();
+        let part_sum: R = state[1..].iter().copied().sum();
+        let full_sum = part_sum + state[0];
+        state[0] = part_sum - state[0];
         Self::internal_layer_mat_mul(state, full_sum);
     }
 }

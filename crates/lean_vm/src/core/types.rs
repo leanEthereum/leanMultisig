@@ -39,14 +39,6 @@ impl Display for SourceLocation {
     }
 }
 
-fn cmp_source_location(a: &SourceLocation, b: &SourceLocation) -> Ordering {
-    match a.file_id.cmp(&b.file_id) {
-        Ordering::Less => Ordering::Less,
-        Ordering::Greater => Ordering::Greater,
-        Ordering::Equal => a.line_number.cmp(&b.line_number),
-    }
-}
-
 impl PartialOrd for SourceLocation {
     fn partial_cmp(&self, other: &SourceLocation) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -55,6 +47,6 @@ impl PartialOrd for SourceLocation {
 
 impl Ord for SourceLocation {
     fn cmp(&self, other: &SourceLocation) -> Ordering {
-        cmp_source_location(self, other)
+        (self.file_id, self.line_number).cmp(&(other.file_id, other.line_number))
     }
 }

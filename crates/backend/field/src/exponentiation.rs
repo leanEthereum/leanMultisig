@@ -17,12 +17,12 @@ pub fn exp_1420470955<R: PrimeCharacteristicRing>(val: R) -> R {
     // Suspect it's possible to improve this with enough effort.
     let p1 = val;
     let p100 = p1.exp_power_of_2(2);
-    let p101 = p100.clone() * p1.clone();
+    let p101 = p100 * p1;
     let p10000 = p100.exp_power_of_2(2);
     let p10101 = p10000 * p101;
     let p10101000000 = p10101.exp_power_of_2(6);
-    let p10101010101 = p10101000000.clone() * p10101.clone();
-    let p101010010101 = p10101000000 * p10101010101.clone();
+    let p10101010101 = p10101000000 * p10101;
+    let p101010010101 = p10101000000 * p10101010101;
     let p101010010101000000000000 = p101010010101.exp_power_of_2(12);
     let p101010010101010101010101 = p101010010101000000000000 * p10101010101;
     let p101010010101010101010101000000 = p101010010101010101010101.exp_power_of_2(6);

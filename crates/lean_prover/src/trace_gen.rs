@@ -95,7 +95,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         });
 
     let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
-    // IMPRTANT: memory size should always be >= number of VM cycles
+    // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory.0.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
     memory_padded.resize(padded_memory_len, F::ZERO);
 
@@ -113,7 +113,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
-        padd_table(&table, &mut traces);
+        pad_table(&table, &mut traces);
     }
 
     // Fill GKR layers and compressed outputs in poseidon trace
@@ -130,7 +130,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
-fn padd_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
+fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
 

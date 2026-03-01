@@ -530,45 +530,21 @@ impl<F: TwoAdicField + QuinticExtendable> TwoAdicField for QuinticExtensionField
 
 /// Quintic extension field multiplication in F[X]/(X^5 + X^2 - 1).
 #[inline]
-pub fn quintic_mul<T: Clone + Sub<Output = T>>(
+pub fn quintic_mul<T: Copy + Sub<Output = T>>(
     a: &[T; 5],
     b: &[T; 5],
     dot_product: impl Fn(&[T; 5], &[T; 5]) -> T,
 ) -> [T; 5] {
-    let b_0_m3 = b[0].clone() - b[3].clone();
-    let b_1_m4 = b[1].clone() - b[4].clone();
-    let b_4_m2 = b[4].clone() - b[2].clone();
+    let b_0_m3 = b[0] - b[3];
+    let b_1_m4 = b[1] - b[4];
+    let b_4_m2 = b[4] - b[2];
 
     [
-        dot_product(
-            a,
-            &[b[0].clone(), b[4].clone(), b[3].clone(), b[2].clone(), b_1_m4.clone()],
-        ),
-        dot_product(
-            a,
-            &[b[1].clone(), b[0].clone(), b[4].clone(), b[3].clone(), b[2].clone()],
-        ),
-        dot_product(
-            a,
-            &[
-                b[2].clone(),
-                b_1_m4.clone(),
-                b_0_m3.clone(),
-                b_4_m2.clone(),
-                b[3].clone() - b_1_m4.clone(),
-            ],
-        ),
-        dot_product(
-            a,
-            &[
-                b[3].clone(),
-                b[2].clone(),
-                b_1_m4.clone(),
-                b_0_m3.clone(),
-                b_4_m2.clone(),
-            ],
-        ),
-        dot_product(a, &[b[4].clone(), b[3].clone(), b[2].clone(), b_1_m4, b_0_m3]),
+        dot_product(a, &[b[0], b[4], b[3], b[2], b_1_m4]),
+        dot_product(a, &[b[1], b[0], b[4], b[3], b[2]]),
+        dot_product(a, &[b[2], b_1_m4, b_0_m3, b_4_m2, b[3] - b_1_m4]),
+        dot_product(a, &[b[3], b[2], b_1_m4, b_0_m3, b_4_m2]),
+        dot_product(a, &[b[4], b[3], b[2], b_1_m4, b_0_m3]),
     ]
 }
 
@@ -583,35 +559,28 @@ where
     let two_a2 = a[2].double();
     let two_a3 = a[3].double();
 
-    let two_a1_a4 = two_a1.clone() * a[4].clone();
-    let two_a2_a3 = two_a2.clone() * a[3].clone();
-    let two_a2_a4 = two_a2.clone() * a[4].clone();
-    let two_a3_a4 = two_a3.clone() * a[4].clone();
+    let two_a1_a4 = two_a1 * a[4];
+    let two_a2_a3 = two_a2 * a[3];
+    let two_a2_a4 = two_a2 * a[4];
+    let two_a3_a4 = two_a3 * a[4];
 
     let a3_square = a[3].square();
     let a4_square = a[4].square();
 
     // Constant term = a0^2 + 2*a1*a4 + 2*a2*a3 - a4^2
-    res[0] = R::dot_product(&[a[0].clone(), two_a1.clone()], &[a[0].clone(), a[4].clone()]) + two_a2_a3.clone()
-        - a4_square.clone();
+    res[0] = R::dot_product(&[a[0], two_a1], &[a[0], a[4]]) + two_a2_a3 - a4_square;
 
     // Linear term = 2*a0*a1 + a3^2 + 2*a2*a4
-    res[1] = two_a0.clone() * a[1].clone() + a3_square.clone() + two_a2_a4.clone();
+    res[1] = two_a0 * a[1] + a3_square + two_a2_a4;
 
     // Square term = a1^2 + 2*a0*a2 - 2*a1*a4 - 2*a2*a3 + 2*a3*a4 + a4^2
-    res[2] = a[1].square() + two_a0.clone() * a[2].clone() - two_a1_a4.clone() - two_a2_a3.clone()
-        + two_a3_a4.clone()
-        + a4_square.clone();
+    res[2] = a[1].square() + two_a0 * a[2] - two_a1_a4 - two_a2_a3 + two_a3_a4 + a4_square;
 
     // Cubic term = 2*a0*a3 + 2*a1*a2 - a3^2 - 2*a2*a4 + a4^2
-    res[3] = R::dot_product(&[two_a0.clone(), two_a1.clone()], &[a[3].clone(), a[2].clone()])
-        - a3_square.clone()
-        - two_a2_a4.clone()
-        + a4_square.clone();
+    res[3] = R::dot_product(&[two_a0, two_a1], &[a[3], a[2]]) - a3_square - two_a2_a4 + a4_square;
 
     // Quartic term = a2^2 + 2*a0*a4 + 2*a1*a3 - 2*a3*a4
-    res[4] = R::dot_product(&[two_a0.clone(), two_a1.clone()], &[a[4].clone(), a[3].clone()]) + a[2].square()
-        - two_a3_a4.clone();
+    res[4] = R::dot_product(&[two_a0, two_a1], &[a[4], a[3]]) + a[2].square() - two_a3_a4;
 }
 
 #[inline]

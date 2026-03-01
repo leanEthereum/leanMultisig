@@ -75,8 +75,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let alpha = prover_state.sample();
 
     assert_eq!(claims.len(), 2);
-    let claims_vec: Vec<EF> = claims.to_vec();
-    let sum = claims_vec[0] + claims_vec[1] * alpha;
+    let sum = claims[0] + claims[1] * alpha;
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
         prev_numerators_and_denominators_split,
         &GKRQuotientComputation {},
@@ -214,8 +213,6 @@ mod tests {
     fn sum_all_quotients(nums: &[EF], den: &[EF]) -> EF {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
-
-    const N_GROUPS: usize = 2;
 
     #[test]
     fn test_gkr_quotient() {

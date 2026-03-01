@@ -85,11 +85,10 @@ pub fn prove_generic_logup(
                 .enumerate(),
         )
         .for_each(|(denom, (i, instr))| {
-            *denom = c - finger_print(
-                F::from_usize(LOGUP_BYTECODE_DOMAINSEP),
-                &[instr[..N_INSTRUCTION_COLUMNS].to_vec(), vec![F::from_usize(i)]].concat(),
-                alphas_eq_poly,
-            )
+            let mut data = [F::ZERO; N_INSTRUCTION_COLUMNS + 1];
+            data[..N_INSTRUCTION_COLUMNS].copy_from_slice(&instr[..N_INSTRUCTION_COLUMNS]);
+            data[N_INSTRUCTION_COLUMNS] = F::from_usize(i);
+            *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
         });
     let max_table_height = 1 << tables_log_heights_sorted[0].1;
     if 1 << log_bytecode < max_table_height {
@@ -107,9 +106,7 @@ pub fn prove_generic_logup(
         if *table == Table::execution() {
             // 0] bytecode lookup
             let pc_column = &trace.base[COL_PC];
-            let bytecode_columns = trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
-                .iter()
-                .collect::<Vec<_>>();
+            let bytecode_columns = &trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
             numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
                 *num = EF::ONE;
             }); // TODO embedding overhead
@@ -117,17 +114,17 @@ pub fn prove_generic_logup(
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, denom)| {
-                    let mut data = vec![];
-                    for col in &bytecode_columns {
-                        data.push(col[i]);
+                    let mut data = [F::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                    for j in 0..N_INSTRUCTION_COLUMNS {
+                        data[j] = bytecode_columns[j][i];
                     }
-                    data.push(pc_column[i]);
+                    data[N_INSTRUCTION_COLUMNS] = pc_column[i];
                     *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
                 });
             offset += 1 << log_n_rows;
         }
 
-        // I] Bus (data flow between tables)
+        // I] Bus for precompiles (data flow between tables)
         let bus = table.bus();
         numerators[offset..][..1 << log_n_rows]
             .par_iter_mut()
@@ -143,15 +140,16 @@ pub fn prove_generic_logup(
             .enumerate()
             .for_each(|(i, denom)| {
                 *denom = {
+                    let mut bus_data = [F::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+                    for (j, entry) in bus.data.iter().enumerate() {
+                        bus_data[j] = match entry {
+                            BusData::Column(col) => trace.base[*col][i],
+                            BusData::Constant(val) => F::from_usize(*val),
+                        };
+                    }
                     c + finger_print(
                         F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP),
-                        &bus.data
-                            .iter()
-                            .map(|entry| match entry {
-                                BusData::Column(col) => trace.base[*col][i],
-                                BusData::Constant(val) => F::from_usize(*val),
-                            })
-                            .collect::<Vec<_>>(),
+                        &bus_data[..bus.data.len()],
                         alphas_eq_poly,
                     )
                 }
@@ -238,7 +236,6 @@ pub fn prove_generic_logup(
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
-        points.insert(*table, inner_point.clone());
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == &Table::execution() {
@@ -477,10 +474,10 @@ pub fn verify_generic_logup(
 
     retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
     if retrieved_numerators_value != numerators_value {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
     if retrieved_denominators_value != denominators_value {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     Ok(GenericLogupStatements {

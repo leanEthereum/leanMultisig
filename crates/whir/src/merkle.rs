@@ -15,12 +15,12 @@ use rayon::prelude::*;
 use symetric::Compression;
 use symetric::merkle::unpack_array;
 use tracing::instrument;
+use utils::log2_ceil_usize;
 
 use crate::DenseMatrix;
 use crate::Dimensions;
 use crate::FlatMatrixView;
 use crate::Matrix;
-use crate::log2_ceil_usize;
 pub use symetric::DIGEST_ELEMS;
 
 pub(crate) type RoundMerkleTree<F, EF> = WhirMerkleTree<F, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;

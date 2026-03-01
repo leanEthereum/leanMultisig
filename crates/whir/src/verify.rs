@@ -70,7 +70,7 @@ where
     where
         EF: ExtensionField<F>,
     {
-        ParsedCommitment::<F, EF>::parse(verifier_state, self.num_variables, self.committment_ood_samples)
+        ParsedCommitment::<F, EF>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
     }
 }
 
@@ -177,8 +177,7 @@ where
             .iter()
             .all(|c| verify_constraint_coeffs(c, &final_coefficients))
             .then_some(())
-            .ok_or(ProofError::InvalidProof)
-            .unwrap();
+            .ok_or(ProofError::InvalidProof)?;
 
         let final_sumcheck_randomness =
             verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds, 0)?;

@@ -4,7 +4,7 @@ use core::fmt::Debug;
 use core::iter::{Product, Sum};
 use core::marker::PhantomData;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use std::rc::Rc;
+use std::cell::RefCell;
 
 use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
 
@@ -66,11 +66,44 @@ pub enum SymbolicOperation {
     Neg,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SymbolicExpression<F> {
+#[derive(Copy, Clone, Debug)]
+pub struct SymbolicNode<F: Copy> {
+    pub op: SymbolicOperation,
+    pub lhs: SymbolicExpression<F>,
+    pub rhs: SymbolicExpression<F>, // dummy (ZERO) for Neg
+}
+
+// We use an arena as a trick to allow SymbolicExpression to be Copy
+// (ugly trick but fine in practice since SymbolicExpression is only used once at the start of the program)
+thread_local! {
+    static ARENA: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+fn alloc_node<F: Field>(node: SymbolicNode<F>) -> u32 {
+    ARENA.with(|arena| {
+        let mut bytes = arena.borrow_mut();
+        let node_size = std::mem::size_of::<SymbolicNode<F>>();
+        let idx = bytes.len();
+        bytes.resize(idx + node_size, 0);
+        unsafe {
+            std::ptr::write_unaligned(bytes.as_mut_ptr().add(idx) as *mut SymbolicNode<F>, node);
+        }
+        idx as u32
+    })
+}
+
+pub fn get_node<F: Field>(idx: u32) -> SymbolicNode<F> {
+    ARENA.with(|arena| {
+        let bytes = arena.borrow();
+        unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(idx as usize) as *const SymbolicNode<F>) }
+    })
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SymbolicExpression<F: Copy> {
     Variable(SymbolicVariable<F>),
     Constant(F),
-    Operation(Rc<(SymbolicOperation, Vec<Self>)>),
+    Operation(u32), // index into thread-local arena
 }
 
 impl<F: Field> Default for SymbolicExpression<F> {
@@ -119,7 +152,11 @@ where
     fn add(self, rhs: T) -> Self {
         match (self, rhs.into()) {
             (Self::Constant(lhs), Self::Constant(rhs)) => Self::Constant(lhs + rhs),
-            (lhs, rhs) => Self::Operation(Rc::new((SymbolicOperation::Add, vec![lhs, rhs]))),
+            (lhs, rhs) => Self::Operation(alloc_node(SymbolicNode {
+                op: SymbolicOperation::Add,
+                lhs,
+                rhs,
+            })),
         }
     }
 }
@@ -129,7 +166,7 @@ where
     T: Into<Self>,
 {
     fn add_assign(&mut self, rhs: T) {
-        *self = self.clone() + rhs.into();
+        *self = *self + rhs.into();
     }
 }
 
@@ -148,7 +185,11 @@ impl<F: Field, T: Into<Self>> Sub<T> for SymbolicExpression<F> {
     fn sub(self, rhs: T) -> Self {
         match (self, rhs.into()) {
             (Self::Constant(lhs), Self::Constant(rhs)) => Self::Constant(lhs - rhs),
-            (lhs, rhs) => Self::Operation(Rc::new((SymbolicOperation::Sub, vec![lhs, rhs]))),
+            (lhs, rhs) => Self::Operation(alloc_node(SymbolicNode {
+                op: SymbolicOperation::Sub,
+                lhs,
+                rhs,
+            })),
         }
     }
 }
@@ -158,7 +199,7 @@ where
     T: Into<Self>,
 {
     fn sub_assign(&mut self, rhs: T) {
-        *self = self.clone() - rhs.into();
+        *self = *self - rhs.into();
     }
 }
 
@@ -168,7 +209,11 @@ impl<F: Field> Neg for SymbolicExpression<F> {
     fn neg(self) -> Self {
         match self {
             Self::Constant(c) => Self::Constant(-c),
-            expr => Self::Operation(Rc::new((SymbolicOperation::Neg, vec![expr]))),
+            expr => Self::Operation(alloc_node(SymbolicNode {
+                op: SymbolicOperation::Neg,
+                lhs: expr,
+                rhs: Self::ZERO, // dummy
+            })),
         }
     }
 }
@@ -179,7 +224,11 @@ impl<F: Field, T: Into<Self>> Mul<T> for SymbolicExpression<F> {
     fn mul(self, rhs: T) -> Self {
         match (self, rhs.into()) {
             (Self::Constant(lhs), Self::Constant(rhs)) => Self::Constant(lhs * rhs),
-            (lhs, rhs) => Self::Operation(Rc::new((SymbolicOperation::Mul, vec![lhs, rhs]))),
+            (lhs, rhs) => Self::Operation(alloc_node(SymbolicNode {
+                op: SymbolicOperation::Mul,
+                lhs,
+                rhs,
+            })),
         }
     }
 }
@@ -189,7 +238,7 @@ where
     T: Into<Self>,
 {
     fn mul_assign(&mut self, rhs: T) {
-        *self = self.clone() * rhs.into();
+        *self = *self * rhs.into();
     }
 }
 
@@ -258,7 +307,7 @@ impl<F: Field> AirBuilder for SymbolicAirBuilder<F> {
     fn declare_values(&mut self, values: &[Self::F]) {
         if self.bus_flag_value.is_none() {
             assert_eq!(values.len(), 1);
-            self.bus_flag_value = Some(values[0].clone());
+            self.bus_flag_value = Some(values[0]);
         } else {
             assert!(self.bus_data_values.is_none());
             self.bus_data_values = Some(values.to_vec());
@@ -276,6 +325,9 @@ pub fn get_symbolic_constraints_and_bus_data_values<F: Field, A: Air>(
 where
     A::ExtraData: Default,
 {
+    // Clear the arena before building constraints
+    ARENA.with(|arena| arena.borrow_mut().clear());
+
     let mut builder = SymbolicAirBuilder::<F>::new(air.n_columns(), air.n_down_columns());
     air.eval(&mut builder, &Default::default());
     (
