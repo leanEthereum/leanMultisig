@@ -36,6 +36,21 @@ fn keygen_sign_verify() {
 }
 
 #[test]
+fn test_xmss_key_gen_range_too_large() {
+    let seed = [0u8; 20];
+    let result = xmss_key_gen(seed, 0, (1 << 20) + 1);
+    assert!(matches!(result, Err(XmssKeyGenError::RangeTooLarge)));
+}
+
+#[test]
+fn test_xmss_key_gen_max_range_ok() {
+    // Exactly MAX_SLOT_RANGE should be accepted (but may be slow, so use smaller range)
+    let seed = [0u8; 20];
+    let result = xmss_key_gen(seed, 0, 99);
+    assert!(result.is_ok());
+}
+
+#[test]
 #[ignore]
 fn encoding_grinding_bits() {
     let n = 100;

@@ -48,6 +48,7 @@ fn gen_random_node(seed: &[u8; 20], level: usize, index: u32) -> Digest {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum XmssKeyGenError {
     InvalidRange,
+    RangeTooLarge,
 }
 
 pub fn xmss_key_gen(
@@ -57,6 +58,12 @@ pub fn xmss_key_gen(
 ) -> Result<(XmssSecretKey, XmssPublicKey), XmssKeyGenError> {
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
+    }
+    // Cap the number of leaves to prevent unbounded memory allocation.
+    // 1 << 20 = ~1M slots, producing a ~32 MiB Merkle tree.
+    const MAX_SLOT_RANGE: u64 = 1 << 20;
+    if (slot_end as u64 - slot_start as u64 + 1) > MAX_SLOT_RANGE {
+        return Err(XmssKeyGenError::RangeTooLarge);
     }
     let perm = default_koalabear_poseidon2_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
