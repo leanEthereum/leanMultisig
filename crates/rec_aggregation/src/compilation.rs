@@ -211,7 +211,10 @@ fn build_replacements(
         "MAX_LOG_MEMORY_SIZE_PLACEHOLDER".to_string(),
         MAX_LOG_MEMORY_SIZE.to_string(),
     );
-    replacements.insert("MAX_BUS_WIDTH_PLACEHOLDER".to_string(), max_bus_width().to_string());
+    replacements.insert(
+        "MAX_BUS_WIDTH_PLACEHOLDER".to_string(),
+        max_bus_width_including_domainsep().to_string(),
+    );
     replacements.insert(
         "LOGUP_MEMORY_DOMAINSEP_PLACEHOLDER".to_string(),
         LOGUP_MEMORY_DOMAINSEP.to_string(),
@@ -399,7 +402,7 @@ where
     );
     res += &format!(
         "\n    bus_res: Mut = add_extension_ret(mul_base_extension_ret(LOGUP_PRECOMPILE_DOMAINSEP, logup_alphas_eq_poly + {} * DIM), bus_res_init)",
-        max_bus_width().next_power_of_two() - 1
+        max_bus_width_including_domainsep().next_power_of_two() - 1
     );
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);

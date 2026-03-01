@@ -4,6 +4,7 @@ use crate::*;
 
 pub const N_TABLES: usize = 3;
 pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]
@@ -105,9 +106,8 @@ impl Air for Table {
     }
 }
 
-pub fn max_bus_width() -> usize {
-    let max_bus_in_table = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
-    1 + max_bus_in_table.max(N_INSTRUCTION_COLUMNS)
+pub fn max_bus_width_including_domainsep() -> usize {
+    1 + MAX_PRECOMPILE_BUS_WIDTH.max(N_INSTRUCTION_COLUMNS) // "+1" for domain separation in logup between memory / bytecode / precompiles interactions
 }
 
 pub fn max_air_constraints() -> usize {
@@ -123,5 +123,11 @@ mod tests {
         for (i, table) in ALL_TABLES.iter().enumerate() {
             assert_eq!(table.index(), i);
         }
+    }
+
+    #[test]
+    fn test_max_precompile_bus_width() {
+        let expected_max_bus_width = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
+        assert_eq!(MAX_PRECOMPILE_BUS_WIDTH, expected_max_bus_width);
     }
 }

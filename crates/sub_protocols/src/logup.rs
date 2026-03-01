@@ -124,7 +124,7 @@ pub fn prove_generic_logup(
             offset += 1 << log_n_rows;
         }
 
-        // I] Bus (data flow between tables)
+        // I] Bus for precompiles (data flow between tables)
         let bus = table.bus();
         numerators[offset..][..1 << log_n_rows]
             .par_iter_mut()
@@ -140,7 +140,7 @@ pub fn prove_generic_logup(
             .enumerate()
             .for_each(|(i, denom)| {
                 *denom = {
-                    let mut bus_data = [F::ZERO; N_INSTRUCTION_COLUMNS];
+                    let mut bus_data = [F::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
                     for (j, entry) in bus.data.iter().enumerate() {
                         bus_data[j] = match entry {
                             BusData::Column(col) => trace.base[*col][i],
