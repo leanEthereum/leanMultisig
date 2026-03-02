@@ -302,8 +302,8 @@ fn conv4_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
 
     output[0] += output[2];
     output[1] += output[3];
-    output[0] = output[0] .div_2exp_u64(1);
-    output[1] = output[1] .div_2exp_u64(1);
+    output[0] = output[0].halve();
+    output[1] = output[1].halve();
     output[2] -= output[0];
     output[3] -= output[1];
 }
@@ -352,7 +352,7 @@ fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
 
     for i in 0..4 {
         left[i] += right[i];
-        left[i] = left[i] .div_2exp_u64(1);
+        left[i] = left[i].halve();
         right[i] -= left[i];
     }
 
@@ -374,7 +374,7 @@ fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]
 
     for i in 0..8 {
         left[i] += right[i];
-        left[i] = left[i] .div_2exp_u64(1);
+        left[i] = left[i].halve();
         right[i] -= left[i];
     }
 
