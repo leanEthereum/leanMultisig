@@ -253,7 +253,8 @@ fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
     output: &mut [R; 4],
 ) {
     for i in 0..4 {
-        output[i] = lhs[0] * matrix[i][0] + lhs[1] * matrix[i][1] + lhs[2] * matrix[i][2] + lhs[3] * matrix[i][3];
+        let row: [R; 4] = std::array::from_fn(|j| R::from(matrix[i][j]));
+        output[i] = R::dot_product(lhs, &row);
     }
 }
 
