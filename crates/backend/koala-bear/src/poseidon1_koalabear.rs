@@ -223,69 +223,51 @@ const KB_P: u32 = 2130706433;
 //   row2: [c,  b,  a, -d]
 //   row3: [d,  c,  b,  a]
 
-/// Negacyclic circulant matrix for neg_even = [-100, -3, 56, -53].
-const NC4_NEG_EVEN: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [KB_P - 100, 53, KB_P - 56, 3],
-    [KB_P - 3, KB_P - 100, 53, KB_P - 56],
-    [56, KB_P - 3, KB_P - 100, 53],
-    [KB_P - 53, 56, KB_P - 3, KB_P - 100],
-]);
+/// Column vectors for each negacyclic circulant matrix.
+/// For column [a, b, c, d], the circulant rows are:
+///   [a, -d, -c, -b], [b, a, -d, -c], [c, b, a, -d], [d, c, b, a].
+const NC4_NEG_EVEN_COL: [KoalaBear; 4] = KoalaBear::new_array([KB_P - 100, KB_P - 3, 56, KB_P - 53]);
+const NC4_NEG_ODD_COL: [KoalaBear; 4] = KoalaBear::new_array([2, 5, 1, 62]);
+const NC4_NEG_SUM_COL: [KoalaBear; 4] = KoalaBear::new_array([KB_P - 98, 2, 57, 9]);
+const NC4_POS_NEG_COL: [KoalaBear; 4] = KoalaBear::new_array([24, 1, KB_P - 48, KB_P - 25]);
 
-/// Negacyclic circulant matrix for neg_odd = [2, 5, 1, 62].
-const NC4_NEG_ODD: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [2, KB_P - 62, KB_P - 1, KB_P - 5],
-    [5, 2, KB_P - 62, KB_P - 1],
-    [1, 5, 2, KB_P - 62],
-    [62, 1, 5, 2],
-]);
+/// Conv4 constants: v_m = [130, -96], v_p = [230, 110].
+const CONV4_VM: [KoalaBear; 2] = KoalaBear::new_array([130, KB_P - 96]);
+const CONV4_VP: [KoalaBear; 2] = KoalaBear::new_array([230, 110]);
 
-/// Negacyclic circulant matrix for neg_sum = [-98, 2, 57, 9].
-const NC4_NEG_SUM: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [KB_P - 98, KB_P - 9, KB_P - 57, KB_P - 2],
-    [2, KB_P - 98, KB_P - 9, KB_P - 57],
-    [57, 2, KB_P - 98, KB_P - 9],
-    [9, 57, 2, KB_P - 98],
-]);
-
-/// Negacyclic circulant matrix for pos_neg = [24, 1, -48, -25].
-const NC4_POS_NEG: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
-    [24, 25, 48, KB_P - 1],
-    [1, 24, 25, 48],
-    [KB_P - 48, 1, 24, 25],
-    [KB_P - 25, KB_P - 48, 1, 24],
-]);
-
-/// Conv4 dot-product constants from pos_pos = [180, 7, 50, 103].
-/// v_p = [230, 110], v_m = [130, -96].
-/// Rows: [v_m0, -v_m1], [v_m1, v_m0], [v_p0, v_p1], [v_p1, v_p0].
-const CONV4_ROWS: [[KoalaBear; 2]; 4] = KoalaBear::new_2d_array([[130, 96], [KB_P - 96, 130], [230, 110], [110, 230]]);
-
+/// Compute the negacyclic circulant convolution using column-based constants.
+/// Precomputes 7 broadcast values (a,b,c,d,-b,-c,-d) and reuses them across all 4 rows.
 #[inline(always)]
-fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
-    lhs: &[R; 4],
-    matrix: &[[KoalaBear; 4]; 4],
-    output: &mut [R; 4],
-) {
-    for i in 0..4 {
-        let row: [R; 4] = std::array::from_fn(|j| R::from(matrix[i][j]));
-        output[i] = R::dot_product(lhs, &row);
-    }
+fn negacyclic_conv4_circulant<R: Algebra<KoalaBear>>(lhs: &[R; 4], col: &[KoalaBear; 4], output: &mut [R; 4]) {
+    let a = R::from(col[0]);
+    let b = R::from(col[1]);
+    let c = R::from(col[2]);
+    let d = R::from(col[3]);
+    let nb = -b;
+    let nc = -c;
+    let nd = -d;
+
+    output[0] = R::dot_product(lhs, &[a, nd, nc, nb]);
+    output[1] = R::dot_product(lhs, &[b, a, nd, nc]);
+    output[2] = R::dot_product(lhs, &[c, b, a, nd]);
+    output[3] = R::dot_product(lhs, &[d, c, b, a]);
 }
 
-// The specialized negacyclic_conv4 functions (neg_odd, neg_sum, pos_neg) are now unified
-// into calls to negacyclic_conv4_precomputed with precomputed matrices (NC4_NEG_ODD,
-// NC4_NEG_SUM, NC4_POS_NEG). This enables 64-bit fused dot products on packed NEON fields.
-
 #[inline(always)]
-fn conv4_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
+fn conv4_circulant<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
     let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
     let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
 
-    for i in 0..4 {
-        let src = if i < 2 { &u_m } else { &u_p };
-        let row: [R; 2] = std::array::from_fn(|j| R::from(CONV4_ROWS[i][j]));
-        output[i] = R::dot_product(src, &row);
-    }
+    let vm0 = R::from(CONV4_VM[0]);
+    let vm1 = R::from(CONV4_VM[1]);
+    let neg_vm1 = -vm1;
+    let vp0 = R::from(CONV4_VP[0]);
+    let vp1 = R::from(CONV4_VP[1]);
+
+    output[0] = R::dot_product(&u_m, &[vm0, neg_vm1]);
+    output[1] = R::dot_product(&u_m, &[vm1, vm0]);
+    output[2] = R::dot_product(&u_p, &[vp0, vp1]);
+    output[3] = R::dot_product(&u_p, &[vp1, vp0]);
 
     output[0] += output[2];
     output[1] += output[3];
@@ -306,9 +288,9 @@ fn negacyclic_conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mu
     let mut odd_conv: [R; 4] = std::array::from_fn(|_| R::default());
     let mut sum_conv: [R; 4] = std::array::from_fn(|_| R::default());
 
-    negacyclic_conv4_precomputed(&lhs_even, &NC4_NEG_EVEN, &mut even_conv);
-    negacyclic_conv4_precomputed(&lhs_odd, &NC4_NEG_ODD, &mut odd_conv);
-    negacyclic_conv4_precomputed(&lhs_sum, &NC4_NEG_SUM, &mut sum_conv);
+    negacyclic_conv4_circulant(&lhs_even, &NC4_NEG_EVEN_COL, &mut even_conv);
+    negacyclic_conv4_circulant(&lhs_odd, &NC4_NEG_ODD_COL, &mut odd_conv);
+    negacyclic_conv4_circulant(&lhs_sum, &NC4_NEG_SUM_COL, &mut sum_conv);
 
     // Karatsuba recombination
     sum_conv[0] -= even_conv[0] + odd_conv[0];
@@ -334,8 +316,8 @@ fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
     let mut left: [R; 4] = std::array::from_fn(|_| R::default());
     let mut right: [R; 4] = std::array::from_fn(|_| R::default());
 
-    negacyclic_conv4_precomputed(&lhs_neg, &NC4_POS_NEG, &mut left);
-    conv4_precomputed(&lhs_pos, &mut right);
+    negacyclic_conv4_circulant(&lhs_neg, &NC4_POS_NEG_COL, &mut left);
+    conv4_circulant(&lhs_pos, &mut right);
 
     for i in 0..4 {
         left[i] += right[i];
@@ -383,7 +365,7 @@ pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [
         return;
     }
 
-    let lhs = state.clone();
+    let lhs = *state;
     conv16_precomputed(&lhs, state);
 }
 
@@ -418,7 +400,7 @@ impl Poseidon1KoalaBear16 {
             Self::full_round(state, rc);
         }
 
-        // Partial rounds
+        // Generic partial rounds
         for rc in poseidon1_partial_constants() {
             Self::partial_round(state, rc);
         }
@@ -457,7 +439,7 @@ impl Poseidon1KoalaBear16 {
     /// Compression: output = perm(input) + input
     #[inline(always)]
     pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
-        let initial = state.clone();
+        let initial = *state;
         self.permute_generic(state);
         for (s, init) in state.iter_mut().zip(initial) {
             *s += init;
@@ -674,20 +656,10 @@ mod tests {
         }
     }
 
-    /// Verify all precomputed Karatsuba constants are correctly derived from MDS_CIRC_16_FIRST_COL.
+    /// Verify all precomputed Karatsuba column constants are correctly derived from MDS_CIRC_16_FIRST_COL.
     #[test]
     fn test_precomputed_karatsuba_constants() {
         let col = MDS_CIRC_16_FIRST_COL;
-
-        // Build negacyclic circulant matrix from column [a,b,c,d]
-        let nc4_matrix = |c: [i64; 4]| -> [[KoalaBear; 4]; 4] {
-            [
-                [i64_to_kb(c[0]), i64_to_kb(-c[3]), i64_to_kb(-c[2]), i64_to_kb(-c[1])],
-                [i64_to_kb(c[1]), i64_to_kb(c[0]), i64_to_kb(-c[3]), i64_to_kb(-c[2])],
-                [i64_to_kb(c[2]), i64_to_kb(c[1]), i64_to_kb(c[0]), i64_to_kb(-c[3])],
-                [i64_to_kb(c[3]), i64_to_kb(c[2]), i64_to_kb(c[1]), i64_to_kb(c[0])],
-            ]
-        };
 
         // conv16 rhs decomposition
         let rhs_neg: [i64; 8] = std::array::from_fn(|i| col[i] - col[i + 8]);
@@ -706,24 +678,20 @@ mod tests {
         let v_p = [pos_pos[0] + pos_pos[2], pos_pos[1] + pos_pos[3]];
         let v_m = [pos_pos[0] - pos_pos[2], pos_pos[1] - pos_pos[3]];
 
-        // Verify all negacyclic circulant matrices
-        assert_eq!(NC4_NEG_EVEN, nc4_matrix(neg_even));
-        assert_eq!(NC4_NEG_ODD, nc4_matrix(neg_odd));
-        assert_eq!(NC4_NEG_SUM, nc4_matrix(neg_sum));
-        assert_eq!(NC4_POS_NEG, nc4_matrix(pos_neg));
+        // Verify column constants
+        let to_kb_col = |c: [i64; 4]| -> [KoalaBear; 4] { std::array::from_fn(|i| i64_to_kb(c[i])) };
+        assert_eq!(NC4_NEG_EVEN_COL, to_kb_col(neg_even));
+        assert_eq!(NC4_NEG_ODD_COL, to_kb_col(neg_odd));
+        assert_eq!(NC4_NEG_SUM_COL, to_kb_col(neg_sum));
+        assert_eq!(NC4_POS_NEG_COL, to_kb_col(pos_neg));
 
         // Verify decomposition values match expectations
         assert_eq!(neg_odd, [2, 5, 1, 62]);
         assert_eq!(neg_sum, [-98, 2, 57, 9]);
         assert_eq!(pos_neg, [24, 1, -48, -25]);
 
-        // Verify CONV4_ROWS
-        let expected_rows = [
-            [i64_to_kb(v_m[0]), i64_to_kb(-v_m[1])],
-            [i64_to_kb(v_m[1]), i64_to_kb(v_m[0])],
-            [i64_to_kb(v_p[0]), i64_to_kb(v_p[1])],
-            [i64_to_kb(v_p[1]), i64_to_kb(v_p[0])],
-        ];
-        assert_eq!(CONV4_ROWS, expected_rows);
+        // Verify CONV4 constants
+        assert_eq!(CONV4_VM, [i64_to_kb(v_m[0]), i64_to_kb(v_m[1])]);
+        assert_eq!(CONV4_VP, [i64_to_kb(v_p[0]), i64_to_kb(v_p[1])]);
     }
 }
