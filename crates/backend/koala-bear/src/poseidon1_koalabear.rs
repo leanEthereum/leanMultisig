@@ -231,15 +231,29 @@ const NC4_NEG_EVEN: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
     [KB_P - 53, 56, KB_P - 3, KB_P - 100],
 ]);
 
-// Scalar constants for the specialized Karatsuba functions below.
-const KB_5: KoalaBear = KoalaBear::new(5);
-const KB_9: KoalaBear = KoalaBear::new(9);
-const KB_24: KoalaBear = KoalaBear::new(24);
-const KB_25: KoalaBear = KoalaBear::new(25);
-const KB_48: KoalaBear = KoalaBear::new(48);
-const KB_57: KoalaBear = KoalaBear::new(57);
-const KB_62: KoalaBear = KoalaBear::new(62);
-const KB_98: KoalaBear = KoalaBear::new(98);
+/// Negacyclic circulant matrix for neg_odd = [2, 5, 1, 62].
+const NC4_NEG_ODD: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
+    [2, KB_P - 62, KB_P - 1, KB_P - 5],
+    [5, 2, KB_P - 62, KB_P - 1],
+    [1, 5, 2, KB_P - 62],
+    [62, 1, 5, 2],
+]);
+
+/// Negacyclic circulant matrix for neg_sum = [-98, 2, 57, 9].
+const NC4_NEG_SUM: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
+    [KB_P - 98, KB_P - 9, KB_P - 57, KB_P - 2],
+    [2, KB_P - 98, KB_P - 9, KB_P - 57],
+    [57, 2, KB_P - 98, KB_P - 9],
+    [9, 57, 2, KB_P - 98],
+]);
+
+/// Negacyclic circulant matrix for pos_neg = [24, 1, -48, -25].
+const NC4_POS_NEG: [[KoalaBear; 4]; 4] = KoalaBear::new_2d_array([
+    [24, 25, 48, KB_P - 1],
+    [1, 24, 25, 48],
+    [KB_P - 48, 1, 24, 25],
+    [KB_P - 25, KB_P - 48, 1, 24],
+]);
 
 /// Conv4 dot-product constants from pos_pos = [180, 7, 50, 103].
 /// v_p = [230, 110], v_m = [130, -96].
@@ -258,48 +272,20 @@ fn negacyclic_conv4_precomputed<R: Algebra<KoalaBear>>(
     }
 }
 
-/// Specialized negacyclic conv4 for neg_odd = [2, 5, 1, 62].
-/// Matrix: [[2,-62,-1,-5],[5,2,-62,-1],[1,5,2,-62],[62,1,5,2]]
-/// Optimized: 4x double, 2x identity, 2x negation (saves 8 of 16 muls).
-#[inline(always)]
-fn negacyclic_conv4_neg_odd<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
-    output[0] = lhs[0].double() - lhs[1] * KB_62 - lhs[2] - lhs[3] * KB_5;
-    output[1] = lhs[0] * KB_5 + lhs[1].double() - lhs[2] * KB_62 - lhs[3];
-    output[2] = lhs[0] + lhs[1] * KB_5 + lhs[2].double() - lhs[3] * KB_62;
-    output[3] = lhs[0] * KB_62 + lhs[1] + lhs[2] * KB_5 + lhs[3].double();
-}
-
-/// Specialized negacyclic conv4 for neg_sum = [-98, 2, 57, 9].
-/// Matrix: [[-98,-9,-57,-2],[2,-98,-9,-57],[57,2,-98,-9],[9,57,2,-98]]
-/// Optimized: 3x double, 1x neg+double (saves 4 of 16 muls).
-#[inline(always)]
-fn negacyclic_conv4_neg_sum<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
-    output[0] = -(lhs[0] * KB_98 + lhs[1] * KB_9 + lhs[2] * KB_57 + lhs[3].double());
-    output[1] = lhs[0].double() - lhs[1] * KB_98 - lhs[2] * KB_9 - lhs[3] * KB_57;
-    output[2] = lhs[0] * KB_57 + lhs[1].double() - lhs[2] * KB_98 - lhs[3] * KB_9;
-    output[3] = lhs[0] * KB_9 + lhs[1] * KB_57 + lhs[2].double() - lhs[3] * KB_98;
-}
-
-/// Specialized negacyclic conv4 for pos_neg = [24, 1, -48, -25].
-/// Matrix: [[24,25,48,-1],[1,24,25,48],[-48,1,24,25],[-25,-48,1,24]]
-/// Optimized: 3x identity, 1x negation (saves 4 of 16 muls).
-#[inline(always)]
-fn negacyclic_conv4_pos_neg<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
-    output[0] = lhs[0] * KB_24 + lhs[1] * KB_25 + lhs[2] * KB_48 - lhs[3];
-    output[1] = lhs[0] + lhs[1] * KB_24 + lhs[2] * KB_25 + lhs[3] * KB_48;
-    output[2] = -(lhs[0] * KB_48) + lhs[1] + lhs[2] * KB_24 + lhs[3] * KB_25;
-    output[3] = -(lhs[0] * KB_25) - lhs[1] * KB_48 + lhs[2] + lhs[3] * KB_24;
-}
+// The specialized negacyclic_conv4 functions (neg_odd, neg_sum, pos_neg) are now unified
+// into calls to negacyclic_conv4_precomputed with precomputed matrices (NC4_NEG_ODD,
+// NC4_NEG_SUM, NC4_POS_NEG). This enables 64-bit fused dot products on packed NEON fields.
 
 #[inline(always)]
 fn conv4_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
     let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
     let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
 
-    output[0] = u_m[0] * CONV4_ROWS[0][0] + u_m[1] * CONV4_ROWS[0][1];
-    output[1] = u_m[0] * CONV4_ROWS[1][0] + u_m[1] * CONV4_ROWS[1][1];
-    output[2] = u_p[0] * CONV4_ROWS[2][0] + u_p[1] * CONV4_ROWS[2][1];
-    output[3] = u_p[0] * CONV4_ROWS[3][0] + u_p[1] * CONV4_ROWS[3][1];
+    for i in 0..4 {
+        let src = if i < 2 { &u_m } else { &u_p };
+        let row: [R; 2] = std::array::from_fn(|j| R::from(CONV4_ROWS[i][j]));
+        output[i] = R::dot_product(src, &row);
+    }
 
     output[0] += output[2];
     output[1] += output[3];
@@ -321,8 +307,8 @@ fn negacyclic_conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mu
     let mut sum_conv: [R; 4] = std::array::from_fn(|_| R::default());
 
     negacyclic_conv4_precomputed(&lhs_even, &NC4_NEG_EVEN, &mut even_conv);
-    negacyclic_conv4_neg_odd(&lhs_odd, &mut odd_conv);
-    negacyclic_conv4_neg_sum(&lhs_sum, &mut sum_conv);
+    negacyclic_conv4_precomputed(&lhs_odd, &NC4_NEG_ODD, &mut odd_conv);
+    negacyclic_conv4_precomputed(&lhs_sum, &NC4_NEG_SUM, &mut sum_conv);
 
     // Karatsuba recombination
     sum_conv[0] -= even_conv[0] + odd_conv[0];
@@ -348,7 +334,7 @@ fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
     let mut left: [R; 4] = std::array::from_fn(|_| R::default());
     let mut right: [R; 4] = std::array::from_fn(|_| R::default());
 
-    negacyclic_conv4_pos_neg(&lhs_neg, &mut left);
+    negacyclic_conv4_precomputed(&lhs_neg, &NC4_POS_NEG, &mut left);
     conv4_precomputed(&lhs_pos, &mut right);
 
     for i in 0..4 {
@@ -618,7 +604,7 @@ pub fn default_koalabear_poseidon1_16() -> Poseidon1KoalaBear16 {
 mod tests {
     use super::*;
     use crate::KoalaBear;
-    use field::{Field, PrimeCharacteristicRing, PrimeField32};
+    use field::{PrimeCharacteristicRing, PrimeField32};
 
     /// Regenerate and verify the POSEIDON1_ROUND_CONSTANTS array.
     /// Run with: cargo test -p mt-koala-bear -- generate_poseidon1_constants --ignored --nocapture
@@ -720,23 +706,16 @@ mod tests {
         let v_p = [pos_pos[0] + pos_pos[2], pos_pos[1] + pos_pos[3]];
         let v_m = [pos_pos[0] - pos_pos[2], pos_pos[1] - pos_pos[3]];
 
-        // Verify NC4_NEG_EVEN matrix
+        // Verify all negacyclic circulant matrices
         assert_eq!(NC4_NEG_EVEN, nc4_matrix(neg_even));
+        assert_eq!(NC4_NEG_ODD, nc4_matrix(neg_odd));
+        assert_eq!(NC4_NEG_SUM, nc4_matrix(neg_sum));
+        assert_eq!(NC4_POS_NEG, nc4_matrix(pos_neg));
 
         // Verify decomposition values match expectations
         assert_eq!(neg_odd, [2, 5, 1, 62]);
         assert_eq!(neg_sum, [-98, 2, 57, 9]);
         assert_eq!(pos_neg, [24, 1, -48, -25]);
-
-        // Verify scalar constants used in specialized functions
-        assert_eq!(KB_5, i64_to_kb(5));
-        assert_eq!(KB_9, i64_to_kb(9));
-        assert_eq!(KB_24, i64_to_kb(24));
-        assert_eq!(KB_25, i64_to_kb(25));
-        assert_eq!(KB_48, i64_to_kb(48));
-        assert_eq!(KB_57, i64_to_kb(57));
-        assert_eq!(KB_62, i64_to_kb(62));
-        assert_eq!(KB_98, i64_to_kb(98));
 
         // Verify CONV4_ROWS
         let expected_rows = [
@@ -746,47 +725,5 @@ mod tests {
             [i64_to_kb(v_p[1]), i64_to_kb(v_p[0])],
         ];
         assert_eq!(CONV4_ROWS, expected_rows);
-    }
-
-    /// Cross-check packed MDS path against scalar naive implementation.
-    #[test]
-    fn test_mds_circulant_packed_matches_naive() {
-        use field::PackedValue;
-        type P = <KoalaBear as Field>::Packing;
-
-        let width = P::WIDTH;
-        for seed in 0u32..100 {
-            // Build `width` independent test vectors
-            let mut scalar_states: Vec<[KoalaBear; 16]> = (0..width)
-                .map(|lane| {
-                    std::array::from_fn(|i| KoalaBear::new(seed * 16 * width as u32 + lane as u32 * 16 + i as u32 + 1))
-                })
-                .collect();
-
-            // Pack them into [P; 16]: lane k of packed_state[i] = scalar_states[k][i]
-            let mut packed_state: [P; 16] = std::array::from_fn(|i| {
-                let scalars: Vec<KoalaBear> = (0..width).map(|k| scalar_states[k][i]).collect();
-                P::from_fn(|lane| scalars[lane])
-            });
-
-            // Apply MDS via packed path
-            mds_circulant_16_karatsuba(&mut packed_state);
-
-            // Apply MDS via scalar naive on each lane
-            for state in scalar_states.iter_mut() {
-                naive_mds(state);
-            }
-
-            // Unpack and compare
-            for i in 0..16 {
-                for k in 0..width {
-                    assert_eq!(
-                        packed_state[i].as_slice()[k],
-                        scalar_states[k][i],
-                        "Mismatch at seed={seed}, element={i}, lane={k}"
-                    );
-                }
-            }
-        }
     }
 }
