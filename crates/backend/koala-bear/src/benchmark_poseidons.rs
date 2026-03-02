@@ -1,3 +1,4 @@
+use std::hint::black_box;
 use std::time::Instant;
 
 use field::Field;
@@ -9,6 +10,14 @@ use crate::{KoalaBear, Poseidon1KoalaBear16, default_koalabear_poseidon2_16};
 type F = KoalaBear;
 type FPacking = <KoalaBear as Field>::Packing;
 const PACKING_WIDTH: usize = <FPacking as PackedValue>::WIDTH;
+
+#[test]
+fn test_poseidon1_packed() {
+    let poseidon1 = Poseidon1KoalaBear16 {};
+    let mut state = [FPacking::ZERO; 16];
+    poseidon1.compress_in_place(&mut state);
+    let _ = black_box(state);
+}
 
 #[test]
 #[ignore]
@@ -23,6 +32,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     for _ in 0..n {
         poseidon1.compress_in_place(&mut state);
     }
+    let _ = black_box(state);
     let time_p1 = time.elapsed();
     println!(
         "Poseidon1, single-threaded, no SIMD: {:.2}M hashes / s",
@@ -34,6 +44,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     for _ in 0..n {
         poseidon2.compress_in_place(&mut state);
     }
+    let _ = black_box(state);
     let time_p2 = time.elapsed();
     println!(
         "Poseidon2, single-threaded, no SIMD: {:.2}M hashes / s ({:.1}x faster than Poseidon1)",
@@ -47,6 +58,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     for _ in 0..n / PACKING_WIDTH {
         poseidon1.compress_in_place(&mut state);
     }
+    let _ = black_box(state);
     let time_p1_simd = time.elapsed();
     println!(
         "Poseidon1, single-threaded, SIMD: {:.2}M hashes / s",
@@ -58,6 +70,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     for _ in 0..n / PACKING_WIDTH {
         poseidon2.compress_in_place(&mut state);
     }
+    let _ = black_box(state);
     let time_p2_simd = time.elapsed();
     println!(
         "Poseidon2, single-threaded, SIMD: {:.2}M hashes / s ({:.1}x faster than Poseidon1)",

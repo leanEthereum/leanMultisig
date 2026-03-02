@@ -447,6 +447,8 @@ impl Poseidon1KoalaBear16 {
     fn full_round<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
         for (s, &c) in state.iter_mut().zip(rc.iter()) {
             *s += c;
+        }
+        for s in state.iter_mut() {
             *s = s.injective_exp_n();
         }
         mds_circulant_16_karatsuba(state);
