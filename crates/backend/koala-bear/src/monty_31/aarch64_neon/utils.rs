@@ -1,8 +1,6 @@
 // Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
-use core::arch::aarch64::{
-    self, uint32x4_t, vaddq_u32, vandq_u32, vdupq_n_u32, vhaddq_u32, vminq_u32, vmlsq_n_u32, vtstq_u32,
-};
+use core::arch::aarch64::{self, uint32x4_t, vaddq_u32, vandq_u32, vdupq_n_u32, vhaddq_u32, vminq_u32, vmlsq_n_u32};
 
 use crate::{PackedMontyParameters, TwoAdicData};
 
@@ -16,9 +14,18 @@ pub(crate) fn halve_neon<PMP: PackedMontyParameters>(input: uint32x4_t) -> uint3
         let one = vdupq_n_u32(1);
 
         // Check if the least significant bit is set (i.e., if the number is odd).
+        // CMTST returns a mask of all 1s if (input AND one) != 0, all 0s otherwise.
         //
-        // vtstq_u32 returns a mask of all 1s if the bit is set, and all 0s otherwise.
-        let is_odd_mask = vtstq_u32(input, one);
+        // We use inline asm because LLVM decomposes vtstq_u32 into AND+CMEQ#0
+        // (2 instructions) instead of emitting the single CMTST instruction.
+        let is_odd_mask: uint32x4_t;
+        core::arch::asm!(
+            "cmtst {0:v}.4s, {1:v}.4s, {2:v}.4s",
+            out(vreg) is_odd_mask,
+            in(vreg) input,
+            in(vreg) one,
+            options(pure, nomem, nostack, preserves_flags),
+        );
 
         // Select `P` if the corresponding input is odd, or `0` if it's even.
         let to_add = vandq_u32(PMP::PACKED_P, is_odd_mask);
