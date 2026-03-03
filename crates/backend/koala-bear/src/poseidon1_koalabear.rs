@@ -17,7 +17,6 @@ pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 //
 // where
 //   ω   = primitive 16th root of unity  (TWO_ADIC_GENERATORS[4])
-//   ω⁻¹ = its inverse                   (INV_ROOTS_16[1])
 //   g   = 3  (multiplicative generator of KoalaBear*)
 //
 // Algorithm (fully unrolled, all indices compile-time constants):
@@ -25,29 +24,28 @@ pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 //   Step 2  Pointwise multiply by weights[i] = g^{bit_rev(i, 4)}.
 //   Step 3  DIT  FFT with ω   — 4 stages, bit-reversed input → natural output.
 //
-// No allocation: twiddles and weights are all `const` field-element arrays.
+// No allocation: all twiddles and weights are `const` field-element arrays.
+//
+// KEY IDENTITY: ω^{16-k} = ω^8 · ω^{8-k} = −ω^{8-k}, so
+//   ω^{−k} = −ω^{8−k}   (k = 1..7)
+// Therefore the 7 inverse twiddles WI_k = −W_{8−k} are NOT stored as separate
+// constants.  Instead every DIF butterfly that would multiply by WI_k uses a
+// `neg_dif` helper that subtracts in the opposite order and multiplies by W_{8-k}.
+// This halves the twiddle constant pool (7 instead of 14), reducing register
+// pressure on packed SIMD code.
 //
 // Operation count: 17 (IDFT) + 15 (weights) + 17 (DFT) = 49 R×KoalaBear muls.
 // Butterflies with twiddle = 1 use plain add/sub (no multiplication).
 // ---------------------------------------------------------------------------
 
-// Forward twiddles ω^k (canonical form).  k=0 → 1, handled by plain bt().
+// Forward twiddles ω^k (canonical form, k=0 → 1 handled by plain bt()).
 const W1: KoalaBear = KoalaBear::new(0x08dbd69c); // ω¹
 const W2: KoalaBear = KoalaBear::new(0x6832fe4a); // ω²
 const W3: KoalaBear = KoalaBear::new(0x27ae21e2); // ω³
-const W4: KoalaBear = KoalaBear::new(0x7e010002); // ω⁴  (primitive 4th root)
+const W4: KoalaBear = KoalaBear::new(0x7e010002); // ω⁴  (primitive 4th root, ω⁴² = −1)
 const W5: KoalaBear = KoalaBear::new(0x3a89a025); // ω⁵
 const W6: KoalaBear = KoalaBear::new(0x174e3650); // ω⁶
 const W7: KoalaBear = KoalaBear::new(0x27dfce22); // ω⁷
-
-// Inverse twiddles ω^{−k} (canonical form).  k=0 handled by plain bt().
-const WI1: KoalaBear = KoalaBear::new(0x572031df); // ω^{-1}
-const WI2: KoalaBear = KoalaBear::new(0x67b1c9b1); // ω^{-2}
-const WI3: KoalaBear = KoalaBear::new(0x44765fdc); // ω^{-3}
-const WI4: KoalaBear = KoalaBear::new(0x00feffff); // ω^{-4} = −ω⁴
-const WI5: KoalaBear = KoalaBear::new(0x5751de1f); // ω^{-5}
-const WI6: KoalaBear = KoalaBear::new(0x16cd01b7); // ω^{-6}
-const WI7: KoalaBear = KoalaBear::new(0x76242965); // ω^{-7}
 
 // Coset weights: WEIGHTS[i] = g^{bit_rev(i+1, 4)}, g = 3.
 // (state[0] multiplied by g^0 = 1 → skipped; WEIGHTS[0] is for state[1].)
@@ -83,14 +81,6 @@ fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
     v[hi] = a - b;
 }
 
-/// DIF butterfly: (lo, hi) → (lo+hi,  (lo−hi)·t).
-#[inline(always)]
-fn dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
-    let (a, b) = (v[lo], v[hi]);
-    v[lo] = a + b;
-    v[hi] = (a - b) * t;
-}
-
 /// DIT butterfly: (lo, hi) → (lo + hi·t,  lo − hi·t).
 #[inline(always)]
 fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
@@ -100,46 +90,64 @@ fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBea
     v[hi] = a - tb;
 }
 
+/// DIF butterfly with **negated** subtraction order: (lo, hi) → (lo+hi, (hi−lo)·t).
+///
+/// Used in place of the standard DIF butterfly `(lo+hi, (lo−hi)·WI_k)` by
+/// exploiting WI_k = −W_{8−k}, so `(lo−hi)·WI_k = (hi−lo)·W_{8−k}`.
+///
+/// This eliminates all 7 inverse-twiddle constants from the hot path.
+#[inline(always)]
+fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+    let (a, b) = (v[lo], v[hi]);
+    v[lo] = a + b;
+    v[hi] = (b - a) * t; // (hi − lo) · t  ≡  (lo − hi) · (−t) = (lo − hi) · WI_{8−k}
+}
+
 /// Apply the 16×16 Reed-Solomon MDS matrix.
 ///
-/// Replaces the former circulant-Karatsuba implementation.
-/// Interface is identical: generic over `R: Algebra<KoalaBear>`.
+/// Generic over `R: Algebra<KoalaBear>` — works for scalar KoalaBear, all packed
+/// SIMD types, and extension field types without any type dispatch.
 ///
-/// The matrix is MDS by the Reed-Solomon / coset-LDE theorem.
-/// Output equals N·coset_LDE(input, shift=3), where N=16.
+/// The inverse twiddles ω^{−k} = −ω^{8−k} are handled by `neg_dif` with forward
+/// twiddles W_{8−k}, halving the constant pool and reducing register pressure on
+/// packed SIMD code.
 #[inline(always)]
-pub fn mds_rs_16<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
-    // ── Step 1: DIF IFFT — 4 stages, output ends up in bit-reversed order ──
+pub fn mds_rs_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
+    // ── Step 1: DIF IFFT — 4 stages, output in bit-reversed order ──
+    //
+    // Each DIF butterfly `(lo+hi, (lo−hi)·WI_k)` is replaced by
+    // `neg_dif(lo, hi, W_{8−k})` using WI_k = −W_{8−k}.
 
-    // Stage 1 — stride 8, twiddles ω^{−j} for j = 0…7
-    bt(state, 0, 8); // twiddle = 1
-    dif(state, 1, 9, WI1);
-    dif(state, 2, 10, WI2);
-    dif(state, 3, 11, WI3);
-    dif(state, 4, 12, WI4);
-    dif(state, 5, 13, WI5);
-    dif(state, 6, 14, WI6);
-    dif(state, 7, 15, WI7);
+    // Stage 1 — stride 8
+    // Twiddles ω^{−j} for j=0..7.  Non-trivial: WI1=−W7 .. WI7=−W1.
+    bt(state, 0, 8); // j=0: twiddle=1
+    neg_dif(state, 1, 9, W7); // j=1: WI1 = −W7
+    neg_dif(state, 2, 10, W6); // j=2: WI2 = −W6
+    neg_dif(state, 3, 11, W5); // j=3: WI3 = −W5
+    neg_dif(state, 4, 12, W4); // j=4: WI4 = −W4
+    neg_dif(state, 5, 13, W3); // j=5: WI5 = −W3
+    neg_dif(state, 6, 14, W2); // j=6: WI6 = −W2
+    neg_dif(state, 7, 15, W1); // j=7: WI7 = −W1
 
     // Stage 2 — stride 4, twiddles ω^{−2j}, two blocks of 8
-    bt(state, 0, 4); // block 0, twiddle = 1
-    dif(state, 1, 5, WI2);
-    dif(state, 2, 6, WI4);
-    dif(state, 3, 7, WI6);
-    bt(state, 8, 12); // block 1, twiddle = 1
-    dif(state, 9, 13, WI2);
-    dif(state, 10, 14, WI4);
-    dif(state, 11, 15, WI6);
+    bt(state, 0, 4); // block 0, j=0
+    neg_dif(state, 1, 5, W6); // j=1: WI2 = −W6
+    neg_dif(state, 2, 6, W4); // j=2: WI4 = −W4
+    neg_dif(state, 3, 7, W2); // j=3: WI6 = −W2
+    bt(state, 8, 12); // block 1, j=0
+    neg_dif(state, 9, 13, W6); // j=1
+    neg_dif(state, 10, 14, W4); // j=2
+    neg_dif(state, 11, 15, W2); // j=3
 
-    // Stage 3 — stride 2, twiddles ω^{−4j}, four blocks of 4
+    // Stage 3 — stride 2, twiddle ω^{−4}, four blocks of 4
     bt(state, 0, 2);
-    dif(state, 1, 3, WI4);
+    neg_dif(state, 1, 3, W4); // WI4 = −W4
     bt(state, 4, 6);
-    dif(state, 5, 7, WI4);
+    neg_dif(state, 5, 7, W4);
     bt(state, 8, 10);
-    dif(state, 9, 11, WI4);
+    neg_dif(state, 9, 11, W4);
     bt(state, 12, 14);
-    dif(state, 13, 15, WI4);
+    neg_dif(state, 13, 15, W4);
 
     // Stage 4 — stride 1, all twiddles = 1 → 8 plain butterflies
     bt(state, 0, 1);
@@ -181,7 +189,7 @@ pub fn mds_rs_16<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
     bt(state, 12, 13);
     bt(state, 14, 15);
 
-    // Stage 2 — stride 2, twiddles ω^{4j}, four blocks of 4
+    // Stage 2 — stride 2, twiddle ω^4, four blocks of 4
     bt(state, 0, 2);
     dit(state, 1, 3, W4);
     bt(state, 4, 6);
@@ -192,17 +200,17 @@ pub fn mds_rs_16<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
     dit(state, 13, 15, W4);
 
     // Stage 3 — stride 4, twiddles ω^{2j}, two blocks of 8
-    bt(state, 0, 4); // block 0, twiddle = 1
+    bt(state, 0, 4); // block 0, j=0
     dit(state, 1, 5, W2);
     dit(state, 2, 6, W4);
     dit(state, 3, 7, W6);
-    bt(state, 8, 12); // block 1, twiddle = 1
+    bt(state, 8, 12); // block 1, j=0
     dit(state, 9, 13, W2);
     dit(state, 10, 14, W4);
     dit(state, 11, 15, W6);
 
-    // Stage 4 — stride 8, twiddles ω^j for j = 0…7
-    bt(state, 0, 8); // twiddle = 1
+    // Stage 4 — stride 8, twiddles ω^j for j=0..7
+    bt(state, 0, 8); // j=0: twiddle=1
     dit(state, 1, 9, W1);
     dit(state, 2, 10, W2);
     dit(state, 3, 11, W3);
@@ -237,7 +245,7 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
 impl Poseidon1KoalaBear16 {
     /// Apply the permutation to a state, works generically on any Algebra<KoalaBear>.
     #[inline(always)]
-    fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
+    fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
         // Initial full rounds
         for rc in poseidon1_initial_constants() {
             Self::full_round(state, rc);
@@ -256,7 +264,7 @@ impl Poseidon1KoalaBear16 {
 
     /// A full round: add constants to all elements, cube all elements, apply MDS.
     #[inline(always)]
-    fn full_round<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
+    fn full_round<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
         for (s, &c) in state.iter_mut().zip(rc.iter()) {
             *s += c;
         }
@@ -268,10 +276,7 @@ impl Poseidon1KoalaBear16 {
 
     /// A partial round: add constants to all elements, cube only state[0], apply MDS.
     #[inline(always)]
-    fn partial_round<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(
-        state: &mut [R; 16],
-        rc: &[KoalaBear; 16],
-    ) {
+    fn partial_round<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
         for (s, &c) in state.iter_mut().zip(rc.iter()) {
             *s += c;
         }
@@ -281,7 +286,7 @@ impl Poseidon1KoalaBear16 {
 
     /// Compression: output = perm(input) + input
     #[inline(always)]
-    pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
+    pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
         let initial = *state;
         self.permute_generic(state);
         for (s, init) in state.iter_mut().zip(initial) {
@@ -290,9 +295,7 @@ impl Poseidon1KoalaBear16 {
     }
 }
 
-impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Permutation<[R; 16]>
-    for Poseidon1KoalaBear16
-{
+impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync> Permutation<[R; 16]> for Poseidon1KoalaBear16 {
     fn permute_mut(&self, input: &mut [R; 16]) {
         self.permute_generic(input);
     }
@@ -524,11 +527,10 @@ mod tests {
         }
     }
 
-    /// Verify all RS-MDS constant values match the derived KoalaBear roots.
+    /// Verify W1–W7, their negation identity WI_k = −W_{8−k}, and WEIGHTS.
     #[test]
     fn test_rs_mds_constants() {
         let omega = KoalaBear::new(0x08dbd69c);
-        let omega_inv = KoalaBear::new(0x572031df);
 
         // Forward twiddles: ω^k
         assert_eq!(W1, omega.exp_u64(1));
@@ -539,22 +541,25 @@ mod tests {
         assert_eq!(W6, omega.exp_u64(6));
         assert_eq!(W7, omega.exp_u64(7));
 
-        // Inverse twiddles: ω^{−k}
-        assert_eq!(WI1, omega_inv.exp_u64(1));
-        assert_eq!(WI2, omega_inv.exp_u64(2));
-        assert_eq!(WI3, omega_inv.exp_u64(3));
-        assert_eq!(WI4, omega_inv.exp_u64(4));
-        assert_eq!(WI5, omega_inv.exp_u64(5));
-        assert_eq!(WI6, omega_inv.exp_u64(6));
-        assert_eq!(WI7, omega_inv.exp_u64(7));
+        // ω^8 = −1  (W4 has order 4: W4² = ω^8 = −1)
+        assert_eq!(omega.exp_u64(8), KoalaBear::NEG_ONE);
+        assert_eq!(W4.exp_u64(4), KoalaBear::ONE);
+        assert_ne!(W4.exp_u64(2), KoalaBear::ONE);
+
+        // Negation identity: WI_k = −W_{8−k}
+        let omega_inv = KoalaBear::new(0x572031df);
+        assert_eq!(omega_inv.exp_u64(1), -W7, "WI1 ≠ −W7");
+        assert_eq!(omega_inv.exp_u64(2), -W6, "WI2 ≠ −W6");
+        assert_eq!(omega_inv.exp_u64(3), -W5, "WI3 ≠ −W5");
+        assert_eq!(omega_inv.exp_u64(4), -W4, "WI4 ≠ −W4");
+        assert_eq!(omega_inv.exp_u64(5), -W3, "WI5 ≠ −W3");
+        assert_eq!(omega_inv.exp_u64(6), -W2, "WI6 ≠ −W2");
+        assert_eq!(omega_inv.exp_u64(7), -W1, "WI7 ≠ −W1");
 
         // omega * omega_inv = 1
         assert_eq!(omega * omega_inv, KoalaBear::ONE);
         // omega^16 = 1
         assert_eq!(omega.exp_u64(16), KoalaBear::ONE);
-        // ω^4 is a primitive 4th root: (ω^4)^4 = 1, (ω^4)^2 ≠ 1
-        assert_eq!(W4.exp_u64(4), KoalaBear::ONE);
-        assert_ne!(W4.exp_u64(2), KoalaBear::ONE);
 
         // Weights: g^{bit_rev(i, 4)} for i = 1..15
         let g = KoalaBear::new(3);
