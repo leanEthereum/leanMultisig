@@ -11,8 +11,8 @@ pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> 
 
 pub fn build_verifier_state(
     prover_state: ProverState<QuinticExtensionFieldKB, Poseidon16>,
-) -> VerifierState<QuinticExtensionFieldKB, Poseidon16> {
-    VerifierState::new(prover_state.raw_proof(), get_poseidon16().clone())
+) -> Result<VerifierState<QuinticExtensionFieldKB, Poseidon16>, ProofError> {
+    VerifierState::new(prover_state.into_proof(), get_poseidon16().clone())
 }
 
 pub trait ToUsize {

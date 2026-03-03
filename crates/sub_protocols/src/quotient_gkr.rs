@@ -128,11 +128,8 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
     let alpha = verifier_state.sample();
 
-    let (retrieved_quotient, postponed) = sumcheck_verify(verifier_state, n_vars, 3)?;
-
-    if retrieved_quotient != claims_num + alpha * claims_den {
-        return Err(ProofError::InvalidProof);
-    }
+    let expected_sum = claims_num + alpha * claims_den;
+    let postponed = sumcheck_verify(verifier_state, n_vars, 3, expected_sum, Some(&point.0))?;
 
     let inner_evals = verifier_state.next_extension_scalars_vec(4)?;
 
@@ -239,7 +236,7 @@ mod tests {
         );
         println!("Proving time: {:?}", time.elapsed());
 
-        let mut verifier_state = build_verifier_state(prover_state);
+        let mut verifier_state = build_verifier_state(prover_state).unwrap();
 
         let verifier_statements = verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
         assert_eq!(&verifier_statements, &prover_statements);

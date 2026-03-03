@@ -92,7 +92,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     );
 
     {
-        let mut verifier_state = build_verifier_state(prover_state);
+        let mut verifier_state = build_verifier_state(prover_state).unwrap();
 
         let parsed_commitment = whir_config.parse_commitment::<F>(&mut verifier_state).unwrap();
 

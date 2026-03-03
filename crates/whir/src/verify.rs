@@ -411,13 +411,8 @@ where
     let mut randomness = Vec::with_capacity(rounds);
 
     for _ in 0..rounds {
-        // Extract the 3 evaluations of the quadratic sumcheck polynomial h(X)
-        let poly = DensePolynomial::new(verifier_state.next_extension_scalars_vec(3)?);
-
-        // Verify claimed sum is consistent with polynomial
-        if poly.evaluate(EF::ZERO) + poly.evaluate(EF::ONE) != *claimed_sum {
-            return Err(ProofError::InvalidProof);
-        }
+        let coeffs = verifier_state.next_sumcheck_polynomial(3, *claimed_sum, None)?;
+        let poly = DensePolynomial::new(coeffs);
 
         verifier_state.check_pow_grinding(pow_bits)?;
 

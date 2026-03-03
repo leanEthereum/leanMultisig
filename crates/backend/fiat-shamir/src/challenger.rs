@@ -36,6 +36,16 @@ impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
         self.state = self.hash_state_with(&value);
     }
 
+    pub fn observe_scalars(&mut self, scalars: &[F]) {
+        for chunk in scalars.chunks(RATE) {
+            let mut buffer = [F::ZERO; RATE];
+            for (i, val) in chunk.iter().enumerate() {
+                buffer[i] = *val;
+            }
+            self.observe(buffer);
+        }
+    }
+
     pub fn sample_many(&mut self, n: usize) -> Vec<[F; RATE]> {
         let mut sampled = Vec::with_capacity(n);
         for i in 0..n + 1 {

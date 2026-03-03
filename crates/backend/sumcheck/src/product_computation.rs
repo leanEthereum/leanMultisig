@@ -57,7 +57,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
         _ => unimplemented!(),
     };
 
-    prover_state.add_extension_scalars(&first_sumcheck_poly.coeffs);
+    prover_state.add_sumcheck_polynomial(&first_sumcheck_poly.coeffs, None);
     prover_state.pow_grinding(pow_bits);
     let r1: EF = prover_state.sample();
     sum = first_sumcheck_poly.evaluate(r1);
@@ -94,7 +94,7 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
         _ => unimplemented!(),
     };
 
-    prover_state.add_extension_scalars(&second_sumcheck_poly.coeffs);
+    prover_state.add_sumcheck_polynomial(&second_sumcheck_poly.coeffs, None);
     prover_state.pow_grinding(pow_bits);
     let r2: EF = prover_state.sample();
     sum = second_sumcheck_poly.evaluate(r2);

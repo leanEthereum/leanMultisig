@@ -5,7 +5,7 @@ use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
-use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{
     LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements,
     xmss_verify_with_poseidon_trace,
@@ -94,7 +94,7 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AggregatedXMSS {
     pub pub_keys: Vec<XmssPublicKey>,
-    pub proof: PrunedProof<F>,
+    pub proof: Proof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     // benchmark / debug purpose
     #[serde(skip, default)]
@@ -102,10 +102,6 @@ pub struct AggregatedXMSS {
 }
 
 impl AggregatedXMSS {
-    pub fn raw_proof(&self) -> Option<RawProof<F>> {
-        self.proof.clone().restore().map(|p| p.into_raw_proof())
-    }
-
     pub fn serialize(&self) -> Vec<u8> {
         let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
         lz4_flex::compress_prepend_size(&encoded)
@@ -152,11 +148,7 @@ pub fn xmss_verify_aggregation(
     }
     let public_input = agg_sig.public_input(message, slot);
     let bytecode = get_aggregation_bytecode();
-    verify_execution(
-        bytecode,
-        &public_input,
-        agg_sig.raw_proof().ok_or(ProofError::InvalidProof)?,
-    )
+    verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
 
 /// panics if one of the sub-proof (children) is invalid
@@ -195,13 +187,7 @@ pub fn xmss_aggregate(
     let mut child_raw_proofs = vec![];
     for child in children {
         let child_pub_input = child.public_input(message, slot);
-        let raw_proof = child
-            .proof
-            .clone()
-            .restore()
-            .expect("invalid child proof")
-            .into_raw_proof();
-        let verif = verify_execution(bytecode, &child_pub_input, raw_proof.clone()).unwrap();
+        let (verif, raw_proof) = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
         child_raw_proofs.push(raw_proof);
@@ -263,11 +249,16 @@ pub fn xmss_aggregate(
         let claim_output = flatten_scalars_to_base::<F, EF>(&ef_claim);
         assert_eq!(claim_output.len(), bytecode_claim_size);
 
-        (
-            claim_output,
-            Some(reduced_point),
-            reduction_prover.raw_proof().transcript,
-        )
+        let final_sumcheck_proof = {
+            // Recover the transcript of the final sumcheck (for bytecode claim reduction)
+            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
+            vs.next_base_scalars_vec(claims_hash.len()).unwrap();
+            let _: EF = vs.sample();
+            sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
+            vs.into_raw_proof().transcript
+        };
+
+        (claim_output, Some(reduced_point), final_sumcheck_proof)
     } else {
         let mut claim_output = vec![F::ZERO; bytecode_claim_size];
         claim_output[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];

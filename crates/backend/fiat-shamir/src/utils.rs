@@ -25,6 +25,21 @@ pub fn pack_scalars_to_extension<F: Field, EF: ExtensionField<F>>(scalars: &[F])
         .collect()
 }
 
+/// Expand a bare polynomial h(X) into the full polynomial g(X) = eq(α, X) * h(X).
+/// eq(α, X) = X*α + (1-X)*(1-α) = (1-α) + (2α-1)*X
+pub fn expand_bare_to_full<EF: Field>(bare: &[EF], alpha: EF) -> Vec<EF> {
+    let one_minus_alpha = EF::ONE - alpha;
+    let two_alpha_minus_one = alpha.double() - EF::ONE;
+    let d = bare.len() - 1; // degree of bare polynomial
+    let mut full = Vec::with_capacity(bare.len() + 1);
+    full.push(one_minus_alpha * bare[0]);
+    for k in 1..=d {
+        full.push(one_minus_alpha * bare[k] + two_alpha_minus_one * bare[k - 1]);
+    }
+    full.push(two_alpha_minus_one * bare[d]);
+    full
+}
+
 pub(crate) fn sample_vec<F: PrimeField64, EF: ExtensionField<F>, P: Compression<[F; WIDTH]>>(
     challenger: &mut Challenger<F, P>,
     len: usize,

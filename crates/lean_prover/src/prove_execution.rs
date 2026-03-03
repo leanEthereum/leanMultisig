@@ -10,15 +10,9 @@ use utils::ansi::Colorize;
 use utils::build_prover_state;
 #[derive(Debug)]
 pub struct ExecutionProof {
-    pub proof: PrunedProof<F>,
+    pub proof: Proof<F>,
     // benchmark / debug purpose
     pub metadata: ExecutionMetadata,
-}
-
-impl ExecutionProof {
-    pub fn raw_proof(&self) -> Option<RawProof<F>> {
-        Some(self.proof.clone().restore()?.into_raw_proof())
-    }
 }
 
 pub fn prove_execution(
@@ -196,7 +190,7 @@ pub fn prove_execution(
     );
 
     ExecutionProof {
-        proof: prover_state.into_pruned_proof(),
+        proof: prover_state.into_proof(),
         metadata,
     }
 }
