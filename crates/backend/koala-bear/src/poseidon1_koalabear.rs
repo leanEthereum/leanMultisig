@@ -81,7 +81,7 @@ const WEIGHTS: [KoalaBear; 15] = KoalaBear::new_array([
 //   (vs 49 muls for the full MDS)
 //
 // Initialization: f_br = dif_ifft_16(state) [17 muls]
-// Finalization:   state = dit_fft_16(f_br) * N_INV  [17+16 = 33 muls]
+// Finalization:   state = dit_fft_16(f_br) / 16  [17+16 = 33 muls]
 //
 // Operation count per permutation:
 //   4 full rounds (65 each) + IFFT init + 20 partial (34 each) + FFT fin + 4 full rounds
@@ -117,6 +117,7 @@ const NW_BR: [KoalaBear; 16] = KoalaBear::new_array([
 const SUM_G: KoalaBear = KoalaBear::new(21_523_360);
 
 /// 16^{−1} mod p.  Since p = 16·133_169_152 + 1, we have 16^{-1} = p − 133_169_152.
+#[cfg(test)]
 const N_INV: KoalaBear = KoalaBear::new(1_997_537_281);
 
 /// IDFT_unnorm(partial_RC[k])[bit_rev(j,4)] — cached on first use.
@@ -211,7 +212,7 @@ fn dif_ifft_16<R: Algebra<KoalaBear>>(state: &[R; 16]) -> [R; 16] {
 
 /// DIT FFT (4 stages): bit-reversed input → DFT output in natural order.
 /// Computes DFT(f_nat) where f_nat[k] = f[bit_rev(k, 4)].
-/// To recover state from f_br: state = dit_fft_16(&f_br) * N_INV.
+/// To recover state from f_br: state = dit_fft_16(&f_br) / 16.
 #[inline(always)]
 fn dit_fft_16<R: Algebra<KoalaBear>>(f: &[R; 16]) -> [R; 16] {
     let mut out = *f;
@@ -457,7 +458,7 @@ impl Poseidon1KoalaBear16 {
             // Recover time-domain state:  state = DIT_FFT(f_br) / N
             let dft_out = dit_fft_16(&f_br);
             for j in 0..16 {
-                state[j] = dft_out[j] * N_INV;
+                state[j] = dft_out[j].div_2exp_u64(4); // ÷16
             }
         }
 
