@@ -1,5 +1,7 @@
 // Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
+use std::sync::OnceLock;
+
 use crate::KoalaBear;
 use crate::symmetric::Permutation;
 use field::{Algebra, InjectiveMonomial};
@@ -68,6 +70,66 @@ const WEIGHTS: [KoalaBear; 15] = KoalaBear::new_array([
 ]);
 
 // ---------------------------------------------------------------------------
+// Frequency-domain partial round optimization.
+//
+// The partial rounds (20 total) maintain f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)]
+// between rounds instead of applying the full MDS each time.
+//
+// Per partial round, the MDS update reduces to:
+//   f_br_new[j] = NW_BR[j] * (f_br'[j] + delta)   [15 muls, NW_BR[0]=16 is 1 mul]
+//   s0_new = dot(G_BR, f_br') + delta * SUM_G       [16 muls]
+//   (vs 49 muls for the full MDS)
+//
+// Initialization: f_br = dif_ifft_16(state) [17 muls]
+// Finalization:   state = dit_fft_16(f_br) * N_INV  [17+16 = 33 muls]
+//
+// Operation count per permutation:
+//   4 full rounds (65 each) + IFFT init + 20 partial (34 each) + FFT fin + 4 full rounds
+//   = 260 + 17 + 680 + 33 + 260 = 1250 muls  vs  1540 muls naive  (~19% faster)
+// ---------------------------------------------------------------------------
+
+/// g^{bit_rev(j, 4)} — same values as [1, WEIGHTS[0..14]].
+const G_BR: [KoalaBear; 16] = KoalaBear::new_array([
+    1, 6_561, 81, 531_441, 9, 59_049, 729, 4_782_969, 3, 19_683, 243, 1_594_323, 27, 177_147, 2_187, 14_348_907,
+]);
+
+/// N · g^{bit_rev(j, 4)}, N = 16.  Used to update f_br each partial round.
+const NW_BR: [KoalaBear; 16] = KoalaBear::new_array([
+    16,
+    104_976,
+    1_296,
+    8_503_056,
+    144,
+    944_784,
+    11_664,
+    76_527_504,
+    48,
+    314_928,
+    3_888,
+    25_509_168,
+    432,
+    2_834_352,
+    34_992,
+    229_582_512,
+]);
+
+/// sum_{j=0}^{15} g^{bit_rev(j,4)} = (3^16 − 1)/2 = 21_523_360.
+const SUM_G: KoalaBear = KoalaBear::new(21_523_360);
+
+/// 16^{−1} mod p.  Since p = 16·133_169_152 + 1, we have 16^{-1} = p − 133_169_152.
+const N_INV: KoalaBear = KoalaBear::new(1_997_537_281);
+
+/// IDFT_unnorm(partial_RC[k])[bit_rev(j,4)] — cached on first use.
+static PARTIAL_RC_F_CACHE: OnceLock<[[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS]> = OnceLock::new();
+
+#[inline(never)]
+fn partial_rc_f() -> &'static [[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS] {
+    PARTIAL_RC_F_CACHE.get_or_init(|| {
+        core::array::from_fn(|k| dif_ifft_16(&POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + k]))
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Butterfly helpers — take &mut [R;16] + compile-time index pairs.
 // R: Algebra<KoalaBear> ⟹ R: Copy (via PrimeCharacteristicRing), so
 // reading v[lo] and v[hi] copies the values before writing.
@@ -101,6 +163,95 @@ fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: Koal
     let (a, b) = (v[lo], v[hi]);
     v[lo] = a + b;
     v[hi] = (b - a) * t; // (hi − lo) · t  ≡  (lo − hi) · (−t) = (lo − hi) · WI_{8−k}
+}
+
+/// DIF IFFT (4 stages): time-domain state → bit-reversed frequency domain.
+/// Returns f_br where f_br[j] = IDFT_unnorm(state)[bit_rev(j, 4)].
+#[inline(always)]
+fn dif_ifft_16<R: Algebra<KoalaBear>>(state: &[R; 16]) -> [R; 16] {
+    let mut f = *state;
+    // Stage 1 — stride 8
+    bt(&mut f, 0, 8);
+    neg_dif(&mut f, 1, 9, W7);
+    neg_dif(&mut f, 2, 10, W6);
+    neg_dif(&mut f, 3, 11, W5);
+    neg_dif(&mut f, 4, 12, W4);
+    neg_dif(&mut f, 5, 13, W3);
+    neg_dif(&mut f, 6, 14, W2);
+    neg_dif(&mut f, 7, 15, W1);
+    // Stage 2 — stride 4
+    bt(&mut f, 0, 4);
+    neg_dif(&mut f, 1, 5, W6);
+    neg_dif(&mut f, 2, 6, W4);
+    neg_dif(&mut f, 3, 7, W2);
+    bt(&mut f, 8, 12);
+    neg_dif(&mut f, 9, 13, W6);
+    neg_dif(&mut f, 10, 14, W4);
+    neg_dif(&mut f, 11, 15, W2);
+    // Stage 3 — stride 2
+    bt(&mut f, 0, 2);
+    neg_dif(&mut f, 1, 3, W4);
+    bt(&mut f, 4, 6);
+    neg_dif(&mut f, 5, 7, W4);
+    bt(&mut f, 8, 10);
+    neg_dif(&mut f, 9, 11, W4);
+    bt(&mut f, 12, 14);
+    neg_dif(&mut f, 13, 15, W4);
+    // Stage 4 — stride 1
+    bt(&mut f, 0, 1);
+    bt(&mut f, 2, 3);
+    bt(&mut f, 4, 5);
+    bt(&mut f, 6, 7);
+    bt(&mut f, 8, 9);
+    bt(&mut f, 10, 11);
+    bt(&mut f, 12, 13);
+    bt(&mut f, 14, 15);
+    f
+}
+
+/// DIT FFT (4 stages): bit-reversed input → DFT output in natural order.
+/// Computes DFT(f_nat) where f_nat[k] = f[bit_rev(k, 4)].
+/// To recover state from f_br: state = dit_fft_16(&f_br) * N_INV.
+#[inline(always)]
+fn dit_fft_16<R: Algebra<KoalaBear>>(f: &[R; 16]) -> [R; 16] {
+    let mut out = *f;
+    // Stage 1 — stride 1
+    bt(&mut out, 0, 1);
+    bt(&mut out, 2, 3);
+    bt(&mut out, 4, 5);
+    bt(&mut out, 6, 7);
+    bt(&mut out, 8, 9);
+    bt(&mut out, 10, 11);
+    bt(&mut out, 12, 13);
+    bt(&mut out, 14, 15);
+    // Stage 2 — stride 2
+    bt(&mut out, 0, 2);
+    dit(&mut out, 1, 3, W4);
+    bt(&mut out, 4, 6);
+    dit(&mut out, 5, 7, W4);
+    bt(&mut out, 8, 10);
+    dit(&mut out, 9, 11, W4);
+    bt(&mut out, 12, 14);
+    dit(&mut out, 13, 15, W4);
+    // Stage 3 — stride 4
+    bt(&mut out, 0, 4);
+    dit(&mut out, 1, 5, W2);
+    dit(&mut out, 2, 6, W4);
+    dit(&mut out, 3, 7, W6);
+    bt(&mut out, 8, 12);
+    dit(&mut out, 9, 13, W2);
+    dit(&mut out, 10, 14, W4);
+    dit(&mut out, 11, 15, W6);
+    // Stage 4 — stride 8
+    bt(&mut out, 0, 8);
+    dit(&mut out, 1, 9, W1);
+    dit(&mut out, 2, 10, W2);
+    dit(&mut out, 3, 11, W3);
+    dit(&mut out, 4, 12, W4);
+    dit(&mut out, 5, 13, W5);
+    dit(&mut out, 6, 14, W6);
+    dit(&mut out, 7, 15, W7);
+    out
 }
 
 /// Apply the 16×16 Reed-Solomon MDS matrix.
@@ -244,19 +395,73 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
 
 impl Poseidon1KoalaBear16 {
     /// Apply the permutation to a state, works generically on any Algebra<KoalaBear>.
+    ///
+    /// Partial rounds use the frequency-domain optimisation: maintains
+    /// f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)] between rounds, reducing each
+    /// partial round from 49 MDS multiplications to 31 (15 for f update + 16 for s0).
     #[inline(always)]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
-        // Initial full rounds
+        // ── Initial full rounds ──────────────────────────────────────────────
         for rc in poseidon1_initial_constants() {
             Self::full_round(state, rc);
         }
 
-        // Generic partial rounds
-        for rc in poseidon1_partial_constants() {
-            Self::partial_round(state, rc);
+        // ── Partial rounds (frequency-domain) ───────────────────────────────
+        //
+        // Invariant: f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)]
+        //            s0      = state[0]  (time-domain)
+        //
+        // Per round:
+        //   1. f_br'[j]  = f_br[j] + IDFT_unnorm(RC[k])[bit_rev(j,4)]       (adds)
+        //   2. delta     = (s0 + RC[k,0])^3 − (s0 + RC[k,0])                (2 muls)
+        //   3. s0_new    = dot(G_BR, f_br') + delta · SUM_G                  (16 muls)
+        //   4. f_br''[j] = f_br'[j] + delta                                  (adds)
+        //   5. f_br_new[j] = NW_BR[j] · f_br''[j]                           (16 muls)
+        {
+            let rc_f = partial_rc_f();
+            let mut f_br = dif_ifft_16(state);
+            let mut s0 = state[0];
+
+            for (k, rc) in poseidon1_partial_constants().iter().enumerate() {
+                // Step 1: add round constant in frequency domain.
+                for j in 0..16 {
+                    f_br[j] += rc_f[k][j];
+                }
+                let mut s0_prime = s0;
+                s0_prime += rc[0];
+
+                // Step 2: S-box on time-domain state[0].
+                let cube = s0_prime.injective_exp_n(); // s0'^3
+                let delta = cube - s0_prime; // delta = s0'^3 − s0'
+
+                // Step 3: s0_new = sum_j G_BR[j] * f_br'[j]  +  delta * SUM_G
+                //         (uses f_br' = f_br AFTER step 1, BEFORE steps 4–5)
+                s0 = f_br[0]; // G_BR[0] = 1
+                for j in 1..16 {
+                    s0 += f_br[j] * G_BR[j];
+                }
+                s0 += delta * SUM_G;
+
+                // Step 4: add delta to all frequency bins.
+                for j in 0..16 {
+                    f_br[j] += delta;
+                }
+
+                // Step 5: multiply by NW_BR (= N * g^{bit_rev(j,4)}) to complete MDS.
+                for j in 0..16 {
+                    f_br[j] *= NW_BR[j];
+                }
+            }
+            let _ = s0; // last value unused; LLVM eliminates it
+
+            // Recover time-domain state:  state = DIT_FFT(f_br) / N
+            let dft_out = dit_fft_16(&f_br);
+            for j in 0..16 {
+                state[j] = dft_out[j] * N_INV;
+            }
         }
 
-        // Final full rounds
+        // ── Final full rounds ────────────────────────────────────────────────
         for rc in poseidon1_final_constants() {
             Self::full_round(state, rc);
         }
@@ -271,16 +476,6 @@ impl Poseidon1KoalaBear16 {
         for s in state.iter_mut() {
             *s = s.injective_exp_n();
         }
-        mds_rs_16(state);
-    }
-
-    /// A partial round: add constants to all elements, cube only state[0], apply MDS.
-    #[inline(always)]
-    fn partial_round<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
-        for (s, &c) in state.iter_mut().zip(rc.iter()) {
-            *s += c;
-        }
-        state[0] = state[0].injective_exp_n();
         mds_rs_16(state);
     }
 
@@ -513,6 +708,119 @@ mod tests {
             result[m as usize] = sum;
         }
         result
+    }
+
+    /// Fully naive permutation: every MDS computed via the O(N²) coset-LDE.
+    /// No FFT, no SIMD — just schoolbook IDFT + weight + DFT.
+    fn permute_naive(state: &mut [KoalaBear; 16]) {
+        let naive_full_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            for s in st.iter_mut() {
+                *s = s.injective_exp_n();
+            }
+            *st = naive_rs_mds(st);
+        };
+        let naive_partial_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            st[0] = st[0].injective_exp_n();
+            *st = naive_rs_mds(st);
+        };
+        for rc in poseidon1_initial_constants() {
+            naive_full_round(state, rc);
+        }
+        for rc in poseidon1_partial_constants() {
+            naive_partial_round(state, rc);
+        }
+        for rc in poseidon1_final_constants() {
+            naive_full_round(state, rc);
+        }
+    }
+
+    /// End-to-end equivalence: optimised permutation == fully naive O(N²) permutation.
+    ///
+    /// This closes the verification chain without relying on mds_rs_16 correctness:
+    /// permute_mut (freq-domain optimised) == permute_naive (schoolbook IDFT/DFT for every MDS).
+    #[test]
+    fn test_permutation_matches_naive() {
+        let p1 = Poseidon1KoalaBear16 {};
+        for seed in 0u32..50 {
+            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
+            let mut opt = state;
+            p1.permute_mut(&mut opt);
+            let mut naive = state;
+            permute_naive(&mut naive);
+            assert_eq!(opt, naive, "Mismatch at seed={seed}");
+        }
+    }
+
+    /// Reference (non-freq-domain) permutation using mds_rs_16 directly.
+    fn permute_reference(state: &mut [KoalaBear; 16]) {
+        let partial_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            st[0] = st[0].injective_exp_n();
+            mds_rs_16(st);
+        };
+        for rc in poseidon1_initial_constants() {
+            Poseidon1KoalaBear16::full_round(state, rc);
+        }
+        for rc in poseidon1_partial_constants() {
+            partial_round(state, rc);
+        }
+        for rc in poseidon1_final_constants() {
+            Poseidon1KoalaBear16::full_round(state, rc);
+        }
+    }
+
+    /// Verify the frequency-domain partial round optimisation matches the mds_rs_16 path.
+    #[test]
+    fn test_partial_rounds_fft_optimization() {
+        let p1 = Poseidon1KoalaBear16 {};
+        for seed in 0u32..50 {
+            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
+            let mut opt = state;
+            p1.permute_mut(&mut opt);
+            let mut reference = state;
+            permute_reference(&mut reference);
+            assert_eq!(opt, reference, "Mismatch at seed={seed}");
+        }
+    }
+
+    /// Verify the new constants are consistent with the field arithmetic.
+    #[test]
+    fn test_freq_domain_constants() {
+        let g = KoalaBear::new(3);
+        let n = KoalaBear::new(16);
+
+        // G_BR[j] = g^{bit_rev(j,4)}
+        for j in 0u32..16 {
+            let br = j.reverse_bits() >> 28; // 4-bit reversal
+            assert_eq!(G_BR[j as usize], g.exp_u64(br as u64), "G_BR[{j}]");
+        }
+
+        // NW_BR[j] = N * G_BR[j]
+        for j in 0..16 {
+            assert_eq!(NW_BR[j], n * G_BR[j], "NW_BR[{j}]");
+        }
+
+        // SUM_G = (3^16 - 1)/2 = 21_523_360
+        let sum: KoalaBear = G_BR.iter().copied().sum();
+        assert_eq!(SUM_G, sum);
+
+        // N_INV * 16 = 1
+        assert_eq!(N_INV * KoalaBear::new(16), KoalaBear::ONE);
+
+        // PARTIAL_RC_F[k] = dif_ifft_16(partial_RC[k])
+        let rc_f = partial_rc_f();
+        for k in 0..POSEIDON1_PARTIAL_ROUNDS {
+            let expected = dif_ifft_16(&POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + k]);
+            assert_eq!(rc_f[k], expected, "PARTIAL_RC_F[{k}]");
+        }
     }
 
     /// Cross-check mds_rs_16 against the naive coset-LDE reference.
