@@ -89,7 +89,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let nu_a_minus_one = nu_a - AB::F::ONE;
 
         let add = aux * (AB::F::TWO - aux); // equals 1 when aux = 1, else equals 0 (when aux = 0 or aux = 2)
-        let deref = aux * (aux - AB::F::ONE) * AB::F::INVERSE_OF_TWO; // equals 1 when aux = 2, else equals 0 (when aux = 0 or aux = 1)
+        let deref = (aux * (aux - AB::F::ONE)).halve(); // equals 1 when aux = 2, else equals 0 (when aux = 0 or aux = 1)
         let is_precompile = AB::F::ONE - (add + mul + deref + jump);
 
         if BUS {
