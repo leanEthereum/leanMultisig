@@ -1,9 +1,9 @@
 // Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
-use std::any::TypeId;
+use std::sync::OnceLock;
 
+use crate::KoalaBear;
 use crate::symmetric::Permutation;
-use crate::{KoalaBear, KoalaBearParameters, MontyParameters};
 use field::{Algebra, InjectiveMonomial};
 
 pub const POSEIDON1_WIDTH: usize = 16;
@@ -11,362 +11,364 @@ pub const POSEIDON1_HALF_FULL_ROUNDS: usize = 4;
 pub const POSEIDON1_PARTIAL_ROUNDS: usize = 20;
 pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 
-/// First row of the 16x16 circulant MDS matrix.
-pub const MDS_CIRC_16_FIRST_ROW: [i64; 16] = [1, 1, 51, 1, 11, 17, 2, 1, 101, 63, -2, 2, 67, 22, -1, 3];
+// ---------------------------------------------------------------------------
+// Reed-Solomon (coset-LDE) 16×16 MDS for KoalaBear
+//
+// Computes: output = N · coset_LDE(input, shift = g)
+//         = DFT( diag(g^j)_{j=0..15} · IDFT_unnorm(input) )
+//
+// where
+//   ω   = primitive 16th root of unity  (TWO_ADIC_GENERATORS[4])
+//   g   = 3  (multiplicative generator of KoalaBear*)
+//
+// Algorithm (fully unrolled, all indices compile-time constants):
+//   Step 1  DIF IFFT with ω⁻¹ — 4 stages, output in bit-reversed order.
+//   Step 2  Pointwise multiply by weights[i] = g^{bit_rev(i, 4)}.
+//   Step 3  DIT  FFT with ω   — 4 stages, bit-reversed input → natural output.
+//
+// No allocation: all twiddles and weights are `const` field-element arrays.
+//
+// KEY IDENTITY: ω^{16-k} = ω^8 · ω^{8-k} = −ω^{8-k}, so
+//   ω^{−k} = −ω^{8−k}   (k = 1..7)
+// Therefore the 7 inverse twiddles WI_k = −W_{8−k} are NOT stored as separate
+// constants.  Instead every DIF butterfly that would multiply by WI_k uses a
+// `neg_dif` helper that subtracts in the opposite order and multiplies by W_{8-k}.
+// This halves the twiddle constant pool (7 instead of 14), reducing register
+// pressure on packed SIMD code.
+//
+// Operation count: 17 (IDFT) + 15 (weights) + 17 (DFT) = 49 R×KoalaBear muls.
+// Butterflies with twiddle = 1 use plain add/sub (no multiplication).
+// ---------------------------------------------------------------------------
 
-/// First column of the circulant MDS matrix (element 0 stays, elements 1..16 reversed).
-/// Used by the Karatsuba convolution fast path.
-const MDS_CIRC_16_FIRST_COL: [i64; 16] = {
-    let mut col = [0i64; 16];
-    col[0] = MDS_CIRC_16_FIRST_ROW[0];
-    let mut i = 1;
-    while i < 16 {
-        col[i] = MDS_CIRC_16_FIRST_ROW[16 - i];
-        i += 1;
-    }
-    col
-};
+// Forward twiddles ω^k (canonical form, k=0 → 1 handled by plain bt()).
+const W1: KoalaBear = KoalaBear::new(0x08dbd69c); // ω¹
+const W2: KoalaBear = KoalaBear::new(0x6832fe4a); // ω²
+const W3: KoalaBear = KoalaBear::new(0x27ae21e2); // ω³
+const W4: KoalaBear = KoalaBear::new(0x7e010002); // ω⁴  (primitive 4th root, ω⁴² = −1)
+const W5: KoalaBear = KoalaBear::new(0x3a89a025); // ω⁵
+const W6: KoalaBear = KoalaBear::new(0x174e3650); // ω⁶
+const W7: KoalaBear = KoalaBear::new(0x27dfce22); // ω⁷
+
+// Coset weights: WEIGHTS[i] = g^{bit_rev(i+1, 4)}, g = 3.
+// (state[0] multiplied by g^0 = 1 → skipped; WEIGHTS[0] is for state[1].)
+const WEIGHTS: [KoalaBear; 15] = KoalaBear::new_array([
+    6_561,      // state[ 1] ← g^8
+    81,         // state[ 2] ← g^4
+    531_441,    // state[ 3] ← g^12
+    9,          // state[ 4] ← g^2
+    59_049,     // state[ 5] ← g^10
+    729,        // state[ 6] ← g^6
+    4_782_969,  // state[ 7] ← g^14
+    3,          // state[ 8] ← g^1
+    19_683,     // state[ 9] ← g^9
+    243,        // state[10] ← g^5
+    1_594_323,  // state[11] ← g^13
+    27,         // state[12] ← g^3
+    177_147,    // state[13] ← g^11
+    2_187,      // state[14] ← g^7
+    14_348_907, // state[15] ← g^15
+]);
 
 // ---------------------------------------------------------------------------
-// Karatsuba convolution for KoalaBear MDS (i64 fast path)
+// Frequency-domain partial round optimization.
+//
+// The partial rounds (20 total) maintain f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)]
+// between rounds instead of applying the full MDS each time.
+//
+// Per partial round, the MDS update reduces to:
+//   f_br_new[j] = NW_BR[j] * (f_br'[j] + delta)   [15 muls, NW_BR[0]=16 is 1 mul]
+//   s0_new = dot(G_BR, f_br') + delta * SUM_G       [16 muls]
+//   (vs 49 muls for the full MDS)
+//
+// Initialization: f_br = dif_ifft_16(state) [17 muls]
+// Finalization:   state = dit_fft_16(f_br) * N_INV  [17+16 = 33 muls]
+//
+// Operation count per permutation:
+//   4 full rounds (65 each) + IFFT init + 20 partial (34 each) + FFT fin + 4 full rounds
+//   = 260 + 17 + 680 + 33 + 260 = 1250 muls  vs  1540 muls naive  (~19% faster)
 // ---------------------------------------------------------------------------
 
-#[inline(always)]
-fn dot_product_i64<const N: usize>(u: [i64; N], v: [i64; N]) -> i64 {
-    let mut dp = u[0] * v[0];
-    for i in 1..N {
-        dp += u[i] * v[i];
-    }
-    dp
-}
+/// g^{bit_rev(j, 4)} — same values as [1, WEIGHTS[0..14]].
+const G_BR: [KoalaBear; 16] = KoalaBear::new_array([
+    1, 6_561, 81, 531_441, 9, 59_049, 729, 4_782_969, 3, 19_683, 243, 1_594_323, 27, 177_147, 2_187, 14_348_907,
+]);
 
-#[inline(always)]
-fn negacyclic_conv4_i64(lhs: [i64; 4], rhs: [i64; 4], output: &mut [i64; 4]) {
-    output[0] = dot_product_i64(lhs, [rhs[0], -rhs[3], -rhs[2], -rhs[1]]);
-    output[1] = dot_product_i64(lhs, [rhs[1], rhs[0], -rhs[3], -rhs[2]]);
-    output[2] = dot_product_i64(lhs, [rhs[2], rhs[1], rhs[0], -rhs[3]]);
-    output[3] = dot_product_i64(lhs, [rhs[3], rhs[2], rhs[1], rhs[0]]);
-}
+/// N · g^{bit_rev(j, 4)}, N = 16.  Used to update f_br each partial round.
+const NW_BR: [KoalaBear; 16] = KoalaBear::new_array([
+    16,
+    104_976,
+    1_296,
+    8_503_056,
+    144,
+    944_784,
+    11_664,
+    76_527_504,
+    48,
+    314_928,
+    3_888,
+    25_509_168,
+    432,
+    2_834_352,
+    34_992,
+    229_582_512,
+]);
 
-#[inline(always)]
-fn conv4_i64(lhs: [i64; 4], rhs: [i64; 4], output: &mut [i64; 4]) {
-    let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
-    let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
-    let v_p = [rhs[0] + rhs[2], rhs[1] + rhs[3]];
-    let v_m = [rhs[0] - rhs[2], rhs[1] - rhs[3]];
+/// sum_{j=0}^{15} g^{bit_rev(j,4)} = (3^16 − 1)/2 = 21_523_360.
+const SUM_G: KoalaBear = KoalaBear::new(21_523_360);
 
-    output[0] = dot_product_i64(u_m, [v_m[0], -v_m[1]]);
-    output[1] = dot_product_i64(u_m, [v_m[1], v_m[0]]);
-    output[2] = dot_product_i64(u_p, v_p);
-    output[3] = dot_product_i64(u_p, [v_p[1], v_p[0]]);
+/// 16^{−1} mod p.  Since p = 16·133_169_152 + 1, we have 16^{-1} = p − 133_169_152.
+const N_INV: KoalaBear = KoalaBear::new(1_997_537_281);
 
-    output[0] += output[2];
-    output[1] += output[3];
-    output[0] >>= 1;
-    output[1] >>= 1;
-    output[2] -= output[0];
-    output[3] -= output[1];
-}
+/// IDFT_unnorm(partial_RC[k])[bit_rev(j,4)] — cached on first use.
+static PARTIAL_RC_F_CACHE: OnceLock<[[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS]> = OnceLock::new();
 
-/// negacyclic_conv8 via even/odd decomposition with 3× negacyclic_conv4.
-#[inline(always)]
-fn negacyclic_conv8_i64(lhs: [i64; 8], rhs: [i64; 8], output: &mut [i64; 8]) {
-    let mut lhs_even = [0i64; 4];
-    let mut lhs_odd = [0i64; 4];
-    let mut lhs_sum = [0i64; 4];
-    let mut rhs_even = [0i64; 4];
-    let mut rhs_odd = [0i64; 4];
-    let mut rhs_sum = [0i64; 4];
-
-    for i in 0..4 {
-        lhs_even[i] = lhs[2 * i];
-        lhs_odd[i] = lhs[2 * i + 1];
-        lhs_sum[i] = lhs[2 * i] + lhs[2 * i + 1];
-
-        rhs_even[i] = rhs[2 * i];
-        rhs_odd[i] = rhs[2 * i + 1];
-        rhs_sum[i] = rhs[2 * i] + rhs[2 * i + 1];
-    }
-
-    let mut even_conv = [0i64; 4];
-    let mut odd_conv = [0i64; 4];
-    let mut sum_conv = [0i64; 4];
-
-    negacyclic_conv4_i64(lhs_even, rhs_even, &mut even_conv);
-    negacyclic_conv4_i64(lhs_odd, rhs_odd, &mut odd_conv);
-    negacyclic_conv4_i64(lhs_sum, rhs_sum, &mut sum_conv);
-
-    // Karatsuba recombination
-    sum_conv[0] -= even_conv[0] + odd_conv[0];
-    even_conv[0] -= odd_conv[3]; // odd_conv[HALF_N - 1]
-
-    for i in 1..4 {
-        sum_conv[i] -= even_conv[i] + odd_conv[i];
-        even_conv[i] += odd_conv[i - 1];
-    }
-
-    // Interleave: output[2i] = even_conv[i], output[2i+1] = sum_conv[i]
-    for i in 0..4 {
-        output[2 * i] = even_conv[i];
-        output[2 * i + 1] = sum_conv[i];
-    }
-}
-
-/// conv8 via CRT decomposition: negacyclic_conv4 + conv4.
-#[inline(always)]
-fn conv8_i64(lhs: [i64; 8], rhs: [i64; 8], output: &mut [i64; 8]) {
-    let mut lhs_pos = [0i64; 4];
-    let mut lhs_neg = [0i64; 4];
-    let mut rhs_pos = [0i64; 4];
-    let mut rhs_neg = [0i64; 4];
-
-    for i in 0..4 {
-        lhs_pos[i] = lhs[i] + lhs[i + 4];
-        lhs_neg[i] = lhs[i] - lhs[i + 4];
-        rhs_pos[i] = rhs[i] + rhs[i + 4];
-        rhs_neg[i] = rhs[i] - rhs[i + 4];
-    }
-
-    let mut left = [0i64; 4];
-    let mut right = [0i64; 4];
-
-    negacyclic_conv4_i64(lhs_neg, rhs_neg, &mut left);
-    conv4_i64(lhs_pos, rhs_pos, &mut right);
-
-    for i in 0..4 {
-        left[i] += right[i];
-        left[i] >>= 1;
-        right[i] -= left[i];
-    }
-
-    output[..4].copy_from_slice(&left);
-    output[4..8].copy_from_slice(&right);
-}
-
-/// conv16 via CRT decomposition: negacyclic_conv8 + conv8.
-#[inline(always)]
-fn conv16_i64(lhs: [i64; 16], rhs: [i64; 16], output: &mut [i64; 16]) {
-    let mut lhs_pos = [0i64; 8];
-    let mut lhs_neg = [0i64; 8];
-    let mut rhs_pos = [0i64; 8];
-    let mut rhs_neg = [0i64; 8];
-
-    for i in 0..8 {
-        lhs_pos[i] = lhs[i] + lhs[i + 8];
-        lhs_neg[i] = lhs[i] - lhs[i + 8];
-        rhs_pos[i] = rhs[i] + rhs[i + 8];
-        rhs_neg[i] = rhs[i] - rhs[i + 8];
-    }
-
-    let mut left = [0i64; 8];
-    let mut right = [0i64; 8];
-
-    negacyclic_conv8_i64(lhs_neg, rhs_neg, &mut left);
-    conv8_i64(lhs_pos, rhs_pos, &mut right);
-
-    for i in 0..8 {
-        left[i] += right[i];
-        left[i] >>= 1;
-        right[i] -= left[i];
-    }
-
-    output[..8].copy_from_slice(&left);
-    output[8..16].copy_from_slice(&right);
-}
-
-/// Apply the 16x16 circulant MDS matrix using Karatsuba convolution.
-/// Specialized for KoalaBear: works in i64 with deferred modular reduction.
-#[inline(always)]
-fn mds_circulant_16_karatsuba_i64(state: &mut [KoalaBear; 16]) {
-    let lhs: [i64; 16] = std::array::from_fn(|i| state[i].value as i64);
-    let mut output = [0i64; 16];
-    conv16_i64(lhs, MDS_CIRC_16_FIRST_COL, &mut output);
-    let p = KoalaBearParameters::PRIME as i64;
-    for i in 0..16 {
-        state[i] = KoalaBear::new_monty(output[i].rem_euclid(p) as u32);
-    }
+#[inline(never)]
+fn partial_rc_f() -> &'static [[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS] {
+    PARTIAL_RC_F_CACHE.get_or_init(|| {
+        core::array::from_fn(|k| dif_ifft_16(&POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + k]))
+    })
 }
 
 // ---------------------------------------------------------------------------
-// Precomputed Karatsuba constants for the generic path.
-// All rhs decompositions in the Karatsuba tree are precomputed as KoalaBear
-// constants. Using Algebra<KoalaBear> bound enables scalar multiplication
-// (R * KoalaBear) instead of full R * R multiplication.
-// Where possible, multiplications by 1, -1, 2, -2 are replaced by identity,
-// negation, or .double() for better performance on extension field types.
+// Butterfly helpers — take &mut [R;16] + compile-time index pairs.
+// R: Algebra<KoalaBear> ⟹ R: Copy (via PrimeCharacteristicRing), so
+// reading v[lo] and v[hi] copies the values before writing.
 // ---------------------------------------------------------------------------
 
-/// KoalaBear prime, for computing negatives: -x = KB_P - x.
-const KB_P: u32 = 2130706433;
-
-// The Karatsuba decomposition of MDS_CIRC_16_FIRST_COL proceeds as follows:
-//
-// conv16 splits rhs into:
-//   rhs_neg[i] = col[i] - col[i+8] = [-100, 2, -3, 5, 56, 1, -53, 62]
-//   rhs_pos[i] = col[i] + col[i+8] = [102, 4, 1, 39, 78, 3, 49, 64]
-//
-// negacyclic_conv8(rhs_neg) decomposes into:
-//   neg_even = [-100, -3, 56, -53]       (rhs_neg[2i])
-//   neg_odd  = [2, 5, 1, 62]             (rhs_neg[2i+1])
-//   neg_sum  = [-98, 2, 57, 9]           (neg_even + neg_odd)
-//
-// conv8(rhs_pos) decomposes into:
-//   pos_pos = [180, 7, 50, 103]          (rhs_pos[i] + rhs_pos[i+4])
-//   pos_neg = [24, 1, -48, -25]          (rhs_pos[i] - rhs_pos[i+4])
-//
-// conv4(pos_pos) further splits:
-//   v_p = [230, 110], v_m = [130, -96]
-//
-// For a negacyclic circulant with column [a,b,c,d], the 4x4 matrix is:
-//   row0: [a, -d, -c, -b]
-//   row1: [b,  a, -d, -c]
-//   row2: [c,  b,  a, -d]
-//   row3: [d,  c,  b,  a]
-
-/// Column vectors for each negacyclic circulant matrix.
-/// For column [a, b, c, d], the circulant rows are:
-///   [a, -d, -c, -b], [b, a, -d, -c], [c, b, a, -d], [d, c, b, a].
-const NC4_NEG_EVEN_COL: [KoalaBear; 4] = KoalaBear::new_array([KB_P - 100, KB_P - 3, 56, KB_P - 53]);
-const NC4_NEG_ODD_COL: [KoalaBear; 4] = KoalaBear::new_array([2, 5, 1, 62]);
-const NC4_NEG_SUM_COL: [KoalaBear; 4] = KoalaBear::new_array([KB_P - 98, 2, 57, 9]);
-const NC4_POS_NEG_COL: [KoalaBear; 4] = KoalaBear::new_array([24, 1, KB_P - 48, KB_P - 25]);
-
-/// Conv4 constants: v_m = [130, -96], v_p = [230, 110].
-const CONV4_VM: [KoalaBear; 2] = KoalaBear::new_array([130, KB_P - 96]);
-const CONV4_VP: [KoalaBear; 2] = KoalaBear::new_array([230, 110]);
-
-/// Compute the negacyclic circulant convolution using column-based constants.
-/// Precomputes 7 broadcast values (a,b,c,d,-b,-c,-d) and reuses them across all 4 rows.
+/// Plain butterfly (twiddle = 1): (lo, hi) → (lo+hi, lo−hi).
 #[inline(always)]
-fn negacyclic_conv4_circulant<R: Algebra<KoalaBear>>(lhs: &[R; 4], col: &[KoalaBear; 4], output: &mut [R; 4]) {
-    let a = R::from(col[0]);
-    let b = R::from(col[1]);
-    let c = R::from(col[2]);
-    let d = R::from(col[3]);
-    let nb = -b;
-    let nc = -c;
-    let nd = -d;
-
-    output[0] = R::dot_product(lhs, &[a, nd, nc, nb]);
-    output[1] = R::dot_product(lhs, &[b, a, nd, nc]);
-    output[2] = R::dot_product(lhs, &[c, b, a, nd]);
-    output[3] = R::dot_product(lhs, &[d, c, b, a]);
+fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
+    let (a, b) = (v[lo], v[hi]);
+    v[lo] = a + b;
+    v[hi] = a - b;
 }
 
+/// DIT butterfly: (lo, hi) → (lo + hi·t,  lo − hi·t).
 #[inline(always)]
-fn conv4_circulant<R: Algebra<KoalaBear>>(lhs: &[R; 4], output: &mut [R; 4]) {
-    let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
-    let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
-
-    let vm0 = R::from(CONV4_VM[0]);
-    let vm1 = R::from(CONV4_VM[1]);
-    let neg_vm1 = -vm1;
-    let vp0 = R::from(CONV4_VP[0]);
-    let vp1 = R::from(CONV4_VP[1]);
-
-    output[0] = R::dot_product(&u_m, &[vm0, neg_vm1]);
-    output[1] = R::dot_product(&u_m, &[vm1, vm0]);
-    output[2] = R::dot_product(&u_p, &[vp0, vp1]);
-    output[3] = R::dot_product(&u_p, &[vp1, vp0]);
-
-    output[0] += output[2];
-    output[1] += output[3];
-    output[0] = output[0].halve();
-    output[1] = output[1].halve();
-    output[2] -= output[0];
-    output[3] -= output[1];
+fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+    let a = v[lo];
+    let tb = v[hi] * t;
+    v[lo] = a + tb;
+    v[hi] = a - tb;
 }
 
-/// negacyclic_conv8 via even/odd decomposition with 3x negacyclic_conv4.
-#[inline(always)]
-fn negacyclic_conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
-    let lhs_even: [R; 4] = std::array::from_fn(|i| lhs[2 * i]);
-    let lhs_odd: [R; 4] = std::array::from_fn(|i| lhs[2 * i + 1]);
-    let lhs_sum: [R; 4] = std::array::from_fn(|i| lhs[2 * i] + lhs[2 * i + 1]);
-
-    let mut even_conv: [R; 4] = std::array::from_fn(|_| R::default());
-    let mut odd_conv: [R; 4] = std::array::from_fn(|_| R::default());
-    let mut sum_conv: [R; 4] = std::array::from_fn(|_| R::default());
-
-    negacyclic_conv4_circulant(&lhs_even, &NC4_NEG_EVEN_COL, &mut even_conv);
-    negacyclic_conv4_circulant(&lhs_odd, &NC4_NEG_ODD_COL, &mut odd_conv);
-    negacyclic_conv4_circulant(&lhs_sum, &NC4_NEG_SUM_COL, &mut sum_conv);
-
-    // Karatsuba recombination
-    sum_conv[0] -= even_conv[0] + odd_conv[0];
-    even_conv[0] -= odd_conv[3];
-    for i in 1..4 {
-        sum_conv[i] -= even_conv[i] + odd_conv[i];
-        even_conv[i] += odd_conv[i - 1];
-    }
-
-    // Interleave
-    for i in 0..4 {
-        output[2 * i] = even_conv[i];
-        output[2 * i + 1] = sum_conv[i];
-    }
-}
-
-/// conv8 via CRT decomposition: negacyclic_conv4 + conv4.
-#[inline(always)]
-fn conv8_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 8], output: &mut [R; 8]) {
-    let lhs_pos: [R; 4] = std::array::from_fn(|i| lhs[i] + lhs[i + 4]);
-    let lhs_neg: [R; 4] = std::array::from_fn(|i| lhs[i] - lhs[i + 4]);
-
-    let mut left: [R; 4] = std::array::from_fn(|_| R::default());
-    let mut right: [R; 4] = std::array::from_fn(|_| R::default());
-
-    negacyclic_conv4_circulant(&lhs_neg, &NC4_POS_NEG_COL, &mut left);
-    conv4_circulant(&lhs_pos, &mut right);
-
-    for i in 0..4 {
-        left[i] += right[i];
-        left[i] = left[i].halve();
-        right[i] -= left[i];
-    }
-
-    output[..4].clone_from_slice(&left);
-    output[4..8].clone_from_slice(&right);
-}
-
-/// conv16 via CRT decomposition: negacyclic_conv8 + conv8.
-#[inline(always)]
-fn conv16_precomputed<R: Algebra<KoalaBear>>(lhs: &[R; 16], output: &mut [R; 16]) {
-    let lhs_pos: [R; 8] = std::array::from_fn(|i| lhs[i] + lhs[i + 8]);
-    let lhs_neg: [R; 8] = std::array::from_fn(|i| lhs[i] - lhs[i + 8]);
-
-    let mut left: [R; 8] = std::array::from_fn(|_| R::default());
-    let mut right: [R; 8] = std::array::from_fn(|_| R::default());
-
-    negacyclic_conv8_precomputed(&lhs_neg, &mut left);
-    conv8_precomputed(&lhs_pos, &mut right);
-
-    for i in 0..8 {
-        left[i] += right[i];
-        left[i] = left[i].halve();
-        right[i] -= left[i];
-    }
-
-    output[..8].clone_from_slice(&left);
-    output[8..16].clone_from_slice(&right);
-}
-
-/// Apply the 16x16 circulant MDS matrix to a state vector using Karatsuba convolution.
+/// DIF butterfly with **negated** subtraction order: (lo, hi) → (lo+hi, (hi−lo)·t).
 ///
-/// Uses i64 fast path for scalar KoalaBear (deferred modular reduction).
-/// Uses precomputed Karatsuba constants for all other types (packed, extension fields, etc.).
-/// With Algebra<KoalaBear> bound, all multiplications are scalar (R * KoalaBear).
+/// Used in place of the standard DIF butterfly `(lo+hi, (lo−hi)·WI_k)` by
+/// exploiting WI_k = −W_{8−k}, so `(lo−hi)·WI_k = (hi−lo)·W_{8−k}`.
+///
+/// This eliminates all 7 inverse-twiddle constants from the hot path.
 #[inline(always)]
-pub fn mds_circulant_16_karatsuba<R: Algebra<KoalaBear> + 'static>(state: &mut [R; 16]) {
-    // Fast path for scalar KoalaBear: Karatsuba convolution in i64
-    if TypeId::of::<R>() == TypeId::of::<KoalaBear>() {
-        let state_kb = unsafe { &mut *(state as *mut [R; 16] as *mut [KoalaBear; 16]) };
-        mds_circulant_16_karatsuba_i64(state_kb);
-        return;
-    }
+fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+    let (a, b) = (v[lo], v[hi]);
+    v[lo] = a + b;
+    v[hi] = (b - a) * t; // (hi − lo) · t  ≡  (lo − hi) · (−t) = (lo − hi) · WI_{8−k}
+}
 
-    let lhs = *state;
-    conv16_precomputed(&lhs, state);
+/// DIF IFFT (4 stages): time-domain state → bit-reversed frequency domain.
+/// Returns f_br where f_br[j] = IDFT_unnorm(state)[bit_rev(j, 4)].
+#[inline(always)]
+fn dif_ifft_16<R: Algebra<KoalaBear>>(state: &[R; 16]) -> [R; 16] {
+    let mut f = *state;
+    // Stage 1 — stride 8
+    bt(&mut f, 0, 8);
+    neg_dif(&mut f, 1, 9, W7);
+    neg_dif(&mut f, 2, 10, W6);
+    neg_dif(&mut f, 3, 11, W5);
+    neg_dif(&mut f, 4, 12, W4);
+    neg_dif(&mut f, 5, 13, W3);
+    neg_dif(&mut f, 6, 14, W2);
+    neg_dif(&mut f, 7, 15, W1);
+    // Stage 2 — stride 4
+    bt(&mut f, 0, 4);
+    neg_dif(&mut f, 1, 5, W6);
+    neg_dif(&mut f, 2, 6, W4);
+    neg_dif(&mut f, 3, 7, W2);
+    bt(&mut f, 8, 12);
+    neg_dif(&mut f, 9, 13, W6);
+    neg_dif(&mut f, 10, 14, W4);
+    neg_dif(&mut f, 11, 15, W2);
+    // Stage 3 — stride 2
+    bt(&mut f, 0, 2);
+    neg_dif(&mut f, 1, 3, W4);
+    bt(&mut f, 4, 6);
+    neg_dif(&mut f, 5, 7, W4);
+    bt(&mut f, 8, 10);
+    neg_dif(&mut f, 9, 11, W4);
+    bt(&mut f, 12, 14);
+    neg_dif(&mut f, 13, 15, W4);
+    // Stage 4 — stride 1
+    bt(&mut f, 0, 1);
+    bt(&mut f, 2, 3);
+    bt(&mut f, 4, 5);
+    bt(&mut f, 6, 7);
+    bt(&mut f, 8, 9);
+    bt(&mut f, 10, 11);
+    bt(&mut f, 12, 13);
+    bt(&mut f, 14, 15);
+    f
+}
+
+/// DIT FFT (4 stages): bit-reversed input → DFT output in natural order.
+/// Computes DFT(f_nat) where f_nat[k] = f[bit_rev(k, 4)].
+/// To recover state from f_br: state = dit_fft_16(&f_br) * N_INV.
+#[inline(always)]
+fn dit_fft_16<R: Algebra<KoalaBear>>(f: &[R; 16]) -> [R; 16] {
+    let mut out = *f;
+    // Stage 1 — stride 1
+    bt(&mut out, 0, 1);
+    bt(&mut out, 2, 3);
+    bt(&mut out, 4, 5);
+    bt(&mut out, 6, 7);
+    bt(&mut out, 8, 9);
+    bt(&mut out, 10, 11);
+    bt(&mut out, 12, 13);
+    bt(&mut out, 14, 15);
+    // Stage 2 — stride 2
+    bt(&mut out, 0, 2);
+    dit(&mut out, 1, 3, W4);
+    bt(&mut out, 4, 6);
+    dit(&mut out, 5, 7, W4);
+    bt(&mut out, 8, 10);
+    dit(&mut out, 9, 11, W4);
+    bt(&mut out, 12, 14);
+    dit(&mut out, 13, 15, W4);
+    // Stage 3 — stride 4
+    bt(&mut out, 0, 4);
+    dit(&mut out, 1, 5, W2);
+    dit(&mut out, 2, 6, W4);
+    dit(&mut out, 3, 7, W6);
+    bt(&mut out, 8, 12);
+    dit(&mut out, 9, 13, W2);
+    dit(&mut out, 10, 14, W4);
+    dit(&mut out, 11, 15, W6);
+    // Stage 4 — stride 8
+    bt(&mut out, 0, 8);
+    dit(&mut out, 1, 9, W1);
+    dit(&mut out, 2, 10, W2);
+    dit(&mut out, 3, 11, W3);
+    dit(&mut out, 4, 12, W4);
+    dit(&mut out, 5, 13, W5);
+    dit(&mut out, 6, 14, W6);
+    dit(&mut out, 7, 15, W7);
+    out
+}
+
+/// Apply the 16×16 Reed-Solomon MDS matrix.
+///
+/// Generic over `R: Algebra<KoalaBear>` — works for scalar KoalaBear, all packed
+/// SIMD types, and extension field types without any type dispatch.
+///
+/// The inverse twiddles ω^{−k} = −ω^{8−k} are handled by `neg_dif` with forward
+/// twiddles W_{8−k}, halving the constant pool and reducing register pressure on
+/// packed SIMD code.
+#[inline(always)]
+pub fn mds_rs_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
+    // ── Step 1: DIF IFFT — 4 stages, output in bit-reversed order ──
+    //
+    // Each DIF butterfly `(lo+hi, (lo−hi)·WI_k)` is replaced by
+    // `neg_dif(lo, hi, W_{8−k})` using WI_k = −W_{8−k}.
+
+    // Stage 1 — stride 8
+    // Twiddles ω^{−j} for j=0..7.  Non-trivial: WI1=−W7 .. WI7=−W1.
+    bt(state, 0, 8); // j=0: twiddle=1
+    neg_dif(state, 1, 9, W7); // j=1: WI1 = −W7
+    neg_dif(state, 2, 10, W6); // j=2: WI2 = −W6
+    neg_dif(state, 3, 11, W5); // j=3: WI3 = −W5
+    neg_dif(state, 4, 12, W4); // j=4: WI4 = −W4
+    neg_dif(state, 5, 13, W3); // j=5: WI5 = −W3
+    neg_dif(state, 6, 14, W2); // j=6: WI6 = −W2
+    neg_dif(state, 7, 15, W1); // j=7: WI7 = −W1
+
+    // Stage 2 — stride 4, twiddles ω^{−2j}, two blocks of 8
+    bt(state, 0, 4); // block 0, j=0
+    neg_dif(state, 1, 5, W6); // j=1: WI2 = −W6
+    neg_dif(state, 2, 6, W4); // j=2: WI4 = −W4
+    neg_dif(state, 3, 7, W2); // j=3: WI6 = −W2
+    bt(state, 8, 12); // block 1, j=0
+    neg_dif(state, 9, 13, W6); // j=1
+    neg_dif(state, 10, 14, W4); // j=2
+    neg_dif(state, 11, 15, W2); // j=3
+
+    // Stage 3 — stride 2, twiddle ω^{−4}, four blocks of 4
+    bt(state, 0, 2);
+    neg_dif(state, 1, 3, W4); // WI4 = −W4
+    bt(state, 4, 6);
+    neg_dif(state, 5, 7, W4);
+    bt(state, 8, 10);
+    neg_dif(state, 9, 11, W4);
+    bt(state, 12, 14);
+    neg_dif(state, 13, 15, W4);
+
+    // Stage 4 — stride 1, all twiddles = 1 → 8 plain butterflies
+    bt(state, 0, 1);
+    bt(state, 2, 3);
+    bt(state, 4, 5);
+    bt(state, 6, 7);
+    bt(state, 8, 9);
+    bt(state, 10, 11);
+    bt(state, 12, 13);
+    bt(state, 14, 15);
+
+    // ── Step 2: multiply by coset weights  weights[i] = g^{bit_rev(i,4)} ──
+    // state[0] *= g^0 = 1  →  skipped
+    state[1] *= WEIGHTS[0]; // g^8
+    state[2] *= WEIGHTS[1]; // g^4
+    state[3] *= WEIGHTS[2]; // g^12
+    state[4] *= WEIGHTS[3]; // g^2
+    state[5] *= WEIGHTS[4]; // g^10
+    state[6] *= WEIGHTS[5]; // g^6
+    state[7] *= WEIGHTS[6]; // g^14
+    state[8] *= WEIGHTS[7]; // g^1
+    state[9] *= WEIGHTS[8]; // g^9
+    state[10] *= WEIGHTS[9]; // g^5
+    state[11] *= WEIGHTS[10]; // g^13
+    state[12] *= WEIGHTS[11]; // g^3
+    state[13] *= WEIGHTS[12]; // g^11
+    state[14] *= WEIGHTS[13]; // g^7
+    state[15] *= WEIGHTS[14]; // g^15
+
+    // ── Step 3: DIT FFT — bit-reversed input → natural order output ──
+
+    // Stage 1 — stride 1, all twiddles = 1
+    bt(state, 0, 1);
+    bt(state, 2, 3);
+    bt(state, 4, 5);
+    bt(state, 6, 7);
+    bt(state, 8, 9);
+    bt(state, 10, 11);
+    bt(state, 12, 13);
+    bt(state, 14, 15);
+
+    // Stage 2 — stride 2, twiddle ω^4, four blocks of 4
+    bt(state, 0, 2);
+    dit(state, 1, 3, W4);
+    bt(state, 4, 6);
+    dit(state, 5, 7, W4);
+    bt(state, 8, 10);
+    dit(state, 9, 11, W4);
+    bt(state, 12, 14);
+    dit(state, 13, 15, W4);
+
+    // Stage 3 — stride 4, twiddles ω^{2j}, two blocks of 8
+    bt(state, 0, 4); // block 0, j=0
+    dit(state, 1, 5, W2);
+    dit(state, 2, 6, W4);
+    dit(state, 3, 7, W6);
+    bt(state, 8, 12); // block 1, j=0
+    dit(state, 9, 13, W2);
+    dit(state, 10, 14, W4);
+    dit(state, 11, 15, W6);
+
+    // Stage 4 — stride 8, twiddles ω^j for j=0..7
+    bt(state, 0, 8); // j=0: twiddle=1
+    dit(state, 1, 9, W1);
+    dit(state, 2, 10, W2);
+    dit(state, 3, 11, W3);
+    dit(state, 4, 12, W4);
+    dit(state, 5, 13, W5);
+    dit(state, 6, 14, W6);
+    dit(state, 7, 15, W7);
 }
 
 /// The Poseidon1 permutation for KoalaBear, width 16, cube S-box.
@@ -393,19 +395,73 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
 
 impl Poseidon1KoalaBear16 {
     /// Apply the permutation to a state, works generically on any Algebra<KoalaBear>.
+    ///
+    /// Partial rounds use the frequency-domain optimisation: maintains
+    /// f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)] between rounds, reducing each
+    /// partial round from 49 MDS multiplications to 31 (15 for f update + 16 for s0).
     #[inline(always)]
-    fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
-        // Initial full rounds
+    fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
+        // ── Initial full rounds ──────────────────────────────────────────────
         for rc in poseidon1_initial_constants() {
             Self::full_round(state, rc);
         }
 
-        // Generic partial rounds
-        for rc in poseidon1_partial_constants() {
-            Self::partial_round(state, rc);
+        // ── Partial rounds (frequency-domain) ───────────────────────────────
+        //
+        // Invariant: f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)]
+        //            s0      = state[0]  (time-domain)
+        //
+        // Per round:
+        //   1. f_br'[j]  = f_br[j] + IDFT_unnorm(RC[k])[bit_rev(j,4)]       (adds)
+        //   2. delta     = (s0 + RC[k,0])^3 − (s0 + RC[k,0])                (2 muls)
+        //   3. s0_new    = dot(G_BR, f_br') + delta · SUM_G                  (16 muls)
+        //   4. f_br''[j] = f_br'[j] + delta                                  (adds)
+        //   5. f_br_new[j] = NW_BR[j] · f_br''[j]                           (16 muls)
+        {
+            let rc_f = partial_rc_f();
+            let mut f_br = dif_ifft_16(state);
+            let mut s0 = state[0];
+
+            for (k, rc) in poseidon1_partial_constants().iter().enumerate() {
+                // Step 1: add round constant in frequency domain.
+                for j in 0..16 {
+                    f_br[j] += rc_f[k][j];
+                }
+                let mut s0_prime = s0;
+                s0_prime += rc[0];
+
+                // Step 2: S-box on time-domain state[0].
+                let cube = s0_prime.injective_exp_n(); // s0'^3
+                let delta = cube - s0_prime; // delta = s0'^3 − s0'
+
+                // Step 3: s0_new = sum_j G_BR[j] * f_br'[j]  +  delta * SUM_G
+                //         (uses f_br' = f_br AFTER step 1, BEFORE steps 4–5)
+                s0 = f_br[0]; // G_BR[0] = 1
+                for j in 1..16 {
+                    s0 += f_br[j] * G_BR[j];
+                }
+                s0 += delta * SUM_G;
+
+                // Step 4: add delta to all frequency bins.
+                for j in 0..16 {
+                    f_br[j] += delta;
+                }
+
+                // Step 5: multiply by NW_BR (= N * g^{bit_rev(j,4)}) to complete MDS.
+                for j in 0..16 {
+                    f_br[j] *= NW_BR[j];
+                }
+            }
+            let _ = s0; // last value unused; LLVM eliminates it
+
+            // Recover time-domain state:  state = DIT_FFT(f_br) / N
+            let dft_out = dit_fft_16(&f_br);
+            for j in 0..16 {
+                state[j] = dft_out[j] * N_INV;
+            }
         }
 
-        // Final full rounds
+        // ── Final full rounds ────────────────────────────────────────────────
         for rc in poseidon1_final_constants() {
             Self::full_round(state, rc);
         }
@@ -413,32 +469,19 @@ impl Poseidon1KoalaBear16 {
 
     /// A full round: add constants to all elements, cube all elements, apply MDS.
     #[inline(always)]
-    fn full_round<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
+    fn full_round<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(state: &mut [R; 16], rc: &[KoalaBear; 16]) {
         for (s, &c) in state.iter_mut().zip(rc.iter()) {
             *s += c;
         }
         for s in state.iter_mut() {
             *s = s.injective_exp_n();
         }
-        mds_circulant_16_karatsuba(state);
-    }
-
-    /// A partial round: add constants to all elements, cube only state[0], apply MDS.
-    #[inline(always)]
-    fn partial_round<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(
-        state: &mut [R; 16],
-        rc: &[KoalaBear; 16],
-    ) {
-        for (s, &c) in state.iter_mut().zip(rc.iter()) {
-            *s += c;
-        }
-        state[0] = state[0].injective_exp_n();
-        mds_circulant_16_karatsuba(state);
+        mds_rs_16(state);
     }
 
     /// Compression: output = perm(input) + input
     #[inline(always)]
-    pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3> + 'static>(&self, state: &mut [R; 16]) {
+    pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
         let initial = *state;
         self.permute_generic(state);
         for (s, init) in state.iter_mut().zip(initial) {
@@ -447,9 +490,7 @@ impl Poseidon1KoalaBear16 {
     }
 }
 
-impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Permutation<[R; 16]>
-    for Poseidon1KoalaBear16
-{
+impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync> Permutation<[R; 16]> for Poseidon1KoalaBear16 {
     fn permute_mut(&self, input: &mut [R; 16]) {
         self.permute_generic(input);
     }
@@ -591,6 +632,7 @@ mod tests {
     /// Regenerate and verify the POSEIDON1_ROUND_CONSTANTS array.
     /// Run with: cargo test -p mt-koala-bear -- generate_poseidon1_constants --ignored --nocapture
     #[test]
+    #[ignore]
     fn generate_poseidon1_constants() {
         const P: u64 = 2130706433;
         const TOTAL: usize = POSEIDON1_N_ROUNDS * 16;
@@ -599,7 +641,7 @@ mod tests {
         let a: u64 = 6364136223846793005;
         let c: u64 = 1442695040888963407;
 
-        let mut values = Vec::with_capacity(TOTAL);
+        let mut values = alloc::vec::Vec::with_capacity(TOTAL);
         for _ in 0..TOTAL {
             state = state.wrapping_mul(a).wrapping_add(c);
             let val = (state >> 33) % P;
@@ -621,77 +663,218 @@ mod tests {
             "const POSEIDON1_ROUND_CONSTANTS: [[KoalaBear; 16]; {POSEIDON1_N_ROUNDS}] = KoalaBear::new_2d_array(["
         );
         for chunk in values.chunks_exact(16) {
-            let vals: Vec<_> = chunk.iter().map(|v| v.as_canonical_u32().to_string()).collect();
+            let vals: alloc::vec::Vec<_> = chunk.iter().map(|v| v.as_canonical_u32().to_string()).collect();
             println!("    [{}],", vals.join(", "));
         }
         println!("]);");
     }
 
-    fn i64_to_kb(x: i64) -> KoalaBear {
-        let p = KB_P as i64;
-        KoalaBear::new(((x % p + p) % p) as u32)
-    }
+    /// Naive reference implementation of the RS-MDS via explicit O(N²) IDFT + weight + DFT.
+    fn naive_rs_mds(input: &[KoalaBear; 16]) -> [KoalaBear; 16] {
+        let omega = KoalaBear::new(0x08dbd69c); // primitive 16th root ω
+        let omega_inv = KoalaBear::new(0x572031df); // ω⁻¹
+        let g = KoalaBear::new(3); // multiplicative generator
 
-    fn naive_mds(state: &mut [KoalaBear; 16]) {
-        let input = *state;
-        for i in 0..16 {
-            let mut acc = KoalaBear::ZERO;
-            for j in 0..16 {
-                let c = MDS_CIRC_16_FIRST_ROW[(j + 16 - i) % 16];
-                acc += i64_to_kb(c) * input[j];
+        // Step 1: N · IDFT(input)  [unnormalized, O(N²)]
+        let mut idft = [KoalaBear::ZERO; 16];
+        for j in 0..16u64 {
+            let wj = omega_inv.exp_u64(j); // ω^{−j}
+            let mut w = KoalaBear::ONE;
+            let mut sum = KoalaBear::ZERO;
+            for k in 0..16 {
+                sum += input[k] * w;
+                w *= wj;
             }
-            state[i] = acc;
+            idft[j as usize] = sum;
+        }
+
+        // Step 2: multiply by g^j
+        let mut gj = KoalaBear::ONE;
+        for j in 0..16 {
+            idft[j] *= gj;
+            gj *= g;
+        }
+
+        // Step 3: DFT(idft)  [O(N²)]
+        let mut result = [KoalaBear::ZERO; 16];
+        for m in 0..16u64 {
+            let wm = omega.exp_u64(m); // ω^m
+            let mut w = KoalaBear::ONE;
+            let mut sum = KoalaBear::ZERO;
+            for j in 0..16 {
+                sum += idft[j] * w;
+                w *= wm;
+            }
+            result[m as usize] = sum;
+        }
+        result
+    }
+
+    /// Fully naive permutation: every MDS computed via the O(N²) coset-LDE.
+    /// No FFT, no SIMD — just schoolbook IDFT + weight + DFT.
+    fn permute_naive(state: &mut [KoalaBear; 16]) {
+        let naive_full_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            for s in st.iter_mut() {
+                *s = s.injective_exp_n();
+            }
+            *st = naive_rs_mds(st);
+        };
+        let naive_partial_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            st[0] = st[0].injective_exp_n();
+            *st = naive_rs_mds(st);
+        };
+        for rc in poseidon1_initial_constants() {
+            naive_full_round(state, rc);
+        }
+        for rc in poseidon1_partial_constants() {
+            naive_partial_round(state, rc);
+        }
+        for rc in poseidon1_final_constants() {
+            naive_full_round(state, rc);
         }
     }
 
-    /// Cross-check unrolled MDS against naive loop implementation.
+    /// End-to-end equivalence: optimised permutation == fully naive O(N²) permutation.
+    ///
+    /// This closes the verification chain without relying on mds_rs_16 correctness:
+    /// permute_mut (freq-domain optimised) == permute_naive (schoolbook IDFT/DFT for every MDS).
     #[test]
-    fn test_mds_circulant_matches_naive() {
+    fn test_permutation_matches_naive() {
+        let p1 = Poseidon1KoalaBear16 {};
+        for seed in 0u32..50 {
+            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
+            let mut opt = state;
+            p1.permute_mut(&mut opt);
+            let mut naive = state;
+            permute_naive(&mut naive);
+            assert_eq!(opt, naive, "Mismatch at seed={seed}");
+        }
+    }
+
+    /// Reference (non-freq-domain) permutation using mds_rs_16 directly.
+    fn permute_reference(state: &mut [KoalaBear; 16]) {
+        let partial_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
+            for (s, &c) in st.iter_mut().zip(rc.iter()) {
+                *s += c;
+            }
+            st[0] = st[0].injective_exp_n();
+            mds_rs_16(st);
+        };
+        for rc in poseidon1_initial_constants() {
+            Poseidon1KoalaBear16::full_round(state, rc);
+        }
+        for rc in poseidon1_partial_constants() {
+            partial_round(state, rc);
+        }
+        for rc in poseidon1_final_constants() {
+            Poseidon1KoalaBear16::full_round(state, rc);
+        }
+    }
+
+    /// Verify the frequency-domain partial round optimisation matches the mds_rs_16 path.
+    #[test]
+    fn test_partial_rounds_fft_optimization() {
+        let p1 = Poseidon1KoalaBear16 {};
+        for seed in 0u32..50 {
+            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
+            let mut opt = state;
+            p1.permute_mut(&mut opt);
+            let mut reference = state;
+            permute_reference(&mut reference);
+            assert_eq!(opt, reference, "Mismatch at seed={seed}");
+        }
+    }
+
+    /// Verify the new constants are consistent with the field arithmetic.
+    #[test]
+    fn test_freq_domain_constants() {
+        let g = KoalaBear::new(3);
+        let n = KoalaBear::new(16);
+
+        // G_BR[j] = g^{bit_rev(j,4)}
+        for j in 0u32..16 {
+            let br = j.reverse_bits() >> 28; // 4-bit reversal
+            assert_eq!(G_BR[j as usize], g.exp_u64(br as u64), "G_BR[{j}]");
+        }
+
+        // NW_BR[j] = N * G_BR[j]
+        for j in 0..16 {
+            assert_eq!(NW_BR[j], n * G_BR[j], "NW_BR[{j}]");
+        }
+
+        // SUM_G = (3^16 - 1)/2 = 21_523_360
+        let sum: KoalaBear = G_BR.iter().copied().sum();
+        assert_eq!(SUM_G, sum);
+
+        // N_INV * 16 = 1
+        assert_eq!(N_INV * KoalaBear::new(16), KoalaBear::ONE);
+
+        // PARTIAL_RC_F[k] = dif_ifft_16(partial_RC[k])
+        let rc_f = partial_rc_f();
+        for k in 0..POSEIDON1_PARTIAL_ROUNDS {
+            let expected = dif_ifft_16(&POSEIDON1_ROUND_CONSTANTS[POSEIDON1_HALF_FULL_ROUNDS + k]);
+            assert_eq!(rc_f[k], expected, "PARTIAL_RC_F[{k}]");
+        }
+    }
+
+    /// Cross-check mds_rs_16 against the naive coset-LDE reference.
+    #[test]
+    fn test_mds_rs_matches_naive() {
         for seed in 0u32..100 {
-            let mut state_a: [KoalaBear; 16] = std::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
-            let mut state_b = state_a;
-            mds_circulant_16_karatsuba(&mut state_a);
-            naive_mds(&mut state_b);
-            assert_eq!(state_a, state_b, "Mismatch at seed={seed}");
+            let input: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
+            let mut state = input;
+            mds_rs_16(&mut state);
+            let expected = naive_rs_mds(&input);
+            assert_eq!(state, expected, "Mismatch at seed={seed}");
         }
     }
 
-    /// Verify all precomputed Karatsuba column constants are correctly derived from MDS_CIRC_16_FIRST_COL.
+    /// Verify W1–W7, their negation identity WI_k = −W_{8−k}, and WEIGHTS.
     #[test]
-    fn test_precomputed_karatsuba_constants() {
-        let col = MDS_CIRC_16_FIRST_COL;
+    fn test_rs_mds_constants() {
+        let omega = KoalaBear::new(0x08dbd69c);
 
-        // conv16 rhs decomposition
-        let rhs_neg: [i64; 8] = std::array::from_fn(|i| col[i] - col[i + 8]);
-        let rhs_pos: [i64; 8] = std::array::from_fn(|i| col[i] + col[i + 8]);
+        // Forward twiddles: ω^k
+        assert_eq!(W1, omega.exp_u64(1));
+        assert_eq!(W2, omega.exp_u64(2));
+        assert_eq!(W3, omega.exp_u64(3));
+        assert_eq!(W4, omega.exp_u64(4));
+        assert_eq!(W5, omega.exp_u64(5));
+        assert_eq!(W6, omega.exp_u64(6));
+        assert_eq!(W7, omega.exp_u64(7));
 
-        // negacyclic_conv8 decomposition
-        let neg_even: [i64; 4] = std::array::from_fn(|i| rhs_neg[2 * i]);
-        let neg_odd: [i64; 4] = std::array::from_fn(|i| rhs_neg[2 * i + 1]);
-        let neg_sum: [i64; 4] = std::array::from_fn(|i| neg_even[i] + neg_odd[i]);
+        // ω^8 = −1  (W4 has order 4: W4² = ω^8 = −1)
+        assert_eq!(omega.exp_u64(8), KoalaBear::NEG_ONE);
+        assert_eq!(W4.exp_u64(4), KoalaBear::ONE);
+        assert_ne!(W4.exp_u64(2), KoalaBear::ONE);
 
-        // conv8 decomposition
-        let pos_pos: [i64; 4] = std::array::from_fn(|i| rhs_pos[i] + rhs_pos[i + 4]);
-        let pos_neg: [i64; 4] = std::array::from_fn(|i| rhs_pos[i] - rhs_pos[i + 4]);
+        // Negation identity: WI_k = −W_{8−k}
+        let omega_inv = KoalaBear::new(0x572031df);
+        assert_eq!(omega_inv.exp_u64(1), -W7, "WI1 ≠ −W7");
+        assert_eq!(omega_inv.exp_u64(2), -W6, "WI2 ≠ −W6");
+        assert_eq!(omega_inv.exp_u64(3), -W5, "WI3 ≠ −W5");
+        assert_eq!(omega_inv.exp_u64(4), -W4, "WI4 ≠ −W4");
+        assert_eq!(omega_inv.exp_u64(5), -W3, "WI5 ≠ −W3");
+        assert_eq!(omega_inv.exp_u64(6), -W2, "WI6 ≠ −W2");
+        assert_eq!(omega_inv.exp_u64(7), -W1, "WI7 ≠ −W1");
 
-        // conv4 decomposition
-        let v_p = [pos_pos[0] + pos_pos[2], pos_pos[1] + pos_pos[3]];
-        let v_m = [pos_pos[0] - pos_pos[2], pos_pos[1] - pos_pos[3]];
+        // omega * omega_inv = 1
+        assert_eq!(omega * omega_inv, KoalaBear::ONE);
+        // omega^16 = 1
+        assert_eq!(omega.exp_u64(16), KoalaBear::ONE);
 
-        // Verify column constants
-        let to_kb_col = |c: [i64; 4]| -> [KoalaBear; 4] { std::array::from_fn(|i| i64_to_kb(c[i])) };
-        assert_eq!(NC4_NEG_EVEN_COL, to_kb_col(neg_even));
-        assert_eq!(NC4_NEG_ODD_COL, to_kb_col(neg_odd));
-        assert_eq!(NC4_NEG_SUM_COL, to_kb_col(neg_sum));
-        assert_eq!(NC4_POS_NEG_COL, to_kb_col(pos_neg));
-
-        // Verify decomposition values match expectations
-        assert_eq!(neg_odd, [2, 5, 1, 62]);
-        assert_eq!(neg_sum, [-98, 2, 57, 9]);
-        assert_eq!(pos_neg, [24, 1, -48, -25]);
-
-        // Verify CONV4 constants
-        assert_eq!(CONV4_VM, [i64_to_kb(v_m[0]), i64_to_kb(v_m[1])]);
-        assert_eq!(CONV4_VP, [i64_to_kb(v_p[0]), i64_to_kb(v_p[1])]);
+        // Weights: g^{bit_rev(i, 4)} for i = 1..15
+        let g = KoalaBear::new(3);
+        // bit_rev(1,4) = 8, bit_rev(2,4) = 4, bit_rev(3,4) = 12, ...
+        let bit_rev = [8u64, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15];
+        for (i, &br) in bit_rev.iter().enumerate() {
+            assert_eq!(WEIGHTS[i], g.exp_u64(br), "WEIGHTS[{i}] mismatch");
+        }
     }
 }

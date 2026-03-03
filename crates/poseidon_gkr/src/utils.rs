@@ -13,7 +13,7 @@ pub fn build_poseidon_inv_matrix<const WIDTH: usize>() -> [[F; WIDTH]; WIDTH] {
     for (i, row) in matrix.iter_mut().enumerate() {
         row[i] = F::ONE;
         let arr: &mut [F; 16] = (&mut row[..]).try_into().unwrap();
-        mds_circulant_16_karatsuba(arr);
+        mds_rs_16(arr);
     }
     matrix = transpose_matrix(&matrix);
     inverse_matrix(&matrix)
