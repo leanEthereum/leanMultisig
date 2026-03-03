@@ -421,6 +421,7 @@ impl Poseidon1KoalaBear16 {
             let rc_f = partial_rc_f();
             let mut f_br = dif_ifft_16(state);
             let mut s0 = state[0];
+            let g_br: [R; 16] = core::array::from_fn(|j| R::from(G_BR[j]));
 
             for (k, rc) in poseidon1_partial_constants().iter().enumerate() {
                 // Step 1: add round constant in frequency domain.
@@ -436,10 +437,7 @@ impl Poseidon1KoalaBear16 {
 
                 // Step 3: s0_new = sum_j G_BR[j] * f_br'[j]  +  delta * SUM_G
                 //         (uses f_br' = f_br AFTER step 1, BEFORE steps 4–5)
-                s0 = f_br[0]; // G_BR[0] = 1
-                for j in 1..16 {
-                    s0 += f_br[j] * G_BR[j];
-                }
+                s0 = R::dot_product::<16>(&f_br, &g_br);
                 s0 += delta * SUM_G;
 
                 // Step 4: add delta to all frequency bins.
