@@ -77,7 +77,7 @@ const WEIGHTS: [KoalaBear; 15] = KoalaBear::new_array([
 //
 // Per partial round, the MDS update reduces to:
 //   f_br_new[j] = NW_BR[j] * (f_br'[j] + delta)   [15 muls, NW_BR[0]=16 is 1 mul]
-//   s0_new = dot(G_BR, f_br') + delta * SUM_G       [16 muls]
+//   s0_new = dot(G_BR, f_br') + delta * SUM_G       [1 dot_product]
 //   (vs 49 muls for the full MDS)
 //
 // Initialization: f_br = dif_ifft_16(state) [17 muls]
@@ -399,12 +399,29 @@ impl Poseidon1KoalaBear16 {
     ///
     /// Partial rounds use the frequency-domain optimisation: maintains
     /// f_br[j] = IDFT_unnorm(state)[bit_rev(j,4)] between rounds, reducing each
-    /// partial round from 49 MDS multiplications to 31 (15 for f update + 16 for s0).
+    /// partial round from 49 MDS multiplications to 34 (16 for f_br + 1 dot_product for s0).
     #[inline(always)]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
         // ── Initial full rounds ──────────────────────────────────────────────
-        for rc in poseidon1_initial_constants() {
+        // First HALF_FULL_ROUNDS − 1 rounds use the standard path.
+        for rc in &poseidon1_initial_constants()[..POSEIDON1_HALF_FULL_ROUNDS - 1] {
             Self::full_round(state, rc);
+        }
+
+        // Last initial full round: add_rc + cube, then enter frequency domain
+        // directly. This skips the DIT FFT at the end of mds_rs_16 and the
+        // DIF IFFT that would immediately follow, saving ~32 multiplications.
+        //
+        // Identity: DIF_IFFT(MDS(x))[j] = NW_BR[j] · DIF_IFFT(x)[j],
+        //           MDS(x)[0] = dot(G_BR, DIF_IFFT(x)).
+        {
+            let rc_last = &poseidon1_initial_constants()[POSEIDON1_HALF_FULL_ROUNDS - 1];
+            for (s, &c) in state.iter_mut().zip(rc_last.iter()) {
+                *s += c;
+            }
+            for s in state.iter_mut() {
+                *s = s.injective_exp_n();
+            }
         }
 
         // ── Partial rounds (frequency-domain) ───────────────────────────────
@@ -415,14 +432,19 @@ impl Poseidon1KoalaBear16 {
         // Per round:
         //   1. f_br'[j]  = f_br[j] + IDFT_unnorm(RC[k])[bit_rev(j,4)]       (adds)
         //   2. delta     = (s0 + RC[k,0])^3 − (s0 + RC[k,0])                (2 muls)
-        //   3. s0_new    = dot(G_BR, f_br') + delta · SUM_G                  (16 muls)
+        //   3. s0_new    = dot(G_BR, f_br') + delta · SUM_G                  (1 dot_product)
         //   4. f_br''[j] = f_br'[j] + delta                                  (adds)
         //   5. f_br_new[j] = NW_BR[j] · f_br''[j]                           (16 muls)
         {
             let rc_f = partial_rc_f();
-            let mut f_br = dif_ifft_16(state);
-            let mut s0 = state[0];
             let g_br: [R; 16] = core::array::from_fn(|j| R::from(G_BR[j]));
+
+            // Enter frequency domain and compute s0 = MDS(cubed_state)[0].
+            let mut f_br = dif_ifft_16(state);
+            let mut s0 = R::dot_product::<16>(&f_br, &g_br);
+            for j in 0..16 {
+                f_br[j] *= NW_BR[j];
+            }
 
             for (k, rc) in poseidon1_partial_constants().iter().enumerate() {
                 // Step 1: add round constant in frequency domain.
