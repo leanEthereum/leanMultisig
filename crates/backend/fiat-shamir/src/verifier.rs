@@ -160,7 +160,7 @@ where
                 let rest_scalars = self.read_transcript((n_coeffs - 1) * EF::DIMENSION)?;
                 let rest_coeffs: Vec<EF> = pack_scalars_to_extension(&rest_scalars);
                 // we use h(0) + h(1) = claimed_sum to recover the missing c0
-                let c0 = (claimed_sum - rest_coeffs.iter().copied().sum::<EF>()) * EF::TWO.inverse();
+                let c0 = (claimed_sum - rest_coeffs.iter().copied().sum::<EF>()).halve();
 
                 let mut full_coeffs = Vec::with_capacity(n_coeffs);
                 full_coeffs.push(c0);
