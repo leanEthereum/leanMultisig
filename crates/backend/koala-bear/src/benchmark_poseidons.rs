@@ -47,7 +47,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     let _ = black_box(state);
     let time_p2 = time.elapsed();
     println!(
-        "Poseidon2, single-threaded, no SIMD: {:.2}M hashes / s ({:.1}x faster than Poseidon1)",
+        "Poseidon2, single-threaded, no SIMD: {:.2}M hashes / s ({:.2}x faster than Poseidon1)",
         (n as f64 / time_p2.as_secs_f64() / 1_000_000.0),
         (time_p1.as_secs_f64() / time_p2.as_secs_f64())
     );
@@ -73,7 +73,7 @@ fn bench_koalabear_1_vs_2_plaintext() {
     let _ = black_box(state);
     let time_p2_simd = time.elapsed();
     println!(
-        "Poseidon2, single-threaded, SIMD: {:.2}M hashes / s ({:.1}x faster than Poseidon1)",
+        "Poseidon2, single-threaded, SIMD: {:.2}M hashes / s ({:.2}x faster than Poseidon1)",
         (n as f64 / time_p2_simd.as_secs_f64() / 1_000_000.0),
         (time_p1_simd.as_secs_f64() / time_p2_simd.as_secs_f64())
     );
