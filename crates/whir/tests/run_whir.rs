@@ -113,13 +113,12 @@ fn test_run_whir() {
         witness_clone,
         &polynomial.by_ref(),
     );
-    let pruned_proof = prover_state.into_pruned_proof();
+    let pruned_proof = prover_state.into_proof();
     let opening_time_single = time.elapsed();
 
     let proof_size_single = pruned_proof.proof_size_fe() as f64 * F::bits() as f64 / 8.0;
 
-    let raw_proof = pruned_proof.restore().unwrap().into_raw_proof();
-    let mut verifier_state = VerifierState::new(raw_proof, poseidon16.clone());
+    let mut verifier_state = VerifierState::<EF, _>::new(pruned_proof, poseidon16.clone()).unwrap();
 
     let parsed_commitment = params.parse_commitment::<F>(&mut verifier_state).unwrap();
 

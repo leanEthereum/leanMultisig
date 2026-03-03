@@ -95,12 +95,13 @@ fn verify_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>>>(
     let batching_scalars_powers: Vec<EF> = batching_scalar.powers().collect_n(output_claims.len());
     let batched_claim: EF = dot_product(output_claims.iter().copied(), batching_scalar.powers());
 
-    let (retrieved_batched_claim, sumcheck_postponed_claim) =
-        sumcheck_verify(verifier_state, log_n_poseidons, computation.degree() + 1)?;
-
-    if retrieved_batched_claim != batched_claim {
-        return Err(ProofError::InvalidProof);
-    }
+    let sumcheck_postponed_claim = sumcheck_verify(
+        verifier_state,
+        log_n_poseidons,
+        computation.degree() + 1,
+        batched_claim,
+        Some(claim_point),
+    )?;
 
     let sumcheck_inner_evals = verifier_state.next_extension_scalars_vec(n_inputs)?;
     let expected = computation.eval_extension(&sumcheck_inner_evals, &batching_scalars_powers)

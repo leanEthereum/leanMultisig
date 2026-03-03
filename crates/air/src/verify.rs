@@ -22,15 +22,14 @@ where
         .unwrap_or_else(|| verifier_state.sample_vec(log_n_rows));
     assert_eq!(zerocheck_challenges.len(), log_n_rows);
 
-    let (sc_sum, outer_statement) = sumcheck_verify::<EF>(verifier_state, log_n_rows, air.degree_air() + 1)?;
-    if sc_sum
-        != virtual_column_statement
-            .as_ref()
-            .map(|st| st.value)
-            .unwrap_or_else(|| EF::ZERO)
-    {
-        return Err(ProofError::InvalidProof);
-    }
+    let expected_sum = virtual_column_statement.as_ref().map(|st| st.value).unwrap_or(EF::ZERO);
+    let outer_statement = sumcheck_verify(
+        verifier_state,
+        log_n_rows,
+        air.degree_air() + 1, // +1 for the eq factor
+        expected_sum,
+        Some(&zerocheck_challenges),
+    )?;
 
     let inner_evals = verifier_state.next_extension_scalars_vec(air.n_columns() + air.n_down_columns())?;
 
@@ -74,11 +73,7 @@ fn open_columns<A: Air, EF: ExtensionField<PF<EF>>>(
 
     let inner_sum: EF = dot_product(evals_down.into_iter(), batching_scalar_powers.iter().copied());
 
-    let (inner_sum_retrieved, inner_sumcheck_stement) = sumcheck_verify(verifier_state, log_n_rows, 2)?;
-
-    if inner_sum != inner_sum_retrieved {
-        return Err(ProofError::InvalidProof);
-    }
+    let inner_sumcheck_stement = sumcheck_verify(verifier_state, log_n_rows, 2, inner_sum, None)?;
 
     let matrix_down_sc_eval = next_mle(outer_sumcheck_challenge, &inner_sumcheck_stement.point);
 

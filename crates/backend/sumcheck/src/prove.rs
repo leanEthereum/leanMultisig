@@ -199,7 +199,7 @@ where
 {
     let mut p_evals = Vec::<(PF<EF>, EF)>::new();
     let start = if is_zerofier {
-        p_evals.extend((0..2).map(|i| (PF::<EF>::from_usize(i), EF::ZERO)));
+        p_evals.push((PF::<EF>::ZERO, EF::ZERO));
         2
     } else {
         0
@@ -229,33 +229,21 @@ where
         None => sumcheck_compute(&multilinears.by_ref(), sc_params, &zs),
     });
 
-    if !is_zerofier {
-        let missing_sum_z = if let Some((eq_factor, _)) = eq_factor {
-            (sum - (0..1).map(|i| p_evals[i].1 * (EF::ONE - eq_factor[0])).sum::<EF>()) / eq_factor[0]
+    if is_zerofier {
+        p_evals.push((PF::<EF>::ONE, EF::ZERO));
+    } else {
+        let p_at_1 = if let Some((eq_factor, _)) = eq_factor {
+            (sum - (EF::ONE - eq_factor[0]) * p_evals[0].1) / eq_factor[0]
         } else {
-            sum - p_evals[..1].iter().map(|(_, s)| *s).sum::<EF>()
+            sum - p_evals[0].1
         };
-        p_evals.push((PF::<EF>::from_usize(1), missing_sum_z));
+        p_evals.push((PF::<EF>::from_usize(1), p_at_1));
     }
 
-    let mut p = DensePolynomial::lagrange_interpolation(&p_evals).unwrap();
-
-    if let Some((eq_factor, _)) = &eq_factor {
-        // https://eprint.iacr.org/2024/108.pdf Section 3.2
-        // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        p *= &DensePolynomial::lagrange_interpolation(&[
-            (PF::<EF>::ZERO, EF::ONE - eq_factor[0]),
-            (PF::<EF>::ONE, eq_factor[0]),
-        ])
-        .unwrap();
-    }
-
-    // sanity check
-    assert_eq!((0..2).map(|i| p.evaluate(EF::from_usize(i))).sum::<EF>(), sum);
-
-    prover_state.add_extension_scalars(&p.coeffs);
-
-    p
+    let poly = DensePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let eq_alpha = eq_factor.as_ref().map(|(p, _)| p[0]);
+    prover_state.add_sumcheck_polynomial(&poly.coeffs, eq_alpha);
+    poly
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -269,14 +257,18 @@ fn on_challenge_received<'a, EF: ExtensionField<PF<EF>>>(
     p: &DensePolynomial<EF>,
     store_intermediate_foldings: bool,
 ) -> Option<EF> {
+    // p is the bare polynomial (without eq linear factor).
+    // Evaluate at challenge and multiply by eq factor if present.
     *sum = p.evaluate(challenge);
     *n_vars -= 1;
 
     if let Some((eq_factor, eq_mle)) = eq_factor {
+        // Multiply sum by eq(α_i, r_i) since the polynomial doesn't include the eq linear factor
+        let eq_eval = (EF::ONE - eq_factor[0]) * (EF::ONE - challenge) + eq_factor[0] * challenge;
+        *sum *= eq_eval;
+
         *missing_mul_factor = Some(
-            ((EF::ONE - eq_factor[0]) * (EF::ONE - challenge) + eq_factor[0] * challenge)
-                * missing_mul_factor.unwrap_or(EF::ONE)
-                / (EF::ONE - eq_factor.get(1).copied().unwrap_or_default()),
+            eq_eval * missing_mul_factor.unwrap_or(EF::ONE) / (EF::ONE - eq_factor.get(1).copied().unwrap_or_default()),
         );
         eq_factor.remove(0);
         eq_mle.truncate(eq_mle.by_ref().packed_len() / 2);

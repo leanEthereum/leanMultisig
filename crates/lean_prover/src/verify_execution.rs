@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 
 use crate::*;
 use air::verify_air;
+use backend::{Proof, RawProof, VerifierState};
 use lean_vm::*;
 use poseidon_gkr::verify_poseidon_gkr;
 use sub_protocols::*;
-use utils::ToUsize;
+use utils::{ToUsize, get_poseidon16};
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
@@ -15,10 +16,9 @@ pub struct ProofVerificationDetails {
 pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    proof: RawProof<F>,
-) -> Result<ProofVerificationDetails, ProofError> {
-    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
-
+    proof: Proof<F>,
+) -> Result<(ProofVerificationDetails, RawProof<F>), ProofError> {
+    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone())?;
     let dims = verifier_state
         .next_base_scalars_vec(2 + N_TABLES)?
         .into_iter()
@@ -196,9 +196,12 @@ pub fn verify_execution(
         global_statements_base,
     )?;
 
-    Ok(ProofVerificationDetails {
-        bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
-    })
+    Ok((
+        ProofVerificationDetails {
+            bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
+        },
+        verifier_state.into_raw_proof(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

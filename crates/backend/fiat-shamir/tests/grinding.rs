@@ -16,7 +16,7 @@ fn bench_grinding() {
         }
         let elapsed = time.elapsed();
         let mut verifier_state =
-            VerifierState::<EF, _>::new(prover_state.raw_proof(), default_koalabear_poseidon1_16());
+            VerifierState::<EF, _>::new(prover_state.into_proof(), default_koalabear_poseidon1_16()).unwrap();
         for _ in 0..n_reps {
             verifier_state.check_pow_grinding(grinding_bits).unwrap()
         }

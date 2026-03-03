@@ -1,4 +1,5 @@
 use crate::{
+    MerklePaths, PrunedMerklePaths,
     challenger::{Challenger, RATE, WIDTH},
     *,
 };
@@ -14,7 +15,8 @@ use symetric::Compression;
 #[derive(Debug)]
 pub struct ProverState<EF: ExtensionField<PF<EF>>, P> {
     challenger: Challenger<PF<EF>, P>,
-    transcript: Proof<PF<EF>>,
+    transcript: Vec<PF<EF>>,
+    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, PF<EF>>>,
 }
 
 impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> ProverState<EF, P>
@@ -26,20 +28,16 @@ where
         assert!(EF::DIMENSION <= RATE);
         Self {
             challenger: Challenger::new(compressor),
-            transcript: Proof(Vec::new()),
+            transcript: Vec::new(),
+            merkle_paths: Vec::new(),
         }
     }
 
-    pub fn raw_proof(self) -> RawProof<PF<EF>> {
-        self.transcript.into_raw_proof()
-    }
-
-    pub fn pruned_proof(&self) -> PrunedProof<PF<EF>> {
-        self.transcript.clone().prune()
-    }
-
-    pub fn into_pruned_proof(self) -> PrunedProof<PF<EF>> {
-        self.transcript.prune()
+    pub fn into_proof(self) -> Proof<PF<EF>> {
+        Proof {
+            transcript: self.transcript,
+            merkle_paths: self.merkle_paths,
+        }
     }
 }
 
@@ -62,14 +60,8 @@ where
     PF<EF>: PrimeField64,
 {
     fn add_base_scalars(&mut self, scalars: &[PF<EF>]) {
-        self.transcript.0.push(TranscriptData::Interraction(scalars.to_vec()));
-        for chunk in scalars.chunks(RATE) {
-            let mut buffer = [PF::<EF>::ZERO; RATE];
-            for (i, val) in chunk.iter().enumerate() {
-                buffer[i] = *val;
-            }
-            self.challenger.observe(buffer);
-        }
+        self.challenger.observe_scalars(scalars);
+        self.transcript.extend_from_slice(scalars);
     }
 
     fn state(&self) -> String {
@@ -81,12 +73,28 @@ where
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            self.transcript.0.len()
+            self.transcript.len()
         )
     }
 
+    fn add_sumcheck_polynomial(&mut self, coeffs: &[EF], eq_alpha: Option<EF>) {
+        match eq_alpha {
+            None => {
+                let scalars = flatten_scalars_to_base(coeffs);
+                self.challenger.observe_scalars(&scalars);
+                self.transcript.extend_from_slice(&scalars[EF::DIMENSION..]); // c0 reconstructed by verifier from claimed_sum
+            }
+            Some(alpha) => {
+                let bare_scalars = flatten_scalars_to_base(coeffs);
+                let full_scalars = flatten_scalars_to_base(&expand_bare_to_full(coeffs, alpha));
+                self.challenger.observe_scalars(&full_scalars);
+                self.transcript.extend_from_slice(&bare_scalars[EF::DIMENSION..]); // h0 reconstructed by verifier from claimed_sum
+            }
+        }
+    }
+
     fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>) {
-        self.transcript.0.push(TranscriptData::MerklePaths(MerklePaths(paths)));
+        self.merkle_paths.push(MerklePaths(paths).prune());
     }
 
     fn pow_grinding(&mut self, bits: usize) {
@@ -134,14 +142,10 @@ where
             })
             .expect("failed to find witness");
 
-        let witness_found = witness_found.lock().unwrap().unwrap();
+        let witness = witness_found.lock().unwrap().unwrap();
 
-        self.challenger.observe({
-            let mut value = [PF::<EF>::ZERO; RATE];
-            value[0] = witness_found;
-            value
-        });
+        self.challenger.observe_scalars(&[witness]);
         assert!(self.challenger.state[0].as_canonical_u64() & ((1 << bits) - 1) == 0);
-        self.transcript.0.push(TranscriptData::GrindingWitness(witness_found));
+        self.transcript.push(witness);
     }
 }
