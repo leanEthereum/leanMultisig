@@ -174,19 +174,22 @@ pub fn wots_encode_with_poseidon_trace(
         // ensures uniformity of encoding
         return None;
     }
-    let all_indices: Vec<_> = compressed
-        .iter()
-        .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
-        .collect::<Vec<_>>()
-        .chunks_exact(W)
-        .take(V + V_GRINDING)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .enumerate()
-                .fold(0u8, |acc, (i, &bit)| acc | (u8::from(bit) << i))
-        })
-        .collect();
+    // 8 field elements * 24 bits each = 192 bits, packed into W=3-bit chunks.
+    let mut bits = [false; DIGEST_SIZE * 24];
+    let mut bit_idx = 0;
+    for kb in &compressed {
+        for b in to_little_endian_bits(kb.to_usize(), 24) {
+            bits[bit_idx] = b;
+            bit_idx += 1;
+        }
+    }
+    let mut all_indices = [0u8; V + V_GRINDING];
+    for (i, chunk) in bits.chunks_exact(W).take(V + V_GRINDING).enumerate() {
+        all_indices[i] = chunk
+            .iter()
+            .enumerate()
+            .fold(0u8, |acc, (j, &bit)| acc | (u8::from(bit) << j));
+    }
     is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
 }
 

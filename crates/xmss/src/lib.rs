@@ -29,7 +29,9 @@ pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_S
 pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
 
 fn poseidon16_compress_with_trace(a: &Digest, b: &Digest, poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>) -> Digest {
-    let input: [F; 16] = [*a, *b].concat().try_into().unwrap();
+    let mut input = [F::default(); 16];
+    input[..8].copy_from_slice(a);
+    input[8..].copy_from_slice(b);
     let output = poseidon16_compress(input);
     poseidon_16_trace.push((input, output));
     output
