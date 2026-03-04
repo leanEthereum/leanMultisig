@@ -53,7 +53,7 @@ def whir_open(
             fs,
             root,
             folding_factors[r],
-            powers_of_two(folding_factors[r]),
+            two_exp(folding_factors[r]),
             is_first_round,
             num_queries[r],
             domain_sz,
@@ -190,7 +190,7 @@ def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Co
 @inline
 def decompose_and_verify_merkle_batch(num_queries, sampled, root, height, num_chunks, circle_values, answers):
     debug_assert(height < 25)
-    match_range(height, range(10, 25), lambda h: decompose_and_verify_merkle_batch_with_height(
+    match_range(height, range(5, 25), lambda h: decompose_and_verify_merkle_batch_with_height(
         num_queries, sampled, root, h, num_chunks, circle_values, answers))
     return
 
@@ -339,9 +339,9 @@ def parse_commitment(fs: Mut, num_ood):
     root: Imu
     ood_points: Imu
     ood_evals: Imu
-    debug_assert(num_ood < 4)
+    debug_assert(num_ood < 5)
     debug_assert(num_ood != 0)
-    fs, root, ood_points, ood_evals = match_range(num_ood, range(1, 4), lambda n: parse_whir_commitment_const(fs, n))
+    fs, root, ood_points, ood_evals = match_range(num_ood, range(1, 5), lambda n: parse_whir_commitment_const(fs, n))
     return fs, root, ood_points, ood_evals
 
 

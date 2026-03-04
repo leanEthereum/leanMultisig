@@ -63,7 +63,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     table_heights = Array(N_TABLES)
     for i in unroll(0, N_TABLES):
         table_log_height = table_log_heights[i]
-        table_heights[i] = powers_of_two(table_log_height)
+        table_heights[i] = two_exp(table_log_height)
         assert table_log_height <= log_n_cycles
         assert MIN_LOG_N_ROWS_PER_TABLE <= table_log_height
         assert table_log_height <= MAX_LOG_N_ROWS_PER_TABLE[i]
@@ -104,14 +104,14 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
         memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory)
     )
 
-    offset: Mut = powers_of_two(log_memory)
+    offset: Mut = two_exp(log_memory)
 
     bytecode_and_acc_point = point_gkr + (n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN) * DIM
     bytecode_multilinear_location_prefix = multilinear_location_prefix(
         offset / 2 ** LOG_GUEST_BYTECODE_LEN, n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN, point_gkr
     )
     bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
-        offset / powers_of_two(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
+        offset / two_exp(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
     )
     # Build padded claim data: [point | value | zero padding]
     bytecode_claim = Array(BYTECODE_CLAIM_SIZE_PADDED)
@@ -166,7 +166,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
             ),
         ),
     )
-    offset += powers_of_two(log_bytecode_padded)
+    offset += two_exp(log_bytecode_padded)
 
     # Dispatch based on table height ordering (sorted by descending height)
     if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
@@ -464,7 +464,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     )
     curr_randomness += DIM
 
-    offset = powers_of_two(log_memory) * 2  # memory and acc_memory
+    offset = two_exp(log_memory) * 2  # memory and acc_memory
 
     eq_bytecode_acc = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
@@ -481,10 +481,10 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
     )
     curr_randomness += DIM
-    offset += powers_of_two(log_bytecode_padded)
+    offset += two_exp(log_bytecode_padded)
 
     prefix_pc_start = multilinear_location_prefix(
-        offset + COL_PC * powers_of_two(log_n_cycles),
+        offset + COL_PC * two_exp(log_n_cycles),
         stacked_n_vars,
         folding_randomness_global,
     )
@@ -492,7 +492,7 @@ def continue_recursion_ordered(second_table, third_table, fs, offset, retrieved_
     curr_randomness += DIM
 
     prefix_pc_end = multilinear_location_prefix(
-        offset + (COL_PC + 1) * powers_of_two(log_n_cycles) - 1,
+        offset + (COL_PC + 1) * two_exp(log_n_cycles) - 1,
         stacked_n_vars,
         folding_randomness_global,
     )
@@ -627,8 +627,8 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
 
 @inline
 def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
-    total: Mut = powers_of_two(log_memory + 1) # memory + acc_memory
-    total += powers_of_two(log_bytecode_padded)
+    total: Mut = two_exp(log_memory + 1) # memory + acc_memory
+    total += two_exp(log_bytecode_padded)
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
         total += n_rows * NUM_COLS_AIR[table_index]
@@ -636,8 +636,8 @@ def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
     return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
 
 def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
-    total: Mut = powers_of_two(log_memory)
-    total += powers_of_two(log_bytecode_padded)
+    total: Mut = two_exp(log_memory)
+    total += two_exp(log_bytecode_padded)
     total += tables_heights[EXECUTION_TABLE_INDEX]
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
