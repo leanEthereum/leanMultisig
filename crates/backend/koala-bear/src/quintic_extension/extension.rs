@@ -150,8 +150,6 @@ where
 
     const NEG_ONE: Self = Self::new(field_to_array(F::NEG_ONE));
 
-    const INVERSE_OF_TWO: Self = Self::new(field_to_array(F::INVERSE_OF_TWO));
-
     #[inline]
     fn from_prime_subfield(f: Self::PrimeSubfield) -> Self {
         <F as PrimeCharacteristicRing>::from_prime_subfield(f).into()

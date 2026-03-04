@@ -38,8 +38,8 @@ where
 {
     let t0 = x[0] + x[1];
     let t1 = x[2] + x[3];
-    let t2 = x[1] + x[1] + t1;
-    let t3 = x[3] + x[3] + t0;
+    let t2 = x[1].double() + t1;
+    let t3 = x[3].double() + t0;
     let t4 = t1.double().double() + t3;
     let t5 = t0.double().double() + t2;
     let t6 = t3 + t5;

@@ -34,7 +34,7 @@ def powers_const(alpha, n: Const):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 9)
-    res = match_range(n, range(0, 1), lambda i: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
     return res
 
 
@@ -56,19 +56,19 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 def eq_mle_extension(a, b, n):
-    debug_assert(n < 30)
+    debug_assert(n < 33)
     debug_assert(0 < n)
     res = Array(DIM)
-    match_range(n, range(1, 30), lambda i: poly_eq_ee(a, b, res, i))
+    match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, res, i))
     return res
 
 
 @inline
 def eq_mle_base_extension(a, b, n):
-    debug_assert(n <= 30)
+    debug_assert(n < 33)
     debug_assert(0 < n)
     res = Array(DIM)
-    match_range(n, range(1, 31), lambda i: poly_eq_be(a, b, res, i))
+    match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, res, i))
     return res
 
 
@@ -82,9 +82,9 @@ def eq_mle_extension_base_const(a, b, n: Const):
 
 @inline
 def expand_from_univariate_base(alpha, n):
-    debug_assert(n < 23)
+    debug_assert(n < 33)
     debug_assert(0 < n)
-    res = match_range(n, range(1, 23), lambda i: expand_from_univariate_base_const(alpha, i))
+    res = match_range(n, range(1, 33), lambda i: expand_from_univariate_base_const(alpha, i))
     return res
 
 
@@ -162,7 +162,7 @@ def mle_of_01234567_etc(point, n):
         e = mle_of_01234567_etc(point + DIM, n - 1)
         a = one_minus_self_extension_ret(point)
         b = mul_extension_ret(a, e)
-        power_of_2 = powers_of_two(n - 1)
+        power_of_2 = two_exp(n - 1)
         c = add_base_extension_ret(power_of_2, e)
         d = mul_extension_ret(point, c)
         res = add_extension_ret(b, d)
@@ -208,9 +208,9 @@ def maximum(a, b):
 
 
 @inline
-def powers_of_two(n):
-    debug_assert(n < 32)
-    res = match_range(n, range(0, 32), lambda i: 2**i)
+def two_exp(n):
+    debug_assert(n < 33)
+    res = match_range(n, range(0, 33), lambda i: 2**i)
     return res
 
 
@@ -494,13 +494,13 @@ def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
 
 @inline
 def checked_decompose_bits_small_value(to_decompose, n_bits):
-    debug_assert(n_bits < 30)
+    debug_assert(n_bits < 31)
     debug_assert(0 < n_bits)
     return match_range(
         n_bits,
         range(0, 1),
         lambda _: 0,
-        range(1, 30),
+        range(1, 31),
         lambda i: checked_decompose_bits_small_value_const(to_decompose, i),
     )
 
@@ -508,7 +508,7 @@ def checked_decompose_bits_small_value(to_decompose, n_bits):
 @inline
 def dot_product_ee_ret(a, b, n):
     res = Array(DIM)
-    dot_product_ee_dynamic(a, b, res, n)
+    dot_product_ee(a, b, res, n)
     return res
 
 
@@ -528,7 +528,7 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
             res[i] = 0
         return res
 
-    n_values = powers_of_two(n_vars)
+    n_values = two_exp(n_vars)
     debug_assert(n_zeros <= n_values)
 
     if n_zeros == n_values:
@@ -627,7 +627,7 @@ def log2_ceil_runtime(n):
     log2: Imu
     hint_log2_ceil(n, log2)
     assert log2 < 31
-    if powers_of_two(log2) != n:
+    if two_exp(log2) != n:
         _, partial_sums_24 = checked_decompose_bits(n)
         match_range(log2,
             range(2, 24),
