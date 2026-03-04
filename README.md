@@ -37,7 +37,7 @@ cargo run --release -- xmss --n-signatures 1400
 | WHIR rate \ regime | Proven               | Conjectured          |
 | ------------------ | -------------------- | -------------------- |
 | 1/2                | 800 XMSS/s - 355 KiB | 800 XMSS/s - 188 KiB |
-| 1/4                | 700 XMSS/s - 229 KiB | 650 XMSS/s - 130 KiB |
+| 1/4                | 700 XMSS/s - 229 KiB | 700 XMSS/s - 130 KiB |
 
 (Proving throughput - proof size)
 
