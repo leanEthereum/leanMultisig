@@ -41,6 +41,8 @@ pub fn prove_execution(
         memory.resize(min_memory_size, F::ZERO);
     }
     let mut prover_state = build_prover_state();
+    prover_state.observe_scalars(public_input);
+    prover_state.observe_scalars(&bytecode.hash);
     prover_state.add_base_scalars(
         &[
             vec![whir_config.starting_log_inv_rate, log2_strict_usize(memory.len())],

@@ -38,10 +38,16 @@ BYTECODE_ZERO_EVAL = BYTECODE_ZERO_EVAL_PLACEHOLDER
 BYTECODE_CLAIM_SIZE = (BYTECODE_POINT_N_VARS + 1) * DIM
 BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
 INNER_PUBLIC_MEMORY_LOG_SIZE = INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER
+PUB_INPUT_SIZE = PUB_INPUT_SIZE_PLACEHOLDER
+BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
 def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     fs: Mut = fs_new(proof_transcript)
+
+    inner_pub_input = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START
+    fs = fs_observe(fs, inner_pub_input, PUB_INPUT_SIZE) # observe public input
+    fs = fs_observe(fs, inner_pub_input + BYTECODE_HASH_OFFSET, DIGEST_LEN) # observe bytecode hash
 
     # table dims
     debug_assert(N_TABLES + 1 < DIGEST_LEN)

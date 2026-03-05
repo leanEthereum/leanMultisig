@@ -120,6 +120,10 @@ where
         )
     }
 
+    fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
+        self.challenger.observe_scalars(scalars);
+    }
+
     fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError> {
         let scalars = self.read_transcript(n)?;
         self.absorb_and_record(&scalars);

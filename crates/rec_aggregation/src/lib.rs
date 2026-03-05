@@ -62,6 +62,7 @@ fn build_non_reserved_public_input(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     bytecode_claim_output: &[F],
+    bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
@@ -72,6 +73,7 @@ fn build_non_reserved_public_input(
     pi.push(slot_hi);
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
+    pi.extend_from_slice(bytecode_hash);
     pi
 }
 
@@ -129,7 +131,14 @@ impl AggregatedXMSS {
 
         let slice_hash = hash_pubkeys(&self.pub_keys);
 
-        build_non_reserved_public_input(self.pub_keys.len(), &slice_hash, message, slot, &bytecode_claim_output)
+        build_non_reserved_public_input(
+            self.pub_keys.len(),
+            &slice_hash,
+            message,
+            slot,
+            &bytecode_claim_output,
+            &bytecode.hash,
+        )
     }
 }
 
@@ -262,8 +271,14 @@ pub fn xmss_aggregate(
 
     // Build public input
     let slice_hash = hash_pubkeys(&global_pub_keys);
-    let non_reserved_public_input =
-        build_non_reserved_public_input(n_sigs, &slice_hash, message, slot, &bytecode_claim_output);
+    let non_reserved_public_input = build_non_reserved_public_input(
+        n_sigs,
+        &slice_hash,
+        message,
+        slot,
+        &bytecode_claim_output,
+        &bytecode.hash,
+    );
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
