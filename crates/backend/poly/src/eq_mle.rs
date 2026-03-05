@@ -1057,23 +1057,6 @@ fn packed_eq_poly<F: Field, EF: ExtensionField<F>>(eval: &[EF], scalar: EF) -> E
     EF::ExtensionPacking::from_ext_slice(&buffer)
 }
 
-pub fn parallel_inner_repeat<A: Copy + Send + Sync>(src: &[A], n: usize) -> Vec<A> {
-    if src.len() * n <= 1 << 12 {
-        // sequential repeat
-        src.iter().flat_map(|&v| std::iter::repeat_n(v, n)).collect()
-    } else {
-        let res = unsafe { uninitialized_vec::<A>(src.len() * n) };
-        src.par_iter().enumerate().for_each(|(i, &v)| {
-            for j in 0..n {
-                unsafe {
-                    std::ptr::write(res.as_ptr().cast_mut().add(i * n + j), v);
-                }
-            }
-        });
-        res
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Instant;

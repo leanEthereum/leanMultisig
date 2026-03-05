@@ -447,15 +447,4 @@ impl IntermediateValue {
             Self::Constant(c) => Ok(MemOrFpOrConstant::Constant(eval_const_expression(c, compiler))),
         }
     }
-    fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
-        if let Some(cst) = try_as_constant(self, compiler) {
-            return Ok(MemOrConstant::Constant(cst));
-        }
-        if let Self::MemoryAfterFp { offset } = self {
-            return Ok(MemOrConstant::MemoryAfterFp {
-                offset: eval_const_expression_usize(offset, compiler),
-            });
-        }
-        Err(format!("Cannot convert {self:?} to MemOrConstant"))
-    }
 }

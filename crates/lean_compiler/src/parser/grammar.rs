@@ -10,21 +10,6 @@ pub struct LangParser;
 /// Type alias for a parsed grammar rule.
 pub type ParsePair<'i> = Pair<'i, Rule>;
 
-/// Utility function to get the line and column number from a parse pair.
-///
-/// This is useful for error reporting and source location tracking.
-pub fn get_location(pair: &ParsePair<'_>) -> (usize, usize) {
-    pair.line_col()
-}
-
-/// Utility function to safely get the next inner element from a parser.
-pub fn next_inner<'i>(mut pairs: impl Iterator<Item = ParsePair<'i>>, expected: &str) -> Option<ParsePair<'i>> {
-    pairs.next().or_else(|| {
-        eprintln!("Warning: Expected {expected} but found nothing");
-        None
-    })
-}
-
 /// Utility function to parse the main program structure.
 pub fn parse_source(input: &str) -> Result<ParsePair<'_>, Box<pest::error::Error<Rule>>> {
     let mut pairs = LangParser::parse(Rule::program, input)?;

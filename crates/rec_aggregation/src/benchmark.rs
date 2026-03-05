@@ -126,14 +126,6 @@ impl LiveTree {
         print!("\x1b[{}A\r\x1b[2K{}\x1b[{}B\r", up, line, up);
         io::stdout().flush().unwrap();
     }
-
-    fn total_time(&self) -> f64 {
-        self.statuses
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .map(|st| st.time_secs)
-            .sum()
-    }
 }
 
 #[allow(clippy::too_many_arguments)]

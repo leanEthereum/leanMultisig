@@ -83,11 +83,6 @@ pub enum SimpleLine {
         else_branch: Vec<Self>,
         location: SourceLocation,
     },
-    AssertZero {
-        operation: MathOperation,
-        arg0: SimpleExpr,
-        arg1: SimpleExpr,
-    },
     FunctionCall {
         function_name: String,
         args: Vec<SimpleExpr>,
@@ -158,7 +153,6 @@ impl SimpleLine {
             Self::ForwardDeclaration { .. }
             | Self::Assignment { .. }
             | Self::RawAccess { .. }
-            | Self::AssertZero { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
             | Self::Precompile { .. }
@@ -184,7 +178,6 @@ impl SimpleLine {
             Self::ForwardDeclaration { .. }
             | Self::Assignment { .. }
             | Self::RawAccess { .. }
-            | Self::AssertZero { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
             | Self::Precompile { .. }
@@ -203,7 +196,7 @@ impl SimpleLine {
     /// (excludes assignment target vars, includes everything the compiler resolves).
     pub(crate) fn operand_exprs(&self) -> Vec<&SimpleExpr> {
         match self {
-            Self::Assignment { arg0, arg1, .. } | Self::AssertZero { arg0, arg1, .. } => {
+            Self::Assignment { arg0, arg1, .. } => {
                 vec![arg0, arg1]
             }
             Self::RawAccess { res, index, .. } => vec![res, index],
@@ -3913,9 +3906,6 @@ impl SimpleLine {
             }
             Self::RawAccess { res, index, shift } => {
                 format!("{res} = memory[{index} + {shift}]")
-            }
-            Self::AssertZero { operation, arg0, arg1 } => {
-                format!("0 = {arg0} {operation} {arg1}")
             }
             Self::IfNotZero {
                 condition,

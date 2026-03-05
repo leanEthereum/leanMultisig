@@ -140,30 +140,6 @@ pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
     }
 }
 
-#[must_use]
-pub fn parallel_clone_vec<A: Clone + Send + Sync>(vec: &[A]) -> Vec<A> {
-    let mut res = unsafe { uninitialized_vec(vec.len()) };
-    parallel_clone(vec, &mut res);
-    res
-}
-
-pub fn dot_product_ef_packed_par<EF: ExtensionField<PF<EF>>, R: Sync + Send + Copy>(a: &[EFPacking<EF>], b: &[R]) -> EF
-where
-    EFPacking<EF>: Algebra<R>,
-{
-    assert_eq!(a.len(), b.len());
-    let total_elements = a.len() * packing_width::<EF>();
-    let res_packed: EFPacking<EF> = if total_elements < PARALLEL_THRESHOLD {
-        a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum::<EFPacking<EF>>()
-    } else {
-        a.par_iter()
-            .zip(b.par_iter())
-            .map(|(&x, &y)| x * y)
-            .sum::<EFPacking<EF>>()
-    };
-    unpack_extension(&[res_packed]).into_iter().sum()
-}
-
 pub fn split_at_many<'a, A>(slice: &'a [A], indices: &[usize]) -> Vec<&'a [A]> {
     for i in 0..indices.len() {
         if i > 0 {
@@ -315,39 +291,5 @@ pub fn transmute_array<A, const N: usize, const M: usize>(input: [A; N]) -> [A; 
 
         // Read the array as a pointer and cast to the output type
         std::ptr::read(&*input as *const [A; N] as *const [A; M])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use koala_bear::{KoalaBear, QuinticExtensionFieldKB};
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-
-    use super::*;
-    type F = KoalaBear;
-    type EF = QuinticExtensionFieldKB;
-
-    #[test]
-    fn test_dot_product_ef_f_packed() {
-        let n = 1 << 20;
-        let mut rng = StdRng::seed_from_u64(0);
-        let a: Vec<EF> = (0..n).map(|_| rng.random()).collect();
-        let b: Vec<F> = (0..n).map(|_| rng.random()).collect();
-        assert_eq!(
-            dot_product_ef_packed_par::<EF, _>(&pack_extension(&a), PFPacking::<EF>::pack_slice(&b)),
-            a.par_iter().zip(b.par_iter()).map(|(&x, &y)| x * y).sum::<EF>()
-        );
-    }
-
-    #[test]
-    fn test_dot_product_ef_ef_packed() {
-        let n = 1 << 20;
-        let mut rng = StdRng::seed_from_u64(0);
-        let a: Vec<EF> = (0..n).map(|_| rng.random()).collect();
-        let b: Vec<EF> = (0..n).map(|_| rng.random()).collect();
-        assert_eq!(
-            dot_product_ef_packed_par::<EF, _>(&pack_extension(&a), &pack_extension(&b),),
-            a.par_iter().zip(b.par_iter()).map(|(&x, &y)| x * y).sum::<EF>()
-        );
     }
 }

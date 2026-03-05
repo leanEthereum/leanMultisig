@@ -25,8 +25,7 @@ pub fn prove_execution(
     let ExecutionTrace {
         traces,
         public_memory_size,
-        non_zero_memory_size: _, // TODO use the information of the ending zeros for speedup
-        mut memory,              // padded with zeros to next power of two
+        mut memory, // padded with zeros to next power of two
         metadata,
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = info_span!("Executing bytecode")

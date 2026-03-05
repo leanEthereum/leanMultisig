@@ -4,7 +4,6 @@ use std::{
 };
 
 use field::{ExtensionField, Field};
-use rand::distr::{Distribution, StandardUniform};
 
 /// A univariate polynomial represented in coefficient form.
 ///
@@ -29,15 +28,6 @@ impl<F: Field> DensePolynomial<F> {
         self.coeffs
             .iter()
             .rfold(EF::ZERO, move |result, coeff| result * point + *coeff)
-    }
-
-    /// Constructs a new polynomial from a list of coefficients
-    ///  which are random elements mapped by closed interval [0, degree]
-    pub fn random<R: rand::Rng>(rng: &mut R, degree: usize) -> Self
-    where
-        StandardUniform: Distribution<F>,
-    {
-        Self::new((0..=degree).map(|_| rng.random()).collect())
     }
 
     pub fn lagrange_interpolation<S>(values: &[(S, F)]) -> Option<Self>

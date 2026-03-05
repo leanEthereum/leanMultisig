@@ -19,6 +19,3 @@ pub use logs::*;
 
 mod poseidon2;
 pub use poseidon2::*;
-
-mod debug;
-pub use debug::*;

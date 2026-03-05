@@ -214,14 +214,3 @@ impl Parse<F> for ConstExprParser {
         }
     }
 }
-
-/// Parser for variable lists (used in function calls).
-pub struct VarListParser;
-
-impl Parse<Vec<SimpleExpr>> for VarListParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Vec<SimpleExpr>> {
-        pair.into_inner()
-            .map(|item| VarOrConstantParser.parse(item, ctx))
-            .collect()
-    }
-}
