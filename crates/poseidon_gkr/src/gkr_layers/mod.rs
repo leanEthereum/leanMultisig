@@ -8,6 +8,7 @@ use backend::*;
 
 use crate::F;
 
+#[allow(clippy::type_complexity)]
 pub fn poseidon_round_constants<const WIDTH: usize>()
 -> (&'static [[F; WIDTH]], &'static [[F; WIDTH]], &'static [[F; WIDTH]]) {
     match WIDTH {

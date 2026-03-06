@@ -7,7 +7,6 @@ use field::PrimeCharacteristicRing;
 
 use crate::{KoalaBear, Poseidon1KoalaBear16, default_koalabear_poseidon2_16};
 
-type F = KoalaBear;
 type FPacking = <KoalaBear as Field>::Packing;
 const PACKING_WIDTH: usize = <FPacking as PackedValue>::WIDTH;
 
@@ -22,37 +21,11 @@ fn test_poseidon1_packed() {
 #[test]
 #[ignore]
 fn bench_koalabear_1_vs_2_plaintext() {
-    let n = 1 << 22;
+    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_koalabear_1_vs_2_plaintext --exact --nocapture --ignored
+    let n = 1 << 23;
     let poseidon1 = Poseidon1KoalaBear16 {};
     let poseidon2 = default_koalabear_poseidon2_16();
 
-    // single threaded, no SIMD
-    let time = Instant::now();
-    let mut state = [F::ZERO; 16];
-    for _ in 0..n {
-        poseidon1.compress_in_place(&mut state);
-    }
-    let _ = black_box(state);
-    let time_p1 = time.elapsed();
-    println!(
-        "Poseidon1, single-threaded, no SIMD: {:.2}M hashes / s",
-        (n as f64 / time_p1.as_secs_f64() / 1_000_000.0)
-    );
-
-    let time = Instant::now();
-    let mut state = [F::ZERO; 16];
-    for _ in 0..n {
-        poseidon2.compress_in_place(&mut state);
-    }
-    let _ = black_box(state);
-    let time_p2 = time.elapsed();
-    println!(
-        "Poseidon2, single-threaded, no SIMD: {:.2}M hashes / s ({:.2}x faster than Poseidon1)",
-        (n as f64 / time_p2.as_secs_f64() / 1_000_000.0),
-        (time_p1.as_secs_f64() / time_p2.as_secs_f64())
-    );
-
-    // SIMD, single-threaded
     let time = Instant::now();
     let mut state = [FPacking::ZERO; 16];
     for _ in 0..n / PACKING_WIDTH {

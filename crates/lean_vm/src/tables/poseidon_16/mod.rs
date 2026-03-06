@@ -144,16 +144,16 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let up = builder.up();
-        let flag = up[POSEIDON_16_COL_FLAG].clone();
-        let index_a = up[POSEIDON_16_COL_A].clone();
-        let index_b = up[POSEIDON_16_COL_B].clone();
-        let index_res = up[POSEIDON_16_COL_RES].clone();
+        let flag = up[POSEIDON_16_COL_FLAG];
+        let index_a = up[POSEIDON_16_COL_A];
+        let index_b = up[POSEIDON_16_COL_B];
+        let index_res = up[POSEIDON_16_COL_RES];
 
         // Bus data: [POSEIDON_PRECOMPILE_DATA (constant), a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                flag.clone(),
+                flag,
                 &[AB::F::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res],
             ));
         } else {

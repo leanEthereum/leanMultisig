@@ -399,8 +399,8 @@ mod tests {
         for j in 0..16u64 {
             let wj = omega_inv.exp_u64(j);
             let mut w = KoalaBear::ONE;
-            for k in 0..16 {
-                idft[j as usize] += input[k] * w;
+            for item in input {
+                idft[j as usize] += *item * w;
                 w *= wj;
             }
         }
@@ -417,8 +417,8 @@ mod tests {
         for m in 0..16u64 {
             let wm = omega.exp_u64(m);
             let mut w = KoalaBear::ONE;
-            for j in 0..16 {
-                result[m as usize] += idft[j] * w;
+            for item in &idft {
+                result[m as usize] += *item * w;
                 w *= wm;
             }
         }
@@ -513,9 +513,9 @@ mod tests {
         assert_eq!(N_INV * n, KoalaBear::ONE);
 
         let rc_f = partial_rc_f();
-        for k in 0..POSEIDON1_PARTIAL_ROUNDS {
+        for (k, rc_f_k) in rc_f.iter().enumerate().take(POSEIDON1_PARTIAL_ROUNDS) {
             let expected = dif_ifft_16(&poseidon1_round_constants()[POSEIDON1_HALF_FULL_ROUNDS + k]);
-            assert_eq!(rc_f[k], expected);
+            assert_eq!(*rc_f_k, expected);
         }
     }
 

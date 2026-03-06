@@ -86,7 +86,7 @@ pub fn verify_execution(
             logup_statements.columns_values[&table]
                 .iter()
                 .filter(|&(&col, _)| {
-                    debug_assert!(col < N_COMMITTED_COLS_P16 || col >= POSEIDON_16_COL_OUTPUT_START); // o logup statement in intermediate GKR layers
+                    debug_assert!(!(N_COMMITTED_COLS_P16..POSEIDON_16_COL_OUTPUT_START).contains(&col)); // no logup statement in intermediate GKR layers
                     col < N_COMMITTED_COLS_P16
                 })
                 .map(|(&k, &v)| (k, v))
