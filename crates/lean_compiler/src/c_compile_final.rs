@@ -2,7 +2,7 @@ use crate::{F, instruction_encoder::field_representation, ir::*, lang::*};
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
-use utils::ToUsize;
+use utils::{ToUsize, poseidon_compress_slice};
 
 impl IntermediateInstruction {
     const fn is_hint(&self) -> bool {
@@ -177,11 +177,13 @@ pub fn compile_to_low_level_bytecode(
             .map(|&pf| EF::from(pf))
             .collect::<Vec<EF>>(),
     );
+    let hash = poseidon_compress_slice(&instructions_multilinear, true);
 
     Ok(Bytecode {
         instructions,
         instructions_multilinear,
         instructions_multilinear_packed,
+        hash,
         hints,
         starting_frame_memory,
         function_locations,
@@ -444,16 +446,5 @@ impl IntermediateValue {
             }),
             Self::Constant(c) => Ok(MemOrFpOrConstant::Constant(eval_const_expression(c, compiler))),
         }
-    }
-    fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
-        if let Some(cst) = try_as_constant(self, compiler) {
-            return Ok(MemOrConstant::Constant(cst));
-        }
-        if let Self::MemoryAfterFp { offset } = self {
-            return Ok(MemOrConstant::MemoryAfterFp {
-                offset: eval_const_expression_usize(offset, compiler),
-            });
-        }
-        Err(format!("Cannot convert {self:?} to MemOrConstant"))
     }
 }

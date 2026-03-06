@@ -13,6 +13,35 @@ def fs_new(transcript_ptr):
     return fs_state
 
 
+@inline
+def fs_observe_chunks(fs, data, n_chunks):
+    result: Mut = Array(9)
+    poseidon16(fs, data, result)
+    for i in unroll(1, n_chunks):
+        new_result = Array(9)
+        poseidon16(result, data + i * DIGEST_LEN, new_result)
+        result = new_result
+    result[8] = fs[8]  # preserve transcript pointer
+    return result
+
+
+def fs_observe(fs, data, length: Const):
+    n_full_chunks = (length - (length % DIGEST_LEN)) / DIGEST_LEN
+    remainder = length % DIGEST_LEN
+    if remainder == 0:
+        return fs_observe_chunks(fs, data, n_full_chunks)
+    intermediate = fs_observe_chunks(fs, data, n_full_chunks)
+    padded = Array(DIGEST_LEN)
+    for j in unroll(0, remainder):
+        padded[j] = data[n_full_chunks * DIGEST_LEN + j]
+    for j in unroll(remainder, DIGEST_LEN):
+        padded[j] = 0
+    final_result = Array(9)
+    poseidon16(intermediate, padded, final_result)
+    final_result[8] = fs[8]  # preserve transcript pointer
+    return final_result
+
+
 def fs_grinding(fs, bits):
     if bits == 0:
         return fs  # no grinding

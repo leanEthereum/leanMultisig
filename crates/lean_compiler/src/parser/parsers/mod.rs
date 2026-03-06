@@ -4,7 +4,7 @@ use utils::ToUsize;
 use crate::lang::FileId;
 use crate::parser::{
     error::{ParseResult, SemanticError},
-    grammar::{ParsePair, Rule},
+    grammar::ParsePair,
 };
 use crate::{CompilationFlags, ProgramSource};
 use std::collections::{BTreeMap, BTreeSet};
@@ -188,15 +188,6 @@ impl ParseContext {
 pub trait Parse<T>: Sized {
     /// Parses the given input into the target type.
     fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<T>;
-}
-
-/// Utility function to expect a specific rule type.
-pub fn expect_rule(pair: &ParsePair<'_>, expected: Rule) -> ParseResult<()> {
-    if pair.as_rule() == expected {
-        Ok(())
-    } else {
-        Err(SemanticError::new(format!("Expected {:?} but found {:?}", expected, pair.as_rule())).into())
-    }
 }
 
 /// Utility function to safely get the next inner pair with error handling.

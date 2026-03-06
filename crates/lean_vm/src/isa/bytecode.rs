@@ -15,6 +15,7 @@ pub struct Bytecode {
     pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
     pub hints: BTreeMap<CodeAddress, Vec<Hint>>,             // pc -> hints
     pub starting_frame_memory: usize,
+    pub hash: [F; DIGEST_ELEMS],
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
     pub filepaths: BTreeMap<FileId, String>,

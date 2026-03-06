@@ -122,6 +122,9 @@ def main():
         inner_msg[MESSAGE_LEN + 1] = slot_hi
         for k in unroll(0, N_MERKLE_CHUNKS):
             inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
+        # Assert inner proof uses the same bytecode hash as this program
+        own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
+        copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
 
         # Collect inner bytecode claim from inner pub mem
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET

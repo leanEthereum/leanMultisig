@@ -45,35 +45,10 @@ pub fn multilinear_eval_constants_at_right<F: Field>(limit: usize, point: &[F]) 
     }
 }
 
-// pub fn packed_multilinear<F: Field>(pols: &[Vec<F>]) -> Vec<F> {
-//     let n_vars = pols[0].num_variables();
-//     assert!(pols.iter().all(|p| p.num_variables() == n_vars));
-//     let packed_len = (pols.len() << n_vars).next_power_of_two();
-//     let mut dst = F::zero_vec(packed_len);
-//     let mut offset = 0;
-//     // TODO parallelize
-//     for pol in pols {
-//         dst[offset..offset + pol.num_evals()].copy_from_slice(pol);
-//         offset += pol.num_evals();
-//     }
-//     dst
-// }
-
 pub fn padd_with_zero_to_next_power_of_two<F: Field>(pol: &[F]) -> Vec<F> {
-    padd_to_next_power_of_two(pol, F::ZERO)
-}
-
-pub fn padd_to_next_power_of_two<F: Field>(pol: &[F], value: F) -> Vec<F> {
     let next_power_of_two = pol.len().next_power_of_two();
     let mut padded = pol.to_vec();
-    padded.resize(next_power_of_two, value);
-    padded
-}
-
-pub fn padd_with_zero_to_next_multiple_of<F: Field>(pol: &[F], multiple: usize) -> Vec<F> {
-    let next_multiple = pol.len().next_multiple_of(multiple);
-    let mut padded = pol.to_vec();
-    padded.resize(next_multiple, F::ZERO);
+    padded.resize(next_power_of_two, F::ZERO);
     padded
 }
 
@@ -87,23 +62,6 @@ pub fn evaluate_as_larger_multilinear_pol<F: Field, EF: ExtensionField<F>>(pol: 
         .map(|x| EF::ONE - *x)
         .product::<EF>()
         * pol.evaluate(&MultilinearPoint(from_end(point, pol_n_vars).to_vec()))
-}
-
-pub fn evaluate_as_smaller_multilinear_pol<F: Field, EF: ExtensionField<F>>(pol: &[F], point: &[EF]) -> EF {
-    let pol_n_vars = log2_strict_usize(pol.len());
-    assert!(point.len() <= pol_n_vars);
-    (&pol[..1 << point.len()]).evaluate(&MultilinearPoint(point.to_vec()))
-}
-
-#[must_use]
-pub fn fold_multilinear_chunks<F: Field, EF: ExtensionField<F>>(
-    poly: &[F],
-    folding_randomness: &MultilinearPoint<EF>,
-) -> Vec<EF> {
-    let folding_factor = folding_randomness.num_variables();
-    poly.par_chunks_exact(1 << folding_factor)
-        .map(|ev| ev.evaluate(folding_randomness))
-        .collect()
 }
 
 pub fn mle_of_01234567_etc<F: Field>(point: &[F]) -> F {

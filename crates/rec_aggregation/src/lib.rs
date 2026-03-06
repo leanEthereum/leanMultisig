@@ -36,13 +36,8 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
 }
 
 pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
-    let iv = [F::ZERO; DIGEST_LEN];
-    let flat: Vec<F> = iv
-        .iter()
-        .copied()
-        .chain(pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()))
-        .collect();
-    poseidon_compress_slice(&flat)
+    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()).collect();
+    poseidon_compress_slice(&flat, true)
 }
 
 fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
@@ -67,6 +62,7 @@ fn build_non_reserved_public_input(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     bytecode_claim_output: &[F],
+    bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
@@ -77,6 +73,7 @@ fn build_non_reserved_public_input(
     pi.push(slot_hi);
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
+    pi.extend_from_slice(bytecode_hash);
     pi
 }
 
@@ -134,7 +131,14 @@ impl AggregatedXMSS {
 
         let slice_hash = hash_pubkeys(&self.pub_keys);
 
-        build_non_reserved_public_input(self.pub_keys.len(), &slice_hash, message, slot, &bytecode_claim_output)
+        build_non_reserved_public_input(
+            self.pub_keys.len(),
+            &slice_hash,
+            message,
+            slot,
+            &bytecode_claim_output,
+            &bytecode.hash,
+        )
     }
 }
 
@@ -267,8 +271,14 @@ pub fn xmss_aggregate(
 
     // Build public input
     let slice_hash = hash_pubkeys(&global_pub_keys);
-    let non_reserved_public_input =
-        build_non_reserved_public_input(n_sigs, &slice_hash, message, slot, &bytecode_claim_output);
+    let non_reserved_public_input = build_non_reserved_public_input(
+        n_sigs,
+        &slice_hash,
+        message,
+        slot,
+        &bytecode_claim_output,
+        &bytecode.hash,
+    );
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
@@ -401,7 +411,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         let mut data = flatten_scalars_to_base::<F, EF>(&ef_data);
         data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
 
-        let claim_hash = poseidon_compress_slice(&data);
+        let claim_hash = poseidon_compress_slice(&data, false);
         running_hash = poseidon16_compress_pair(running_hash, claim_hash);
     }
     running_hash

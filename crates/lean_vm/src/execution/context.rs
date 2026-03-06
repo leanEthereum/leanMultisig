@@ -11,23 +11,6 @@ impl ExecutionHistory {
     pub fn new() -> Self {
         Self::default()
     }
-
-    pub fn add_line(&mut self, location: SourceLocation, cycles: usize) {
-        self.lines.push(location);
-        self.lines_cycles.push(cycles);
-    }
-
-    pub fn total_cycles(&self) -> usize {
-        self.lines_cycles.iter().sum()
-    }
-
-    pub const fn len(&self) -> usize {
-        self.lines.len()
-    }
-
-    pub const fn is_empty(&self) -> bool {
-        self.lines.is_empty()
-    }
 }
 
 #[derive(Debug)]

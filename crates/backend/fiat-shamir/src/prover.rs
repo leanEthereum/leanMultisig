@@ -64,6 +64,10 @@ where
         self.transcript.extend_from_slice(scalars);
     }
 
+    fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
+        self.challenger.observe_scalars(scalars);
+    }
+
     fn state(&self) -> String {
         format!(
             "state: {} (n_items: {})",

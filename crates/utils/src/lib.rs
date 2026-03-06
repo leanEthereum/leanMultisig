@@ -16,6 +16,3 @@ pub use logs::*;
 
 mod poseidon;
 pub use poseidon::*;
-
-mod debug;
-pub use debug::*;

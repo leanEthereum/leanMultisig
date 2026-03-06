@@ -248,15 +248,6 @@ fn compile_lines(
                 ));
             }
 
-            SimpleLine::AssertZero { operation, arg0, arg1 } => {
-                instructions.push(IntermediateInstruction::computation(
-                    *operation,
-                    IntermediateValue::from_simple_expr(arg0, compiler),
-                    IntermediateValue::from_simple_expr(arg1, compiler),
-                    IntermediateValue::Constant(0.into()),
-                ));
-            }
-
             SimpleLine::Match { value, arms, offset } => {
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 

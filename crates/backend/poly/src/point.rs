@@ -149,10 +149,6 @@ impl<F: Field> MultiEvaluation<F> {
         self.point.num_variables()
     }
 
-    pub fn num_values(&self) -> usize {
-        self.values.len()
-    }
-
     pub fn split(self) -> Vec<Evaluation<F>> {
         self.values
             .into_iter()
