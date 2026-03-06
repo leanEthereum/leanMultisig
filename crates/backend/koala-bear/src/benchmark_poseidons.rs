@@ -22,9 +22,17 @@ fn test_poseidon1_packed() {
 #[ignore]
 fn bench_koalabear_1_vs_2_plaintext() {
     // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_koalabear_1_vs_2_plaintext --exact --nocapture --ignored
+
     let n = 1 << 23;
     let poseidon1 = Poseidon1KoalaBear16 {};
     let poseidon2 = default_koalabear_poseidon2_16();
+
+    // warming
+    let mut state = [FPacking::ZERO; 16];
+    for _ in 0..1 << 20 {
+        poseidon1.compress_in_place(&mut state);
+    }
+    let _ = black_box(state);
 
     let time = Instant::now();
     let mut state = [FPacking::ZERO; 16];

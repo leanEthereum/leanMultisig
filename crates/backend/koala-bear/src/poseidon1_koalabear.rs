@@ -345,7 +345,7 @@ impl Poseidon1KoalaBear16 {
         mds_rs_16(state);
     }
 
-    /// Sponge compression: state = permute(state) + state.
+    /// compression mode: output = permute(input) + input
     #[inline(always)]
     pub fn compress_in_place<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
         let initial = *state;
