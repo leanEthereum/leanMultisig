@@ -20,8 +20,8 @@ fn test_poseidon1_packed() {
 
 #[test]
 #[ignore]
-fn bench_koalabear_1_vs_2_plaintext() {
-    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_koalabear_1_vs_2_plaintext --exact --nocapture --ignored
+fn bench_poseidon_1_vs_2_plaintext() {
+    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_poseidon_1_vs_2_plaintext --exact --nocapture --ignored
 
     let n = 1 << 23;
     let poseidon1 = Poseidon1KoalaBear16 {};
