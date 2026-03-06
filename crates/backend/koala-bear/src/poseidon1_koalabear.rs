@@ -14,14 +14,14 @@ pub const POSEIDON1_PARTIAL_ROUNDS: usize = 20;
 pub const POSEIDON1_SBOX_DEGREE: u64 = 3;
 
 // =========================================================================
-// Reed-Solomon MDS matrix (16x16) via coset-LDE
+// Coset MDS Matrix (see https://github.com/Plonky3/Plonky3/blob/main/mds/src/coset_mds.rs)
 // =========================================================================
 
 // Forward twiddles: W_k = omega^k.
 const W1: KoalaBear = KoalaBear::new(0x08dbd69c);
 const W2: KoalaBear = KoalaBear::new(0x6832fe4a);
 const W3: KoalaBear = KoalaBear::new(0x27ae21e2);
-const W4: KoalaBear = KoalaBear::new(0x7e010002); // omega^4, order 4
+const W4: KoalaBear = KoalaBear::new(0x7e010002);
 const W5: KoalaBear = KoalaBear::new(0x3a89a025);
 const W6: KoalaBear = KoalaBear::new(0x174e3650);
 const W7: KoalaBear = KoalaBear::new(0x27dfce22);
@@ -87,9 +87,7 @@ fn partial_rc_f() -> &'static [[KoalaBear; 16]; POSEIDON1_PARTIAL_ROUNDS] {
     })
 }
 
-// =========================================================================
-// Butterfly primitives
-// =========================================================================
+// Butterfly stuff
 
 /// (lo, hi) -> (lo+hi, lo-hi).
 #[inline(always)]
@@ -209,7 +207,6 @@ fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     dit(f, 7, 15, W7);
 }
 
-/// Copying wrappers (used by permute_generic for frequency-domain entry/exit).
 #[inline(always)]
 fn dif_ifft_16<R: Algebra<KoalaBear>>(state: &[R; 16]) -> [R; 16] {
     let mut f = *state;
@@ -224,12 +221,6 @@ fn dit_fft_16<R: Algebra<KoalaBear>>(state: &[R; 16]) -> [R; 16] {
     f
 }
 
-// =========================================================================
-// MDS matrix application
-// =========================================================================
-
-/// Apply the 16x16 Reed-Solomon MDS: IFFT -> coset weights -> FFT.
-/// Generic over any Algebra<KoalaBear> (scalar, SIMD-packed, extension field).
 #[inline(always)]
 pub fn mds_rs_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
     dif_ifft_16_mut(state);
@@ -238,10 +229,6 @@ pub fn mds_rs_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
     }
     dit_fft_16_mut(state);
 }
-
-// =========================================================================
-// Poseidon1 permutation
-// =========================================================================
 
 #[derive(Clone, Debug)]
 pub struct Poseidon1KoalaBear16 {}
@@ -262,7 +249,6 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
 }
 
 impl Poseidon1KoalaBear16 {
-    /// Full Poseidon1 permutation with frequency-domain partial round optimization.
     #[inline(always)]
     #[allow(clippy::needless_range_loop)]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
@@ -366,12 +352,9 @@ pub fn default_koalabear_poseidon1_16() -> Poseidon1KoalaBear16 {
     Poseidon1KoalaBear16 {}
 }
 
-// =========================================================================
-// Round constants — generated from SmallRng::seed_from_u64(1)
-// =========================================================================
-
 const POSEIDON1_N_ROUNDS: usize = 2 * POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS;
 
+// Round constants
 static POSEIDON1_RC_CACHE: OnceLock<[[KoalaBear; 16]; POSEIDON1_N_ROUNDS]> = OnceLock::new();
 
 pub fn poseidon1_round_constants() -> &'static [[KoalaBear; 16]; POSEIDON1_N_ROUNDS] {
