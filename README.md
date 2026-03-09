@@ -31,27 +31,28 @@ Machine: M4 Max 48GB (CPU only)
 ### XMSS aggregation
 
 ```bash
-cargo run --release -- xmss --n-signatures 1350
+cargo run --release -- xmss --n-signatures 1400
 ```
 
 | WHIR rate \ regime | Proven               | Conjectured          |
 | ------------------ | -------------------- | -------------------- |
-| 1/2                | 530 XMSS/s - 383 KiB | 530 XMSS/s - 209 KiB |
-| 1/4                | 420 XMSS/s - 252 KiB | 420 XMSS/s - 148 KiB |
+| 1/2                | 800 XMSS/s - 355 KiB | 800 XMSS/s - 188 KiB |
+| 1/4                | 700 XMSS/s - 229 KiB | 700 XMSS/s - 130 KiB |
 
 (Proving throughput - proof size)
 
 ### Recursion
 
+2 to 1 recursion (WHIR rate = 1/4):
+
+
 ```bash
 cargo run --release -- recursion --n 2
 ```
 
-2 to 1 recursion (WHIR rate = 1/4):
-
 | Proven          | Conjectured     |
 | --------------- | --------------- |
-| 1.10s - 223 KiB | 1.05s - 134 KiB |
+| 0.75s - 188 KiB | 0.57s - 116 KiB |
 
 
 ### Bonus: unbounded recursive aggregation
@@ -60,7 +61,7 @@ cargo run --release -- recursion --n 2
 cargo run --release -- fancy-aggregation
 ```
 
-![Recursive aggregation](./misc/images/rec-agg.png)
+![Recursive aggregation](./misc/images/fancy-aggregation.png)
 
 (Proven regime)
 

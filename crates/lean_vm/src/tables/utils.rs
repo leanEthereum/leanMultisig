@@ -1,10 +1,9 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
-use crate::ExtraDataForBuses;
+use crate::{ExtraDataForBuses, LOGUP_PRECOMPILE_DOMAINSEP};
 
 pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>>(
     extra_data: &ExtraDataForBuses<EF>,
-    bus_index: AB::F,
     flag: AB::F,
     data: &[AB::F],
 ) -> AB::EF {
@@ -14,9 +13,9 @@ pub(crate) fn eval_virtual_bus_column<AB: AirBuilder, EF: ExtensionField<PF<EF>>
     (logup_alphas_eq_poly
         .iter()
         .zip(data)
-        .map(|(c, d)| c.clone() * d.clone())
+        .map(|(c, d)| *c * *d)
         .sum::<AB::EF>()
-        + logup_alphas_eq_poly.last().unwrap().clone() * bus_index)
-        * bus_beta.clone()
+        + *logup_alphas_eq_poly.last().unwrap() * AB::F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP))
+        * *bus_beta
         + flag
 }

@@ -72,12 +72,12 @@ def long_else_if_chain(n):
     result: Mut = 0
     if n == 0:
         result = 1
-    else if n == 1:
+    elif n == 1:
         result = 2
-    else if n == 2:
+    elif n == 2:
         result = 3
-    else if n == 3:
+    elif n == 3:
         result = 4
-    else if n == 4:
+    elif n == 4:
         result = 5
     return result

@@ -76,7 +76,7 @@ assignment_target_list = { ("(" ~ simple_target_list ~ ")") | simple_target_list
 simple_target_list = { assignment_target ~ ("," ~ assignment_target)* ~ ","? }
 assignment_target = { (identifier ~ mut_annotation) | array_access_expr | identifier }
 
-if_statement = { "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block ~ else_if_clause* ~ else_clause? }
+if_statement = { "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block ~ elif_clause* ~ else_clause? }
 
 condition = { assumed_bool_expr | "(" ~ comparison ~ ")" | comparison }
 
@@ -86,7 +86,7 @@ assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
 comparison = { add_expr ~ comparison_op ~ add_expr }
 comparison_op = { "==" | "!=" | "<=" | "<" }
 
-else_if_clause = { "else" ~ "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block }
+elif_clause = { "elif" ~ condition ~ ":" ~ newline ~ statement* ~ end_block }
 
 else_clause = { "else" ~ ":" ~ newline ~ statement* ~ end_block }
 

@@ -40,11 +40,11 @@ def main():
     sub_slice_starts = priv_start + 4
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
-    computed_pubkeys_hash = slice_hash_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Verify tweak table hash
-    computed_tweaks_hash = slice_hash_dynamic_unroll(tweak_table, TWEAK_TABLE_SIZE_FE, TWEAK_TABLE_LOG_SIZE)
+    computed_tweaks_hash = slice_hash_with_iv_dynamic_unroll(tweak_table, TWEAK_TABLE_SIZE_FE, TWEAK_TABLE_LOG_SIZE)
     copy_8(computed_tweaks_hash, tweaks_hash_expected)
 
     # Buffer for partition verification
@@ -56,7 +56,6 @@ def main():
     source_0 = sub_slice_starts[0]
     n_raw_xmss = source_0[0]
     raw_indices = source_0 + 1
-    raw_sigs = raw_indices + n_raw_xmss
 
     for i in range(0, n_raw_xmss): # TODO dynamic unroll ?
         # mark buffer for partition verification
@@ -66,7 +65,8 @@ def main():
         counter += 1
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
-        sig = raw_sigs + i * SIG_SIZE
+        sig = Array(SIG_SIZE)
+        hint_xmss(sig)
         xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
 
     # Recursive sources
@@ -76,27 +76,22 @@ def main():
     for rec_idx in range(0, n_recursions):
         source_data = sub_slice_starts[rec_idx + 1]
         n_sub = source_data[0]
+        assert n_sub != 0
+        assert n_sub < MAX_N_SIGS
         sub_indices = source_data + 1
         bytecode_value_hint = sub_indices + n_sub
         inner_pub_mem = bytecode_value_hint + DIM
         proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
 
-        # First two pubkeys initialize the hash
         idx0 = sub_indices[0]
         assert idx0 < n_total
         buffer[idx0] = counter
         counter += 1
-        idx1 = sub_indices[1]
-        assert idx1 < n_total
-        buffer[idx1] = counter
-        counter += 1
         pk0 = all_pubkeys + idx0 * DIGEST_LEN
-        pk1 = all_pubkeys + idx1 * DIGEST_LEN
         running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16(pk0, pk1, running_hash)
+        poseidon16(ZERO_VEC_PTR, pk0, running_hash)
 
-        # Remaining pubkeys
-        for j in dynamic_unroll(2, n_sub, log2_ceil(MAX_N_SIGS)):
+        for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter
@@ -123,6 +118,9 @@ def main():
             inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
         # Verify inner tweaks hash matches ours
         copy_8(tweaks_hash_expected, inner_msg + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
+        # Assert inner proof uses the same bytecode hash as this program
+        own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
+        copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
 
         # Collect inner bytecode claim from inner pub mem
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET

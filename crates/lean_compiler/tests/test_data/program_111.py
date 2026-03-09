@@ -90,11 +90,11 @@ def state_machine_step(current_state, phase):
             result = 1
         else:
             result = current_state + 1000
-    else if phase == 1:
+    elif phase == 1:
         result = current_state + 11
-    else if phase == 2:
+    elif phase == 2:
         result = current_state + 3
-    else if phase == 3:
+    elif phase == 3:
         result = current_state * 10
     else:
         result = current_state + 1

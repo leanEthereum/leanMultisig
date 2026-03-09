@@ -1,0 +1,283 @@
+use air::AlphaPowers;
+use fiat_shamir::*;
+use field::ExtensionField;
+use field::PrimeCharacteristicRing;
+use poly::*;
+
+use crate::*;
+
+#[allow(clippy::too_many_arguments)]
+pub fn sumcheck_prove<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
+    multilinears_f: M,
+    computation: &SC,
+    extra_data: &SC::ExtraData,
+    eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    is_zerofier: bool,
+    prover_state: &mut impl FSProver<EF>,
+    sum: EF,
+    store_intermediate_foldings: bool,
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<EF> + 'static,
+    SC::ExtraData: AlphaPowers<EF>,
+{
+    sumcheck_fold_and_prove(
+        multilinears_f,
+        None,
+        computation,
+        extra_data,
+        eq_factor,
+        is_zerofier,
+        prover_state,
+        sum,
+        store_intermediate_foldings,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sumcheck_fold_and_prove<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
+    multilinears_f: M,
+    prev_folding_factor: Option<EF>,
+    computation: &SC,
+    extra_data: &SC::ExtraData,
+    eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    is_zerofier: bool,
+    prover_state: &mut impl FSProver<EF>,
+    sum: EF,
+    store_intermediate_foldings: bool,
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<EF> + 'static,
+    SC::ExtraData: AlphaPowers<EF>,
+{
+    let multilinears_f: MleGroup<'a, EF> = multilinears_f.into();
+    let mut n_rounds = multilinears_f.by_ref().n_vars();
+    if prev_folding_factor.is_some() {
+        n_rounds -= 1;
+    }
+    let (challenges, final_folds_f, final_sum) = sumcheck_prove_many_rounds(
+        multilinears_f,
+        prev_folding_factor,
+        computation,
+        extra_data,
+        eq_factor,
+        is_zerofier,
+        prover_state,
+        sum,
+        None,
+        n_rounds,
+        store_intermediate_foldings,
+        0,
+    );
+
+    let final_folds = final_folds_f
+        .by_ref()
+        .as_extension()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            assert_eq!(m.len(), 1);
+            m[0]
+        })
+        .collect::<Vec<_>>();
+
+    (challenges, final_folds, final_sum)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sumcheck_prove_many_rounds<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
+    multilinears_f: M,
+    mut prev_folding_factor: Option<EF>,
+    computation: &SC,
+    extra_data: &SC::ExtraData,
+    mut eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    mut is_zerofier: bool,
+    prover_state: &mut impl FSProver<EF>,
+    mut sum: EF,
+    mut missing_mul_factors: Option<EF>,
+    n_rounds: usize,
+    store_intermediate_foldings: bool,
+    pow_bits: usize,
+) -> (MultilinearPoint<EF>, MleGroupOwned<EF>, EF)
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<EF> + 'static,
+    SC::ExtraData: AlphaPowers<EF>,
+{
+    let mut multilinears: MleGroup<'a, EF> = multilinears_f.into();
+
+    let mut eq_factor: Option<(Vec<EF>, MleOwned<EF>)> = eq_factor.take().map(|(eq_point, eq_mle)| {
+        let eq_mle = eq_mle.unwrap_or_else(|| {
+            let eval_eq_ext = eval_eq(&eq_point[1..]);
+            if multilinears.by_ref().is_packed() {
+                MleOwned::ExtensionPacked(pack_extension(&eval_eq_ext))
+            } else {
+                MleOwned::Extension(eval_eq_ext)
+            }
+        });
+        (eq_point, eq_mle)
+    });
+
+    let mut n_vars = multilinears.by_ref().n_vars();
+    if prev_folding_factor.is_some() {
+        n_vars -= 1;
+    }
+    if let Some((eq_point, eq_mle)) = &eq_factor {
+        assert_eq!(eq_point.len(), n_vars);
+        assert_eq!(eq_mle.by_ref().n_vars(), eq_point.len() - 1);
+        if eq_mle.by_ref().is_packed() && !multilinears.is_packed() {
+            assert!(eq_point.len() < packing_log_width::<EF>());
+            multilinears = multilinears.by_ref().unpack().as_owned_or_clone().into();
+        }
+    }
+
+    let mut challenges = Vec::new();
+    for _ in 0..n_rounds {
+        // If Packing is enabled, and there are too little variables, we unpack everything:
+        if multilinears.by_ref().is_packed() && n_vars <= 1 + packing_log_width::<EF>() {
+            // unpack
+            multilinears = multilinears.by_ref().unpack().as_owned_or_clone().into();
+
+            if let Some((_, eq_mle)) = &mut eq_factor {
+                *eq_mle = eq_mle.by_ref().unpack().as_owned_or_clone();
+            }
+        }
+
+        let ps = compute_and_send_polynomial(
+            &mut multilinears,
+            prev_folding_factor,
+            computation,
+            &eq_factor,
+            extra_data,
+            is_zerofier,
+            prover_state,
+            sum,
+            missing_mul_factors,
+        );
+        prover_state.pow_grinding(pow_bits);
+        let challenge = prover_state.sample();
+        challenges.push(challenge);
+
+        prev_folding_factor = on_challenge_received(
+            &mut multilinears,
+            &mut n_vars,
+            &mut eq_factor,
+            &mut sum,
+            &mut missing_mul_factors,
+            challenge,
+            &ps,
+            store_intermediate_foldings,
+        );
+        is_zerofier = false;
+    }
+
+    if let Some(pf) = prev_folding_factor {
+        multilinears = multilinears.by_ref().fold(pf).into();
+    }
+
+    (MultilinearPoint(challenges), multilinears.as_owned().unwrap(), sum)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_and_send_polynomial<'a, EF, SC>(
+    multilinears: &mut MleGroup<'a, EF>,
+    prev_folding_factor: Option<EF>,
+    computation: &SC,
+    eq_factor: &Option<(Vec<EF>, MleOwned<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    extra_data: &SC::ExtraData,
+    is_zerofier: bool,
+    prover_state: &mut impl FSProver<EF>,
+    sum: EF,
+    missing_mul_factor: Option<EF>,
+) -> DensePolynomial<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<EF> + 'static,
+    SC::ExtraData: AlphaPowers<EF>,
+{
+    let mut p_evals = Vec::<(PF<EF>, EF)>::new();
+    let start = if is_zerofier {
+        p_evals.push((PF::<EF>::ZERO, EF::ZERO));
+        2
+    } else {
+        0
+    };
+
+    let computation_degree = computation.degree();
+    let zs = (start..=computation_degree).filter(|&i| i != 1).collect::<Vec<_>>();
+
+    let compute_folding_factors: Vec<PF<EF>> = zs.iter().map(|&z| PF::<EF>::from_usize(z)).collect();
+
+    let sc_params = SumcheckComputeParams {
+        eq_mle: eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
+        first_eq_factor: eq_factor.as_ref().map(|(first_eq_factor, _)| first_eq_factor[0]),
+        folding_factors: &compute_folding_factors,
+        computation,
+        extra_data,
+        missing_mul_factor,
+        sum,
+    };
+    p_evals.extend(match prev_folding_factor {
+        Some(prev_folding_factor) => {
+            let (computed_p_evals, folded_multilinears) =
+                fold_and_sumcheck_compute(prev_folding_factor, &multilinears.by_ref(), sc_params, &zs);
+            *multilinears = folded_multilinears.into();
+            computed_p_evals
+        }
+        None => sumcheck_compute(&multilinears.by_ref(), sc_params, &zs),
+    });
+
+    if is_zerofier {
+        p_evals.push((PF::<EF>::ONE, EF::ZERO));
+    } else {
+        let p_at_1 = if let Some((eq_factor, _)) = eq_factor {
+            (sum - (EF::ONE - eq_factor[0]) * p_evals[0].1) / eq_factor[0]
+        } else {
+            sum - p_evals[0].1
+        };
+        p_evals.push((PF::<EF>::from_usize(1), p_at_1));
+    }
+
+    let poly = DensePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let eq_alpha = eq_factor.as_ref().map(|(p, _)| p[0]);
+    prover_state.add_sumcheck_polynomial(&poly.coeffs, eq_alpha);
+    poly
+}
+
+#[allow(clippy::too_many_arguments)]
+fn on_challenge_received<'a, EF: ExtensionField<PF<EF>>>(
+    multilinears: &mut MleGroup<'a, EF>,
+    n_vars: &mut usize,
+    eq_factor: &mut Option<(Vec<EF>, MleOwned<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    sum: &mut EF,
+    missing_mul_factor: &mut Option<EF>,
+    challenge: EF,
+    p: &DensePolynomial<EF>,
+    store_intermediate_foldings: bool,
+) -> Option<EF> {
+    // p is the bare polynomial (without eq linear factor).
+    // Evaluate at challenge and multiply by eq factor if present.
+    *sum = p.evaluate(challenge);
+    *n_vars -= 1;
+
+    if let Some((eq_factor, eq_mle)) = eq_factor {
+        // Multiply sum by eq(α_i, r_i) since the polynomial doesn't include the eq linear factor
+        let eq_eval = (EF::ONE - eq_factor[0]) * (EF::ONE - challenge) + eq_factor[0] * challenge;
+        *sum *= eq_eval;
+
+        *missing_mul_factor = Some(
+            eq_eval * missing_mul_factor.unwrap_or(EF::ONE) / (EF::ONE - eq_factor.get(1).copied().unwrap_or_default()),
+        );
+        eq_factor.remove(0);
+        eq_mle.truncate(eq_mle.by_ref().packed_len() / 2);
+    }
+
+    if store_intermediate_foldings {
+        *multilinears = multilinears.by_ref().fold(challenge).into();
+        None
+    } else {
+        Some(challenge)
+    }
+}

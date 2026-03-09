@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use colored::Colorize;
+use utils::ansi::Colorize;
 
 use crate::isa::Bytecode;
 use crate::{CodeAddress, FunctionName, SourceLocation};

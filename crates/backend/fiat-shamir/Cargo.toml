@@ -1,0 +1,13 @@
+[package]
+name = "mt-fiat-shamir"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+field = { path = "../field", package = "mt-field" }
+koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }
+symetric = { path = "../symetric", package = "mt-symetric" }
+utils = { path = "../utils", package = "mt-utils" }
+
+serde.workspace = true
+rayon.workspace = true

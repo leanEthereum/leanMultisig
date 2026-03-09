@@ -1,4 +1,4 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use tracing::instrument;
 
 use crate::MIN_VARS_FOR_PACKING;
@@ -74,16 +74,16 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 
     let alpha = prover_state.sample();
 
+    assert_eq!(claims.len(), 2);
+    let sum = claims[0] + claims[1] * alpha;
     let (mut next_point, inner_evals, _) = sumcheck_prove::<EF, _, _>(
-        1,
         prev_numerators_and_denominators_split,
-        None,
-        &GKRQuotientComputation::<2> {},
+        &GKRQuotientComputation {},
         &alpha.powers().take(2).collect(),
         Some((claim_point.0.clone(), None)),
         false,
         prover_state,
-        dot_product(claims.iter().copied(), alpha.powers()),
+        sum,
         false,
     );
 
@@ -128,20 +128,16 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
     let alpha = verifier_state.sample();
 
-    let (retrieved_quotient, postponed) = sumcheck_verify(verifier_state, n_vars, 3)?;
-
-    if retrieved_quotient != claims_num + alpha * claims_den {
-        return Err(ProofError::InvalidProof);
-    }
+    let expected_sum = claims_num + alpha * claims_den;
+    let postponed = sumcheck_verify(verifier_state, n_vars, 3, expected_sum, Some(&point.0))?;
 
     let inner_evals = verifier_state.next_extension_scalars_vec(4)?;
 
     if postponed.value
         != point.eq_poly_outside(&postponed.point)
-            * <GKRQuotientComputation<2> as SumcheckComputation<EF>>::eval_extension(
+            * GKRQuotientComputation::eval_extension(
                 &Default::default(),
                 &inner_evals,
-                &[],
                 &alpha.powers().take(2).collect(),
             )
     {
@@ -206,7 +202,6 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use p3_koala_bear::QuinticExtensionFieldKB;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{build_prover_state, build_verifier_state, init_tracing};
 
@@ -215,8 +210,6 @@ mod tests {
     fn sum_all_quotients(nums: &[EF], den: &[EF]) -> EF {
         nums.iter().zip(den.iter()).map(|(&n, &d)| n / d).sum()
     }
-
-    const N_GROUPS: usize = 2;
 
     #[test]
     fn test_gkr_quotient() {
@@ -243,7 +236,7 @@ mod tests {
         );
         println!("Proving time: {:?}", time.elapsed());
 
-        let mut verifier_state = build_verifier_state(prover_state);
+        let mut verifier_state = build_verifier_state(prover_state).unwrap();
 
         let verifier_statements = verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
         assert_eq!(&verifier_statements, &prover_statements);

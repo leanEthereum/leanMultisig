@@ -1,5 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod ansi;
+
 mod misc;
 pub use misc::*;
 
@@ -15,11 +17,5 @@ pub use display::*;
 mod logs;
 pub use logs::*;
 
-mod constraints_checker;
-pub use constraints_checker::*;
-
 mod poseidon2;
 pub use poseidon2::*;
-
-mod debug;
-pub use debug::*;

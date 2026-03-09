@@ -1,0 +1,8 @@
+[package]
+name = "mt-air"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+field = { path = "../field", package = "mt-field" }
+poly = { path = "../poly", package = "mt-poly" }

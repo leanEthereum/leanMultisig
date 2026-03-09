@@ -82,9 +82,9 @@ def main():
     selector = 1
     if selector == 0:
         result = 100
-    else if selector == 1:
+    elif selector == 1:
         result = 200
-    else if selector == 2:
+    elif selector == 2:
         result = 300
     else:
         assert False

@@ -1,5 +1,5 @@
-mod dot_product;
-pub use dot_product::*;
+mod extension_op;
+pub use extension_op::*;
 
 mod poseidon_16;
 pub use poseidon_16::*;

@@ -1,7 +1,7 @@
 //! VM operation definitions
 
 use crate::core::F;
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use std::fmt::{Display, Formatter};
 
 /// Basic arithmetic operations supported by the VM

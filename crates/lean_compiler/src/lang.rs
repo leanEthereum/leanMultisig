@@ -1,6 +1,5 @@
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
-use p3_util::log2_ceil_usize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use utils::ToUsize;
@@ -26,14 +25,6 @@ impl Program {
             .map(|(name, _)| name.clone())
             .collect()
     }
-
-    pub fn non_constant_functions_mut(&mut self) -> BTreeSet<&mut Function> {
-        self.functions
-            .iter_mut()
-            .filter(|(_, func)| !func.has_const_arguments())
-            .map(|(_, func)| func)
-            .collect()
-    }
 }
 
 /// A function argument with its modifiers
@@ -42,24 +33,6 @@ pub struct FunctionArg {
     pub name: Var,
     pub is_const: bool,
     pub is_mutable: bool,
-}
-
-impl FunctionArg {
-    pub fn new(name: Var, is_const: bool, is_mutable: bool) -> Self {
-        Self {
-            name,
-            is_const,
-            is_mutable,
-        }
-    }
-
-    pub fn simple(name: Var) -> Self {
-        Self {
-            name,
-            is_const: false,
-            is_mutable: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

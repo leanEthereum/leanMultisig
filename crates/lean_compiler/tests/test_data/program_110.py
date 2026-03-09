@@ -52,7 +52,7 @@ def main():
     outer_sel = 1
     if outer_sel == 0:
         p = p + 100
-    else if outer_sel == 1:
+    elif outer_sel == 1:
         inner_sel = 2
         match inner_sel:
             case 0:

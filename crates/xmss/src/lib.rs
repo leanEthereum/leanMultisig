@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
-use p3_koala_bear::KoalaBear;
 pub mod signers_cache;
 mod wots;
+use backend::KoalaBear;
 use utils::poseidon16_compress;
 pub use wots::*;
 mod xmss;
@@ -16,12 +16,12 @@ type PublicParam = [F; PUBLIC_PARAM_LEN_FE];
 type Randomness = [F; RANDOMNESS_LEN_FE];
 
 // WOTS
-pub const V: usize = 40;
+pub const V: usize = 42;
 pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
-pub const NUM_CHAIN_HASHES: usize = 120;
+pub const NUM_CHAIN_HASHES: usize = 110;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
-pub const V_GRINDING: usize = 3;
+pub const V_GRINDING: usize = 2;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
 pub const MESSAGE_LEN_FE: usize = 9;
@@ -37,7 +37,7 @@ pub(crate) const TWEAK_TYPE_WOTS_PK: usize = 1;
 pub(crate) const TWEAK_TYPE_MERKLE: usize = 2;
 pub(crate) const TWEAK_TYPE_ENCODING: usize = 3;
 
-use multilinear_toolkit::prelude::*;
+use backend::PrimeCharacteristicRing;
 
 /// index = slot or node_index in Merkle tree
 pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> [F; TWEAK_LEN] {

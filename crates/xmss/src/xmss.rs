@@ -1,5 +1,6 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
 use sha3::{Digest as Sha3Digest, Keccak256};
 use utils::poseidon16_compress_pair;
 
@@ -15,14 +16,14 @@ pub struct XmssSecretKey {
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssSignature {
     pub wots_signature: WotsSignature,
     pub slot: u32,
     pub merkle_proof: Vec<Digest>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssPublicKey {
     pub merkle_root: Digest,
     pub public_param: PublicParam,

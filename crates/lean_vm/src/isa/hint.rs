@@ -2,12 +2,12 @@ use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
-use multilinear_toolkit::prelude::*;
+use backend::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use strum::IntoEnumIterator;
 use utils::{ToUsize, pretty_integer, to_big_endian_in_field, to_little_endian_in_field};
+use xmss::SIG_SIZE_FE;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -66,7 +66,7 @@ pub enum Hint {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CustomHint {
     // Decompose values into their custom representations:
     /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
@@ -82,7 +82,20 @@ pub enum CustomHint {
     LessThan,
     Log2Ceil,
     PrivateInputStart,
+    Xmss,
+    Merkle,
 }
+
+pub const CUSTOM_HINTS: [CustomHint; 8] = [
+    CustomHint::DecomposeBitsXMSS,
+    CustomHint::DecomposeBits,
+    CustomHint::Decompose16,
+    CustomHint::LessThan,
+    CustomHint::Log2Ceil,
+    CustomHint::PrivateInputStart,
+    CustomHint::Xmss,
+    CustomHint::Merkle,
+];
 
 impl CustomHint {
     pub fn name(&self) -> &str {
@@ -93,6 +106,8 @@ impl CustomHint {
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
+            Self::Xmss => "hint_xmss",
+            Self::Merkle => "hint_merkle",
         }
     }
 
@@ -104,6 +119,8 @@ impl CustomHint {
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
+            Self::Xmss => 1,
+            Self::Merkle => 2,
         }
     }
 
@@ -114,14 +131,15 @@ impl CustomHint {
                 let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let w = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(w == 2 || w == 3 || w == 4);
+                let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
                 let mut memory_index_remaining = remaining_ptr;
+                #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
-                    for i in 0..24 / w {
-                        let value = F::from_usize((value >> (w * i)) & ((1 << w) - 1));
+                    for i in 0..24 / chunk_size {
+                        let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }
@@ -174,12 +192,45 @@ impl CustomHint {
                 let res_ptr = args[0].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(ctx.private_input_start))?;
             }
+            Self::Xmss => {
+                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let index = *ctx.xmss_hint_index;
+                assert!(
+                    index < ctx.xmss_signatures.len(),
+                    "hint_xmss: not enough XMSS signatures (index={})",
+                    index
+                );
+                let sig = &ctx.xmss_signatures[index];
+                assert_eq!(sig.len(), SIG_SIZE_FE);
+                ctx.memory.set_slice(buf_ptr, sig)?;
+                *ctx.xmss_hint_index += 1;
+            }
+            Self::Merkle => {
+                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let index = *ctx.merkle_hint_index;
+                assert!(
+                    index < ctx.merkle_paths.len(),
+                    "hint_merkle: not enough Merkle paths (index={})",
+                    index
+                );
+                let path = &ctx.merkle_paths[index];
+                assert_eq!(
+                    path.len(),
+                    n,
+                    "hint_merkle: path length mismatch (expected={}, got={})",
+                    n,
+                    path.len()
+                );
+                ctx.memory.set_slice(buf_ptr, path)?;
+                *ctx.merkle_hint_index += 1;
+            }
         }
         Ok(())
     }
 
     pub fn find_by_name(name: &str) -> Option<Self> {
-        Self::iter().find(|&hint| hint.name() == name)
+        CUSTOM_HINTS.iter().find(|hint| hint.name() == name).copied()
     }
 }
 
@@ -204,7 +255,6 @@ pub struct HintExecutionContext<'a> {
     pub memory: &'a mut Memory,
     pub fp: usize,
     pub ap: &'a mut usize,
-    pub counter_hint: &'a mut usize,
     pub std_out: &'a mut String,
     pub instruction_history: &'a mut ExecutionHistory,
     pub cpu_cycles_before_new_line: &'a mut usize,
@@ -214,6 +264,10 @@ pub struct HintExecutionContext<'a> {
     pub profiling: bool,
     pub memory_profile: &'a mut MemoryProfile,
     pub private_input_start: usize,
+    pub xmss_signatures: &'a [Vec<F>],
+    pub xmss_hint_index: &'a mut usize,
+    pub merkle_paths: &'a [Vec<F>],
+    pub merkle_hint_index: &'a mut usize,
     /// Pending deref hints: (target_addr, src_addr)
     /// Constraint: memory[target_addr] = memory[memory[src_addr]]
     /// Resolved at end of execution in correct order.

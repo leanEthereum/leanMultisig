@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::*;
 use air::verify_air;
+use backend::{Proof, RawProof, VerifierState};
 use lean_vm::*;
-use p3_util::log2_strict_usize;
 use sub_protocols::*;
-use utils::ToUsize;
+use utils::{ToUsize, get_poseidon16};
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
@@ -15,11 +15,11 @@ pub struct ProofVerificationDetails {
 pub fn verify_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    proof: Vec<F>,
-    prox_gaps_conjecture: bool,
-) -> Result<ProofVerificationDetails, ProofError> {
-    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone());
-
+    proof: Proof<F>,
+) -> Result<(ProofVerificationDetails, RawProof<F>), ProofError> {
+    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone())?;
+    verifier_state.observe_scalars(public_input);
+    verifier_state.observe_scalars(&bytecode.hash);
     let dims = verifier_state
         .next_base_scalars_vec(2 + N_TABLES)?
         .into_iter()
@@ -31,7 +31,7 @@ pub fn verify_execution(
     if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
         return Err(ProofError::InvalidProof);
     }
-    let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+    let whir_config = default_whir_config(log_inv_rate);
     for (table, &n_vars) in &table_n_vars {
         if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);
@@ -66,7 +66,7 @@ pub fn verify_execution(
     )?;
 
     let logup_c = verifier_state.sample();
-    let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width()));
+    let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = verify_generic_logup(
@@ -157,9 +157,12 @@ pub fn verify_execution(
         global_statements_base,
     )?;
 
-    Ok(ProofVerificationDetails {
-        bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
-    })
+    Ok((
+        ProofVerificationDetails {
+            bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
+        },
+        verifier_state.into_raw_proof(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -200,7 +203,6 @@ fn verify_bus_and_air(
                     verifier_state,
                     $t,
                     extra_data,
-                    1,
                     log_n_nrows,
                     Some(bus_virtual_statement),
                 )?
@@ -211,52 +213,17 @@ fn verify_bus_and_air(
 
     let mut res = vec![];
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
+        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
         let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims
-            .evals_f_on_down_columns
-            .iter()
-            .zip(table.down_column_indexes_f())
-        {
+        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
             down_evals.insert(col_index, *value_f);
         }
 
-        assert_eq!(air_claims.evals_ef_on_down_columns.len(), table.n_down_columns_ef());
-        for (col_index, value) in table
-            .down_column_indexes_ef()
-            .into_iter()
-            .zip(air_claims.evals_ef_on_down_columns)
-        {
-            let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-            if dot_product_with_base(&transposed) != value {
-                return Err(ProofError::InvalidProof);
-            }
-            for (j, v) in transposed.iter().enumerate() {
-                let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, *v);
-            }
-        }
         res.push((down_point, down_evals));
     }
 
-    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
-    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
-    let mut evals = air_claims
-        .evals_f
-        .iter()
-        .copied()
-        .enumerate()
-        .collect::<BTreeMap<_, _>>();
-    for (col_index, value) in air_claims.evals_ef.into_iter().enumerate() {
-        let transposed = verifier_state.next_extension_scalars_vec(DIMENSION)?;
-        if dot_product_with_base(&transposed) != value {
-            return Err(ProofError::InvalidProof);
-        }
-        for (j, v) in transposed.into_iter().enumerate() {
-            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-            evals.insert(virtual_index, v);
-        }
-    }
+    assert_eq!(air_claims.evals.len(), table.n_columns());
+    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
 
     res.push((air_claims.point.clone(), evals));
 

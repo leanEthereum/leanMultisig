@@ -7,10 +7,10 @@ use std::fmt::{Display, Formatter};
 pub enum IntermediateValue {
     /// A compile-time constant value.
     Constant(ConstExpression),
-    /// The current frame pointer.
-    Fp,
     /// Memory location at frame pointer + offset.
     MemoryAfterFp { offset: ConstExpression },
+    /// Frame pointer + offset (no memory access).
+    FpRelative { offset: ConstExpression },
 }
 
 impl IntermediateValue {
@@ -39,9 +39,11 @@ impl Display for IntermediateValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Constant(value) => write!(f, "{value}"),
-            Self::Fp => write!(f, "fp"),
             Self::MemoryAfterFp { offset } => {
                 write!(f, "m[fp + {offset}]")
+            }
+            Self::FpRelative { offset } => {
+                write!(f, "fp + {offset}")
             }
         }
     }

@@ -1,31 +1,19 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
+use backend::*;
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use utils::pretty_integer;
 use xmss::signers_cache::*;
 use xmss::{XmssPublicKey, XmssSignature};
 
+use utils::ansi as s;
+
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::{AggregatedSigs, AggregationTopology, aggregate, count_signers, verify_aggregation};
+use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
-}
-
-mod s {
-    pub const R: &str = "\x1b[0m";
-    pub const B: &str = "\x1b[1m";
-    pub const D: &str = "\x1b[2m";
-    pub const GRN: &str = "\x1b[38;5;114m";
-    pub const RED: &str = "\x1b[38;5;167m";
-    pub const ORG: &str = "\x1b[38;5;215m";
-    pub const CYN: &str = "\x1b[38;5;117m";
-    pub const PUR: &str = "\x1b[38;5;141m";
-    pub const GRY: &str = "\x1b[38;5;242m";
-    pub const WHT: &str = "\x1b[38;5;252m";
-    pub const DRK: &str = "\x1b[38;5;238m";
 }
 
 #[derive(Clone)]
@@ -72,7 +60,7 @@ impl LiveTree {
             "cycles",
             "memory",
             "poseidons",
-            "dots",
+            "extension-ops",
             s::R,
         )
     }
@@ -137,14 +125,6 @@ impl LiveTree {
         let up = self.n_nodes + 1 - index;
         print!("\x1b[{}A\r\x1b[2K{}\x1b[{}B\r", up, line, up);
         io::stdout().flush().unwrap();
-    }
-
-    fn total_time(&self) -> f64 {
-        self.statuses
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .map(|st| st.time_secs)
-            .sum()
     }
 }
 
@@ -236,9 +216,8 @@ fn build_aggregation(
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
     overlap: usize,
-    prox_gaps_conjecture: bool,
     tracing: bool,
-) -> AggregatedSigs {
+) -> (AggregatedXMSS, f64) {
     let message = message_for_benchmark();
     let slot = BENCHMARK_SLOT;
     let raw_count = topology.raw_xmss;
@@ -251,14 +230,13 @@ fn build_aggregation(
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
-        let child_agg = build_aggregation(
+        let (child_agg, _) = build_aggregation(
             child,
             child_display_index,
             display,
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
             overlap,
-            prox_gaps_conjecture,
             tracing,
         );
         child_results.push(child_agg);
@@ -270,48 +248,47 @@ fn build_aggregation(
     }
 
     let time = Instant::now();
-    let result = aggregate(
-        &child_results,
-        raw_xmss,
-        &message,
-        slot,
-        topology.log_inv_rate,
-        prox_gaps_conjecture,
-        tracing,
-    );
+    let result = xmss_aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
     let elapsed = time.elapsed();
 
     if tracing {
-        println!("{}", result.metadata.display());
+        println!("{}", result.metadata.as_ref().unwrap().display());
+        if topology.children.is_empty() {
+            println!(
+                "{} XMSS/s",
+                (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
+            );
+        } else {
+            println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
+        }
+        println!(
+            "Proof size: {} KiB",
+            result.proof.proof_size_fe() * F::bits() / (8 * 1024)
+        );
     }
 
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
-        let proof_kib = result.compressed_proof_len_fe * F::bits() / (8 * 1024);
+        let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
         let is_leaf = topology.children.is_empty();
         display.update_node(
             own_display_index,
             NodeStats {
                 time_secs: elapsed.as_secs_f64(),
                 proof_kib,
-                cycles: result.metadata.cycles,
-                memory: result.metadata.memory,
-                poseidons: result.metadata.n_poseidons,
-                dots: result.metadata.n_dot_products,
+                cycles: result.metadata.as_ref().unwrap().cycles,
+                memory: result.metadata.as_ref().unwrap().memory,
+                poseidons: result.metadata.as_ref().unwrap().n_poseidons,
+                dots: result.metadata.as_ref().unwrap().n_extension_ops,
                 n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
             },
         );
     }
 
-    result
+    (result, elapsed.as_secs_f64())
 }
 
-pub fn run_aggregation_benchmark(
-    topology: &AggregationTopology,
-    overlap: usize,
-    prox_gaps_conjecture: bool,
-    tracing: bool,
-) {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
     if tracing {
         utils::init_tracing();
     }
@@ -319,7 +296,7 @@ pub fn run_aggregation_benchmark(
 
     let n_sigs = count_signers(topology, overlap);
 
-    let cache = read_benchmark_signers_cache();
+    let cache = get_benchmark_signers_cache();
     assert!(cache.len() >= n_sigs);
     let paired: Vec<_> = (0..n_sigs)
         .into_par_iter()
@@ -330,7 +307,7 @@ pub fn run_aggregation_benchmark(
     init_aggregation_bytecode();
     println!(
         "Aggregation program: {} instructions\n",
-        pretty_integer(get_aggregation_bytecode(prox_gaps_conjecture).instructions.len())
+        pretty_integer(get_aggregation_bytecode().instructions.len())
     );
 
     // Build display
@@ -343,18 +320,56 @@ pub fn run_aggregation_benchmark(
         display.print_initial();
     }
 
-    let aggregated_sigs = build_aggregation(
-        topology,
-        0,
-        &mut display,
-        &pub_keys,
-        &signatures,
-        overlap,
-        prox_gaps_conjecture,
-        tracing,
-    );
+    let (aggregated_sigs, time) =
+        build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
     let message = message_for_benchmark();
-    verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT, prox_gaps_conjecture).unwrap();
+    crate::xmss_verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
+    time
+}
+
+#[test]
+#[ignore]
+fn test_aggregation_throughput_per_num_xmss() {
+    let log_inv_rate = 1;
+    precompute_dft_twiddles::<F>(1 << 24);
+    init_aggregation_bytecode();
+    let _ = get_aggregation_bytecode();
+    let mut num_xmss_and_time = vec![];
+    let mut indexes = vec![];
+    for i in 1..100 {
+        indexes.push(i * 10);
+    }
+    for i in 50..100 {
+        indexes.push(i * 20);
+    }
+    for i in 40..60 {
+        indexes.push(i * 50);
+    }
+    for num_xmss in indexes {
+        let topology = AggregationTopology {
+            raw_xmss: num_xmss,
+            children: vec![],
+            log_inv_rate,
+        };
+        let time = run_aggregation_benchmark(&topology, 0, false);
+        num_xmss_and_time.push((num_xmss, time));
+        println!(
+            "{} XMSS -> {} XMSS/s",
+            num_xmss,
+            (num_xmss as f64 / time).round() as usize
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+
+        let mut csv = String::from("num_sigs,throughput (XMSS/s)\n");
+        for &(n, t) in &num_xmss_and_time {
+            csv.push_str(&format!("{},{:.1}\n", n, n as f64 / t));
+        }
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benchmarks/xmss_throughput.csv");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &csv).unwrap();
+        println!("\nWrote {}", path.display());
+    }
 }

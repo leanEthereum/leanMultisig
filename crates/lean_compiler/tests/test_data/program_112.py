@@ -23,7 +23,7 @@ def main():
     if phase == 0:
         counter = 0
         flag = 100
-    else if phase == 1:
+    elif phase == 1:
         counter = 10
         flag = 200
     else:

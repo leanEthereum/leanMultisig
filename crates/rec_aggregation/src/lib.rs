@@ -1,16 +1,17 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
+use backend::*;
 use lean_prover::prove_execution::prove_execution;
+use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
-use lean_prover::{default_whir_config, verify_execution::ProofVerificationDetails};
 use lean_vm::*;
-use multilinear_toolkit::prelude::*;
 use tracing::instrument;
-use utils::{build_prover_state, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{
     LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, V, W, XmssPublicKey, XmssSignature,
     xmss_verify_with_poseidon_trace,
 };
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::compilation::get_aggregation_bytecode;
@@ -33,7 +34,7 @@ const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
 /// Size of the tweak table in field elements (2 FE per tweak)
 const TWEAK_TABLE_SIZE_FE: usize = N_TWEAKS * 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone)]
@@ -51,7 +52,7 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
 
 pub fn hash_pubkeys(pub_keys: &[Digest]) -> Digest {
     let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.0.iter().copied()).collect();
-    Digest(poseidon_compress_slice(&flat))
+    Digest(poseidon_compress_slice(&flat, true))
 }
 
 fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 2] {
@@ -120,6 +121,7 @@ fn build_non_reserved_public_input(
     slot: u32,
     tweaks_hash: &[F; DIGEST_LEN],
     bytecode_claim_output: &[F],
+    bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
@@ -130,6 +132,7 @@ fn build_non_reserved_public_input(
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend_from_slice(tweaks_hash);
     pi.extend_from_slice(bytecode_claim_output);
+    pi.extend_from_slice(bytecode_hash);
     pi
 }
 
@@ -144,18 +147,29 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
-#[derive(Debug)]
-pub struct AggregatedSigs {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AggregatedXMSS {
     pub pub_keys: Vec<Digest>,
-    pub proof: Vec<F>,
-    pub compressed_proof_len_fe: usize,
+    pub proof: Proof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
-    pub metadata: ExecutionMetadata,
+    // benchmark / debug purpose
+    #[serde(skip, default)]
+    pub metadata: Option<ExecutionMetadata>,
 }
 
-impl AggregatedSigs {
-    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32, proximity_gaps_conjecture: bool) -> Vec<F> {
-        let bytecode = get_aggregation_bytecode(proximity_gaps_conjecture);
+impl AggregatedXMSS {
+    pub fn serialize(&self) -> Vec<u8> {
+        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
+        lz4_flex::compress_prepend_size(&encoded)
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
+        postcard::from_bytes(&decompressed).ok()
+    }
+
+    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+        let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -176,7 +190,7 @@ impl AggregatedSigs {
 
         let slice_hash = hash_pubkeys(&self.pub_keys);
         let tweak_table = compute_tweak_table(slot);
-        let tweaks_hash = poseidon_compress_slice(&tweak_table);
+        let tweaks_hash = poseidon_compress_slice(&tweak_table, true);
 
         build_non_reserved_public_input(
             self.pub_keys.len(),
@@ -185,42 +199,41 @@ impl AggregatedSigs {
             slot,
             &tweaks_hash,
             &bytecode_claim_output,
+            &bytecode.hash,
         )
     }
 }
 
-pub fn verify_aggregation(
-    sigs: &AggregatedSigs,
+pub fn xmss_verify_aggregation(
+    agg_sig: &AggregatedXMSS,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    prox_gaps_conjecture: bool,
 ) -> Result<ProofVerificationDetails, ProofError> {
-    if !sigs.pub_keys.is_sorted() {
+    if !agg_sig.pub_keys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let public_input = sigs.public_input(message, slot, prox_gaps_conjecture);
-    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
-    verify_execution(bytecode, &public_input, sigs.proof.clone(), prox_gaps_conjecture)
+    let public_input = agg_sig.public_input(message, slot);
+    let bytecode = get_aggregation_bytecode();
+    verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
 
+/// panics if one of the sub-proof (children) is invalid
 #[instrument(skip_all)]
-pub fn aggregate(
-    children: &[AggregatedSigs],
+pub fn xmss_aggregate(
+    children: &[AggregatedXMSS],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
-    prox_gaps_conjecture: bool,
-    tracing: bool,
-) -> AggregatedSigs {
+) -> AggregatedXMSS {
     raw_xmss.sort_by_key(|(a, _)| Digest(a.flaten()));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.flaten() == b.flaten());
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
-    let whir_config = default_whir_config(log_inv_rate, prox_gaps_conjecture);
+    let whir_config = lean_prover::default_whir_config(log_inv_rate);
 
-    let bytecode = get_aggregation_bytecode(prox_gaps_conjecture);
+    let bytecode = get_aggregation_bytecode();
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -236,16 +249,18 @@ pub fn aggregate(
 
     // Compute tweak table and its hash
     let tweak_table = compute_tweak_table(slot);
-    let tweaks_hash = poseidon_compress_slice(&tweak_table);
+    let tweaks_hash = poseidon_compress_slice(&tweak_table, true);
 
     // Verify child proofs
-    let mut child_pub_inputs: Vec<Vec<F>> = vec![];
-    let mut child_bytecode_evals: Vec<Evaluation<EF>> = vec![];
+    let mut child_pub_inputs = vec![];
+    let mut child_bytecode_evals = vec![];
+    let mut child_raw_proofs = vec![];
     for child in children {
-        let child_pub_input = child.public_input(message, slot, prox_gaps_conjecture);
-        let verif = verify_execution(bytecode, &child_pub_input, child.proof.clone(), prox_gaps_conjecture).unwrap();
+        let child_pub_input = child.public_input(message, slot);
+        let (verif, raw_proof) = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
+        child_raw_proofs.push(raw_proof);
     }
 
     // Bytecode sumcheck reduction
@@ -286,9 +301,7 @@ pub fn aggregate(
             MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
 
         let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
-            1,
             witness,
-            None,
             &ProductComputation {},
             &vec![],
             None,
@@ -306,7 +319,16 @@ pub fn aggregate(
         let claim_output = flatten_scalars_to_base::<F, EF>(&ef_claim);
         assert_eq!(claim_output.len(), bytecode_claim_size);
 
-        (claim_output, Some(reduced_point), reduction_prover.raw_proof())
+        let final_sumcheck_proof = {
+            // Recover the transcript of the final sumcheck (for bytecode claim reduction)
+            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
+            vs.next_base_scalars_vec(claims_hash.len()).unwrap();
+            let _: EF = vs.sample();
+            sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
+            vs.into_raw_proof().transcript
+        };
+
+        (claim_output, Some(reduced_point), final_sumcheck_proof)
     } else {
         let mut claim_output = vec![F::ZERO; bytecode_claim_size];
         claim_output[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
@@ -322,6 +344,7 @@ pub fn aggregate(
         slot,
         &tweaks_hash,
         &bytecode_claim_output,
+        &bytecode.hash,
     );
     let public_memory = build_public_memory(&non_reserved_public_input);
 
@@ -336,7 +359,10 @@ pub fn aggregate(
     let mut dup_pub_keys: Vec<Digest> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Source 0: raw XMSS
+    // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
+    let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
+
+    // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
@@ -344,9 +370,6 @@ pub fn aggregate(
             let pos = global_pub_keys.binary_search(&key).unwrap();
             block.push(F::from_usize(pos));
             claimed.insert(key);
-        }
-        for (_, sig) in &raw_xmss {
-            block.extend(encode_xmss_signature(sig));
         }
         source_blocks.push(block);
     }
@@ -369,8 +392,8 @@ pub fn aggregate(
         // inner_pub_mem
         let child_pub_mem = build_public_memory(&child_pub_inputs[i]);
         block.extend_from_slice(&child_pub_mem);
-        // proof_transcript
-        block.extend_from_slice(&child.proof);
+        // proof_transcript (without Merkle data, delivered via hint_merkle)
+        block.extend_from_slice(&child_raw_proofs[i].transcript);
 
         source_blocks.push(block);
     }
@@ -416,24 +439,30 @@ pub fn aggregate(
     // TODO precompute all the other poseidons
     let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
 
-    let execution_proof = prove_execution(
-        bytecode,
-        (&non_reserved_public_input, &private_input),
-        &xmss_poseidons_16_precomputed,
-        &whir_config,
-        false,
-    );
+    // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
+    let merkle_paths: Vec<Vec<F>> = child_raw_proofs
+        .iter()
+        .flat_map(|p| p.merkle_openings.iter())
+        .flat_map(|o| {
+            let leaf = o.leaf_data.clone();
+            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
+            [leaf, path]
+        })
+        .collect();
 
-    if tracing {
-        println!("{}", execution_proof.metadata.display());
-    }
+    let witness = ExecutionWitness {
+        private_input: &private_input,
+        poseidons_16_precomputed: &xmss_poseidons_16_precomputed,
+        xmss_signatures: &xmss_signatures,
+        merkle_paths: &merkle_paths,
+    };
+    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
 
-    AggregatedSigs {
+    AggregatedXMSS {
         pub_keys: global_pub_keys,
         proof: execution_proof.proof,
-        compressed_proof_len_fe: execution_proof.proof_size_fe,
         bytecode_point,
-        metadata: execution_proof.metadata,
+        metadata: Some(execution_proof.metadata),
     }
 }
 
@@ -453,7 +482,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         let mut data = flatten_scalars_to_base::<F, EF>(&ef_data);
         data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
 
-        let claim_hash = poseidon_compress_slice(&data);
+        let claim_hash = poseidon_compress_slice(&data, false);
         running_hash = poseidon16_compress_pair(running_hash, claim_hash);
     }
     running_hash

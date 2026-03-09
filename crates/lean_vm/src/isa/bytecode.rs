@@ -1,7 +1,6 @@
 //! Bytecode representation and management
 
-use multilinear_toolkit::prelude::EFPacking;
-use p3_util::log2_ceil_usize;
+use backend::*;
 
 use crate::{CodeAddress, EF, F, FileId, FunctionName, Hint, SourceLocation};
 
@@ -16,6 +15,7 @@ pub struct Bytecode {
     pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
     pub hints: BTreeMap<CodeAddress, Vec<Hint>>,             // pc -> hints
     pub starting_frame_memory: usize,
+    pub hash: [F; DIGEST_ELEMS],
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
     pub filepaths: BTreeMap<FileId, String>,
@@ -42,7 +42,9 @@ impl Display for Bytecode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (pc, instruction) in self.instructions.iter().enumerate() {
             for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
-                writeln!(f, "hint: {hint}")?;
+                if !matches!(hint, Hint::LocationReport { .. }) {
+                    writeln!(f, "hint: {hint}")?;
+                }
             }
             writeln!(f, "{pc:>4}: {instruction}")?;
         }

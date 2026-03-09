@@ -1,0 +1,15 @@
+[package]
+name = "mt-field"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+utils = { path = "../utils", package = "mt-utils" }
+
+itertools.workspace = true
+num-bigint = "*"
+paste = "*"
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true
+tracing.workspace = true

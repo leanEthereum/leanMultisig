@@ -9,7 +9,7 @@ def test_func(cond):
     x: Mut = 10
     if cond == 0:
         x = x + 1
-    else if cond == 1:
+    elif cond == 1:
         x = x + 10
     else:
         x = x + 20

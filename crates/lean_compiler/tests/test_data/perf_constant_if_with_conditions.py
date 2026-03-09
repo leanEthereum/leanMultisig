@@ -58,9 +58,9 @@ def main():
     # Chain of if-else-if with constants
     if A == 1:
         result = result + 5000
-    else if A == 2:
+    elif A == 2:
         result = result + 6000
-    else if A == 10:
+    elif A == 10:
         result = result + 64
     else:
         result = result + 7000

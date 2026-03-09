@@ -7,8 +7,12 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-p3-koala-bear.workspace = true
+
 rand.workspace = true
 utils.workspace = true
-multilinear-toolkit.workspace = true
+backend.workspace = true
+serde.workspace = true
 sha3.workspace = true
+
+[dev-dependencies]
+postcard.workspace = true

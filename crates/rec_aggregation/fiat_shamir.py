@@ -13,6 +13,35 @@ def fs_new(transcript_ptr):
     return fs_state
 
 
+@inline
+def fs_observe_chunks(fs, data, n_chunks):
+    result: Mut = Array(9)
+    poseidon16(fs, data, result)
+    for i in unroll(1, n_chunks):
+        new_result = Array(9)
+        poseidon16(result, data + i * DIGEST_LEN, new_result)
+        result = new_result
+    result[8] = fs[8]  # preserve transcript pointer
+    return result
+
+
+def fs_observe(fs, data, length: Const):
+    n_full_chunks = (length - (length % DIGEST_LEN)) / DIGEST_LEN
+    remainder = length % DIGEST_LEN
+    if remainder == 0:
+        return fs_observe_chunks(fs, data, n_full_chunks)
+    intermediate = fs_observe_chunks(fs, data, n_full_chunks)
+    padded = Array(DIGEST_LEN)
+    for j in unroll(0, remainder):
+        padded[j] = data[n_full_chunks * DIGEST_LEN + j]
+    for j in unroll(remainder, DIGEST_LEN):
+        padded[j] = 0
+    final_result = Array(9)
+    poseidon16(intermediate, padded, final_result)
+    final_result[8] = fs[8]  # preserve transcript pointer
+    return final_result
+
+
 def fs_grinding(fs, bits):
     if bits == 0:
         return fs  # no grinding
@@ -145,7 +174,8 @@ def fs_finalize_sample(fs, total_n_chunks):
     return new_fs
 
 
-def sample_bits_dynamic(fs: Mut, n_samples):
+@inline
+def fs_sample_queries(fs, n_samples):
     debug_assert(n_samples < 256)
     # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
     # Big-endian: nb[0]=bit7 (MSB), nb[7]=bit0 (LSB).
@@ -155,10 +185,4 @@ def sample_bits_dynamic(fs: Mut, n_samples):
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
     sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
-    # Decompose each sampled field element into bits
-    sampled_bits = Array(n_samples)
-    for i in dynamic_unroll(0, n_samples, 8):
-        bits, _ = checked_decompose_bits(sampled[i])
-        sampled_bits[i] = bits
-    new_fs = fs_finalize_sample(fs, total_chunks)
-    return new_fs, sampled_bits
+    return sampled, total_chunks

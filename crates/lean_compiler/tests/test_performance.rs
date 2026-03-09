@@ -9,7 +9,7 @@ fn test_data_dir() -> String {
 /// Helper to get the number of cycles for a program file
 fn get_cycle_count(path: &str) -> usize {
     let bytecode = compile_program(&ProgramSource::Filepath(path.to_string()));
-    let result = try_execute_bytecode(&bytecode, (&[], &[]), false, &vec![]).unwrap();
+    let result = try_execute_bytecode(&bytecode, &[], &ExecutionWitness::empty(), false).unwrap();
     result.pcs.len()
 }
 

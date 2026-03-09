@@ -1,18 +1,15 @@
 use std::collections::BTreeMap;
 
-use crate::core::F;
-use crate::diagnostics::profiler::MemoryProfile;
 use crate::execution::Memory;
-use crate::{N_TABLES, Table, TableTrace};
-use thiserror::Error;
+use crate::{Table, TableTrace};
 use utils::pretty_integer;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ExecutionMetadata {
     pub cycles: usize,
     pub memory: usize,
     pub n_poseidons: usize,
-    pub n_dot_products: usize,
+    pub n_extension_ops: usize,
     pub bytecode_size: usize,
     pub public_input_size: usize,
     pub private_input_size: usize,
@@ -71,8 +68,11 @@ impl ExecutionMetadata {
                 self.cycles / self.n_poseidons
             ));
         }
-        if self.n_dot_products > 0 {
-            out.push_str(&format!("DotProduct calls: {}\n", pretty_integer(self.n_dot_products)));
+        if self.n_extension_ops > 0 {
+            out.push_str(&format!(
+                "ExtensionOp calls: {}\n",
+                pretty_integer(self.n_extension_ops)
+            ));
         }
         out.push_str("──────────────────────────────────────────────────────────────────────────\n");
 
@@ -89,4 +89,10 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
     pub traces: BTreeMap<Table, TableTrace>,
     pub metadata: ExecutionMetadata,
+}
+
+impl ExecutionResult {
+    pub fn n_cycles(&self) -> usize {
+        self.pcs.len()
+    }
 }

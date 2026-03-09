@@ -4,41 +4,32 @@ use crate::*;
 use air::prove_air;
 use lean_vm::*;
 
-use owo_colors::OwoColorize;
 use sub_protocols::*;
 use tracing::info_span;
+use utils::ansi::Colorize;
 use utils::build_prover_state;
-use xmss::Poseidon16History;
-
 #[derive(Debug)]
 pub struct ExecutionProof {
-    pub proof: Vec<F>,
-    pub proof_size_fe: usize,
+    pub proof: Proof<F>,
+    // benchmark / debug purpose
     pub metadata: ExecutionMetadata,
 }
 
 pub fn prove_execution(
     bytecode: &Bytecode,
-    (public_input, private_input): (&[F], &[F]),
-    poseidons_16_precomputed: &Poseidon16History,
+    public_input: &[F],
+    witness: &ExecutionWitness<'_>,
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
     let ExecutionTrace {
         traces,
         public_memory_size,
-        non_zero_memory_size: _, // TODO use the information of the ending zeros for speedup
-        mut memory,              // padded with zeros to next power of two
+        mut memory, // padded with zeros to next power of two
         metadata,
     } = info_span!("Witness generation").in_scope(|| {
-        let execution_result = info_span!("Executing bytecode").in_scope(|| {
-            execute_bytecode(
-                bytecode,
-                (public_input, private_input),
-                vm_profiler,
-                poseidons_16_precomputed,
-            )
-        });
+        let execution_result = info_span!("Executing bytecode")
+            .in_scope(|| execute_bytecode(bytecode, public_input, witness, vm_profiler));
         info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
     });
 
@@ -49,6 +40,8 @@ pub fn prove_execution(
         memory.resize(min_memory_size, F::ZERO);
     }
     let mut prover_state = build_prover_state();
+    prover_state.observe_scalars(public_input);
+    prover_state.observe_scalars(&bytecode.hash);
     prover_state.add_base_scalars(
         &[
             vec![whir_config.starting_log_inv_rate, log2_strict_usize(memory.len())],
@@ -76,16 +69,9 @@ pub fn prove_execution(
     let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
-            for lookup in table.lookups_f() {
+            for lookup in table.lookups() {
                 for i in &trace.base[lookup.index] {
                     for j in 0..lookup.values.len() {
-                        memory_acc[i.to_usize() + j] += F::ONE;
-                    }
-                }
-            }
-            for lookup in table.lookups_ef() {
-                for i in &trace.base[lookup.index] {
-                    for j in 0..DIMENSION {
                         memory_acc[i.to_usize() + j] += F::ONE;
                     }
                 }
@@ -113,7 +99,7 @@ pub fn prove_execution(
 
     // logup (GKR)
     let logup_c = prover_state.sample();
-    let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width()));
+    let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = prove_generic_logup(
@@ -204,10 +190,8 @@ pub fn prove_execution(
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
-    let proof_size_fe = prover_state.pruned_proof().proof_size_fe();
     ExecutionProof {
-        proof: prover_state.raw_proof(),
-        proof_size_fe,
+        proof: prover_state.into_proof(),
         metadata,
     }
 }
@@ -250,11 +234,9 @@ fn prove_bus_and_air(
                     prover_state,
                     $t,
                     extra_data,
-                    1,
-                    &trace.base[..$t.n_columns_f_air()],
-                    &trace.ext[..$t.n_columns_ef_air()],
+                    &trace.base[..$t.n_columns()],
                     Some(bus_virtual_statement),
-                    $t.n_columns_air() + $t.total_n_down_columns_air() > 5, // heuristic
+                    $t.n_columns() + $t.n_down_columns() > 5, // heuristic
                 )
             };
         }
@@ -263,56 +245,17 @@ fn prove_bus_and_air(
 
     let mut res = vec![];
     if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_f_on_down_columns.len(), table.n_down_columns_f());
+        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
         let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims
-            .evals_f_on_down_columns
-            .iter()
-            .zip(table.down_column_indexes_f())
-        {
+        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
             down_evals.insert(col_index, *value_f);
         }
 
-        assert_eq!(air_claims.evals_ef_on_down_columns.len(), table.n_down_columns_ef());
-        for (col_index, value) in table
-            .down_column_indexes_ef()
-            .into_iter()
-            .zip(air_claims.evals_ef_on_down_columns)
-        {
-            let transposed = transpose_slice_to_basis_coefficients::<F, EF>(&trace.ext[col_index])
-                .iter()
-                .map(|base_col| base_col.evaluate(&down_point))
-                .collect::<Vec<_>>();
-            assert_eq!(dot_product_with_base(&transposed), value); // sanity check
-            prover_state.add_extension_scalars(&transposed);
-            for (j, v) in transposed.iter().enumerate() {
-                let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-                down_evals.insert(virtual_index, *v);
-            }
-        }
         res.push((down_point, down_evals));
     }
 
-    assert_eq!(air_claims.evals_f.len(), table.n_columns_f_air());
-    assert_eq!(air_claims.evals_ef.len(), table.n_columns_ef_air());
-    let mut evals = air_claims
-        .evals_f
-        .iter()
-        .copied()
-        .enumerate()
-        .collect::<BTreeMap<_, _>>();
-    for (col_index, (value, col)) in air_claims.evals_ef.into_iter().zip(&trace.ext).enumerate() {
-        let transposed = transpose_slice_to_basis_coefficients::<F, EF>(col)
-            .iter()
-            .map(|base_col| base_col.evaluate(&air_claims.point))
-            .collect::<Vec<_>>();
-        prover_state.add_extension_scalars(&transposed);
-        assert_eq!(dot_product_with_base(&transposed), value); // sanity check
-        for (j, v) in transposed.into_iter().enumerate() {
-            let virtual_index = table.n_columns_f_air() + col_index * DIMENSION + j;
-            evals.insert(virtual_index, v);
-        }
-    }
+    assert_eq!(air_claims.evals.len(), table.n_columns());
+    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
 
     res.push((air_claims.point.clone(), evals));
 

@@ -1,15 +1,16 @@
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 use crate::*;
 
 pub const N_TABLES: usize = 3;
-pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::dot_product(), Table::poseidon16()];
+pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]
 pub enum Table {
     Execution(ExecutionTable<true>),
-    DotProduct(DotProductPrecompile<true>),
+    ExtensionOp(ExtensionOpPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
 }
 
@@ -18,7 +19,7 @@ macro_rules! delegate_to_inner {
     // Existing pattern for method calls
     ($self:expr, $method:ident $(, $($arg:expr),*)?) => {
         match $self {
-            Self::DotProduct(p) => p.$method($($($arg),*)?),
+            Self::ExtensionOp(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
@@ -26,7 +27,7 @@ macro_rules! delegate_to_inner {
     // New pattern for applying a macro to the inner value
     ($self:expr => $macro_name:ident) => {
         match $self {
-            Table::DotProduct(p) => $macro_name!(p),
+            Table::ExtensionOp(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
@@ -37,8 +38,8 @@ impl Table {
     pub const fn execution() -> Self {
         Self::Execution(ExecutionTable)
     }
-    pub const fn dot_product() -> Self {
-        Self::DotProduct(DotProductPrecompile)
+    pub const fn extension_op() -> Self {
+        Self::ExtensionOp(ExtensionOpPrecompile)
     }
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
@@ -58,11 +59,8 @@ impl TableT for Table {
     fn table(&self) -> Table {
         delegate_to_inner!(self, table)
     }
-    fn lookups_f(&self) -> Vec<LookupIntoMemory> {
-        delegate_to_inner!(self, lookups_f)
-    }
-    fn lookups_ef(&self) -> Vec<ExtensionFieldLookupIntoMemory> {
-        delegate_to_inner!(self, lookups_ef)
+    fn lookups(&self) -> Vec<LookupIntoMemory> {
+        delegate_to_inner!(self, lookups)
     }
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
@@ -70,11 +68,8 @@ impl TableT for Table {
     fn bus(&self) -> Bus {
         delegate_to_inner!(self, bus)
     }
-    fn padding_row_f(&self) -> Vec<PF<EF>> {
-        delegate_to_inner!(self, padding_row_f)
-    }
-    fn padding_row_ef(&self) -> Vec<EF> {
-        delegate_to_inner!(self, padding_row_ef)
+    fn padding_row(&self) -> Vec<PF<EF>> {
+        delegate_to_inner!(self, padding_row)
     }
     fn execute(
         &self,
@@ -87,11 +82,8 @@ impl TableT for Table {
     ) -> Result<(), RunnerError> {
         delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_1, aux_2, ctx)
     }
-    fn n_columns_f_total(&self) -> usize {
-        delegate_to_inner!(self, n_columns_f_total)
-    }
-    fn n_columns_ef_total(&self) -> usize {
-        delegate_to_inner!(self, n_columns_ef_total)
+    fn n_columns_total(&self) -> usize {
+        delegate_to_inner!(self, n_columns_total)
     }
 }
 
@@ -100,29 +92,22 @@ impl Air for Table {
     fn degree_air(&self) -> usize {
         delegate_to_inner!(self, degree_air)
     }
-    fn n_columns_f_air(&self) -> usize {
-        delegate_to_inner!(self, n_columns_f_air)
-    }
-    fn n_columns_ef_air(&self) -> usize {
-        delegate_to_inner!(self, n_columns_ef_air)
+    fn n_columns(&self) -> usize {
+        delegate_to_inner!(self, n_columns)
     }
     fn n_constraints(&self) -> usize {
         delegate_to_inner!(self, n_constraints)
     }
-    fn down_column_indexes_f(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes_f)
-    }
-    fn down_column_indexes_ef(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes_ef)
+    fn down_column_indexes(&self) -> Vec<usize> {
+        delegate_to_inner!(self, down_column_indexes)
     }
     fn eval<AB: AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()
     }
 }
 
-pub fn max_bus_width() -> usize {
-    let max_bus_in_table = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
-    1 + max_bus_in_table.max(N_INSTRUCTION_COLUMNS)
+pub fn max_bus_width_including_domainsep() -> usize {
+    1 + MAX_PRECOMPILE_BUS_WIDTH.max(N_INSTRUCTION_COLUMNS) // "+1" for domain separation in logup between memory / bytecode / precompiles interactions
 }
 
 pub fn max_air_constraints() -> usize {
@@ -131,16 +116,18 @@ pub fn max_air_constraints() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use utils::{BYTECODE_TABLE_INDEX, MEMORY_TABLE_INDEX};
-
     use super::*;
 
     #[test]
     fn test_table_indices() {
         for (i, table) in ALL_TABLES.iter().enumerate() {
             assert_eq!(table.index(), i);
-            assert_ne!(table.index(), MEMORY_TABLE_INDEX);
-            assert_ne!(table.index(), BYTECODE_TABLE_INDEX);
         }
+    }
+
+    #[test]
+    fn test_max_precompile_bus_width() {
+        let expected_max_bus_width = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
+        assert_eq!(MAX_PRECOMPILE_BUS_WIDTH, expected_max_bus_width);
     }
 }

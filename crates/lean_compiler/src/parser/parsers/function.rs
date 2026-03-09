@@ -9,7 +9,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{ALL_TABLES, TableT};
+use lean_vm::{CUSTOM_HINTS, EXT_OP_FUNCTIONS, Table, TableT};
 
 /// Reserved function names that users cannot define.
 pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
@@ -23,9 +23,6 @@ pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
     "log2_ceil",
     "next_multiple_of",
     "saturating_sub",
-    // Custom hints (manually listed since CustomHint doesn't re-export strum iterator)
-    "hint_decompose_bits_xmss",
-    "hint_decompose_bits",
     "range",
     "match_range",
 ];
@@ -33,14 +30,16 @@ pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
 /// Check if a function name is reserved.
 fn is_reserved_function_name(name: &str) -> bool {
     // Check static reserved names
-    if RESERVED_FUNCTION_NAMES.contains(&name) {
+    if RESERVED_FUNCTION_NAMES.contains(&name) || CUSTOM_HINTS.iter().any(|hint| hint.name() == name) {
         return true;
     }
-    // Check precompile names (poseidon16, dot_product, execution)
-    for table in ALL_TABLES {
-        if table.name() == name && !table.is_execution_table() {
-            return true;
-        }
+    // Check precompile names (poseidon16, extension_op functions)
+    if Table::poseidon16().name() == name {
+        return true;
+    }
+    // Extension op function names
+    if EXT_OP_FUNCTIONS.iter().any(|(fn_name, _)| *fn_name == name) {
+        return true;
     }
     false
 }

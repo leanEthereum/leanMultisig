@@ -36,7 +36,7 @@ def main():
     if mode == 0:
         fwd_x = 1
         fwd_y = 1
-    else if mode == 1:
+    elif mode == 1:
         fwd_x = 10
         fwd_y = 10
     else:
@@ -86,7 +86,7 @@ def complex_nested_compute(outer, inner, depth):
 
     if outer == 0:
         result = 100
-    else if outer == 1:
+    elif outer == 1:
         if inner == 0:
             result = 110
         else:
@@ -95,18 +95,18 @@ def complex_nested_compute(outer, inner, depth):
         if inner == 0:
             if depth == 0:
                 result = 200
-            else if depth == 1:
+            elif depth == 1:
                 result = 210
-            else if depth == 2:
+            elif depth == 2:
                 result = 220
             else:
                 result = 230
         else:
             if depth == 0:
                 result = 250
-            else if depth == 1:
+            elif depth == 1:
                 result = 260
-            else if depth == 2:
+            elif depth == 2:
                 result = 270
             else:
                 result = 280

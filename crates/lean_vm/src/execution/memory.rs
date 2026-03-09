@@ -2,7 +2,7 @@
 use crate::MAX_LOG_MEMORY_SIZE;
 use crate::core::{DIMENSION, EF, F};
 use crate::diagnostics::RunnerError;
-use multilinear_toolkit::prelude::*;
+use backend::*;
 
 /// VM memory implementation with sparse allocation
 #[derive(Debug, Clone, Default)]
@@ -28,17 +28,6 @@ impl Memory {
             .copied()
             .flatten()
             .ok_or(RunnerError::UndefinedMemory(index))
-    }
-
-    /// Reads a single value from a memory address, returning ZERO if undefined or out of bounds.
-    /// Used for range check hint resolution where undefined memory is acceptable.
-    pub fn get_or_zero(&self, index: usize) -> F {
-        self.0.get(index).copied().flatten().unwrap_or(F::ZERO)
-    }
-
-    /// Returns true if a memory address is defined
-    pub fn is_defined(&self, index: usize) -> bool {
-        self.0.get(index).copied().flatten().is_some()
     }
 
     /// Sets a value at a memory address

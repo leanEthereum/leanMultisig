@@ -1,17 +1,16 @@
 use air::{check_air_validity, prove_air, verify_air};
+use backend::*;
 use lean_vm::{
     EF, ExtraDataForBuses, F, POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START,
     POSEIDON_16_COL_RES, POSEIDON_16_NULL_HASH_PTR, Poseidon16Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16,
     num_cols_poseidon_16,
 };
-use multilinear_toolkit::prelude::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     build_prover_state, build_verifier_state, collect_refs, init_tracing, padd_with_zero_to_next_power_of_two,
 };
 
 const WIDTH: usize = 16;
-const UNIVARIATE_SKIPS: usize = 3;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
@@ -47,13 +46,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
     let air = Poseidon16Precompile::<false>;
 
-    check_air_validity(
-        &air,
-        &ExtraDataForBuses::default(),
-        &collect_refs(&trace),
-        &[] as &[&[EF]],
-    )
-    .unwrap();
+    check_air_validity::<_, EF>(&air, &ExtraDataForBuses::default(), &collect_refs(&trace)).unwrap();
 
     let mut prover_state = build_prover_state();
 
@@ -68,7 +61,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             commitmed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(col);
         }
         let committed_pol = MleOwned::Base(commitmed_pol);
-        let witness = whir_config.commit(&mut prover_state, &committed_pol);
+        let witness = whir_config.commit(&mut prover_state, &committed_pol, num_cols_poseidon_16() << log_n_rows);
 
         let alpha = prover_state.sample();
         let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
@@ -77,22 +70,13 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             ..Default::default()
         };
 
-        let air_claims = prove_air::<EF, _>(
-            &mut prover_state,
-            &air,
-            extra_data,
-            UNIVARIATE_SKIPS,
-            &collect_refs(&trace),
-            &[] as &[&[EF]],
-            None,
-            true,
-        );
+        let air_claims = prove_air::<EF, _>(&mut prover_state, &air, extra_data, &collect_refs(&trace), None, true);
         assert!(air_claims.down_point.is_none());
-        assert_eq!(air_claims.evals_f.len(), air.n_columns_air());
+        assert_eq!(air_claims.evals.len(), air.n_columns());
 
         let betas = prover_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
-        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas));
 
         whir_config.prove(
             &mut prover_state,
@@ -108,7 +92,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     );
 
     {
-        let mut verifier_state = build_verifier_state(prover_state);
+        let mut verifier_state = build_verifier_state(prover_state).unwrap();
 
         let parsed_commitment = whir_config.parse_commitment::<F>(&mut verifier_state).unwrap();
 
@@ -118,19 +102,11 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             alpha_powers: air_alpha_powers,
             ..Default::default()
         };
-        let air_claims = verify_air(
-            &mut verifier_state,
-            &air,
-            extra_data,
-            UNIVARIATE_SKIPS,
-            log2_ceil_usize(n_rows),
-            None,
-        )
-        .unwrap();
+        let air_claims = verify_air(&mut verifier_state, &air, extra_data, log2_ceil_usize(n_rows), None).unwrap();
 
         let betas = verifier_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
         let packed_point = MultilinearPoint([betas.clone(), air_claims.point.0].concat());
-        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals_f).evaluate(&MultilinearPoint(betas));
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas));
 
         whir_config
             .verify(
