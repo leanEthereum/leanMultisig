@@ -99,7 +99,7 @@ pub fn xmss_key_gen(
         let prev_top: u64 = (slot_end as u64) >> (level - 1);
         let nodes: Vec<Digest> = {
             let prev = &merkle_tree[level - 1];
-            (base..top + 1)
+            (base..=top)
                 .into_par_iter()
                 .map(|i| {
                     let left_idx = 2 * i;
