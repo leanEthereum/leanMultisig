@@ -60,7 +60,7 @@ pub fn xmss_key_gen(
     }
     let perm = default_koalabear_poseidon2_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
-    let leaves: Vec<Digest> = (slot_start..slot_end + 1)
+    let leaves: Vec<Digest> = (slot_start..=slot_end)
         .into_par_iter()
         .map(|slot| {
             let wots = gen_wots_secret_key(&seed, slot);
@@ -78,7 +78,7 @@ pub fn xmss_key_gen(
         let prev_top = u64::from(slot_end) >> (level - 1);
         let nodes: Vec<Digest> = {
             let prev = &merkle_tree[level - 1];
-            (base..top + 1)
+            (base..=top)
                 .into_par_iter()
                 .map(|i| {
                     let left_idx = 2 * i;
