@@ -25,7 +25,12 @@ pub const V_GRINDING: usize = 2;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
 pub const MESSAGE_LEN_FE: usize = 9;
-pub const PUBLIC_PARAM_LEN_FE: usize = 3;
+pub const PUBLIC_PARAM_LEN_FE: usize = 4;
+pub const PP_IN_LEFT: usize = 8 - DIGEST_SIZE; // = 3
+pub const PUB_KEY_FLAT_SIZE: usize = DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 9
+
+const _: () = assert!(PP_IN_LEFT + DIGEST_SIZE == 8);
+const _: () = assert!((PUBLIC_PARAM_LEN_FE - PP_IN_LEFT) + TWEAK_LEN + DIGEST_SIZE == 8);
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
 
@@ -51,19 +56,21 @@ pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> 
     ]
 }
 
-/// [public_param(3) | data(5)]
+/// [public_param[0..3](3) | data(5)]
 pub(crate) fn build_left(public_param: &PublicParam, data: &Digest) -> [F; 8] {
     let mut left = [F::default(); 8];
-    left[..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
-    left[PUBLIC_PARAM_LEN_FE..].copy_from_slice(data);
+    left[..PP_IN_LEFT].copy_from_slice(&public_param[..PP_IN_LEFT]);
+    left[PP_IN_LEFT..].copy_from_slice(data);
     left
 }
 
-/// [0 | tweak(2) | data(5)]
-pub(crate) fn build_right(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
+/// [pp[3](1) | tweak(2) | data(5)]
+pub(crate) fn build_right(public_param: &PublicParam, tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
+    let pp_right = PUBLIC_PARAM_LEN_FE - PP_IN_LEFT;
     let mut right = [F::default(); 8];
-    right[1..1 + TWEAK_LEN].copy_from_slice(&tweak);
-    right[1 + TWEAK_LEN..].copy_from_slice(data);
+    right[..pp_right].copy_from_slice(&public_param[PP_IN_LEFT..]);
+    right[pp_right..pp_right + TWEAK_LEN].copy_from_slice(&tweak);
+    right[pp_right + TWEAK_LEN..].copy_from_slice(data);
     right
 }
 

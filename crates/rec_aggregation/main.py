@@ -40,7 +40,7 @@ def main():
     sub_slice_starts = priv_start + 4
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
-    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Verify tweak table hash
@@ -64,7 +64,7 @@ def main():
         buffer[idx] = counter
         counter += 1
         # Verify raw XMSS signatures
-        pk = all_pubkeys + idx * DIGEST_LEN
+        pk = all_pubkeys + idx * PUB_KEY_SIZE
         sig = Array(SIG_SIZE)
         hint_xmss(sig)
         xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
@@ -87,19 +87,20 @@ def main():
         assert idx0 < n_total
         buffer[idx0] = counter
         counter += 1
-        pk0 = all_pubkeys + idx0 * DIGEST_LEN
-        running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16(ZERO_VEC_PTR, pk0, running_hash)
+
+        # Copy subset pub keys to contiguous buffer for flat hashing
+        sub_pubkeys = Array(n_sub * PUB_KEY_SIZE)
+        copy_9(all_pubkeys + idx0 * PUB_KEY_SIZE, sub_pubkeys)
 
         for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter
             counter += 1
-            pk = all_pubkeys + idx * DIGEST_LEN
-            new_hash = Array(DIGEST_LEN)
-            poseidon16(running_hash, pk, new_hash)
-            running_hash = new_hash
+            copy_9(all_pubkeys + idx * PUB_KEY_SIZE, sub_pubkeys + j * PUB_KEY_SIZE)
+
+        running_hash = slice_hash_with_iv_dynamic_unroll(
+            sub_pubkeys, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
 
         # Verify inner public memory matches expected structure
         debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)

@@ -116,13 +116,13 @@ impl WotsPublicKey {
         slot: u32,
     ) -> Digest {
         let left = build_left(&public_param, &self.0[0]);
-        let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot), &self.0[1]);
+        let right = build_right(&public_param, make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot), &self.0[1]);
         let mut running_hash: Digest = poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
             .try_into()
             .unwrap();
         for i in 2..V {
             let left = build_left(&public_param, &running_hash);
-            let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, i - 1, slot), &self.0[i]);
+            let right = build_right(&public_param, make_tweak(TWEAK_TYPE_WOTS_PK, i - 1, slot), &self.0[i]);
             running_hash = poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
@@ -142,7 +142,7 @@ pub fn iterate_hash(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left(&public_param, &acc);
-        let right = build_right(tweak, &Default::default());
+        let right = build_right(&public_param, tweak, &Default::default());
         poseidon16_compress_pair(left, right)[..DIGEST_SIZE].try_into().unwrap()
     })
 }
@@ -159,7 +159,7 @@ pub fn iterate_hash_with_poseidon_trace(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left(&public_param, &acc);
-        let right = build_right(tweak, &Default::default());
+        let right = build_right(&public_param, tweak, &Default::default());
         poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
             .try_into()
             .unwrap()
@@ -205,7 +205,9 @@ pub fn wots_encode_with_poseidon_trace(
     let pre_compressed =
         poseidon16_compress_with_trace(message[..8].try_into().unwrap(), first_input_right, poseidon_16_trace);
 
-    let compressed = poseidon16_compress_with_trace(pre_compressed, xmss_pub_key.flaten(), poseidon_16_trace);
+    let mut pp_input = [F::default(); 8];
+    pp_input[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
+    let compressed = poseidon16_compress_with_trace(pre_compressed, pp_input, poseidon_16_trace);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding

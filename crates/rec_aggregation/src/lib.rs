@@ -7,8 +7,8 @@ use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, V, W, XmssPublicKey, XmssSignature,
-    xmss_verify_with_poseidon_trace,
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, Poseidon16History, SIG_SIZE_FE, V, W, XmssPublicKey,
+    XmssSignature, xmss_verify_with_poseidon_trace,
 };
 
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,9 @@ const TWEAK_TABLE_SIZE_FE: usize = N_TWEAKS * 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct FlatPubKey(pub [F; PUB_KEY_FLAT_SIZE]);
+
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
     pub raw_xmss: usize,
@@ -50,7 +53,7 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
-pub fn hash_pubkeys(pub_keys: &[Digest]) -> Digest {
+pub fn hash_pubkeys(pub_keys: &[FlatPubKey]) -> Digest {
     let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.0.iter().copied()).collect();
     Digest(poseidon_compress_slice(&flat, true))
 }
@@ -149,7 +152,7 @@ fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AggregatedXMSS {
-    pub pub_keys: Vec<Digest>,
+    pub pub_keys: Vec<FlatPubKey>,
     pub proof: Proof<F>,
     pub bytecode_point: Option<MultilinearPoint<EF>>,
     // benchmark / debug purpose
@@ -226,7 +229,7 @@ pub fn xmss_aggregate(
     slot: u32,
     log_inv_rate: usize,
 ) -> AggregatedXMSS {
-    raw_xmss.sort_by_key(|(a, _)| Digest(a.flaten()));
+    raw_xmss.sort_by_key(|(a, _)| FlatPubKey(a.flaten()));
     raw_xmss.dedup_by(|(a, _), (b, _)| a.flaten() == b.flaten());
 
     let n_recursions = children.len();
@@ -238,7 +241,7 @@ pub fn xmss_aggregate(
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
     // Build global_pub_keys as sorted deduplicated union
-    let mut global_pub_keys: Vec<Digest> = raw_xmss.iter().map(|(pk, _)| Digest(pk.flaten())).collect();
+    let mut global_pub_keys: Vec<FlatPubKey> = raw_xmss.iter().map(|(pk, _)| FlatPubKey(pk.flaten())).collect();
     for child in children.iter() {
         assert!(child.pub_keys.is_sorted(), "child pub_keys must be sorted");
         global_pub_keys.extend_from_slice(&child.pub_keys);
@@ -355,8 +358,8 @@ pub fn xmss_aggregate(
     let pubkeys_start = public_memory.len() + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
-    let mut claimed: HashSet<Digest> = HashSet::new();
-    let mut dup_pub_keys: Vec<Digest> = Vec::new();
+    let mut claimed: HashSet<FlatPubKey> = HashSet::new();
+    let mut dup_pub_keys: Vec<FlatPubKey> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
     // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
@@ -366,7 +369,7 @@ pub fn xmss_aggregate(
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
-            let key = Digest(pk.flaten());
+            let key = FlatPubKey(pk.flaten());
             let pos = global_pub_keys.binary_search(&key).unwrap();
             block.push(F::from_usize(pos));
             claimed.insert(key);
@@ -399,7 +402,7 @@ pub fn xmss_aggregate(
     }
 
     let n_dup = dup_pub_keys.len();
-    let pubkeys_block_size = n_sigs * DIGEST_LEN + n_dup * DIGEST_LEN;
+    let pubkeys_block_size = n_sigs * PUB_KEY_FLAT_SIZE + n_dup * PUB_KEY_FLAT_SIZE;
     let tweak_table_ptr = pubkeys_start + pubkeys_block_size;
 
     // Compute absolute memory addresses for each source block

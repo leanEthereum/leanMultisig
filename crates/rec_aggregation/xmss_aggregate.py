@@ -9,6 +9,9 @@ TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
+PUBLIC_PARAM_LEN_FE = PUBLIC_PARAM_LEN_FE_PLACEHOLDER
+PUB_KEY_SIZE = DIM + PUBLIC_PARAM_LEN_FE
+PP_IN_LEFT = DIGEST_LEN - DIM
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIM
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
@@ -40,8 +43,8 @@ def build_left_fn(pp, data, out):
 
 
 @inline
-def build_right_fn(tweak, data, out):
-    out[0] = 0
+def build_right_fn(pp3, tweak, data, out):
+    out[0] = pp3
     out[1] = tweak[0]
     out[2] = tweak[1]
     copy_5(data, out + 3)
@@ -49,9 +52,9 @@ def build_right_fn(tweak, data, out):
 
 
 @inline
-def build_right_chain_fn(tweak, out):
+def build_right_chain_fn(pp3, tweak, out):
     # Chain hash: data is all zeros
-    out[0] = 0
+    out[0] = pp3
     out[1] = tweak[0]
     out[2] = tweak[1]
     copy_5(ZERO_VEC_PTR, out + 3)
@@ -60,16 +63,18 @@ def build_right_chain_fn(tweak, out):
 
 @inline
 def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
-    # pub_key: 8 FE = merkle_root(DIM) | public_param(3)
+    # pub_key: PUB_KEY_SIZE FE = merkle_root(DIM) | public_param(PUBLIC_PARAM_LEN_FE)
     # signature: randomness(RANDOMNESS_LEN) | chain_tips(V * DIM) | merkle_path(LOG_LIFETIME * DIM)
 
     public_param = pub_key + DIM
+    pp3 = public_param[PP_IN_LEFT]
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
     merkle_path = chain_starts + V * DIM
 
     # 1) Encode: poseidon16(message[0:8], [msg[8] | randomness(5) | tweak_encoding(2)])
-    #            poseidon16(pre_compressed, pub_key_flat)
+    #            poseidon16(pre_compressed, pub_key[0:8])
+    #            poseidon16(intermediate, [pub_key[8] | zeros])
     encoding_tweak = tweak_table + TWEAK_ENCODING_OFFSET
     a_input_right = Array(DIGEST_LEN)
     a_input_right[0] = message[DIGEST_LEN]
@@ -79,8 +84,17 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     pre_compressed = Array(DIGEST_LEN)
     poseidon16(message, a_input_right, pre_compressed)
 
+    pp_input = Array(DIGEST_LEN)
+    pp_input[0] = public_param[0]
+    pp_input[1] = public_param[1]
+    pp_input[2] = public_param[2]
+    pp_input[3] = pp3
+    pp_input[4] = 0
+    pp_input[5] = 0
+    pp_input[6] = 0
+    pp_input[7] = 0
     encoding_fe = Array(DIGEST_LEN)
-    poseidon16(pre_compressed, pub_key, encoding_fe)
+    poseidon16(pre_compressed, pp_input, encoding_fe)
 
     encoding = Array(NUM_ENCODING_FE * 24 / W)
     remaining = Array(NUM_ENCODING_FE)
@@ -126,26 +140,26 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
         match_range(num_hashes,
                     range(0, 1), lambda _: copy_5(chain_start, chain_end),
-                    range(1, CHAIN_LENGTH), lambda n: chain_hash(chain_start, n, chain_end, public_param, chain_i_tweaks))
+                    range(1, CHAIN_LENGTH), lambda n: chain_hash(chain_start, n, chain_end, public_param, pp3, chain_i_tweaks))
 
     # 3) Hash WOTS public key
     wots_pk_tweaks = tweak_table + TWEAK_WOTS_PK_OFFSET
-    expected_leaf = wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks)
+    expected_leaf = wots_pk_hash(wots_public_key, public_param, pp3, wots_pk_tweaks)
 
     # 4) Merkle verification
     merkle_tweaks = tweak_table + TWEAK_MERKLE_OFFSET
-    xmss_merkle_verify(expected_leaf, merkle_path, merkle_chunks, pub_key, public_param, merkle_tweaks)
+    xmss_merkle_verify(expected_leaf, merkle_path, merkle_chunks, pub_key, public_param, pp3, merkle_tweaks)
     return
 
 
-def chain_hash(input, n: Const, output, public_param, chain_i_tweaks):
+def chain_hash(input, n: Const, output, public_param, pp3, chain_i_tweaks):
     starting_step = CHAIN_LENGTH - 1 - n
 
     # First hash: build left and right from scratch (no prior hash output to reuse)
     left_first = Array(DIGEST_LEN)
     build_left_fn(public_param, input, left_first)
     right_first = Array(DIGEST_LEN)
-    build_right_chain_fn(chain_i_tweaks + starting_step * TWEAK_LEN, right_first)
+    build_right_chain_fn(pp3, chain_i_tweaks + starting_step * TWEAK_LEN, right_first)
 
     if n == 1:
         poseidon16(left_first, right_first, output)
@@ -167,7 +181,7 @@ def chain_hash(input, n: Const, output, public_param, chain_i_tweaks):
         buf_indexes[j] = buf_indexes[j - 1] + BUF_SIZE
         cur_buf = buf_indexes[j]
         right_j = Array(DIGEST_LEN)
-        build_right_chain_fn(chain_i_tweaks + (starting_step + j) * TWEAK_LEN, right_j)
+        build_right_chain_fn(pp3, chain_i_tweaks + (starting_step + j) * TWEAK_LEN, right_j)
         poseidon16(buf_indexes[j - 1], right_j, cur_buf + 3)
         cur_buf[0] = public_param[0]
         cur_buf[1] = public_param[1]
@@ -175,12 +189,12 @@ def chain_hash(input, n: Const, output, public_param, chain_i_tweaks):
 
     # Final hash: last buf is already a valid left input
     right_last = Array(DIGEST_LEN)
-    build_right_chain_fn(chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN, right_last)
+    build_right_chain_fn(pp3, chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN, right_last)
     poseidon16(buf_indexes[n - 2], right_last, output)
     return
 
 
-def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
+def wots_pk_hash(wots_public_key, public_param, pp3, wots_pk_tweaks):
     # Sequential hash over V elements at DIGEST_LEN stride
     # poseidon16(build_left(pp, wots[0]), build_right(tweak[0], wots[1])) -> h
     # poseidon16([pp | h], build_right(tweak[i], wots[i+1])) for i=1..V-2
@@ -190,7 +204,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     left0 = Array(DIGEST_LEN)
     build_left_fn(public_param, wots_public_key, left0)
     right0 = Array(DIGEST_LEN)
-    build_right_fn(wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
+    build_right_fn(pp3, wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
 
     # Buffer trick for intermediate states
     bufs = Array((V - 2) * BUF_SIZE)
@@ -206,7 +220,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
         buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
         cur_buf = buf_indexes[i]
         right_i = Array(DIGEST_LEN)
-        build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
+        build_right_fn(pp3, wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
         poseidon16(buf_indexes[i - 1], right_i, cur_buf + 3)
         cur_buf[0] = public_param[0]
         cur_buf[1] = public_param[1]
@@ -215,14 +229,14 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     # Final hash
     result = Array(DIGEST_LEN)
     right_last = Array(DIGEST_LEN)
-    build_right_fn(wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
+    build_right_fn(pp3, wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
     poseidon16(buf_indexes[V - 3], right_last, result)
 
     return result
 
 
 @inline
-def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_tweaks_chunk):
+def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, pp3, merkle_tweaks_chunk):
     # b encodes 4 is_left bits; path elements at DIM stride
     b0 = b % 2
     r1 = (b - b0) / 2
@@ -237,14 +251,14 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     right0 = Array(DIGEST_LEN)
     if b0 == 1:
         build_left_fn(public_param, state_in, left0)
-        build_right_fn(merkle_tweaks_chunk, path_chunk, right0)
+        build_right_fn(pp3, merkle_tweaks_chunk, path_chunk, right0)
     else:
         build_left_fn(public_param, path_chunk, left0)
-        build_right_fn(merkle_tweaks_chunk, state_in, right0)
+        build_right_fn(pp3, merkle_tweaks_chunk, state_in, right0)
 
     # Buffer trick: hash output to buf + 3, then prepend prefix.
     # If state goes left: buf = [pp | hash[0..5]], used as left input.
-    # If state goes right: buf = [0, tw0, tw1 | hash[0..5]], used as right input.
+    # If state goes right: buf = [pp3, tw0, tw1 | hash[0..5]], used as right input.
     buf0 = Array(BUF_SIZE)
     poseidon16(left0, right0, buf0 + 3)
 
@@ -255,10 +269,10 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         buf0[0] = public_param[0]
         buf0[1] = public_param[1]
         buf0[2] = public_param[2]
-        build_right_fn(merkle_tweaks_chunk + 1 * TWEAK_LEN, path_chunk + 1 * DIM, other1)
+        build_right_fn(pp3, merkle_tweaks_chunk + 1 * TWEAK_LEN, path_chunk + 1 * DIM, other1)
         poseidon16(buf0, other1, buf1 + 3)
     else:
-        buf0[0] = 0
+        buf0[0] = pp3
         buf0[1] = merkle_tweaks_chunk[1 * TWEAK_LEN]
         buf0[2] = merkle_tweaks_chunk[1 * TWEAK_LEN + 1]
         build_left_fn(public_param, path_chunk + 1 * DIM, other1)
@@ -271,10 +285,10 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         buf1[0] = public_param[0]
         buf1[1] = public_param[1]
         buf1[2] = public_param[2]
-        build_right_fn(merkle_tweaks_chunk + 2 * TWEAK_LEN, path_chunk + 2 * DIM, other2)
+        build_right_fn(pp3, merkle_tweaks_chunk + 2 * TWEAK_LEN, path_chunk + 2 * DIM, other2)
         poseidon16(buf1, other2, buf2 + 3)
     else:
-        buf1[0] = 0
+        buf1[0] = pp3
         buf1[1] = merkle_tweaks_chunk[2 * TWEAK_LEN]
         buf1[2] = merkle_tweaks_chunk[2 * TWEAK_LEN + 1]
         build_left_fn(public_param, path_chunk + 2 * DIM, other2)
@@ -286,10 +300,10 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         buf2[0] = public_param[0]
         buf2[1] = public_param[1]
         buf2[2] = public_param[2]
-        build_right_fn(merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * DIM, other3)
+        build_right_fn(pp3, merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * DIM, other3)
         poseidon16(buf2, other3, state_out)
     else:
-        buf2[0] = 0
+        buf2[0] = pp3
         buf2[1] = merkle_tweaks_chunk[3 * TWEAK_LEN]
         buf2[2] = merkle_tweaks_chunk[3 * TWEAK_LEN + 1]
         build_left_fn(public_param, path_chunk + 3 * DIM, other3)
@@ -298,12 +312,12 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
 
 
 @inline
-def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, public_param, merkle_tweaks):
+def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, public_param, pp3, merkle_tweaks):
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
     # First chunk
     match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(
-        b, leaf_digest, merkle_path, states, public_param, merkle_tweaks))
+        b, leaf_digest, merkle_path, states, public_param, pp3, merkle_tweaks))
 
     state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
@@ -314,6 +328,7 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
             merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIM,
             state_indexes[j],
             public_param,
+            pp3,
             merkle_tweaks + j * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN))
 
     # Last chunk: write to temp, then assert match with expected_root (write-once)
@@ -323,6 +338,7 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
         merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIM,
         last_output,
         public_param,
+        pp3,
         merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN))
 
     # Assert computed root == expected (first DIM elements)
