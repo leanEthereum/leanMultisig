@@ -588,6 +588,23 @@ unsafe impl<FP: FieldParameters> PackedField for PackedMontyField31Neon<FP> {
     fn packed_linear_combination<const N: usize>(coeffs: &[Self::Scalar], vecs: &[Self]) -> Self {
         general_dot_product::<_, _, _, N>(coeffs, vecs)
     }
+
+    /// Fused `(self - rhs) * scalar` that skips the intermediate modular reduction on the
+    /// subtraction. This is valid because `vsubq_u32(x, y)` with `x, y ∈ [0, P)` produces a
+    /// value that, reinterpreted as `i32`, lies in `(-P, P)` — exactly the signed input range
+    /// that Montgomery multiplication accepts.
+    #[inline]
+    fn fused_sub_mul(self, rhs: Self, scalar: Self::Scalar) -> Self {
+        unsafe {
+            // Unreduced subtraction: result in (-P, P) when reinterpreted as signed.
+            let diff = aarch64::vreinterpretq_s32_u32(aarch64::vsubq_u32(self.to_vector(), rhs.to_vector()));
+            let scalar_vec: Self = scalar.into();
+            let scalar_s = scalar_vec.to_signed_vector();
+            let res = mul::<FP>(diff, scalar_s);
+            // Safety: `mul` returns values in canonical form [0, P).
+            Self::from_vector(res)
+        }
+    }
 }
 
 impl_packed_field_pow_2!(
