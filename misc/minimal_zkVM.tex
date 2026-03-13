@@ -352,7 +352,7 @@ We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to 
 We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
 \begin{enumerate}
     \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
-    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD)
+    \item \textbf{m}[\textbf{fp} + $x$] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD, this computes $\textbf{m}[\textbf{fp} + $j$] = t - 1 - $ \textbf{m}[\textbf{fp} + $x$])
         \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
 \end{enumerate}
 
