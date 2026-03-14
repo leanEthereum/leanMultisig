@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     result1 = asymmetric_depth(0, 0, 0)
     assert result1 == 1111
@@ -32,6 +34,7 @@ def main():
 
     return
 
+
 def asymmetric_depth(outer, mid, inner):
     x: Mut = 1000
     if outer == 0:
@@ -52,6 +55,7 @@ def asymmetric_depth(outer, mid, inner):
         x = 2000
     return x
 
+
 def unbalanced_modifications(cond):
     x: Mut = 5
     if cond == 0:
@@ -62,11 +66,13 @@ def unbalanced_modifications(cond):
         x = 110
     return x
 
+
 def empty_else(cond):
     x: Mut = 5
     if cond == 1:
         x = x + 10
     return x
+
 
 def long_else_if_chain(n):
     result: Mut = 0

@@ -1,6 +1,7 @@
 from snark_lib import *
 from ..utils import *
 
+
 def main():
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     len = pub_mem[0]

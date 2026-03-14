@@ -7,12 +7,12 @@ MAX_RECURSIONS = 16
 MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
-INNER_PUB_MEM_SIZE = 2 ** INNER_PUBLIC_MEMORY_LOG_SIZE
+INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
 BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
 
 
 def main():
-    debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16) # because of range checking, TODO increase
+    debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16)  # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
     assert n_sigs != 0
@@ -32,7 +32,7 @@ def main():
     assert n_recursions <= MAX_RECURSIONS
 
     n_dup = priv_start[1]
-    assert n_dup < MAX_N_SIGS # TODO increase
+    assert n_dup < MAX_N_SIGS  # TODO increase
     all_pubkeys = priv_start[2]
     sub_slice_starts = priv_start + 3
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
@@ -50,7 +50,7 @@ def main():
     n_raw_xmss = source_0[0]
     raw_indices = source_0 + 1
 
-    for i in range(0, n_raw_xmss): # TODO dynamic unroll ?
+    for i in range(0, n_raw_xmss):  # TODO dynamic unroll ?
         # mark buffer for partition verification
         idx = raw_indices[i]
         assert idx < n_total
@@ -102,7 +102,7 @@ def main():
         assert non_reserved_inner[0] == n_sub
         copy_8(running_hash, non_reserved_inner + 1)
         inner_msg = non_reserved_inner + 1 + DIGEST_LEN
-        debug_assert(MESSAGE_LEN <= 2*DIM)
+        debug_assert(MESSAGE_LEN <= 2 * DIM)
         copy_5(message, inner_msg)
         copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
         inner_msg[MESSAGE_LEN] = slot_lo

@@ -3,6 +3,7 @@ from snark_lib import *
 # This tests the SSA transformation when branches end with assert False or return.
 # Bug fix: ensure proper handling of mutable variable unification when some branches exit early.
 
+
 def main():
     # ==========================================================================
     # TEST 1: Basic - panic in else branch (the original bug case)
@@ -349,6 +350,7 @@ def main():
 
     return
 
+
 # Helper function for TEST 14
 def test_early_return(flag):
     result: Imu
@@ -357,6 +359,7 @@ def test_early_return(flag):
     else:
         result = 20
     return result
+
 
 # Helper function for TEST 15
 def test_multi_return(flag):
@@ -368,6 +371,7 @@ def test_multi_return(flag):
     else:
         assert False
     return a, b
+
 
 # Helper function for TEST 22
 def func_with_mut_param(x: Mut, flag):

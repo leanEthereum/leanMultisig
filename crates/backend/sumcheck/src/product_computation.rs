@@ -2,6 +2,7 @@ use fiat_shamir::*;
 use field::*;
 use poly::*;
 use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::{SumcheckComputation, sumcheck_prove_many_rounds};
 
@@ -32,6 +33,7 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputation<EF> for ProductComputation 
     }
 }
 
+#[instrument(skip_all)]
 pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     pol_a: &MleRef<'_, EF>, // evals
     pol_b: &MleRef<'_, EF>, // weights

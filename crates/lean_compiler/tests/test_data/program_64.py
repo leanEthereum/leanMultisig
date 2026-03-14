@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     for i in range(0, 6):
         x: Mut = i
