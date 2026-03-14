@@ -81,7 +81,6 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
         &GKRQuotientComputation {},
         &alpha.powers().take(2).collect(),
         Some((claim_point.0.clone(), None)),
-        false,
         prover_state,
         sum,
         false,

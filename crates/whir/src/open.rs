@@ -396,7 +396,6 @@ where
             &ProductComputation {},
             &vec![],
             None,
-            false,
             prover_state,
             self.sum,
             None,

@@ -107,7 +107,6 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
         &ProductComputation {},
         &vec![],
         None,
-        false,
         prover_state,
         sum,
         None,
