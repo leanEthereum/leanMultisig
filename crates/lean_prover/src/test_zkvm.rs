@@ -3,7 +3,7 @@ use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{init_tracing, poseidon16_compress, poseidon16_permute};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -16,6 +16,7 @@ DIGEST_LEN = 8
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+    poseidon16_permute(pub_start + 1400, pub_start + 1400 + DIGEST_LEN, pub_start + 1400 + 2 * DIGEST_LEN)
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -115,6 +116,12 @@ def main():
         .map(|i| ext_a_slice[i] * ext_b_slice[i] + (EF::ONE - ext_a_slice[i]) * (EF::ONE - ext_b_slice[i]))
         .fold(EF::ONE, |acc, x| acc * x);
     public_input[1300..][..DIMENSION].copy_from_slice(poly_eq_ee_result.as_basis_coefficients_slice());
+
+    // Poseidon permutation test data at 1400: input at 1400..1416, output at 1416..1432
+    let poseidon_16_permute_input: [F; 16] = rng.random();
+    public_input[1400..1416].copy_from_slice(&poseidon_16_permute_input);
+    let permute_output = poseidon16_permute(poseidon_16_permute_input);
+    public_input[1416..1432].copy_from_slice(&permute_output);
 
     test_zk_vm_helper(program_str, (&public_input, &[]));
 }
