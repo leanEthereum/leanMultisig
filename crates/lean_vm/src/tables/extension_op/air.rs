@@ -81,10 +81,10 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let idx_a = up[COL_IDX_A];
         let idx_b = up[COL_IDX_B];
 
-        let va: [AB::F; 5] = std::array::from_fn(|k| up[COL_VA + k]);
-        let vb: [AB::F; 5] = std::array::from_fn(|k| up[COL_VB + k]);
-        let vres: [AB::F; 5] = std::array::from_fn(|k| up[COL_VRES + k]);
-        let comp: [AB::F; 5] = std::array::from_fn(|k| up[COL_COMP + k]);
+        let va: [AB::IF; 5] = std::array::from_fn(|k| up[COL_VA + k]);
+        let vb: [AB::IF; 5] = std::array::from_fn(|k| up[COL_VB + k]);
+        let vres: [AB::IF; 5] = std::array::from_fn(|k| up[COL_VRES + k]);
+        let comp: [AB::IF; 5] = std::array::from_fn(|k| up[COL_COMP + k]);
 
         let start_down = down[0]; // COL_START
         let is_be_down = down[1]; // COL_IS_BE
@@ -94,7 +94,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let flag_poly_eq_down = down[5]; // COL_FLAG_POLY_EQ
         let idx_a_down = down[6]; // COL_IDX_A
         let idx_b_down = down[7]; // COL_IDX_B
-        let comp_down: [AB::F; 5] = std::array::from_fn(|k| down[8 + k]); // COL_COMP+0..5
+        let comp_down: [AB::IF; 5] = std::array::from_fn(|k| down[8 + k]); // COL_COMP+0..5
 
         let active = flag_add + flag_mul + flag_poly_eq;
         let activation_flag = start * active;
@@ -118,12 +118,12 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             builder.declare_values(&[aux, idx_a, idx_b, idx_r]);
         }
 
-        let is_ee = AB::F::ONE - is_be;
-        let not_start_down = AB::F::ONE - start_down;
+        let is_ee = -(is_be - AB::F::ONE);
+        let not_start_down = -(start_down - AB::F::ONE);
 
-        let va_f_or_ef: [AB::F; 5] = std::array::from_fn(|k| if k == 0 { va[0] } else { va[k] * is_ee });
+        let va_f_or_ef: [AB::IF; 5] = std::array::from_fn(|k| if k == 0 { va[0] } else { va[k] * is_ee });
 
-        let comp_tail: [AB::F; 5] = std::array::from_fn(|k| comp_down[k] * not_start_down);
+        let comp_tail: [AB::IF; 5] = std::array::from_fn(|k| comp_down[k] * not_start_down);
 
         builder.assert_bool(is_be);
         builder.assert_bool(start);
@@ -141,11 +141,11 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             builder.assert_zero((comp[k] - (va_times_vb[k] + comp_tail[k])) * flag_mul);
         }
 
-        let poly_eq_val: [AB::F; 5] = std::array::from_fn(|k| {
+        let poly_eq_val: [AB::IF; 5] = std::array::from_fn(|k| {
             let base = va_times_vb[k].double() - va_f_or_ef[k] - vb[k];
             if k == 0 { base + AB::F::ONE } else { base }
         });
-        let comp_down_or_one: [AB::F; 5] = std::array::from_fn(|k| {
+        let comp_down_or_one: [AB::IF; 5] = std::array::from_fn(|k| {
             if k == 0 {
                 comp_down[0] * not_start_down + start_down
             } else {
