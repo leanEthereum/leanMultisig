@@ -32,12 +32,9 @@ pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
 }
 
 pub fn poseidon16_permute(input: [KoalaBear; 16]) -> [KoalaBear; 16] {
-    let mut output = get_poseidon16().compress(input);
-    // compress = permute + input (feedforward), so undo feedforward
-    for (o, i) in output.iter_mut().zip(input.iter()) {
-        *o -= *i;
-    }
-    output
+    let mut state = input;
+    get_poseidon16().permute_in_place(&mut state);
+    state
 }
 
 pub fn poseidon16_compress_pair(left: [KoalaBear; 8], right: [KoalaBear; 8]) -> [KoalaBear; 8] {

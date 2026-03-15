@@ -87,6 +87,18 @@ where
 impl<F: PrimeField + InjectiveMonomial<D>, ExternalPerm, InternalPerm, const WIDTH: usize, const D: u64>
     Poseidon2<F, ExternalPerm, InternalPerm, WIDTH, D>
 {
+    /// Poseidon2 permutation (no feedforward): output = Poseidon2(input)
+    pub fn permute_in_place<A>(&self, state: &mut [A; WIDTH])
+    where
+        A: Algebra<F> + Sync + InjectiveMonomial<D>,
+        ExternalPerm: ExternalLayer<A, WIDTH, D>,
+        InternalPerm: InternalLayer<A, WIDTH, D>,
+    {
+        self.external_layer.permute_state_initial(state);
+        self.internal_layer.permute_state(state);
+        self.external_layer.permute_state_terminal(state);
+    }
+
     /// Poseidon2 compression: output = Poseidon2(input) + input
     pub fn compress_in_place<A>(&self, state: &mut [A; WIDTH])
     where
@@ -95,9 +107,7 @@ impl<F: PrimeField + InjectiveMonomial<D>, ExternalPerm, InternalPerm, const WID
         InternalPerm: InternalLayer<A, WIDTH, D>,
     {
         let initial_state = *state;
-        self.external_layer.permute_state_initial(state);
-        self.internal_layer.permute_state(state);
-        self.external_layer.permute_state_terminal(state);
+        self.permute_in_place(state);
         state.iter_mut().zip(initial_state).for_each(|(s, i)| {
             *s += i;
         });
