@@ -9,6 +9,7 @@ D = 5
 ZERO = 0
 ONE = 1
 
+
 def main():
     result: Mut = 0
 

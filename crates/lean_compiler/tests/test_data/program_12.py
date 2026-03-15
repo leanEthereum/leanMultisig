@@ -1,11 +1,14 @@
 from snark_lib import *
+
 N = 10
+
 
 def main():
     arr = Array(N)
     fill_array(arr)
     print_array(arr)
     return
+
 
 def fill_array(arr):
     for i in range(0, N):
@@ -19,6 +22,7 @@ def fill_array(arr):
             i_plus_one = i + 1
             arr[i] = i_plus_one
     return
+
 
 def print_array(arr):
     for i in range(0, N):

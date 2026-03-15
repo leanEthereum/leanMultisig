@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     sum1: Mut = 0
     sum2: Mut = 0
@@ -90,8 +92,10 @@ def main():
 
     return
 
+
 def double_and_add(x, y):
     return x * 2, y + 5
+
 
 def complex_compute(a, b, c):
     sum = a + b

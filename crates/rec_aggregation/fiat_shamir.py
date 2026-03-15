@@ -130,6 +130,7 @@ def fs_receive_ef_inlined(fs, n):
         assert ef_ptr[i] == 0
     return new_fs, ef_ptr
 
+
 def fs_receive_ef_by_log_dynamic(fs, log_n, min_value: Const, max_value: Const):
     debug_assert(log_n < max_value)
     debug_assert(min_value <= log_n)
@@ -138,11 +139,13 @@ def fs_receive_ef_by_log_dynamic(fs, log_n, min_value: Const, max_value: Const):
     new_fs, ef_ptr = match_range(log_n, range(min_value, max_value), lambda ln: fs_receive_ef(fs, 2**ln))
     return new_fs, ef_ptr
 
+
 def fs_receive_ef(fs, n: Const):
     new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
     for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
         assert ef_ptr[i] == 0
     return new_fs, ef_ptr
+
 
 def fs_print_state(fs_state):
     for i in unroll(0, 9):
@@ -180,7 +183,7 @@ def fs_sample_queries(fs, n_samples):
     # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
     # Big-endian: nb[0]=bit7 (MSB), nb[7]=bit0 (LSB).
     nb = checked_decompose_bits_small_value_const(n_samples, 8)
-    floor_div = nb[0]*16 + nb[1]*8 + nb[2]*4 + nb[3]*2 + nb[4]
+    floor_div = nb[0] * 16 + nb[1] * 8 + nb[2] * 4 + nb[3] * 2 + nb[4]
     has_remainder = 1 - (1 - nb[5]) * (1 - nb[6]) * (1 - nb[7])
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)

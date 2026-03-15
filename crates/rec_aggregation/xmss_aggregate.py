@@ -4,7 +4,7 @@ from utils import *
 V = V_PLACEHOLDER
 V_GRINDING = V_GRINDING_PLACEHOLDER
 W = W_PLACEHOLDER
-CHAIN_LENGTH = 2 ** W
+CHAIN_LENGTH = 2**W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
@@ -100,13 +100,7 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     remaining = Array(NUM_ENCODING_FE)
 
     # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
-    hint_decompose_bits_xmss(
-        encoding,
-        remaining,
-        encoding_fe,
-        NUM_ENCODING_FE,
-        W
-    )
+    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, W)
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
@@ -116,8 +110,8 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         assert remaining[i] < 2**7 - 1
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24/W):
-            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH ** j
+        for j in unroll(0, 24 / W):
+            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH**j
         assert partial_sum == encoding_fe[i]
 
     # we need to check the target sum
@@ -138,9 +132,13 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         chain_start = chain_starts + i * DIM
         chain_end = wots_public_key + i * DIGEST_LEN
         chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
-        match_range(num_hashes,
-                    range(0, 1), lambda _: copy_5(chain_start, chain_end),
-                    range(1, CHAIN_LENGTH), lambda n: chain_hash(chain_start, n, chain_end, public_param, pp3, chain_i_tweaks))
+        match_range(
+            num_hashes,
+            range(0, 1),
+            lambda _: copy_5(chain_start, chain_end),
+            range(1, CHAIN_LENGTH),
+            lambda n: chain_hash(chain_start, n, chain_end, public_param, pp3, chain_i_tweaks),
+        )
 
     # 3) Hash WOTS public key
     wots_pk_tweaks = tweak_table + TWEAK_WOTS_PK_OFFSET
@@ -316,30 +314,41 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
     # First chunk
-    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(
-        b, leaf_digest, merkle_path, states, public_param, pp3, merkle_tweaks))
+    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states, public_param, pp3, merkle_tweaks))
 
     state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
         state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
-        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(
-            b, state_indexes[j - 1],
-            merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIM,
-            state_indexes[j],
-            public_param,
-            pp3,
-            merkle_tweaks + j * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN))
+        match_range(
+            merkle_chunks[j],
+            range(0, 16),
+            lambda b: do_4_merkle_levels(
+                b,
+                state_indexes[j - 1],
+                merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIM,
+                state_indexes[j],
+                public_param,
+                pp3,
+                merkle_tweaks + j * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
+            ),
+        )
 
     # Last chunk: write to temp, then assert match with expected_root (write-once)
     last_output = Array(DIGEST_LEN)
-    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(
-        b, state_indexes[N_MERKLE_CHUNKS - 2],
-        merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIM,
-        last_output,
-        public_param,
-        pp3,
-        merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN))
+    match_range(
+        merkle_chunks[N_MERKLE_CHUNKS - 1],
+        range(0, 16),
+        lambda b: do_4_merkle_levels(
+            b,
+            state_indexes[N_MERKLE_CHUNKS - 2],
+            merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIM,
+            last_output,
+            public_param,
+            pp3,
+            merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
+        ),
+    )
 
     # Assert computed root == expected (first DIM elements)
     copy_5(last_output, expected_root)

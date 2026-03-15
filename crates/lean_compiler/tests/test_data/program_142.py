@@ -2,6 +2,7 @@ from snark_lib import *
 # Comprehensive stress test for mutable variables in non-unrolled loops
 # Tests: nested loops, conditionals, match, multiple mutable vars, edge cases
 
+
 def main():
     # =========================================================================
     # TEST 1: Triple nested loops with multiple interacting mutable variables
@@ -289,6 +290,7 @@ def main():
     # All tests passed!
     # =========================================================================
     return
+
 
 def compute_increment(n):
     return n * n

@@ -7,6 +7,7 @@ DIGEST_LEN = 8
 LITTLE_ENDIAN = 1
 BIG_ENDIAN = 0
 
+
 def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks):
     if num_chunks == DIM * 2:
         batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, DIM * 2)
@@ -44,12 +45,11 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
 @inline
 def slice_hash_rtl(data, num_chunks):
     states = Array((num_chunks - 1) * DIGEST_LEN)
-    
+
     poseidon16(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
     for j in unroll(1, num_chunks - 1):
         poseidon16(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
-
 
 
 @inline
@@ -59,7 +59,6 @@ def slice_hash(data, num_chunks):
     for j in unroll(1, num_chunks - 1):
         poseidon16(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
-
 
 
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
@@ -121,6 +120,7 @@ def fill_padded_chunk(dst, src, n):
     match_range(n, range(1, DIGEST_LEN), lambda r: fill_padded_chunk_const(dst, src, r))
     return
 
+
 def fill_padded_chunk_const(dst, src, n: Const):
     for i in unroll(0, n):
         dst[i] = src[i]
@@ -177,6 +177,7 @@ def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
     else:
         poseidon16(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
     return
+
 
 @inline
 def whir_do_3_merkle_levels(b, state_in, path_chunk, state_out):
@@ -250,40 +251,66 @@ def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks)
     states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
 
     # First full nibble: leaf_hash -> states[0]
-    match_range(leaf_position_nibbles[0], range(0, 16),
-        lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
+    match_range(leaf_position_nibbles[0], range(0, 16), lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
 
     # Middle nibble chunks: states[k-1] -> states[k]
     for k in unroll(1, div_ceil(height, 4) - 1):
-        match_range(leaf_position_nibbles[k], range(0, 16),
-            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN))
+        match_range(
+            leaf_position_nibbles[k],
+            range(0, 16),
+            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN),
+        )
 
     # Last chunk -> root
     if height % 4 == 0:
-        match_range(leaf_position_nibbles[div_ceil(height, 4) - 1], range(0, 16),
-            lambda b: whir_do_4_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root))
+        match_range(
+            leaf_position_nibbles[div_ceil(height, 4) - 1],
+            range(0, 16),
+            lambda b: whir_do_4_merkle_levels(
+                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root
+            ),
+        )
     elif height % 4 == 1:
-        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
-            lambda b: whir_do_1_merkle_level(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+        match_range(
+            leaf_position_nibbles[(height - height % 4) / 4],
+            range(0, 16),
+            lambda b: whir_do_1_merkle_level(
+                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
+            ),
+        )
     elif height % 4 == 2:
-        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
-            lambda b: whir_do_2_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+        match_range(
+            leaf_position_nibbles[(height - height % 4) / 4],
+            range(0, 16),
+            lambda b: whir_do_2_merkle_levels(
+                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
+            ),
+        )
     elif height % 4 == 3:
-        match_range(leaf_position_nibbles[(height - height % 4) / 4], range(0, 16),
-            lambda b: whir_do_3_merkle_levels(b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root))
+        match_range(
+            leaf_position_nibbles[(height - height % 4) / 4],
+            range(0, 16),
+            lambda b: whir_do_3_merkle_levels(
+                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
+            ),
+        )
 
     return leaf_data
 
 
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
-    match_range(height, range(10, 26), lambda h: merkle_verif_batch_const(
-        num_queries,
-        merkle_paths,
-        leaves_digests,
-        leave_positions,
-        root,
-        h,
-    ))
+    match_range(
+        height,
+        range(10, 26),
+        lambda h: merkle_verif_batch_const(
+            num_queries,
+            merkle_paths,
+            leaves_digests,
+            leave_positions,
+            root,
+            h,
+        ),
+    )
     return
 
 
