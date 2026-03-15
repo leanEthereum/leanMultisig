@@ -280,18 +280,19 @@ impl<F: Field> SymbolicAirBuilder<F> {
 }
 
 impl<F: Field> AirBuilder for SymbolicAirBuilder<F> {
-    type F = SymbolicExpression<F>;
+    type F = F;
+    type IF = SymbolicExpression<F>;
     type EF = SymbolicExpression<F>;
 
-    fn up(&self) -> &[Self::F] {
+    fn up(&self) -> &[Self::IF] {
         &self.up
     }
 
-    fn down(&self) -> &[Self::F] {
+    fn down(&self) -> &[Self::IF] {
         &self.down
     }
 
-    fn assert_zero(&mut self, x: Self::F) {
+    fn assert_zero(&mut self, x: Self::IF) {
         self.constraints.push(x);
     }
 
@@ -303,7 +304,7 @@ impl<F: Field> AirBuilder for SymbolicAirBuilder<F> {
         unimplemented!()
     }
 
-    fn declare_values(&mut self, values: &[Self::F]) {
+    fn declare_values(&mut self, values: &[Self::IF]) {
         if self.bus_flag_value.is_none() {
             assert_eq!(values.len(), 1);
             self.bus_flag_value = Some(values[0]);

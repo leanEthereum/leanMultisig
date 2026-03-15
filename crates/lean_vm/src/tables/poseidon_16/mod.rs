@@ -128,9 +128,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         BUS as usize + 76
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let cols: Poseidon2Cols<AB::F> = {
+        let cols: Poseidon2Cols<AB::IF> = {
             let up = builder.up();
-            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::F>>() };
+            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon2Cols<AB::IF>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");
             debug_assert_eq!(shorts.len(), 1);
@@ -143,7 +143,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 extra_data,
                 cols.flag,
                 &[
-                    AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
+                    AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
                     cols.index_a,
                     cols.index_b,
                     cols.index_res,
@@ -152,7 +152,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[
-                AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
+                AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
                 cols.index_a,
                 cols.index_b,
                 cols.index_res,
@@ -180,7 +180,7 @@ pub(super) struct Poseidon2Cols<T> {
     pub outputs: [T; WIDTH / 2],
 }
 
-fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
+fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::IF>) {
     let mut state: [_; WIDTH] = local.inputs;
 
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(&mut state);
@@ -225,8 +225,8 @@ pub const fn num_cols_poseidon_16() -> usize {
 
 #[inline]
 fn eval_2_full_rounds<AB: AirBuilder>(
-    state: &mut [AB::F; WIDTH],
-    post_full_round: &[AB::F; WIDTH],
+    state: &mut [AB::IF; WIDTH],
+    post_full_round: &[AB::IF; WIDTH],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
     builder: &mut AB,
@@ -249,9 +249,9 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 
 #[inline]
 fn eval_last_2_full_rounds<AB: AirBuilder>(
-    initial_state: &[AB::F; WIDTH],
-    state: &mut [AB::F; WIDTH],
-    outputs: &[AB::F; WIDTH / 2],
+    initial_state: &[AB::IF; WIDTH],
+    state: &mut [AB::IF; WIDTH],
+    outputs: &[AB::IF; WIDTH / 2],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
     builder: &mut AB,
@@ -278,8 +278,8 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
 
 #[inline]
 fn eval_partial_round<AB: AirBuilder>(
-    state: &mut [AB::F; WIDTH],
-    post_partial_round: &AB::F,
+    state: &mut [AB::IF; WIDTH],
+    post_partial_round: &AB::IF,
     round_constant: F,
     builder: &mut AB,
 ) {

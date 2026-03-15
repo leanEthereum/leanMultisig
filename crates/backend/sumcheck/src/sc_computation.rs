@@ -51,12 +51,12 @@ where
 
     #[inline(always)]
     fn eval_packed_base(&self, point_f: &[PFPacking<EF>], extra_data: &Self::ExtraData) -> EFPacking<EF> {
-        impl_air_eval!(self, point_f, extra_data, ConstraintFolderPackedBase)
+        impl_air_eval!(self, point_f, extra_data, ConstraintFolderPacked)
     }
 
     #[inline(always)]
     fn eval_packed_extension(&self, point_f: &[EFPacking<EF>], extra_data: &Self::ExtraData) -> EFPacking<EF> {
-        impl_air_eval!(self, point_f, extra_data, ConstraintFolderPackedExtension)
+        impl_air_eval!(self, point_f, extra_data, ConstraintFolderPacked)
     }
 
     fn degree(&self) -> usize {
