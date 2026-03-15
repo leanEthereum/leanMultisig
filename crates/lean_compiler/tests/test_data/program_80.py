@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     total: Mut = 0
     for i in unroll(0, 5):

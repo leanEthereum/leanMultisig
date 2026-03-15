@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     x1, y1, z1 = initial_values()
     assert x1 == 10
@@ -63,23 +65,29 @@ def main():
 
     return
 
+
 def initial_values():
     return 10, 20, 30
+
 
 def rotate_triple(a, b, c):
     return b, c, a
 
+
 def scale_triple(a, b, c, factor):
     return a * factor, b * factor, c * factor
 
+
 def swap_pair(a, b):
     return b, a
+
 
 def sum_array_func(arr, n: Const):
     total: Mut = 0
     for i in unroll(0, n):
         total = total + arr[i]
     return total
+
 
 def complex_nested_compute(outer, inner, depth):
     result: Imu
@@ -113,26 +121,33 @@ def complex_nested_compute(outer, inner, depth):
 
     return result
 
+
 def chain_of_funcs(x):
     y = step_one(x)
     z = step_two(y)
     w = step_three(z)
     return w
 
+
 def step_one(n):
     return n + 10
+
 
 def step_two(n):
     return n * 2
 
+
 def step_three(n):
     return n + 85
+
 
 def first_pair(a, b):
     return a + b, a * b
 
+
 def second_pair(a, b):
     return a + b, a * b
+
 
 def third_pair(a, b):
     return a + b, a * b

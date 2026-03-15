@@ -1,6 +1,7 @@
 from snark_lib import *
 # Test: Deeply nested conditionals inside non-unrolled loop
 
+
 def main():
     result: Mut = 0
     for i in range(0, 6):
