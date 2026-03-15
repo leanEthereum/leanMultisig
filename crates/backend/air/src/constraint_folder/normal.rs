@@ -3,38 +3,36 @@ use field::*;
 use poly::*;
 
 #[derive(Debug)]
-pub struct ConstraintFolder<'a, NF, EF, ExtraData: AlphaPowers<EF>>
-where
-    NF: ExtensionField<PF<EF>>,
-    EF: ExtensionField<NF>,
-{
-    pub up: &'a [NF],
-    pub down: &'a [NF],
+pub struct ConstraintFolder<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> {
+    pub up: &'a [IF],
+    pub down: &'a [IF],
     pub extra_data: &'a ExtraData,
     pub accumulator: EF,
     pub constraint_index: usize,
 }
 
-impl<'a, NF, EF, ExtraData: AlphaPowers<EF>> AirBuilder for ConstraintFolder<'a, NF, EF, ExtraData>
+impl<'a, IF, EF, ExtraData> AirBuilder for ConstraintFolder<'a, IF, EF, ExtraData>
 where
-    NF: ExtensionField<PF<EF>>,
-    EF: Field + ExtensionField<NF>,
+    IF: Algebra<PF<EF>> + 'static,
+    EF: Field + ExtensionField<PF<EF>> + Mul<IF, Output = EF> + Add<IF, Output = EF>,
+    ExtraData: AlphaPowers<EF>,
 {
-    type F = NF;
+    type F = PF<EF>;
+    type IF = IF;
     type EF = EF;
 
     #[inline]
-    fn up(&self) -> &[Self::F] {
+    fn up(&self) -> &[Self::IF] {
         self.up
     }
 
     #[inline]
-    fn down(&self) -> &[Self::F] {
+    fn down(&self) -> &[Self::IF] {
         self.down
     }
 
     #[inline]
-    fn assert_zero(&mut self, x: NF) {
+    fn assert_zero(&mut self, x: IF) {
         let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
         self.accumulator += alpha_power * x;
         self.constraint_index += 1;

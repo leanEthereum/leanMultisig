@@ -308,7 +308,6 @@ pub fn xmss_aggregate(
             &ProductComputation {},
             &vec![],
             None,
-            false,
             &mut reduction_prover,
             claimed_sum,
             false,
