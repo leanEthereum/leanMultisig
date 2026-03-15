@@ -11,20 +11,21 @@ pub struct ConstraintChecker<EF: ExtensionField<PF<EF>>> {
 
 impl<EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<EF> {
     type F = PF<EF>;
+    type IF = PF<EF>;
     type EF = EF;
 
     #[inline]
-    fn up(&self) -> &[Self::F] {
+    fn up(&self) -> &[Self::IF] {
         &self.up
     }
 
     #[inline]
-    fn down(&self) -> &[Self::F] {
+    fn down(&self) -> &[Self::IF] {
         &self.down
     }
 
     #[inline]
-    fn assert_zero(&mut self, x: Self::F) {
+    fn assert_zero(&mut self, x: Self::IF) {
         if !x.is_zero() {
             self.errors.push(self.constraint_index);
         }

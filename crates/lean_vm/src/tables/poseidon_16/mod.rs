@@ -154,11 +154,21 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 flag,
-                &[AB::F::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res],
+                &[
+                    AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
+                    index_a,
+                    index_b,
+                    index_res,
+                ],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&flag));
-            builder.declare_values(&[AB::F::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res]);
+            builder.declare_values(&[
+                AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
+                index_a,
+                index_b,
+                index_res,
+            ]);
         }
 
         builder.assert_bool(flag);

@@ -352,7 +352,7 @@ We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to 
 We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
 \begin{enumerate}
     \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
-    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD)
+    \item \textbf{m}[\textbf{fp} + $x$] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD, this computes $\textbf{m}[\textbf{fp} + $j$] = t - 1 - $ \textbf{m}[\textbf{fp} + $x$])
         \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
 \end{enumerate}
 
@@ -374,14 +374,14 @@ This idea was pointed out by D. Khovratovich, and is an unplanned use of the DER
 	Which can be compiled to:
 	
 	\begin{enumerate}
-		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
 		\item \textbf{m}[\textbf{fp} + 2] + \textbf{m}[\textbf{fp} + 5] = 9 // compute $9 - x$
-		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
 		\item \textbf{m}[\textbf{fp} + 7] = \textbf{m}[\textbf{fp} + 2] * \textbf{m}[\textbf{fp} + 3] // compute $x.y$
 		\item \textbf{m}[\textbf{fp} + 8] = \textbf{m}[\textbf{fp} + 7] + 100 // compute $z = x.y + 100$
-		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
+		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
 		\item \textbf{m}[\textbf{fp} + 8] + \textbf{m}[\textbf{fp} + 10] = 999 // compute $999 - z$
-		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
+		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
 		\item JUMP with next(\textbf{pc}) = \textbf{m}[\textbf{fp} + 0], next(\textbf{fp}) = \textbf{m}[\textbf{fp} + 1], condition = 1 // return
 	\end{enumerate}
 	

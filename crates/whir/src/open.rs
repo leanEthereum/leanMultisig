@@ -332,6 +332,7 @@ impl<EF: Field> SumcheckSingle<EF>
 where
     EF: ExtensionField<PF<EF>>,
 {
+    #[instrument(skip_all)]
     pub(crate) fn add_new_equality(
         &mut self,
         points: &[MultilinearPoint<EF>],
@@ -355,6 +356,7 @@ where
             .sum::<EF>();
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn add_new_base_equality(
         &mut self,
         points: &[MultilinearPoint<PF<EF>>],
@@ -394,7 +396,6 @@ where
             &ProductComputation {},
             &vec![],
             None,
-            false,
             prover_state,
             self.sum,
             None,

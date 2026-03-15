@@ -588,6 +588,23 @@ unsafe impl<FP: FieldParameters> PackedField for PackedMontyField31Neon<FP> {
     fn packed_linear_combination<const N: usize>(coeffs: &[Self::Scalar], vecs: &[Self]) -> Self {
         general_dot_product::<_, _, _, N>(coeffs, vecs)
     }
+
+    /// Fused `(self - rhs) * scalar` that skips the intermediate modular reduction on the
+    /// subtraction. This is valid because `vsubq_u32(x, y)` with `x, y ∈ [0, P)` produces a
+    /// value that, reinterpreted as `i32`, lies in `(-P, P)` — exactly the signed input range
+    /// that Montgomery multiplication accepts.
+    #[inline]
+    fn fused_sub_mul(self, rhs: Self, scalar: Self::Scalar) -> Self {
+        unsafe {
+            // Unreduced subtraction: result in (-P, P) when reinterpreted as signed.
+            let diff = aarch64::vreinterpretq_s32_u32(aarch64::vsubq_u32(self.to_vector(), rhs.to_vector()));
+            let scalar_vec: Self = scalar.into();
+            let scalar_s = scalar_vec.to_signed_vector();
+            let res = mul::<FP>(diff, scalar_s);
+            // Safety: `mul` returns values in canonical form [0, P).
+            Self::from_vector(res)
+        }
+    }
 }
 
 impl_packed_field_pow_2!(
@@ -692,6 +709,12 @@ where
             unsafe { dot_product_4(&lhs_packed, &rhs_packed) }
         }
         4 => unsafe { dot_product_4(&[lhs[0], lhs[1], lhs[2], lhs[3]], &[rhs[0], rhs[1], rhs[2], rhs[3]]) },
+        5 => unsafe {
+            dot_product_5(
+                &[lhs[0], lhs[1], lhs[2], lhs[3], lhs[4]],
+                &[rhs[0], rhs[1], rhs[2], rhs[3], rhs[4]],
+            )
+        },
         64 => {
             let sum_4s: [PackedMontyField31Neon<P>; 16] = core::array::from_fn(|i| {
                 let start = i * 4;
@@ -824,6 +847,116 @@ where
         // The `vmlsq_u32` instruction computes `a - (b * c)`.
         // - If `d` is negative, the mask is `-1` (all 1s), so we compute `d - (-1 * P) = d + P`.
         // - If `d` is non-negative, the mask is `0`, so we compute `d - (0 * P) = d`.
+        let underflow = aarch64::vcltq_u32(c_hi_prime, qp_hi);
+        let canonical_res = aarch64::vmlsq_u32(d, underflow, P::PACKED_P);
+
+        // Safety: The result is now in canonical form [0, P).
+        PackedMontyField31Neon::from_vector(canonical_res)
+    }
+}
+
+/// Compute the elementary function `l0*r0 + l1*r1 + l2*r2 + l3*r3 + l4*r4` given ten inputs
+/// in canonical form.
+///
+/// If the inputs are not in canonical form, the result is undefined.
+#[inline]
+unsafe fn dot_product_5<P, LHS, RHS>(lhs: &[LHS; 5], rhs: &[RHS; 5]) -> PackedMontyField31Neon<P>
+where
+    P: FieldParameters + MontyParametersNeon,
+    LHS: IntoVec<P>,
+    RHS: IntoVec<P>,
+{
+    unsafe {
+        // Materialize all vectors once.
+        let lhs0 = lhs[0].into_vec();
+        let rhs0 = rhs[0].into_vec();
+        let lhs1 = lhs[1].into_vec();
+        let rhs1 = rhs[1].into_vec();
+        let lhs2 = lhs[2].into_vec();
+        let rhs2 = rhs[2].into_vec();
+        let lhs3 = lhs[3].into_vec();
+        let rhs3 = rhs[3].into_vec();
+        let lhs4 = lhs[4].into_vec();
+        let rhs4 = rhs[4].into_vec();
+
+        // Group A: accumulate terms 0-2 in wide form. Safe: 3*(P-1)^2 < 2^64.
+
+        // Low half (Lanes 0 & 1)
+        let mut sum_al = aarch64::vmull_u32(aarch64::vget_low_u32(lhs0), aarch64::vget_low_u32(rhs0));
+        sum_al = aarch64::vmlal_u32(sum_al, aarch64::vget_low_u32(lhs1), aarch64::vget_low_u32(rhs1));
+        sum_al = aarch64::vmlal_u32(sum_al, aarch64::vget_low_u32(lhs2), aarch64::vget_low_u32(rhs2));
+
+        // High half (Lanes 2 & 3)
+        let mut sum_ah = aarch64::vmull_high_u32(lhs0, rhs0);
+        sum_ah = aarch64::vmlal_high_u32(sum_ah, lhs1, rhs1);
+        sum_ah = aarch64::vmlal_high_u32(sum_ah, lhs2, rhs2);
+
+        // Group B: accumulate terms 3-4 in wide form. Safe: 2*(P-1)^2 < 2^64.
+
+        // Low half (Lanes 0 & 1)
+        let mut sum_bl = aarch64::vmull_u32(aarch64::vget_low_u32(lhs3), aarch64::vget_low_u32(rhs3));
+        sum_bl = aarch64::vmlal_u32(sum_bl, aarch64::vget_low_u32(lhs4), aarch64::vget_low_u32(rhs4));
+
+        // High half (Lanes 2 & 3)
+        let mut sum_bh = aarch64::vmull_high_u32(lhs3, rhs3);
+        sum_bh = aarch64::vmlal_high_u32(sum_bh, lhs4, rhs4);
+
+        // Split each group into 32-bit c_lo, c_hi.
+        let c_lo_a = aarch64::vuzp1q_u32(
+            aarch64::vreinterpretq_u32_u64(sum_al),
+            aarch64::vreinterpretq_u32_u64(sum_ah),
+        );
+        let c_hi_a = aarch64::vuzp2q_u32(
+            aarch64::vreinterpretq_u32_u64(sum_al),
+            aarch64::vreinterpretq_u32_u64(sum_ah),
+        );
+        let c_lo_b = aarch64::vuzp1q_u32(
+            aarch64::vreinterpretq_u32_u64(sum_bl),
+            aarch64::vreinterpretq_u32_u64(sum_bh),
+        );
+        let c_hi_b = aarch64::vuzp2q_u32(
+            aarch64::vreinterpretq_u32_u64(sum_bl),
+            aarch64::vreinterpretq_u32_u64(sum_bh),
+        );
+
+        // Reduce group A's c_hi from [0, 2P) to [0, P). Group B's c_hi < P needs no reduction.
+        let c_hi_a_sub = aarch64::vsubq_u32(c_hi_a, P::PACKED_P);
+        let c_hi_a_red = aarch64::vminq_u32(c_hi_a, c_hi_a_sub);
+
+        // Merge the two groups with carry propagation.
+        //
+        // c_lo = c_lo_a + c_lo_b (wrapping u32 add).
+        let c_lo = aarch64::vaddq_u32(c_lo_a, c_lo_b);
+        // carry = -1 (all 1s) if c_lo wrapped, 0 otherwise.
+        let carry = aarch64::vcltq_u32(c_lo, c_lo_a);
+
+        // Reduce c_hi_sum BEFORE incorporating carry for better ILP.
+        // c_hi_sum = c_hi_a' + c_hi_b ∈ [0, 2P-2] (both < P).
+        let c_hi_sum = aarch64::vaddq_u32(c_hi_a_red, c_hi_b);
+        let c_hi_sub = aarch64::vsubq_u32(c_hi_sum, P::PACKED_P);
+        let c_hi_red = aarch64::vminq_u32(c_hi_sum, c_hi_sub);
+
+        // Now incorporate carry: c_hi_red ∈ [0, P-2] (max is 2P-2 reduced to P-2).
+        // Adding carry (0 or 1) gives at most P-1, so no further reduction needed.
+        // Subtracting -1 adds 1; subtracting 0 is a no-op.
+        let c_hi_prime = aarch64::vsubq_u32(c_hi_red, carry);
+
+        // Montgomery reduction (identical to dot_product_4).
+        //
+        // q ≡ c_lo ⋅ μ (mod 2^{32}).
+        let q = aarch64::vmulq_u32(c_lo, aarch64::vreinterpretq_u32_s32(P::PACKED_MU));
+
+        // (q⋅P)_hi = high 32 bits of q⋅P.
+        let qp_l = aarch64::vmull_u32(aarch64::vget_low_u32(q), aarch64::vget_low_u32(P::PACKED_P));
+        let qp_h = aarch64::vmull_high_u32(q, P::PACKED_P);
+        let qp_hi = aarch64::vuzp2q_u32(
+            aarch64::vreinterpretq_u32_u64(qp_l),
+            aarch64::vreinterpretq_u32_u64(qp_h),
+        );
+
+        let d = aarch64::vsubq_u32(c_hi_prime, qp_hi);
+
+        // Canonicalize d from (-P, P) to [0, P) branchlessly.
         let underflow = aarch64::vcltq_u32(c_hi_prime, qp_hi);
         let canonical_res = aarch64::vmlsq_u32(d, underflow, P::PACKED_P);
 

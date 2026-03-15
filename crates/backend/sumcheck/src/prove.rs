@@ -12,7 +12,6 @@ pub fn sumcheck_prove<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     computation: &SC,
     extra_data: &SC::ExtraData,
     eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
-    is_zerofier: bool,
     prover_state: &mut impl FSProver<EF>,
     sum: EF,
     store_intermediate_foldings: bool,
@@ -28,7 +27,6 @@ where
         computation,
         extra_data,
         eq_factor,
-        is_zerofier,
         prover_state,
         sum,
         store_intermediate_foldings,
@@ -42,7 +40,6 @@ pub fn sumcheck_fold_and_prove<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     computation: &SC,
     extra_data: &SC::ExtraData,
     eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
-    is_zerofier: bool,
     prover_state: &mut impl FSProver<EF>,
     sum: EF,
     store_intermediate_foldings: bool,
@@ -63,7 +60,6 @@ where
         computation,
         extra_data,
         eq_factor,
-        is_zerofier,
         prover_state,
         sum,
         None,
@@ -93,7 +89,6 @@ pub fn sumcheck_prove_many_rounds<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     computation: &SC,
     extra_data: &SC::ExtraData,
     mut eq_factor: Option<(Vec<EF>, Option<MleOwned<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
-    mut is_zerofier: bool,
     prover_state: &mut impl FSProver<EF>,
     mut sum: EF,
     mut missing_mul_factors: Option<EF>,
@@ -151,7 +146,6 @@ where
             computation,
             &eq_factor,
             extra_data,
-            is_zerofier,
             prover_state,
             sum,
             missing_mul_factors,
@@ -170,7 +164,6 @@ where
             &ps,
             store_intermediate_foldings,
         );
-        is_zerofier = false;
     }
 
     if let Some(pf) = prev_folding_factor {
@@ -187,7 +180,6 @@ fn compute_and_send_polynomial<'a, EF, SC>(
     computation: &SC,
     eq_factor: &Option<(Vec<EF>, MleOwned<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
     extra_data: &SC::ExtraData,
-    is_zerofier: bool,
     prover_state: &mut impl FSProver<EF>,
     sum: EF,
     missing_mul_factor: Option<EF>,
@@ -197,23 +189,15 @@ where
     SC: SumcheckComputation<EF> + 'static,
     SC::ExtraData: AlphaPowers<EF>,
 {
-    let mut p_evals = Vec::<(PF<EF>, EF)>::new();
-    let start = if is_zerofier {
-        p_evals.push((PF::<EF>::ZERO, EF::ZERO));
-        2
-    } else {
-        0
-    };
+    // Interpolation points = 0, 2, 3, 4, ...
+    // evaluation at 1 is deduced since we know f(0) + f(1) = sum
 
+    let mut p_evals = Vec::<EF>::new();
     let computation_degree = computation.degree();
-    let zs = (start..=computation_degree).filter(|&i| i != 1).collect::<Vec<_>>();
-
-    let compute_folding_factors: Vec<PF<EF>> = zs.iter().map(|&z| PF::<EF>::from_usize(z)).collect();
 
     let sc_params = SumcheckComputeParams {
         eq_mle: eq_factor.as_ref().map(|(_, eq_mle)| eq_mle),
         first_eq_factor: eq_factor.as_ref().map(|(first_eq_factor, _)| first_eq_factor[0]),
-        folding_factors: &compute_folding_factors,
         computation,
         extra_data,
         missing_mul_factor,
@@ -221,26 +205,33 @@ where
     };
     p_evals.extend(match prev_folding_factor {
         Some(prev_folding_factor) => {
-            let (computed_p_evals, folded_multilinears) =
-                fold_and_sumcheck_compute(prev_folding_factor, &multilinears.by_ref(), sc_params, &zs);
+            let (computed_p_evals, folded_multilinears) = fold_and_sumcheck_compute(
+                prev_folding_factor,
+                &multilinears.by_ref(),
+                sc_params,
+                computation_degree,
+            );
             *multilinears = folded_multilinears.into();
             computed_p_evals
         }
-        None => sumcheck_compute(&multilinears.by_ref(), sc_params, &zs),
+        None => sumcheck_compute(&multilinears.by_ref(), sc_params, computation_degree),
     });
 
-    if is_zerofier {
-        p_evals.push((PF::<EF>::ONE, EF::ZERO));
+    let p_at_1 = if let Some((eq_factor, _)) = eq_factor {
+        (sum - (EF::ONE - eq_factor[0]) * p_evals[0]) / eq_factor[0]
     } else {
-        let p_at_1 = if let Some((eq_factor, _)) = eq_factor {
-            (sum - (EF::ONE - eq_factor[0]) * p_evals[0].1) / eq_factor[0]
-        } else {
-            sum - p_evals[0].1
-        };
-        p_evals.push((PF::<EF>::from_usize(1), p_at_1));
-    }
+        sum - p_evals[0]
+    };
+    p_evals.insert(1, p_at_1);
 
-    let poly = DensePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let poly = DensePolynomial::lagrange_interpolation(
+        &p_evals
+            .iter()
+            .enumerate()
+            .map(|(i, &val)| (PF::<EF>::from_usize(i), val))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
     let eq_alpha = eq_factor.as_ref().map(|(p, _)| p[0]);
     prover_state.add_sumcheck_polynomial(&poly.coeffs, eq_alpha);
     poly

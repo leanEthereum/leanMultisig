@@ -522,6 +522,7 @@ dependencies = [
  "mt-koala-bear",
  "mt-poly",
  "rayon",
+ "tracing",
 ]
 
 [[package]]

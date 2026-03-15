@@ -565,7 +565,8 @@ pub struct EvalsButterfly<F>(pub F);
 impl<F: Field> Butterfly<F> for EvalsButterfly<F> {
     #[inline]
     fn apply<PF: PackedField<Scalar = F>>(&self, x_1: PF, x_2: PF) -> (PF, PF) {
-        let x_2_twiddle = (x_2 - x_1) * self.0;
+        // Use fused_sub_mul to skip intermediate modular reduction on (x_2 - x_1)
+        let x_2_twiddle = x_2.fused_sub_mul(x_1, self.0);
         (x_1 + x_2_twiddle, x_1 - x_2_twiddle)
     }
 }

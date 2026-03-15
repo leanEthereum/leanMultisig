@@ -252,6 +252,13 @@ pub unsafe trait PackedField: Algebra<Self::Scalar>
         }
     }
 
+    /// Compute `(self - rhs) * scalar` potentially avoiding intermediate modular reduction.
+    #[inline]
+    #[must_use]
+    fn fused_sub_mul(self, rhs: Self, scalar: Self::Scalar) -> Self {
+        (self - rhs) * scalar
+    }
+
     /// Compute a linear combination of a slice of base field elements and
     /// a slice of packed field elements. The slices must have equal length
     /// and it must be a compile time constant.

@@ -55,7 +55,6 @@ where
             air,
             &extra_data,
             Some((zerocheck_challenges, None)),
-            virtual_column_statement.is_none(),
             prover_state,
             virtual_column_statement
                 .as_ref()
@@ -120,7 +119,6 @@ fn open_columns<EF: ExtensionField<PF<EF>>>(
             &ProductComputation {},
             &vec![],
             None,
-            false,
             prover_state,
             inner_sum,
             false,
