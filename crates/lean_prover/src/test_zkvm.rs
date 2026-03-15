@@ -15,7 +15,7 @@ DIGEST_LEN = 8
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
-    poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+    poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N

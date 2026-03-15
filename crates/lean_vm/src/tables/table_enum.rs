@@ -76,11 +76,10 @@ impl TableT for Table {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        aux_arg: &PrecompileAuxArg,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
-        delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_1, aux_2, ctx)
+        delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_arg, ctx)
     }
     fn n_columns_total(&self) -> usize {
         delegate_to_inner!(self, n_columns_total)

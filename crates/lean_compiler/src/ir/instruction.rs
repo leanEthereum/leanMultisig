@@ -1,6 +1,6 @@
 use super::value::IntermediateValue;
 use crate::lang::{ConstExpression, MathOperation};
-use lean_vm::{BooleanExpr, CustomHint, Operation, SourceLocation, Table, TableT};
+use lean_vm::{BooleanExpr, CustomHint, Operation, PrecompileAuxArg, SourceLocation, Table, TableT};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -32,8 +32,8 @@ pub enum IntermediateInstruction {
         arg_a: IntermediateValue,
         arg_b: IntermediateValue,
         arg_c: IntermediateValue,
-        aux_1: ConstExpression,
-        aux_2: ConstExpression,
+        aux_args: PrecompileAuxArg, // length is set to 0 for ExtensionOP, filled later using: self.length
+        length: Option<ConstExpression>,
     },
     // HINTS (does not appears in the final bytecode)
     Inverse {
@@ -151,10 +151,14 @@ impl Display for IntermediateInstruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux_1,
-                aux_2,
+                aux_args,
+                length,
             } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
+                write!(
+                    f,
+                    "{}({arg_a}, {arg_b}, {arg_c}, {aux_args:?}, length = {length:?})",
+                    table.name()
+                )
             }
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")

@@ -497,12 +497,13 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Precompile { table, args, .. } => {
-                match table {
-                    Table::ExtensionOp(_) => assert_eq!(args.len(), 5),
-                    Table::Poseidon16(_) => assert_eq!(args.len(), 3),
-                    Table::Execution(_) => unreachable!(),
-                }
+            SimpleLine::Precompile {
+                table,
+                args,
+                aux_args,
+                length,
+            } => {
+                assert_eq!(args.len(), 3);
                 // if arg_c is constant, create a variable (in memory) to hold it
                 let arg_c = if let SimpleExpr::Constant(cst) = &args[2] {
                     instructions.push(IntermediateInstruction::Computation {
@@ -535,8 +536,13 @@ fn compile_lines(
                     arg_a,
                     arg_b,
                     arg_c,
-                    aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
-                    aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
+                    aux_args: *aux_args,
+                    length: length.as_ref().map(|length| {
+                        IntermediateValue::from_simple_expr(length, compiler)
+                            .as_constant()
+                            .expect("Precompile length must be constant")
+                            .clone()
+                    }),
                 });
             }
 

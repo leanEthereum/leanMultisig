@@ -21,6 +21,10 @@ impl IntermediateValue {
     pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
     }
+
+    pub fn as_constant(&self) -> Option<&ConstExpression> {
+        if let Self::Constant(c) = self { Some(c) } else { None }
+    }
 }
 
 impl From<ConstExpression> for IntermediateValue {

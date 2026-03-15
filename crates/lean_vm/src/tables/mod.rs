@@ -13,5 +13,8 @@ pub use table_trait::*;
 mod execution;
 pub use execution::*;
 
+mod aux_args;
+pub use aux_args::*;
+
 mod utils;
 pub(crate) use utils::*;

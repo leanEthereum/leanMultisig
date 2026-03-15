@@ -1,8 +1,14 @@
 use std::any::TypeId;
 
-use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
+use crate::{
+    tables::{
+        POSEIDON_16_PRECOMPILE_ENCODING_BIT_IS_COMPRESSION, POSEIDON_16_PRECOMPILE_ENCODING_BIT_IS_PERMUTATION,
+        poseidon_16::trace_gen::default_poseidon_row,
+    },
+    *,
+};
 use backend::*;
-use utils::{ToUsize, poseidon16_compress};
+use utils::{ToUsize, poseidon16_compress, poseidon16_permute};
 
 mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_16;
@@ -12,14 +18,17 @@ const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 
 const PARTIAL_ROUNDS: usize = KOALABEAR_RC16_INTERNAL.len();
 const HALF_FINAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_FINAL.len() / 2;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / ExtensionOp precompiles
-
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_16_COL_A: ColIndex = 1;
-pub const POSEIDON_16_COL_B: ColIndex = 2;
-pub const POSEIDON_16_COL_RES: ColIndex = 3;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
-const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
+pub const POSEIDON_16_COL_IS_COMPRESSION: ColIndex = 1;
+pub const POSEIDON_16_COL_A: ColIndex = 2;
+pub const POSEIDON_16_COL_B: ColIndex = 3;
+pub const POSEIDON_16_COL_RES: ColIndex = 4;
+pub const POSEIDON_16_COL_RES_HIGH: ColIndex = 5;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
+const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 16;
+const POSEIDON_16_COL_OUTPUT_HIGH_START: ColIndex = num_cols_poseidon_16() - 8;
+// Non-AIR column: stores the precompile data value for bus matching
+const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
@@ -48,6 +57,10 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
                 index: POSEIDON_16_COL_RES,
                 values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN).collect(),
             },
+            LookupIntoMemory {
+                index: POSEIDON_16_COL_RES_HIGH,
+                values: (POSEIDON_16_COL_OUTPUT_HIGH_START..POSEIDON_16_COL_OUTPUT_HIGH_START + DIGEST_LEN).collect(),
+            },
         ]
     }
 
@@ -56,12 +69,16 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
             data: vec![
-                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
+                BusData::Column(POSEIDON_16_COL_PRECOMPILE_DATA),
                 BusData::Column(POSEIDON_16_COL_A),
                 BusData::Column(POSEIDON_16_COL_B),
                 BusData::Column(POSEIDON_16_COL_RES),
             ],
         }
+    }
+
+    fn n_columns_total(&self) -> usize {
+        num_cols_poseidon_16() + 1 // +1 for non-AIR precompile_data column
     }
 
     fn padding_row(&self) -> Vec<F> {
@@ -74,10 +91,13 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        _: usize,
-        _: usize,
+        aux_arg: &PrecompileAuxArg,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
+        let aux_arg = match aux_arg {
+            PrecompileAuxArg::Poseidon16(mode) => *mode,
+            _ => unreachable!(),
+        };
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg0 = ctx.memory.get_slice(arg_a.to_usize(), DIGEST_LEN)?;
@@ -87,25 +107,42 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         input[..DIGEST_LEN].copy_from_slice(&arg0);
         input[DIGEST_LEN..].copy_from_slice(&arg1);
 
-        let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
-            Some(precomputed) if precomputed.0 == input => {
-                *ctx.n_poseidon16_precomputed_used += 1;
-                precomputed.1
+        match aux_arg {
+            PoseidonMode::Permutation => {
+                let output = poseidon16_permute(input);
+                let res_low: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();
+                let res_high: [F; DIGEST_LEN] = output[DIGEST_LEN..].try_into().unwrap();
+                ctx.memory.set_slice(index_res_a.to_usize(), &res_low)?;
+                ctx.memory.set_slice(index_res_a.to_usize() + DIGEST_LEN, &res_high)?;
             }
-            _ => poseidon16_compress(input),
+            PoseidonMode::Compression => {
+                let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
+                    Some(precomputed) if precomputed.0 == input => {
+                        *ctx.n_poseidon16_precomputed_used += 1;
+                        precomputed.1
+                    }
+                    _ => poseidon16_compress(input),
+                };
+                ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
+            }
+        }
+
+        let is_compression_f = F::from_bool(aux_arg == PoseidonMode::Compression);
+        let index_res_high = match aux_arg {
+            PoseidonMode::Compression => index_res_a,
+            PoseidonMode::Permutation => index_res_a + F::from_usize(DIGEST_LEN),
         };
 
-        let res_a: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();
-
-        ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
-
         trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
+        trace.base[POSEIDON_16_COL_IS_COMPRESSION].push(is_compression_f);
         trace.base[POSEIDON_16_COL_A].push(arg_a);
         trace.base[POSEIDON_16_COL_B].push(arg_b);
         trace.base[POSEIDON_16_COL_RES].push(index_res_a);
+        trace.base[POSEIDON_16_COL_RES_HIGH].push(index_res_high);
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
+        trace.base[POSEIDON_16_COL_PRECOMPILE_DATA].push(poseidon16_precompile_data(aux_arg));
 
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)
 
@@ -119,13 +156,13 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         num_cols_poseidon_16()
     }
     fn degree_air(&self) -> usize {
-        9
+        10
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 76
+        BUS as usize + 86
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon2Cols<AB::F> = {
@@ -137,29 +174,30 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             unsafe { std::ptr::read(&shorts[0]) }
         };
 
-        // Bus data: [POSEIDON_PRECOMPILE_DATA (constant), a, b, res]
+        // precompile_data = is_compression * PrecompielData_Compression + (1 - is_compression) * PrecompielData_Permutation
+        let precompile_data = cols.is_compression
+            * (AB::F::from_usize(1 << POSEIDON_16_PRECOMPILE_ENCODING_BIT_IS_COMPRESSION)
+                - AB::F::from_usize(1 << POSEIDON_16_PRECOMPILE_ENCODING_BIT_IS_PERMUTATION))
+            + AB::F::from_usize(1 << POSEIDON_16_PRECOMPILE_ENCODING_BIT_IS_PERMUTATION);
+
+        // Bus data: [precompile_data, a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag,
-                &[
-                    AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
-                    cols.index_a,
-                    cols.index_b,
-                    cols.index_res,
-                ],
+                &[precompile_data, cols.index_a, cols.index_b, cols.index_res],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
-            builder.declare_values(&[
-                AB::F::from_usize(POSEIDON_PRECOMPILE_DATA),
-                cols.index_a,
-                cols.index_b,
-                cols.index_res,
-            ]);
+            builder.declare_values(&[precompile_data, cols.index_a, cols.index_b, cols.index_res]);
         }
 
         builder.assert_bool(cols.flag);
+        builder.assert_bool(cols.is_compression);
+
+        // index_res_high = index_res + (1 - is_compression) * DIGEST_LEN
+        let expected_res_high = cols.index_res + (AB::F::ONE - cols.is_compression) * AB::F::from_usize(DIGEST_LEN);
+        builder.assert_eq(cols.index_res_high, expected_res_high);
 
         eval(builder, &cols)
     }
@@ -169,15 +207,18 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 #[derive(Debug)]
 pub(super) struct Poseidon2Cols<T> {
     pub flag: T,
+    pub is_compression: T,
     pub index_a: T,
     pub index_b: T,
     pub index_res: T,
+    pub index_res_high: T,
 
     pub inputs: [T; WIDTH],
     pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
     pub partial_rounds: [T; PARTIAL_ROUNDS],
     pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS - 1],
     pub outputs: [T; WIDTH / 2],
+    pub outputs_high: [T; WIDTH / 2],
 }
 
 fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
@@ -212,7 +253,9 @@ fn eval<AB: AirBuilder>(builder: &mut AB, local: &Poseidon2Cols<AB::F>) {
     eval_last_2_full_rounds(
         &local.inputs,
         &mut state,
+        local.is_compression,
         &local.outputs,
+        &local.outputs_high,
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
         &KOALABEAR_RC16_EXTERNAL_FINAL[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
         builder,
@@ -248,10 +291,13 @@ fn eval_2_full_rounds<AB: AirBuilder>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn eval_last_2_full_rounds<AB: AirBuilder>(
     initial_state: &[AB::F; WIDTH],
     state: &mut [AB::F; WIDTH],
+    is_compression: AB::F,
     outputs: &[AB::F; WIDTH / 2],
+    outputs_high: &[AB::F; WIDTH / 2],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
     builder: &mut AB,
@@ -266,13 +312,22 @@ fn eval_last_2_full_rounds<AB: AirBuilder>(
         *s = s.cube();
     }
     GenericPoseidon2LinearLayersKoalaBear::external_linear_layer(state);
-    // add inputs to outputs (for compression)
-    for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
-        *state_i += *init_state_i;
+
+    // outputs[i] = state[i] + is_compression * input[i]
+    // In compression mode: state[i] + input[i] (feedforward)
+    // In permutation mode: state[i] (raw permutation)
+    for i in 0..WIDTH / 2 {
+        let expected = state[i] + is_compression * initial_state[i];
+        builder.assert_eq(expected, outputs[i]);
     }
-    for (state_i, output_i) in state.iter_mut().zip(outputs) {
-        builder.assert_eq(*state_i, *output_i);
-        *state_i = *output_i;
+
+    // outputs_high[i]:
+    //   permutation (is_compression=0): state[i+8]
+    //   compression (is_compression=1): outputs[i] (redundant lookup since index_res_high=index_res)
+    // Constraint: outputs_high[i] = state[i+8] + is_compression * (outputs[i] - state[i+8])
+    for i in 0..WIDTH / 2 {
+        let expected = state[i + WIDTH / 2] + is_compression * (outputs[i] - state[i + WIDTH / 2]);
+        builder.assert_eq(expected, outputs_high[i]);
     }
 }
 

@@ -67,7 +67,14 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     }
 
     #[inline(always)]
-    fn execute(&self, _: F, _: F, _: F, _: usize, _: usize, _: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
+    fn execute(
+        &self,
+        _: F,
+        _: F,
+        _: F,
+        _: &PrecompileAuxArg,
+        _: &mut InstructionContext<'_>,
+    ) -> Result<(), RunnerError> {
         unreachable!()
     }
 }

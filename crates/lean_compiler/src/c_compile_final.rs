@@ -310,16 +310,22 @@ fn compile_block(
                 arg_a,
                 arg_b,
                 arg_c,
-                aux_1,
-                aux_2,
+                mut aux_args,
+                length,
             } => {
+                match &mut aux_args {
+                    PrecompileAuxArg::Extension(extension_aux_args) => {
+                        assert_eq!(extension_aux_args.size, 0);
+                        extension_aux_args.size = eval_const_expression_usize(&length.unwrap(), compiler);
+                    }
+                    PrecompileAuxArg::Poseidon16(_) => {}
+                }
                 low_level_bytecode.push(Instruction::Precompile {
                     table,
                     arg_a: arg_a.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     arg_b: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    aux_1: eval_const_expression_usize(&aux_1, compiler),
-                    aux_2: eval_const_expression_usize(&aux_2, compiler),
+                    aux_args,
                 });
             }
             IntermediateInstruction::CustomHint(hint, args) => {

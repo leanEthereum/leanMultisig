@@ -1,4 +1,4 @@
-use crate::{EF, F, InstructionContext, RunnerError, Table};
+use crate::{EF, F, InstructionContext, PrecompileAuxArg, RunnerError, Table};
 use backend::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -117,8 +117,7 @@ pub trait TableT: Air {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        aux_arg: &PrecompileAuxArg,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError>;
 

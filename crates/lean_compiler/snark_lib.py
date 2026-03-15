@@ -77,8 +77,12 @@ EQ_MLE_COEFFS_PTR = 53
 NONRESERVED_PROGRAM_INPUT_START = 60
 
 
-def poseidon16(left, right, output, mode):
-    _ = left, right, output, mode
+def poseidon16_compress(left, right, output):
+    _ = left, right, output
+
+
+def poseidon16_permute(left, right, output):
+    _ = left, right, output
 
 
 def add_be(a, b, result, length=None):

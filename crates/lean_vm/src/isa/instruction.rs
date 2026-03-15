@@ -6,7 +6,7 @@ use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::Memory;
 use crate::tables::TableT;
-use crate::{Table, TableTrace};
+use crate::{PrecompileAuxArg, Table, TableTrace};
 use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -53,8 +53,7 @@ pub enum Instruction {
         arg_a: MemOrFpOrConstant,
         arg_b: MemOrFpOrConstant,
         arg_c: MemOrFpOrConstant,
-        aux_1: usize,
-        aux_2: usize,
+        aux_args: PrecompileAuxArg,
     },
 }
 
@@ -168,15 +167,13 @@ impl Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux_1,
-                aux_2,
+                aux_args,
             } => {
                 table.execute(
                     arg_a.read_value(ctx.memory, *ctx.fp)?,
                     arg_b.read_value(ctx.memory, *ctx.fp)?,
                     arg_c.read_value(ctx.memory, *ctx.fp)?,
-                    *aux_1,
-                    *aux_2,
+                    aux_args,
                     ctx,
                 )?;
 
@@ -217,10 +214,9 @@ impl Display for Instruction {
                 arg_a,
                 arg_b,
                 arg_c,
-                aux_1,
-                aux_2,
+                aux_args,
             } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
+                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_args:?})", table.name())
             }
         }
     }

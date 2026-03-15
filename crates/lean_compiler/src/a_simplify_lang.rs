@@ -4,7 +4,10 @@ use crate::{
     parser::{ConstArrayValue, parse_program},
 };
 use backend::PrimeCharacteristicRing;
-use lean_vm::{Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, SourceLocation, Table, TableT};
+use lean_vm::{
+    Boolean, BooleanExpr, CustomHint, ExtensionPrecompileAuxArgs, FunctionName, PoseidonMode, PrecompileAuxArg,
+    SourceLocation, Table, TableT,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -95,6 +98,8 @@ pub enum SimpleLine {
     Precompile {
         table: Table,
         args: Vec<SimpleExpr>,
+        aux_args: PrecompileAuxArg, // length for extension op precompile is set to zero, filled later
+        length: Option<SimpleExpr>, // only used for extension op precompile
     },
     Panic {
         message: Option<String>,
@@ -2115,12 +2120,8 @@ fn simplify_lines(
                         }
 
                         // Special handling for extension_op precompile
-                        // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
-                        if let Some(mode) = EXT_OP_FUNCTIONS
-                            .iter()
-                            .find(|(name, _)| *name == function_name.as_str())
-                            .map(|(_, mode)| *mode)
-                        {
+                        // Signature: `func(ptr_a, ptr_b, ptr_res)` (default length = 1) or `func(ptr_a, ptr_b, ptr_res, length)`
+                        if let Some(extension_precompile_args) = ExtensionPrecompileAuxArgs::from_str(function_name) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2132,39 +2133,45 @@ fn simplify_lines(
                                     args.len()
                                 ));
                             }
-                            let mut simplified_args: Vec<SimpleExpr> = args[..3]
+                            let mut simplified_args: Vec<SimpleExpr> = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
                             // Inject size (aux_1) and mode (aux_2)
-                            let size: SimpleExpr = if args.len() == 4 {
-                                simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?
+                            let size: SimpleExpr = if simplified_args.len() == 4 {
+                                simplified_args.pop().unwrap()
                             } else {
                                 SimpleExpr::one()
                             };
-                            simplified_args.push(size);
-                            simplified_args.push(SimpleExpr::Constant(mode.into()));
                             res.push(SimpleLine::Precompile {
                                 table: Table::extension_op(),
                                 args: simplified_args,
+                                aux_args: PrecompileAuxArg::Extension(extension_precompile_args),
+                                length: Some(size),
                             });
                             continue;
                         }
 
                         // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        if let Some(mode) = PoseidonMode::from_str(function_name) {
                             if !targets.is_empty() {
-                                return Err(format!(
-                                    "Precompile {function_name} should not return values, at {location}"
-                                ));
+                                return Err(format!("{function_name} should not return values, at {location}"));
                             }
                             let simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            if simplified_args.len() != 3 {
+                                return Err(format!(
+                                    "{function_name} expects exactly 3 arguments, got {}, at {location}",
+                                    simplified_args.len()
+                                ));
+                            }
                             res.push(SimpleLine::Precompile {
                                 table: Table::poseidon16(),
                                 args: simplified_args,
+                                aux_args: PrecompileAuxArg::Poseidon16(mode),
+                                length: None,
                             });
                             continue;
                         }
@@ -3961,6 +3968,8 @@ impl SimpleLine {
             Self::Precompile {
                 table: precompile,
                 args,
+                aux_args: _,
+                length: _,
             } => {
                 format!(
                     "{}({})",

@@ -47,28 +47,13 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_c(&mut fields, updated_fp);
         }
         Instruction::Precompile {
-            table,
+            table: _,
             arg_a,
             arg_b,
             arg_c,
-            aux_1,
-            aux_2,
+            aux_args,
         } => {
-            let precompile_data = match *table {
-                Table::Poseidon16(_) => POSEIDON_PRECOMPILE_DATA,
-                Table::ExtensionOp(_) => {
-                    let size = *aux_1;
-                    let mode = *aux_2;
-                    assert!(
-                        EXT_OP_FUNCTIONS.iter().any(|(_, m)| *m == mode),
-                        "invalid extension_op mode={mode}"
-                    );
-                    assert!(size >= 1, "invalid extension_op size={size}");
-                    mode + EXT_OP_LEN_MULTIPLIER * size
-                }
-                _ => unreachable!("unknown precompile table"),
-            };
-            fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(precompile_data);
+            fields[instr_idx(COL_PRECOMPILE_DATA)] = aux_args.encoding_precompile_data();
             match (arg_a, arg_b) {
                 (MemOrFpOrConstant::FpRelative { offset: off_a }, MemOrFpOrConstant::FpRelative { offset: off_b }) => {
                     fields[instr_idx(COL_FLAG_AB_FP)] = F::ONE;

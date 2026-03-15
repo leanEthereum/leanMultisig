@@ -1,14 +1,16 @@
-use crate::{
-    EF, ExtraDataForBuses, eval_virtual_bus_column,
-    tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile},
+use crate::tables::{
+    EXTENSION_PRECOMPILE_ENCODING_BIT_ADD, EXTENSION_PRECOMPILE_ENCODING_BIT_DOT_PRODUCT,
+    EXTENSION_PRECOMPILE_ENCODING_BIT_IS_BE, EXTENSION_PRECOMPILE_ENCODING_BIT_POLY_EQ,
+    EXTENSION_PRECOMPILE_ENCODING_BIT_SIZE,
 };
+use crate::{EF, ExtraDataForBuses, eval_virtual_bus_column, tables::extension_op::ExtensionOpPrecompile};
 use backend::*;
 
 //0..5 columns (AIR, 29 total)
 pub(super) const COL_IS_BE: usize = 0;
 pub(super) const COL_START: usize = 1;
 pub(super) const COL_FLAG_ADD: usize = 2;
-pub(super) const COL_FLAG_MUL: usize = 3;
+pub(super) const COL_FLAG_DOT_PRODUCT: usize = 3;
 pub(super) const COL_FLAG_POLY_EQ: usize = 4;
 pub(super) const COL_LEN: usize = 5;
 pub(super) const COL_IDX_A: usize = 6;
@@ -55,7 +57,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             COL_IS_BE,
             COL_LEN,
             COL_FLAG_ADD,
-            COL_FLAG_MUL,
+            COL_FLAG_DOT_PRODUCT,
             COL_FLAG_POLY_EQ,
             COL_IDX_A,
             COL_IDX_B,
@@ -75,7 +77,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let is_be = up[COL_IS_BE];
         let start = up[COL_START];
         let flag_add = up[COL_FLAG_ADD];
-        let flag_mul = up[COL_FLAG_MUL];
+        let flag_dot_product = up[COL_FLAG_DOT_PRODUCT];
         let flag_poly_eq = up[COL_FLAG_POLY_EQ];
         let len = up[COL_LEN];
         let idx_a = up[COL_IDX_A];
@@ -96,14 +98,14 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let idx_b_down = down[7]; // COL_IDX_B
         let comp_down: [AB::F; 5] = std::array::from_fn(|k| down[8 + k]); // COL_COMP+0..5
 
-        let active = flag_add + flag_mul + flag_poly_eq;
+        let active = flag_add + flag_dot_product + flag_poly_eq;
         let activation_flag = start * active;
 
-        let aux = is_be.double()
-            + flag_add * AB::F::from_usize(4)
-            + flag_mul * AB::F::from_usize(8)
-            + flag_poly_eq * AB::F::from_usize(16)
-            + len * AB::F::from_usize(EXT_OP_LEN_MULTIPLIER);
+        let aux = is_be * AB::F::from_usize(1 << EXTENSION_PRECOMPILE_ENCODING_BIT_IS_BE)
+            + flag_add * AB::F::from_usize(1 << EXTENSION_PRECOMPILE_ENCODING_BIT_ADD)
+            + flag_dot_product * AB::F::from_usize(1 << EXTENSION_PRECOMPILE_ENCODING_BIT_DOT_PRODUCT)
+            + flag_poly_eq * AB::F::from_usize(1 << EXTENSION_PRECOMPILE_ENCODING_BIT_POLY_EQ)
+            + len * AB::F::from_usize(1 << EXTENSION_PRECOMPILE_ENCODING_BIT_SIZE);
 
         let idx_r = up[COL_IDX_RES];
 
@@ -128,7 +130,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         builder.assert_bool(is_be);
         builder.assert_bool(start);
         builder.assert_bool(flag_add);
-        builder.assert_bool(flag_mul);
+        builder.assert_bool(flag_dot_product);
         builder.assert_bool(flag_poly_eq);
 
         for k in 0..5 {
@@ -138,7 +140,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let va_times_vb = quintic_mul_air(&va_f_or_ef, &vb);
 
         for k in 0..5 {
-            builder.assert_zero((comp[k] - (va_times_vb[k] + comp_tail[k])) * flag_mul);
+            builder.assert_zero((comp[k] - (va_times_vb[k] + comp_tail[k])) * flag_dot_product);
         }
 
         let poly_eq_val: [AB::F; 5] = std::array::from_fn(|k| {
@@ -164,7 +166,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         builder.assert_zero(not_start_down * (len - len_down - AB::F::ONE));
         builder.assert_zero(not_start_down * (is_be - is_be_down));
         builder.assert_zero(not_start_down * (flag_add - flag_add_down));
-        builder.assert_zero(not_start_down * (flag_mul - flag_mul_down));
+        builder.assert_zero(not_start_down * (flag_dot_product - flag_mul_down));
         builder.assert_zero(not_start_down * (flag_poly_eq - flag_poly_eq_down));
         let a_increment = is_be + is_ee * AB::F::from_usize(crate::DIMENSION);
         builder.assert_zero(not_start_down * (idx_a_down - idx_a - a_increment));
