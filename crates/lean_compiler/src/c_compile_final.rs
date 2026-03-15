@@ -80,19 +80,21 @@ pub fn compile_to_low_level_bytecode(
         (Label::function("main"), STARTING_PC, entrypoint),
     ];
 
-    for (label, instructions) in &intermediate_bytecode.bytecode {
+    let remaining_bytecode = std::mem::take(&mut intermediate_bytecode.bytecode);
+    for (label, instructions) in remaining_bytecode {
         label_to_pc.insert(label.clone(), pc);
-        if let Label::Function(function_name) = label {
+        if let Label::Function(ref function_name) = label {
             hints.entry(pc).or_insert_with(Vec::new).push(Hint::StackFrame {
                 label: label.clone(),
                 size: *intermediate_bytecode
                     .memory_size_per_function
-                    .get(function_name)
+                    .get(function_name.as_str())
                     .unwrap(),
             });
         }
-        code_blocks.push((label.clone(), pc, instructions.clone()));
-        pc += count_real_instructions(instructions);
+        let count = count_real_instructions(&instructions);
+        code_blocks.push((label, pc, instructions));
+        pc += count;
     }
 
     let mut match_block_sizes = Vec::new();
@@ -215,10 +217,10 @@ fn compile_block(
 
     let codegen_jump = |hints: &BTreeMap<CodeAddress, Vec<Hint>>,
                         low_level_bytecode: &mut Vec<Instruction>,
-                        condition: IntermediateValue,
-                        dest: IntermediateValue,
-                        updated_fp: Option<IntermediateValue>| {
-        let dest = try_as_mem_or_constant(&dest).expect("Fatal: Could not materialize jump destination");
+                        condition: &IntermediateValue,
+                        dest: &IntermediateValue,
+                        updated_fp: Option<&IntermediateValue>| {
+        let dest = try_as_mem_or_constant(dest).expect("Fatal: Could not materialize jump destination");
         let label = match dest {
             MemOrConstant::Constant(dest) => hints
                 .get(&usize::try_from(dest.as_canonical_u32()).unwrap())
@@ -236,7 +238,7 @@ fn compile_block(
             .map(|fp| fp.try_into_mem_or_fp_or_constant(compiler).unwrap())
             .unwrap_or(MemOrFpOrConstant::FpRelative { offset: 0 });
         low_level_bytecode.push(Instruction::Jump {
-            condition: try_as_mem_or_constant(&condition).unwrap(),
+            condition: try_as_mem_or_constant(condition).unwrap(),
             label,
             dest,
             updated_fp,
@@ -245,15 +247,15 @@ fn compile_block(
 
     let mut pc = pc_start;
     for instruction in block {
-        match instruction.clone() {
+        match instruction {
             IntermediateInstruction::Computation {
                 operation,
-                mut arg_a,
-                mut arg_b,
+                arg_a,
+                arg_b,
                 res,
             } => {
-                if let Some(arg_a_cst) = try_as_constant(&arg_a, compiler)
-                    && let Some(arg_b_cst) = try_as_constant(&arg_b, compiler)
+                if let Some(arg_a_cst) = try_as_constant(arg_a, compiler)
+                    && let Some(arg_b_cst) = try_as_constant(arg_b, compiler)
                 {
                     // res = constant +/x constant
 
@@ -269,15 +271,13 @@ fn compile_block(
                     continue;
                 }
 
-                if arg_b.is_constant() {
-                    std::mem::swap(&mut arg_a, &mut arg_b);
-                }
+                let (arg_a, arg_b) = if arg_b.is_constant() { (arg_b, arg_a) } else { (arg_a, arg_b) };
 
                 low_level_bytecode.push(Instruction::Computation {
-                    operation,
-                    arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
+                    operation: operation.clone(),
+                    arg_a: try_as_mem_or_constant(arg_a).unwrap(),
                     arg_c: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    res: try_as_mem_or_constant(&res).unwrap(),
+                    res: try_as_mem_or_constant(res).unwrap(),
                 });
             }
             IntermediateInstruction::Panic => {
@@ -291,8 +291,8 @@ fn compile_block(
             }
             IntermediateInstruction::Deref { shift_0, shift_1, res } => {
                 low_level_bytecode.push(Instruction::Deref {
-                    shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
-                    shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
+                    shift_0: eval_const_expression(shift_0, compiler).to_usize(),
+                    shift_1: eval_const_expression(shift_1, compiler).to_usize(),
                     res: res.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                 });
             }
@@ -300,10 +300,10 @@ fn compile_block(
                 condition,
                 dest,
                 updated_fp,
-            } => codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp),
+            } => codegen_jump(hints, low_level_bytecode, condition, dest, updated_fp.as_ref()),
             IntermediateInstruction::Jump { dest, updated_fp } => {
                 let one = ConstExpression::one().into();
-                codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
+                codegen_jump(hints, low_level_bytecode, &one, dest, updated_fp.as_ref())
             }
             IntermediateInstruction::Precompile {
                 table,
@@ -314,35 +314,30 @@ fn compile_block(
                 aux_2,
             } => {
                 low_level_bytecode.push(Instruction::Precompile {
-                    table,
+                    table: *table,
                     arg_a: arg_a.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     arg_b: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                     arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    aux_1: eval_const_expression_usize(&aux_1, compiler),
-                    aux_2: eval_const_expression_usize(&aux_2, compiler),
+                    aux_1: eval_const_expression_usize(aux_1, compiler),
+                    aux_2: eval_const_expression_usize(aux_2, compiler),
                 });
             }
             IntermediateInstruction::CustomHint(hint, args) => {
-                let hint = Hint::Custom(
-                    hint,
-                    args.into_iter()
-                        .map(|expr| try_as_mem_or_constant(&expr).unwrap())
-                        .collect(),
-                );
+                let hint = Hint::Custom(*hint, args.iter().map(|expr| try_as_mem_or_constant(expr).unwrap()).collect());
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::Inverse { arg, res_offset } => {
                 let hint = Hint::Inverse {
-                    arg: try_as_mem_or_constant(&arg).unwrap(),
-                    res_offset,
+                    arg: try_as_mem_or_constant(arg).unwrap(),
+                    res_offset: *res_offset,
                 };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::RequestMemory { offset, size } => {
-                let size = try_as_mem_or_constant(&size).unwrap();
+                let size = try_as_mem_or_constant(size).unwrap();
                 let hint = Hint::RequestMemory {
                     function_name: function_name.clone(),
-                    offset: eval_const_expression_usize(&offset, compiler),
+                    offset: eval_const_expression_usize(offset, compiler),
                     size,
                 };
                 hints.entry(pc).or_default().push(hint);
@@ -350,15 +345,12 @@ fn compile_block(
             IntermediateInstruction::Print { line_info, content } => {
                 let hint = Hint::Print {
                     line_info: line_info.clone(),
-                    content: content
-                        .into_iter()
-                        .map(|c| try_as_mem_or_constant(&c).unwrap())
-                        .collect(),
+                    content: content.iter().map(|c| try_as_mem_or_constant(c).unwrap()).collect(),
                 };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::LocationReport { location } => {
-                let hint = Hint::LocationReport { location };
+                let hint = Hint::LocationReport { location: *location };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::DebugAssert(boolean, line_number) => {
@@ -368,7 +360,7 @@ fn compile_block(
                         right: try_as_mem_or_constant(&boolean.right).unwrap(),
                         kind: boolean.kind,
                     },
-                    line_number,
+                    *line_number,
                 );
                 hints.entry(pc).or_default().push(hint);
             }
@@ -377,13 +369,13 @@ fn compile_block(
                 offset_target,
             } => {
                 let hint = Hint::DerefHint {
-                    offset_src: eval_const_expression_usize(&offset_src, compiler),
-                    offset_target: eval_const_expression_usize(&offset_target, compiler),
+                    offset_src: eval_const_expression_usize(offset_src, compiler),
+                    offset_target: eval_const_expression_usize(offset_target, compiler),
                 };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::PanicHint { message } => {
-                let hint = Hint::Panic { message };
+                let hint = Hint::Panic { message: message.clone() };
                 hints.entry(pc).or_default().push(hint);
             }
         }
