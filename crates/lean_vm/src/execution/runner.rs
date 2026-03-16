@@ -115,6 +115,7 @@ pub fn execute_bytecode(
 /// Each constraint has form: memory[target_addr] = memory[memory[src_addr]]
 /// Order matters because some src addresses might point to targets of other hints.
 /// We iteratively resolve constraints until no more progress, then fill remaining with 0.
+/// Assumption: every memory[src_addr] is defined (i.e. is Some(_)) (which is true when DEREFs come from range checks)
 fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
     let mut resolved: BTreeSet<usize> = BTreeSet::new();
 
@@ -125,9 +126,7 @@ fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
             if resolved.contains(&target_addr) {
                 continue;
             }
-            let Some(addr) = memory.0.get(src_addr).copied().flatten() else {
-                continue;
-            };
+            let addr = memory.0[src_addr].unwrap();
             let Some(value) = memory.0.get(addr.to_usize()).copied().flatten() else {
                 continue;
             };
@@ -141,10 +140,10 @@ fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
         }
     }
 
-    // Fill any remaining unresolved targets with 0
+    // Fill any remaining unresolved targets with 0 (this can happen in case of cycles)
     for &(target_addr, _src_addr) in pending {
         if !resolved.contains(&target_addr) {
-            let _ = memory.set(target_addr, F::ZERO);
+            memory.set(target_addr, F::ZERO).unwrap();
         }
     }
 }
