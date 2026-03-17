@@ -1,6 +1,5 @@
 use backend::*;
 use lean_vm::*;
-use poseidon_gkr::fill_poseidon_trace;
 use std::{array, collections::BTreeMap};
 use tracing::info_span;
 use utils::{ToUsize, transposed_par_iter_mut};
@@ -115,9 +114,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         pad_table(&table, &mut traces);
     }
 
-    // Fill GKR layers and compressed outputs in poseidon trace
-    info_span!("Poseidon GKR trace fill").in_scope(|| {
-        fill_poseidon_trace(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
+    // Fill Poseidon1 intermediate round columns
+    info_span!("Poseidon1 trace fill").in_scope(|| {
+        fill_trace_poseidon_16(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
     });
 
     ExecutionTrace {

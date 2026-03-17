@@ -828,6 +828,52 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
 }
 
 // =========================================================================
+// Sparse decomposition accessors (for AIR partial rounds)
+// =========================================================================
+
+/// Dense transition matrix applied once before the partial-round loop.
+pub fn poseidon1_sparse_m_i() -> &'static [[KoalaBear; 16]; 16] {
+    &precomputed().sparse_m_i
+}
+
+/// Per-round first row: `[mds_0_0, ŵ[0], ..., ŵ[14]]`.  Length = PARTIAL_ROUNDS.
+pub fn poseidon1_sparse_first_row() -> &'static Vec<[KoalaBear; 16]> {
+    &precomputed().sparse_first_row
+}
+
+/// Per-round rank-1 update vectors `v[r]`.  `v[r][0..14]` are the 15 update coefficients
+/// (index 15 is always zero).  Length = PARTIAL_ROUNDS.
+pub fn poseidon1_sparse_v() -> &'static Vec<[KoalaBear; 16]> {
+    &precomputed().sparse_v
+}
+
+/// Eigenvalues of the circulant MDS divided by 16 (absorbs the IFFT normalisation).
+pub fn poseidon1_lambda_over_16() -> [KoalaBear; 16] {
+    let lambda = &precomputed().lambda_br;
+    let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
+    core::array::from_fn(|i| lambda[i] * inv16)
+}
+
+/// Forward twiddle factors for the 16-point FFT (public for AIR).
+pub const POSEIDON1_W1: KoalaBear = W1;
+pub const POSEIDON1_W2: KoalaBear = W2;
+pub const POSEIDON1_W3: KoalaBear = W3;
+pub const POSEIDON1_W4: KoalaBear = W4;
+pub const POSEIDON1_W5: KoalaBear = W5;
+pub const POSEIDON1_W6: KoalaBear = W6;
+pub const POSEIDON1_W7: KoalaBear = W7;
+
+/// Full-width constant vector added once before the `m_i` multiply.
+pub fn poseidon1_sparse_first_round_constants() -> &'static [KoalaBear; 16] {
+    &precomputed().sparse_first_round_constants
+}
+
+/// Scalar constants added to `state[0]` in partial rounds 0..RP-2. Length = RP-1.
+pub fn poseidon1_sparse_scalar_round_constants() -> &'static Vec<KoalaBear> {
+    &precomputed().sparse_round_constants
+}
+
+// =========================================================================
 // Poseidon1 permutation
 // =========================================================================
 

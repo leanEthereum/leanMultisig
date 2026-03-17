@@ -197,8 +197,8 @@ pub fn total_whir_statements() -> usize {
      + ALL_TABLES
         .iter()
         .map(|table| {
-            // AIR (evaluates n_columns() AIR columns)
-            table.n_columns()
+            // AIR (evaluates n_committed_columns() columns)
+            table.n_committed_columns()
             + table.n_down_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
@@ -207,8 +207,4 @@ pub fn total_whir_statements() -> usize {
         // bytecode lookup
         + 1 // PC
         + N_INSTRUCTION_COLUMNS
-        // Poseidon output columns (20-27): claims come from logup, and are proven via GKR ...
-        - 8
-        // ... leading to 16 additional claims on the poseidon inputs
-        + 16
 }
