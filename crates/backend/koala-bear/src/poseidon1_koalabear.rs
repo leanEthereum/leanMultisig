@@ -546,10 +546,8 @@ struct NeonPrecomputed {
     packed_fused_bias: [PackedKB; 16],
     /// Last initial round constant in negative NEON form (for fused add_rc_and_sbox).
     packed_last_initial_rc: [core::arch::aarch64::int32x4_t; 16],
-    /// Pre-packed eigenvalues for FFT MDS.
-    packed_lambda_br: [PackedKB; 16],
-    /// INV16 = 16^{-1} mod p, pre-packed for replacing div_2exp_u64(4).
-    packed_inv16: PackedKB,
+    /// Pre-packed eigenvalues * INV16 for FFT MDS (absorbs /16 normalization).
+    packed_lambda_over_16: [PackedKB; 16],
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -652,11 +650,9 @@ fn precomputed() -> &'static Precomputed {
             let fused_bias = matrix_vec_mul_16(&m_i, &first_round_constants);
             let packed_fused_bias: [PackedKB; 16] = fused_bias.map(pack);
 
-            // Pre-packed eigenvalues for FFT MDS.
-            let packed_lambda_br: [PackedKB; 16] = lambda_br.map(pack);
-
-            // INV16 = 16^{-1} mod p = 1997537281.
-            let packed_inv16 = pack(KoalaBear::new(1997537281));
+            // Pre-packed eigenvalues * INV16 (absorbs /16 into eigenvalues).
+            let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
+            let packed_lambda_over_16: [PackedKB; 16] = core::array::from_fn(|i| pack(lambda_br[i] * inv16));
 
             NeonPrecomputed {
                 packed_initial_rc,
@@ -667,8 +663,7 @@ fn precomputed() -> &'static Precomputed {
                 packed_fused_mi_mds,
                 packed_fused_bias,
                 packed_last_initial_rc,
-                packed_lambda_br,
-                packed_inv16,
+                packed_lambda_over_16,
             }
         };
 
@@ -946,20 +941,18 @@ impl Poseidon1KoalaBear16 {
         use core::mem::transmute;
 
         let neon = &self.pre.neon;
-        let lambda = &neon.packed_lambda_br;
-        let inv16 = neon.packed_inv16;
+        let lambda16 = &neon.packed_lambda_over_16;
 
-        /// FFT MDS with pre-packed eigenvalues and *= INV16 (faster than div_2exp_u64).
+        /// FFT MDS: state = C * state.
+        /// Uses lambda/16 eigenvalues so no separate /16 step needed.
+        /// C * x = DIT_FFT((lambda/16) ⊙ DIF_IFFT(x))
         #[inline(always)]
-        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda: &[PackedKB; 16], inv16: PackedKB) {
+        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda16: &[PackedKB; 16]) {
             dif_ifft_16_mut(state);
             for i in 0..16 {
-                state[i] *= lambda[i];
+                state[i] *= lambda16[i];
             }
             dit_fft_16_mut(state);
-            for s in state.iter_mut() {
-                *s *= inv16;
-            }
         }
 
         // --- Initial full rounds (first 3 of 4) ---
@@ -967,7 +960,7 @@ impl Poseidon1KoalaBear16 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda, inv16);
+            mds_fft_neon(state, lambda16);
         }
 
         // --- Last initial full round: AddRC + S-box, then fused (m_i * MDS) ---
@@ -1028,7 +1021,7 @@ impl Poseidon1KoalaBear16 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda, inv16);
+            mds_fft_neon(state, lambda16);
         }
     }
 
