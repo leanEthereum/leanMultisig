@@ -37,6 +37,29 @@ def main():
     sub_slice_starts = priv_start + 3
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
+    source_0 = sub_slice_starts[0]
+    n_raw_xmss = source_0[0]
+
+    # 1->1 optimization
+    if n_recursions == 1:
+        assert n_dup == 0
+        if n_raw_xmss == 0:
+            source_data = sub_slice_starts[1]
+            n_sub = source_data[0]
+            assert n_sub != 0
+            assert n_sub == n_sigs
+            bytecode_value_hint = source_data + 1 + n_sub
+            inner_pub_mem = bytecode_value_hint + DIM
+            proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
+            non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sigs, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
+            copy_8(non_reserved_inner + 1, pubkeys_hash_expected)
+            bytecode_claims = Array(2)
+            bytecode_claims[0] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
+            bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint)
+            reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output, bytecode_sumcheck_proof)
+            return
+
+    # General path
     computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
@@ -46,8 +69,6 @@ def main():
     counter: Mut = 0
 
     # Raw XMSS source (source 0)
-    source_0 = sub_slice_starts[0]
-    n_raw_xmss = source_0[0]
     raw_indices = source_0 + 1
 
     for i in range(0, n_raw_xmss):  # TODO dynamic unroll ?
@@ -94,24 +115,8 @@ def main():
             poseidon16(running_hash, pk, new_hash)
             running_hash = new_hash
 
-        # Verify inner public memory matches expected structure
-        debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)
-        for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
-            copy_5(i * DIM, inner_pub_mem + i * DIM)
-        non_reserved_inner = inner_pub_mem + NONRESERVED_PROGRAM_INPUT_START
-        assert non_reserved_inner[0] == n_sub
+        non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
         copy_8(running_hash, non_reserved_inner + 1)
-        inner_msg = non_reserved_inner + 1 + DIGEST_LEN
-        debug_assert(MESSAGE_LEN <= 2 * DIM)
-        copy_5(message, inner_msg)
-        copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
-        inner_msg[MESSAGE_LEN] = slot_lo
-        inner_msg[MESSAGE_LEN + 1] = slot_hi
-        for k in unroll(0, N_MERKLE_CHUNKS):
-            inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
-        # Assert inner proof uses the same bytecode hash as this program
-        own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
-        copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
 
         # Collect inner bytecode claim from inner pub mem
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
@@ -130,45 +135,67 @@ def main():
         for k in unroll(1, DIM):
             bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM + k] = 0
     else:
-        # Bytecode claims reduction: 2n -> 1 via sumcheck
-        bytecode_claims_hash: Mut = ZERO_VEC_PTR
-        for i in range(0, n_bytecode_claims):
-            claim_ptr = bytecode_claims[i]
-            for k in unroll(BYTECODE_CLAIM_SIZE, BYTECODE_CLAIM_SIZE_PADDED):
-                assert claim_ptr[k] == 0
-            claim_hash = slice_hash(claim_ptr, BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN)
-            new_hash = Array(DIGEST_LEN)
-            poseidon16(bytecode_claims_hash, claim_hash, new_hash)
-            bytecode_claims_hash = new_hash
-
-        reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
-        reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
-        copy_8(bytecode_claims_hash, received_claims_hash)
-
-        reduction_fs, alpha = fs_sample_ef(reduction_fs)
-        alpha_powers = powers(alpha, n_bytecode_claims)
-
-        all_values = Array(n_bytecode_claims * DIM)
-        for i in range(0, n_bytecode_claims):
-            claim_ptr = bytecode_claims[i]
-            copy_5(claim_ptr + BYTECODE_POINT_N_VARS * DIM, all_values + i * DIM)
-
-        claimed_sum = Array(DIM)
-        dot_product_ee_dynamic(all_values, alpha_powers, claimed_sum, n_bytecode_claims)
-
-        reduction_fs, challenges, final_eval = sumcheck_verify(reduction_fs, BYTECODE_POINT_N_VARS, claimed_sum, 2)
-
-        # Verify: final_eval == bytecode(r) * w(r)
-        eq_evals = Array(n_bytecode_claims * DIM)
-        for i in range(0, n_bytecode_claims):
-            claim_ptr = bytecode_claims[i]
-            eq_val = eq_mle_extension(claim_ptr, challenges, BYTECODE_POINT_N_VARS)
-            copy_5(eq_val, eq_evals + i * DIM)
-        w_r = Array(DIM)
-        dot_product_ee_dynamic(eq_evals, alpha_powers, w_r, n_bytecode_claims)
-
-        bytecode_value_at_r = div_extension_ret(final_eval, w_r)
-
-        copy_many_ef(challenges, bytecode_claim_output, BYTECODE_POINT_N_VARS)
-        copy_5(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
+        reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof)
     return
+
+def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof):
+    bytecode_claims_hash: Mut = ZERO_VEC_PTR
+    for i in range(0, n_bytecode_claims):
+        claim_ptr = bytecode_claims[i]
+        for k in unroll(BYTECODE_CLAIM_SIZE, BYTECODE_CLAIM_SIZE_PADDED):
+            assert claim_ptr[k] == 0
+        claim_hash = slice_hash(claim_ptr, BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN)
+        new_hash = Array(DIGEST_LEN)
+        poseidon16(bytecode_claims_hash, claim_hash, new_hash)
+        bytecode_claims_hash = new_hash
+
+    reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
+    reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
+    copy_8(bytecode_claims_hash, received_claims_hash)
+
+    reduction_fs, alpha = fs_sample_ef(reduction_fs)
+    alpha_powers = powers(alpha, n_bytecode_claims)
+
+    all_values = Array(n_bytecode_claims * DIM)
+    for i in range(0, n_bytecode_claims):
+        claim_ptr = bytecode_claims[i]
+        copy_5(claim_ptr + BYTECODE_POINT_N_VARS * DIM, all_values + i * DIM)
+
+    claimed_sum = Array(DIM)
+    dot_product_ee_dynamic(all_values, alpha_powers, claimed_sum, n_bytecode_claims)
+
+    reduction_fs, challenges, final_eval = sumcheck_verify(reduction_fs, BYTECODE_POINT_N_VARS, claimed_sum, 2)
+
+    # Verify: final_eval == bytecode(r) * w(r)
+    eq_evals = Array(n_bytecode_claims * DIM)
+    for i in range(0, n_bytecode_claims):
+        claim_ptr = bytecode_claims[i]
+        eq_val = eq_mle_extension(claim_ptr, challenges, BYTECODE_POINT_N_VARS)
+        copy_5(eq_val, eq_evals + i * DIM)
+    w_r = Array(DIM)
+    dot_product_ee_dynamic(eq_evals, alpha_powers, w_r, n_bytecode_claims)
+
+    bytecode_value_at_r = div_extension_ret(final_eval, w_r)
+
+    copy_many_ef(challenges, bytecode_claim_output, BYTECODE_POINT_N_VARS)
+    copy_5(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
+    return
+
+
+def verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem):
+    debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)
+    for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
+        copy_5(i * DIM, inner_pub_mem + i * DIM)
+    non_reserved_inner = inner_pub_mem + NONRESERVED_PROGRAM_INPUT_START
+    assert non_reserved_inner[0] == n_sub
+    inner_msg = non_reserved_inner + 1 + DIGEST_LEN
+    debug_assert(MESSAGE_LEN <= 2 * DIM)
+    copy_5(message, inner_msg)
+    copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
+    inner_msg[MESSAGE_LEN] = slot_lo
+    inner_msg[MESSAGE_LEN + 1] = slot_hi
+    for k in unroll(0, N_MERKLE_CHUNKS):
+        inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
+    own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
+    copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
+    return non_reserved_inner
