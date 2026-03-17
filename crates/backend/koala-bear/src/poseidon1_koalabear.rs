@@ -506,6 +506,7 @@ struct Precomputed {
     #[allow(dead_code)]
     sparse_first_round_constants: [KoalaBear; 16],
     /// Dense transition matrix m_i, applied once before the partial round loop.
+    #[allow(dead_code)]
     sparse_m_i: [[KoalaBear; 16]; 16],
     /// Per-round full first row: [mds_0_0, ŵ[0], ..., ŵ[14]].
     /// Length = POSEIDON1_PARTIAL_ROUNDS.
@@ -540,6 +541,10 @@ struct NeonPrecomputed {
     packed_round_constants: Vec<PackedKB>,
     /// Pre-packed first round constants (added once before m_i).
     packed_first_round_constants: [PackedKB; 16],
+    /// Pre-packed m_i rows (eliminates per-multiply broadcasts in dense multiply).
+    packed_m_i: [[PackedKB; 16]; 16],
+    /// Pre-packed eigenvalues for FFT MDS.
+    packed_lambda_br: [PackedKB; 16],
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -636,6 +641,12 @@ fn precomputed() -> &'static Precomputed {
             // Pre-packed first round constants.
             let packed_first_round_constants = first_round_constants.map(pack);
 
+            // Pre-packed m_i rows (eliminates 256 per-multiply broadcasts).
+            let packed_m_i: [[PackedKB; 16]; 16] = core::array::from_fn(|i| m_i[i].map(pack));
+
+            // Pre-packed eigenvalues for FFT MDS.
+            let packed_lambda_br: [PackedKB; 16] = lambda_br.map(pack);
+
             NeonPrecomputed {
                 packed_initial_rc,
                 packed_terminal_rc,
@@ -643,6 +654,8 @@ fn precomputed() -> &'static Precomputed {
                 packed_sparse_v,
                 packed_round_constants,
                 packed_first_round_constants,
+                packed_m_i,
+                packed_lambda_br,
             }
         };
 
@@ -920,13 +933,27 @@ impl Poseidon1KoalaBear16 {
         use core::mem::transmute;
 
         let neon = &self.pre.neon;
+        let lambda = &neon.packed_lambda_br;
+
+        /// FFT MDS with pre-packed eigenvalues (no per-multiply broadcasts).
+        #[inline(always)]
+        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda: &[PackedKB; 16]) {
+            dif_ifft_16_mut(state);
+            for i in 0..16 {
+                state[i] *= lambda[i];
+            }
+            dit_fft_16_mut(state);
+            for s in state.iter_mut() {
+                *s = s.div_2exp_u64(4);
+            }
+        }
 
         // --- Initial full rounds ---
         for round_constants in &neon.packed_initial_rc {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_karatsuba_16(state);
+            mds_fft_neon(state, lambda);
         }
 
         // --- Partial rounds (sparse matrix decomposition with ILP) ---
@@ -936,13 +963,12 @@ impl Poseidon1KoalaBear16 {
                 *s += c;
             }
 
-            // 2. Apply dense transition matrix m_i (once, generic over field elements).
+            // 2. Apply dense transition matrix m_i using pre-packed rows.
             {
                 let input = *state;
-                for (out, row) in state.iter_mut().zip(self.pre.sparse_m_i.iter()) {
-                    // dot product: sum_j row[j] * input[j]
-                    *out =
-                        PackedMontyField31Neon::<FP>::dot_product(&input, &row.map(PackedMontyField31Neon::<FP>::from));
+                let m_i = &neon.packed_m_i;
+                for i in 0..16 {
+                    state[i] = PackedMontyField31Neon::<FP>::dot_product(&input, &m_i[i]);
                 }
             }
 
@@ -966,8 +992,8 @@ impl Poseidon1KoalaBear16 {
                 // PATH B (can overlap with S-box): partial dot product on s_hi.
                 let s_hi: &[PackedKB; 15] = unsafe { transmute(&split.s_hi) };
                 let first_row = &neon.packed_sparse_first_row[r];
-                let first_row_hi: [PackedKB; 15] = core::array::from_fn(|i| first_row[i + 1]);
-                let partial_dot = PackedMontyField31Neon::<FP>::dot_product(s_hi, &first_row_hi);
+                let first_row_hi: &[PackedKB; 15] = first_row[1..].try_into().unwrap();
+                let partial_dot = PackedMontyField31Neon::<FP>::dot_product(s_hi, first_row_hi);
 
                 // SERIAL: complete s0 = first_row[0] * s0 + partial_dot.
                 let s0_val = split.s0;
@@ -990,7 +1016,7 @@ impl Poseidon1KoalaBear16 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_karatsuba_16(state);
+            mds_fft_neon(state, lambda);
         }
     }
 

@@ -60,5 +60,4 @@ fn bench_poseidon_1_vs_2_plaintext() {
         (n as f64 / time_p2_simd.as_secs_f64() / 1_000_000.0),
         (time_p1_simd.as_secs_f64() / time_p2_simd.as_secs_f64())
     );
-
 }
