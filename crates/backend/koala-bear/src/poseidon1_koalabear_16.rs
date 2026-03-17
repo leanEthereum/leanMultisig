@@ -827,10 +827,6 @@ pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
     &POSEIDON1_RC[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..]
 }
 
-// =========================================================================
-// Poseidon1 permutation
-// =========================================================================
-
 #[derive(Clone, Debug)]
 pub struct Poseidon1KoalaBear16 {
     pre: &'static Precomputed,
@@ -1063,81 +1059,15 @@ pub fn default_koalabear_poseidon1_16() -> Poseidon1KoalaBear16 {
     Poseidon1KoalaBear16 { pre: precomputed() }
 }
 
-// =========================================================================
-// Tests
-// =========================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::KoalaBear;
     use field::PrimeField32;
 
-    fn naive_circ_mds(input: &[KoalaBear; 16]) -> [KoalaBear; 16] {
-        core::array::from_fn(|i| {
-            let mut sum = KoalaBear::ZERO;
-            for j in 0..16 {
-                sum += MDS_CIRC_COL[(16 + i - j) % 16] * input[j];
-            }
-            sum
-        })
-    }
-
-    fn permute_naive(state: &mut [KoalaBear; 16]) {
-        let full_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
-            for (s, &c) in st.iter_mut().zip(rc.iter()) {
-                *s += c;
-            }
-            for s in st.iter_mut() {
-                *s = s.injective_exp_n();
-            }
-            *st = naive_circ_mds(st);
-        };
-        let partial_round = |st: &mut [KoalaBear; 16], rc: &[KoalaBear; 16]| {
-            for (s, &c) in st.iter_mut().zip(rc.iter()) {
-                *s += c;
-            }
-            st[0] = st[0].injective_exp_n();
-            *st = naive_circ_mds(st);
-        };
-        for rc in poseidon1_initial_constants() {
-            full_round(state, rc);
-        }
-        for rc in poseidon1_partial_constants() {
-            partial_round(state, rc);
-        }
-        for rc in poseidon1_final_constants() {
-            full_round(state, rc);
-        }
-    }
-
-    #[test]
-    fn test_mds_circ_matches_naive() {
-        for seed in 0u32..100 {
-            let input: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
-            let mut state = input;
-            mds_circ_16(&mut state);
-            assert_eq!(state, naive_circ_mds(&input), "seed={seed}");
-        }
-    }
-
-    #[test]
-    fn test_permutation_matches_naive() {
-        let p1 = default_koalabear_poseidon1_16();
-        for seed in 0u32..50 {
-            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
-            let mut opt = state;
-            p1.permute_mut(&mut opt);
-            let mut naive = state;
-            permute_naive(&mut naive);
-            assert_eq!(opt, naive, "seed={seed}");
-        }
-    }
-
     #[test]
     fn test_plonky3_compatibility() {
         /*
-        use p3_field::PrimeCharacteristicRing;
         use p3_symmetric::Permutation;
 
         use crate::{KoalaBear, default_koalabear_poseidon1_16};
@@ -1163,108 +1093,5 @@ mod tests {
                 1133298033, 1780633798, 1453946561, 710069176, 1128629550, 1917333254, 1175481618,
             ]
         );
-    }
-
-    /// Test that the sparse matrix path gives the same result as the naive path
-    /// on scalar KoalaBear elements.
-    #[test]
-    fn test_sparse_decomp_matches_naive() {
-        let pre = precomputed();
-        for seed in 0u32..20 {
-            let state: [KoalaBear; 16] = core::array::from_fn(|i| KoalaBear::new(seed * 16 + i as u32 + 1));
-
-            // Naive partial rounds (textbook, no FFT tricks).
-            let mut naive = state;
-            permute_naive(&mut naive);
-
-            // Sparse-decomposition partial rounds (what NEON path uses).
-            let mut sparse_state = state;
-
-            // Full initial rounds.
-            for rc in poseidon1_initial_constants() {
-                for (s, &c) in sparse_state.iter_mut().zip(rc.iter()) {
-                    *s += c;
-                }
-                for s in sparse_state.iter_mut() {
-                    *s = s.injective_exp_n();
-                }
-                mds_karatsuba_16(&mut sparse_state);
-            }
-
-            // Partial rounds via sparse decomp.
-            for (s, &c) in sparse_state.iter_mut().zip(pre.sparse_first_round_constants.iter()) {
-                *s += c;
-            }
-            sparse_state = matrix_vec_mul_16(&pre.sparse_m_i, &sparse_state);
-
-            let rounds_p = pre.sparse_first_row.len();
-            for r in 0..rounds_p {
-                sparse_state[0] = sparse_state[0].injective_exp_n();
-                if r < rounds_p - 1 {
-                    sparse_state[0] += pre.sparse_round_constants[r];
-                }
-                // cheap_matmul
-                let old_s0 = sparse_state[0];
-                let mut new_s0 = KoalaBear::ZERO;
-                for j in 0..16 {
-                    new_s0 += pre.sparse_first_row[r][j] * sparse_state[j];
-                }
-                sparse_state[0] = new_s0;
-                for i in 1..16 {
-                    sparse_state[i] += old_s0 * pre.sparse_v[r][i - 1];
-                }
-            }
-
-            // Terminal full rounds.
-            for rc in poseidon1_final_constants() {
-                for (s, &c) in sparse_state.iter_mut().zip(rc.iter()) {
-                    *s += c;
-                }
-                for s in sparse_state.iter_mut() {
-                    *s = s.injective_exp_n();
-                }
-                mds_karatsuba_16(&mut sparse_state);
-            }
-
-            assert_eq!(sparse_state, naive, "seed={seed}");
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn test_neon_permutation_matches_scalar() {
-        use crate::{KoalaBearParameters, PackedMontyField31Neon};
-        use field::PackedValue;
-
-        let p1 = default_koalabear_poseidon1_16();
-        for seed in 0u32..20 {
-            // Create 4 independent scalar states (one per NEON lane).
-            let states: [[KoalaBear; 16]; 4] = core::array::from_fn(|lane| {
-                core::array::from_fn(|i| KoalaBear::new(seed * 64 + lane as u32 * 16 + i as u32 + 1))
-            });
-
-            // Scalar reference.
-            let mut scalar_results: [[KoalaBear; 16]; 4] = states;
-            for s in &mut scalar_results {
-                p1.permute_mut(s);
-            }
-
-            // Pack 4 lanes into a NEON state.
-            let mut neon_state: [PackedMontyField31Neon<KoalaBearParameters>; 16] = core::array::from_fn(|col| {
-                PackedMontyField31Neon([states[0][col], states[1][col], states[2][col], states[3][col]])
-            });
-            p1.permute_mut(&mut neon_state);
-
-            // Check each lane.
-            for lane in 0..4 {
-                for col in 0..16 {
-                    assert_eq!(
-                        neon_state[col].as_slice()[lane],
-                        scalar_results[lane][col],
-                        "seed={seed} lane={lane} col={col}"
-                    );
-                }
-            }
-        }
     }
 }

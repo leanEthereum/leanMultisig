@@ -87,9 +87,9 @@ impl<PMP: PackedMontyParameters> InternalLayer16<PMP> {
 #[repr(C)] // This is needed to make `transmute`s safe.
 pub struct InternalLayer24<PMP: PackedMontyParameters> {
     /// The first element of the state, which undergoes the S-box transformation.
-    s0: PackedMontyField31Neon<PMP>,
+    pub(crate) s0: PackedMontyField31Neon<PMP>,
     /// The remaining 23 elements of the state, which undergo the linear layer transformation.
-    s_hi: [uint32x4_t; 23],
+    pub(crate) s_hi: [uint32x4_t; 23],
 }
 
 impl<PMP: PackedMontyParameters> InternalLayer24<PMP> {
@@ -101,7 +101,7 @@ impl<PMP: PackedMontyParameters> InternalLayer24<PMP> {
     /// The caller *must* ensure that every raw `uint32x4_t` vector within `self.s_hi` contains
     /// valid `MontyField31` elements in canonical form `[0, P)`.
     #[inline]
-    unsafe fn to_packed_field_array(self) -> [PackedMontyField31Neon<PMP>; 24] {
+    pub(crate) unsafe fn to_packed_field_array(self) -> [PackedMontyField31Neon<PMP>; 24] {
         unsafe {
             // This `transmute` is safe because `InternalLayer24` is `#[repr(C)]` and is guaranteed
             // to have the exact same memory layout as the target array `[PackedMontyField31Neon<PMP>; 24]`.
@@ -114,7 +114,7 @@ impl<PMP: PackedMontyParameters> InternalLayer24<PMP> {
     /// This is a zero-cost conversion that leverages the `#[repr(C)]` layout of the struct.
     #[inline]
     #[must_use]
-    fn from_packed_field_array(vector: [PackedMontyField31Neon<PMP>; 24]) -> Self {
+    pub(crate) fn from_packed_field_array(vector: [PackedMontyField31Neon<PMP>; 24]) -> Self {
         unsafe {
             // This `transmute` is safe because `InternalLayer24` is `#[repr(C)]` and so is guaranteed
             // to have the exact same memory layout as `[PackedMontyField31Neon<PMP>; 24]`.

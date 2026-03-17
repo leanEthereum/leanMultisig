@@ -5,7 +5,8 @@ use field::Field;
 use field::PackedValue;
 use field::PrimeCharacteristicRing;
 
-use crate::{KoalaBear, default_koalabear_poseidon1_16, default_koalabear_poseidon2_16};
+use crate::default_koalabear_poseidon1_24;
+use crate::{KoalaBear, default_koalabear_poseidon1_16};
 
 type FPacking = <KoalaBear as Field>::Packing;
 const PACKING_WIDTH: usize = <FPacking as PackedValue>::WIDTH;
@@ -20,44 +21,44 @@ fn test_poseidon1_packed() {
 
 #[test]
 #[ignore]
-fn bench_poseidon_1_vs_2_plaintext() {
-    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_poseidon_1_vs_2_plaintext --exact --nocapture --ignored
+fn bench_poseidon() {
+    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_poseidon --exact --nocapture --ignored
 
     let n = 1 << 23;
-    let poseidon1 = default_koalabear_poseidon1_16();
-    let poseidon2 = default_koalabear_poseidon2_16();
+    let poseidon1_16 = default_koalabear_poseidon1_16();
+    let poseidon1_24 = default_koalabear_poseidon1_24();
 
     // warming
-    let mut state = [FPacking::ZERO; 16];
-    for _ in 0..1 << 20 {
-        poseidon1.compress_in_place(&mut state);
+    let mut state_16: [crate::PackedMontyField31Neon<crate::KoalaBearParameters>; 16] = [FPacking::ZERO; 16];
+    let mut state_24: [crate::PackedMontyField31Neon<crate::KoalaBearParameters>; 24] = [FPacking::ZERO; 24];
+    for _ in 0..1 << 15 {
+        poseidon1_16.compress_in_place(&mut state_16);
+        poseidon1_24.compress_in_place(&mut state_24);
     }
-    let _ = black_box(state);
+    let _ = black_box(state_16);
+    let _ = black_box(state_24);
 
     let time = Instant::now();
-    let mut state = [FPacking::ZERO; 16];
     for _ in 0..n / PACKING_WIDTH {
-        poseidon1.compress_in_place(&mut state);
+        poseidon1_16.compress_in_place(&mut state_16);
     }
-    let _ = black_box(state);
+    let _ = black_box(state_16);
     let time_p1_simd = time.elapsed();
     println!(
-        "Poseidon1 SIMD (width {}): {:.2}M hashes/s",
+        "Poseidon1 16 SIMD (width {}): {:.2}M hashes/s",
         PACKING_WIDTH,
         (n as f64 / time_p1_simd.as_secs_f64() / 1_000_000.0)
     );
 
     let time = Instant::now();
-    let mut state = [FPacking::ZERO; 16];
     for _ in 0..n / PACKING_WIDTH {
-        poseidon2.compress_in_place(&mut state);
+        poseidon1_24.compress_in_place(&mut state_24);
     }
-    let _ = black_box(state);
-    let time_p2_simd = time.elapsed();
+    let _ = black_box(state_24);
+    let time_p1_simd = time.elapsed();
     println!(
-        "Poseidon2 SIMD (width {}): {:.2}M hashes/s ({:.2}x faster than P1)",
+        "Poseidon1 24 SIMD (width {}): {:.2}M hashes/s",
         PACKING_WIDTH,
-        (n as f64 / time_p2_simd.as_secs_f64() / 1_000_000.0),
-        (time_p1_simd.as_secs_f64() / time_p2_simd.as_secs_f64())
+        (n as f64 / time_p1_simd.as_secs_f64() / 1_000_000.0)
     );
 }

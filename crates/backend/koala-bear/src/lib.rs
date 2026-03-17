@@ -6,9 +6,9 @@ extern crate alloc;
 
 mod koala_bear;
 pub mod monty_31;
-mod poseidon1_koalabear;
+mod poseidon1_koalabear_16;
+mod poseidon1_koalabear_24;
 pub mod poseidon2;
-mod poseidon2_koalabear;
 pub mod quintic_extension;
 pub mod symmetric;
 
@@ -31,10 +31,8 @@ pub use monty_31::*;
 pub use koala_bear::*;
 
 // Re-export koala bear poseidon1 types
-pub use poseidon1_koalabear::*;
-
-// Re-export koala bear poseidon2 constants and types
-pub use poseidon2_koalabear::*;
+pub use poseidon1_koalabear_16::*;
+pub use poseidon1_koalabear_24::*;
 
 // Re-export key poseidon2 types
 pub use poseidon2::{
