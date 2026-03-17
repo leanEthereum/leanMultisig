@@ -528,23 +528,28 @@ struct Precomputed {
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 struct NeonPrecomputed {
-    /// Initial full round constants in negative NEON form.
-    /// Outer index = round, inner = 16 int32x4_t broadcasts.
-    packed_initial_rc: Vec<[core::arch::aarch64::int32x4_t; 16]>,
+    /// Initial full round constants in negative NEON form (only first 3 rounds;
+    /// the 4th is fused with the partial round entry).
+    packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1],
     /// Terminal full round constants in negative NEON form.
-    packed_terminal_rc: Vec<[core::arch::aarch64::int32x4_t; 16]>,
+    packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS],
     /// Pre-packed sparse first rows as PackedKoalaBearNeon.
-    packed_sparse_first_row: Vec<[PackedKB; 16]>,
+    packed_sparse_first_row: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS],
     /// Pre-packed v vectors as PackedKoalaBearNeon.
-    packed_sparse_v: Vec<[PackedKB; 16]>,
+    packed_sparse_v: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS],
     /// Pre-packed scalar round constants for partial rounds 0..RP-2.
-    packed_round_constants: Vec<PackedKB>,
-    /// Pre-packed first round constants (added once before m_i).
-    packed_first_round_constants: [PackedKB; 16],
-    /// Pre-packed m_i rows (eliminates per-multiply broadcasts in dense multiply).
-    packed_m_i: [[PackedKB; 16]; 16],
+    packed_round_constants: [PackedKB; POSEIDON1_PARTIAL_ROUNDS - 1],
+    /// Fused matrix: m_i * MDS * state_after_last_initial_sbox + m_i * first_rc.
+    /// Replaces: FFT MDS + add first_rc + dense m_i → single dense multiply.
+    packed_fused_mi_mds: [[PackedKB; 16]; 16],
+    /// Fused bias: m_i * first_round_constants.
+    packed_fused_bias: [PackedKB; 16],
+    /// Last initial round constant in negative NEON form (for fused add_rc_and_sbox).
+    packed_last_initial_rc: [core::arch::aarch64::int32x4_t; 16],
     /// Pre-packed eigenvalues for FFT MDS.
     packed_lambda_br: [PackedKB; 16],
+    /// INV16 = 16^{-1} mod p, pre-packed for replacing div_2exp_u64(4).
+    packed_inv16: PackedKB,
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -616,36 +621,42 @@ fn precomputed() -> &'static Precomputed {
             use crate::convert_to_vec_neg_form_neon;
 
             let pack = |c: KoalaBear| PackedMontyField31Neon::<FP>::from(c);
+            let neg_form = |c: KoalaBear| convert_to_vec_neg_form_neon::<FP>(c.value as i32);
 
-            // Initial full round constants in negative NEON form.
-            let packed_initial_rc = poseidon1_initial_constants()
-                .iter()
-                .map(|arr| arr.map(|c| convert_to_vec_neg_form_neon::<FP>(c.value as i32)))
-                .collect();
+            // Initial full round constants (only first 3; 4th is fused).
+            let init_rc = poseidon1_initial_constants();
+            let packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1] =
+                core::array::from_fn(|r| init_rc[r].map(neg_form));
 
-            // Terminal full round constants in negative NEON form.
-            let packed_terminal_rc = poseidon1_final_constants()
-                .iter()
-                .map(|arr| arr.map(|c| convert_to_vec_neg_form_neon::<FP>(c.value as i32)))
-                .collect();
+            // Last initial round constant (for fused add_rc_and_sbox before partial rounds).
+            let packed_last_initial_rc = init_rc[POSEIDON1_HALF_FULL_ROUNDS - 1].map(neg_form);
 
-            // Pre-packed sparse first rows.
-            let packed_sparse_first_row = sparse_first_row.iter().map(|row| row.map(pack)).collect();
+            // Terminal full round constants.
+            let term_rc = poseidon1_final_constants();
+            let packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS] =
+                core::array::from_fn(|r| term_rc[r].map(neg_form));
 
-            // Pre-packed v vectors.
-            let packed_sparse_v = sparse_v.iter().map(|row| row.map(pack)).collect();
+            // Pre-packed sparse constants (fixed-size arrays).
+            let packed_sparse_first_row: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS] =
+                core::array::from_fn(|r| sparse_first_row[r].map(pack));
+            let packed_sparse_v: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS] =
+                core::array::from_fn(|r| sparse_v[r].map(pack));
+            let packed_round_constants: [PackedKB; POSEIDON1_PARTIAL_ROUNDS - 1] =
+                core::array::from_fn(|r| pack(scalar_round_constants[r]));
 
-            // Pre-packed scalar round constants.
-            let packed_round_constants = scalar_round_constants.iter().map(|&c| pack(c)).collect();
+            // Fused matrix: (m_i * MDS), replaces last initial FFT MDS + add first_rc + m_i.
+            let fused_mi_mds = matrix_mul_16(&m_i, &mds);
+            let packed_fused_mi_mds: [[PackedKB; 16]; 16] = core::array::from_fn(|i| fused_mi_mds[i].map(pack));
 
-            // Pre-packed first round constants.
-            let packed_first_round_constants = first_round_constants.map(pack);
-
-            // Pre-packed m_i rows (eliminates 256 per-multiply broadcasts).
-            let packed_m_i: [[PackedKB; 16]; 16] = core::array::from_fn(|i| m_i[i].map(pack));
+            // Fused bias: m_i * first_round_constants.
+            let fused_bias = matrix_vec_mul_16(&m_i, &first_round_constants);
+            let packed_fused_bias: [PackedKB; 16] = fused_bias.map(pack);
 
             // Pre-packed eigenvalues for FFT MDS.
             let packed_lambda_br: [PackedKB; 16] = lambda_br.map(pack);
+
+            // INV16 = 16^{-1} mod p = 1997537281.
+            let packed_inv16 = pack(KoalaBear::new(1997537281));
 
             NeonPrecomputed {
                 packed_initial_rc,
@@ -653,9 +664,11 @@ fn precomputed() -> &'static Precomputed {
                 packed_sparse_first_row,
                 packed_sparse_v,
                 packed_round_constants,
-                packed_first_round_constants,
-                packed_m_i,
+                packed_fused_mi_mds,
+                packed_fused_bias,
+                packed_last_initial_rc,
                 packed_lambda_br,
+                packed_inv16,
             }
         };
 
@@ -934,49 +947,49 @@ impl Poseidon1KoalaBear16 {
 
         let neon = &self.pre.neon;
         let lambda = &neon.packed_lambda_br;
+        let inv16 = neon.packed_inv16;
 
-        /// FFT MDS with pre-packed eigenvalues (no per-multiply broadcasts).
+        /// FFT MDS with pre-packed eigenvalues and *= INV16 (faster than div_2exp_u64).
         #[inline(always)]
-        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda: &[PackedKB; 16]) {
+        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda: &[PackedKB; 16], inv16: PackedKB) {
             dif_ifft_16_mut(state);
             for i in 0..16 {
                 state[i] *= lambda[i];
             }
             dit_fft_16_mut(state);
             for s in state.iter_mut() {
-                *s = s.div_2exp_u64(4);
+                *s *= inv16;
             }
         }
 
-        // --- Initial full rounds ---
+        // --- Initial full rounds (first 3 of 4) ---
         for round_constants in &neon.packed_initial_rc {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda);
+            mds_fft_neon(state, lambda, inv16);
         }
 
-        // --- Partial rounds (sparse matrix decomposition with ILP) ---
+        // --- Last initial full round: AddRC + S-box, then fused (m_i * MDS) ---
+        // Fuses: MDS(state) + first_rc → m_i * (MDS(state) + first_rc)
+        //      = (m_i * MDS) * state + m_i * first_rc
+        // Saves one full FFT MDS call.
         {
-            // 1. Add first round constant vector.
-            for (s, &c) in state.iter_mut().zip(neon.packed_first_round_constants.iter()) {
-                *s += c;
+            for (s, &rc) in state.iter_mut().zip(neon.packed_last_initial_rc.iter()) {
+                add_rc_and_sbox::<FP, 3>(s, rc);
             }
-
-            // 2. Apply dense transition matrix m_i using pre-packed rows.
-            {
-                let input = *state;
-                let m_i = &neon.packed_m_i;
-                for i in 0..16 {
-                    state[i] = PackedMontyField31Neon::<FP>::dot_product(&input, &m_i[i]);
-                }
+            let input = *state;
+            for i in 0..16 {
+                state[i] = PackedMontyField31Neon::<FP>::dot_product(&input, &neon.packed_fused_mi_mds[i])
+                    + neon.packed_fused_bias[i];
             }
+        }
 
-            // 3. Partial rounds loop with latency hiding via InternalLayer16 split.
+        // --- Partial rounds loop with latency hiding via InternalLayer16 split ---
+        {
             let mut split = InternalLayer16::from_packed_field_array(*state);
-            let rounds_p = neon.packed_sparse_first_row.len();
 
-            for r in 0..rounds_p {
+            for r in 0..POSEIDON1_PARTIAL_ROUNDS {
                 // PATH A (high latency): S-box on s0 only.
                 unsafe {
                     let s0_signed = split.s0.to_signed_vector();
@@ -985,7 +998,7 @@ impl Poseidon1KoalaBear16 {
                 }
 
                 // Add scalar round constant (except last round).
-                if r < rounds_p - 1 {
+                if r < POSEIDON1_PARTIAL_ROUNDS - 1 {
                     split.s0 += neon.packed_round_constants[r];
                 }
 
@@ -1007,7 +1020,6 @@ impl Poseidon1KoalaBear16 {
                 }
             }
 
-            // 4. Convert back to array.
             *state = unsafe { split.to_packed_field_array() };
         }
 
@@ -1016,7 +1028,7 @@ impl Poseidon1KoalaBear16 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda);
+            mds_fft_neon(state, lambda, inv16);
         }
     }
 
