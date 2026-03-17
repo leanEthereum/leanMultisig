@@ -121,7 +121,7 @@ fn apply_full_round<const WIDTH: usize>(
             *v = v.cube();
         }
         let buff16: &mut [FPacking<F>; 16] = (&mut buff[..]).try_into().unwrap();
-        mds_rs_16(buff16);
+        mds_circ_16(buff16);
         if let Some(constants) = constants {
             for j in 0..WIDTH {
                 buff[j] += constants[j];
@@ -151,7 +151,7 @@ fn apply_partial_round<const WIDTH: usize>(
         let mut buff: [FPacking<F>; WIDTH] = array::from_fn(|j| packed_inputs[j][row]);
         buff[0] = buff[0].cube();
         let buff16: &mut [FPacking<F>; 16] = (&mut buff[..]).try_into().unwrap();
-        mds_rs_16(buff16);
+        mds_circ_16(buff16);
         if let Some(constants) = constants {
             for j in 0..WIDTH {
                 buff[j] += constants[j];
