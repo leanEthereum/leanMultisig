@@ -968,8 +968,8 @@ impl Poseidon1KoalaBear16 {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
             let input = *state;
-            for i in 0..16 {
-                state[i] = PackedMontyField31Neon::<FP>::dot_product(&input, &neon.packed_fused_mi_mds[i])
+            for (i, state_i) in state.iter_mut().enumerate() {
+                *state_i = PackedMontyField31Neon::<FP>::dot_product(&input, &neon.packed_fused_mi_mds[i])
                     + neon.packed_fused_bias[i];
             }
         }
