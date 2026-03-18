@@ -127,9 +127,7 @@ def main():
 
     # Test 20: Three values with multiple ranges
     v20 = 4
-    x20, y20, z20 = match_range(
-        v20, range(0, 3), lambda i: three_values_const(i), range(3, 6), lambda i: three_values_offset(i)
-    )
+    x20, y20, z20 = match_range(v20, range(0, 3), lambda i: three_values_const(i), range(3, 6), lambda i: three_values_offset(i))
     assert x20 == 104  # 4 + 100
     assert y20 == 1004  # 4 + 1000
     assert z20 == 10004  # 4 + 10000

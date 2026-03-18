@@ -1,4 +1,6 @@
 from snark_lib import *
+
+
 def main():
     result1: Imu
     outer_sel = 1
@@ -103,6 +105,7 @@ def main():
     assert r == 112
 
     return
+
 
 def compute_outcome(a, b):
     return a * b + a + b

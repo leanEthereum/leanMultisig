@@ -4,13 +4,13 @@ from utils import *
 V = V_PLACEHOLDER
 V_GRINDING = V_GRINDING_PLACEHOLDER
 W = W_PLACEHOLDER
-CHAIN_LENGTH = 2 ** W
+CHAIN_LENGTH = 2**W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
-NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W)) # 24 should be divisible by W (works for W=2,3,4)
+NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))  # 24 should be divisible by W (works for W=2,3,4)
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 
@@ -39,24 +39,18 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
     encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
     remaining = Array(NUM_ENCODING_FE)
 
-    hint_decompose_bits_xmss(
-        encoding,
-        remaining,
-        encoding_fe,
-        NUM_ENCODING_FE,
-        2 * W
-    )
+    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, 2 * W)
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
         for j in unroll(0, 24 / (2 * W)):
             assert encoding[i * (24 / (2 * W)) + j] < CHAIN_LENGTH**2
 
-        assert remaining[i] < 2**7 - 1 # ensures uniformity + prevent overflow
+        assert remaining[i] < 2**7 - 1  # ensures uniformity + prevent overflow
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24/(2*W)):
-            partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH ** 2) ** j
+        for j in unroll(0, 24 / (2 * W)):
+            partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
         assert partial_sum == encoding_fe[i]
 
     # grinding
@@ -66,7 +60,7 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
         assert encoding[i] == CHAIN_LENGTH**2 - 1
 
     target_sum: Mut = 0
-    
+
     wots_public_key = Array(V * DIGEST_LEN)
 
     local_zero_buff = Array(DIGEST_LEN)
@@ -77,7 +71,9 @@ def xmss_verify(merkle_root, message, signature, slot_lo, slot_hi, merkle_chunks
         chain_start = chain_starts + i * (DIGEST_LEN * 2)
         chain_end = wots_public_key + i * (DIGEST_LEN * 2)
         pair_chain_length_sum_ptr = Array(1)
-        match_range(encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr, local_zero_buff))
+        match_range(
+            encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr, local_zero_buff)
+        )
         target_sum += pair_chain_length_sum_ptr[0]
 
     assert target_sum == TARGET_SUM
@@ -102,9 +98,9 @@ def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero
     elif n_left == 1:
         poseidon16(input_left, local_zero_buff, output_left)
     else:
-        states_left = Array((n_left-1) * DIGEST_LEN)
+        states_left = Array((n_left - 1) * DIGEST_LEN)
         poseidon16(input_left, local_zero_buff, states_left)
-        for i in unroll(1, n_left-1):
+        for i in unroll(1, n_left - 1):
             poseidon16(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
         poseidon16(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
 
@@ -117,9 +113,9 @@ def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero
     elif n_right == 1:
         poseidon16(input_right, local_zero_buff, output_right)
     else:
-        states_right = Array((n_right-1) * DIGEST_LEN)
+        states_right = Array((n_right - 1) * DIGEST_LEN)
         poseidon16(input_right, local_zero_buff, states_right)
-        for i in unroll(1, n_right-1):
+        for i in unroll(1, n_right - 1):
             poseidon16(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
         poseidon16(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
 
@@ -146,7 +142,6 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
         poseidon16(path_chunk, state_in, temps)
     else:
         poseidon16(state_in, path_chunk, temps)
-
 
     # Level 1
     if b1 == 0:
@@ -177,17 +172,29 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root):
 
     # Middle chunks
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
-        match_range(merkle_chunks[j], range(0, 16), lambda b: do_4_merkle_levels(b, states + (j - 1) * DIGEST_LEN, merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, states + j * DIGEST_LEN))
+        match_range(
+            merkle_chunks[j],
+            range(0, 16),
+            lambda b: do_4_merkle_levels(
+                b, states + (j - 1) * DIGEST_LEN, merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, states + j * DIGEST_LEN
+            ),
+        )
 
     # Last chunk: -> expected_root
-    match_range(merkle_chunks[N_MERKLE_CHUNKS - 1], range(0, 16), lambda b: do_4_merkle_levels(b, states + (N_MERKLE_CHUNKS - 2) * DIGEST_LEN, merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root))
+    match_range(
+        merkle_chunks[N_MERKLE_CHUNKS - 1],
+        range(0, 16),
+        lambda b: do_4_merkle_levels(
+            b, states + (N_MERKLE_CHUNKS - 2) * DIGEST_LEN, merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root
+        ),
+    )
     return
 
 
 @inline
 def copy_7(x, y):
     dot_product_ee(x, ONE_EF_PTR, y)
-    dot_product_ee(x + (7-DIM), ONE_EF_PTR, y + (7-DIM))
+    dot_product_ee(x + (7 - DIM), ONE_EF_PTR, y + (7 - DIM))
     return
 
 

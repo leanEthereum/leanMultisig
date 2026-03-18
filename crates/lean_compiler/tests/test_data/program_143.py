@@ -2,6 +2,7 @@ from snark_lib import *
 # Comprehensive test for nested inlined function calls
 # Tests various scenarios where inline functions are nested within other calls
 
+
 def main():
     # Test 1: Basic nested inline calls - f(g(h(x)))
     # incr(incr(incr(5))) = 8
@@ -175,16 +176,19 @@ def main():
 
     return
 
+
 # Simple inline function: increment by 1
 @inline
 def incr(a):
     b = a + 1
     return b
 
+
 # Inline function: multiply by 2
 @inline
 def double(x):
     return x * 2
+
 
 # Inline function: multiply by 3
 @inline
@@ -203,12 +207,14 @@ def triple(x):
             y = y + x
         return y
 
+
 # Inline function that calls another inline function
 @inline
 def quad(x):
     if x == 78990:
         return 157980
     return double(double(x))
+
 
 # Non-inline function that takes multiple arguments
 def add_three(a, b, c):
