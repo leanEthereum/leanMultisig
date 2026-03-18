@@ -1,6 +1,6 @@
 //! VM execution runner
 
-use crate::core::{DIGEST_LEN, DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR};
+use crate::core::{DIGEST_LEN, DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR};
 use crate::diagnostics::{ExecutionMetadata, ExecutionResult, MemoryProfile, RunnerError};
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
@@ -12,7 +12,7 @@ use crate::{
 };
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::{ToUsize, get_poseidon_16_of_zero};
+use utils::ToUsize;
 use xmss::Poseidon16History;
 
 #[derive(Debug)]
@@ -60,7 +60,6 @@ pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     // ONE in the extension field = [1, 0, 0, 0, 0]
     public_memory[ONE_EF_PTR] = F::ONE;
 
-    public_memory[POSEIDON_16_NULL_HASH_PTR..][..DIGEST_LEN].copy_from_slice(get_poseidon_16_of_zero());
     public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);
 
     public_memory[EQ_MLE_COEFFS_PTR..][..EQ_MLE_COEFFS_LEN].copy_from_slice(&[F::TWO, F::NEG_ONE, F::NEG_ONE, F::ONE]);

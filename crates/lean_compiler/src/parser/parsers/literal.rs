@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::{
     EQ_MLE_COEFFS_PTR, NONRESERVED_PROGRAM_INPUT_START, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR,
-    POSEIDON_16_NULL_HASH_PTR, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
+    REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
 };
 
 use super::expression::ExpressionParser;
@@ -135,7 +135,6 @@ impl VarOrConstantParser {
                 NONRESERVED_PROGRAM_INPUT_START,
             ))),
             "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
-            "POSEIDON_16_NULL_HASH_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(POSEIDON_16_NULL_HASH_PTR))),
             "ONE_EF_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_EF_PTR))),
             "REPEATED_ONES_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(REPEATED_ONES_PTR))),
             "NUM_REPEATED_ONES_IN_RESERVED_MEMORY" => Ok(SimpleExpr::Constant(ConstExpression::from(

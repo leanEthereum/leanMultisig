@@ -1,11 +1,11 @@
 use std::any::TypeId;
 
-use crate::{tables::poseidon_16::trace_gen::default_poseidon_row, *};
+use crate::*;
 use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
 mod trace_gen;
-pub use trace_gen::fill_trace_poseidon_16;
+pub use trace_gen::{default_poseidon_row, fill_trace_poseidon_16};
 
 pub(super) const WIDTH: usize = 16;
 const HALF_INITIAL_FULL_ROUNDS: usize = KOALABEAR_RC16_EXTERNAL_INITIAL.len() / 2;
@@ -65,7 +65,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     fn padding_row(&self) -> Vec<F> {
-        default_poseidon_row()
+        // depends on null_poseidon_16_hash_ptr (cf lean_prover/trace_gen.rs)
+        unreachable!()
     }
 
     #[inline(always)]

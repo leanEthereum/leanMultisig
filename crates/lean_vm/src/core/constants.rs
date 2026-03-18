@@ -40,10 +40,10 @@ pub const ENDING_PC: usize = 0;
 ///
 /// [public_data] = [reserved_area] [program_input]
 ///
-/// reserved_area: reserved for special constants (size = 48 field elements)
+/// reserved_area: reserved for special constants (size = 40 field elements)
 /// program_input: the input of the program we want to prove
 ///
-/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [poseidon_16(0) (8 FE)] [111..111 (16 FE)] [2 -1 -1 1]
+/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [111..111 (16 FE)] [2 -1 -1 1]
 ///
 /// pointing to 16 zeros
 pub const ZERO_VEC_PTR: usize = 0;
@@ -54,12 +54,9 @@ pub const SAMPLING_DOMAIN_SEPARATOR_PTR: usize = ZERO_VEC_PTR + 2 * DIGEST_LEN;
 /// pointing to [10000] (the multiplicative identity of EF, as DIMENSION base field elements)
 pub const ONE_EF_PTR: usize = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN;
 
-/// pointing to the 8 elements of poseidon_16(0)
-pub const POSEIDON_16_NULL_HASH_PTR: usize = ONE_EF_PTR + DIMENSION;
-
 /// POINTING TO 111..111 (`NUM_REPEATED_ONES_IN_RESERVED_MEMORY` times)
 pub const NUM_REPEATED_ONES_IN_RESERVED_MEMORY: usize = 16;
-pub const REPEATED_ONES_PTR: usize = POSEIDON_16_NULL_HASH_PTR + DIGEST_LEN;
+pub const REPEATED_ONES_PTR: usize = ONE_EF_PTR + DIMENSION;
 
 /// [2, -1, -1, 1] is useful to compute (xy + (1-x)(1-y)) = 2xy - x - y + 1 = dot_product([xy, x, y, 1], [2, -1, -1, 1])
 pub const EQ_MLE_COEFFS_LEN: usize = 4;

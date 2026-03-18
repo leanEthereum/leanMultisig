@@ -1,7 +1,7 @@
 use tracing::instrument;
 
 use crate::{
-    F, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
+    F, ZERO_VEC_PTR,
     tables::{Poseidon2Cols, WIDTH, num_cols_poseidon_16},
 };
 use backend::*;
@@ -41,7 +41,7 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
     }
 }
 
-pub fn default_poseidon_row() -> Vec<F> {
+pub fn default_poseidon_row(null_hash_ptr: usize) -> Vec<F> {
     let mut row = vec![F::ZERO; num_cols_poseidon_16()];
     let ptrs: [*mut F; num_cols_poseidon_16()] = std::array::from_fn(|i| unsafe { row.as_mut_ptr().add(i) });
 
@@ -50,7 +50,7 @@ pub fn default_poseidon_row() -> Vec<F> {
     *perm.flag = F::ZERO;
     *perm.index_a = F::from_usize(ZERO_VEC_PTR);
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_res = F::from_usize(POSEIDON_16_NULL_HASH_PTR);
+    *perm.index_res = F::from_usize(null_hash_ptr);
 
     generate_trace_rows_for_perm(perm);
     row
