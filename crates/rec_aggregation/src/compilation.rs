@@ -339,8 +339,7 @@ fn build_replacements(
                 .collect();
             format!("[{}]", vals.join(", "))
         };
-        replacements.insert("INV_EXTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
-        replacements.insert("INV_INTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
+        replacements.insert("INV_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
         let fmt_rc_full = |rounds: &[[F; 16]]| {
             let vals: Vec<String> = rounds
                 .iter()

@@ -26,8 +26,7 @@ NUM_COMMITTED_COLS = NUM_COMMITTED_COLS_PLACEHOLDER
 POSEIDON_TABLE_INDEX = POSEIDON_TABLE_INDEX_PLACEHOLDER
 POSEIDON_16_COL_INPUT_START = POSEIDON_16_COL_INPUT_START_PLACEHOLDER
 POSEIDON_16_COL_OUTPUT_START = POSEIDON_16_COL_OUTPUT_START_PLACEHOLDER
-INV_EXTERNAL_MATRIX = INV_EXTERNAL_MATRIX_PLACEHOLDER
-INV_INTERNAL_MATRIX = INV_INTERNAL_MATRIX_PLACEHOLDER
+INV_MATRIX = INV_MATRIX_PLACEHOLDER
 N_INITIAL_FULL_ROUNDS = N_INITIAL_FULL_ROUNDS_PLACEHOLDER
 N_PARTIAL_ROUNDS = N_PARTIAL_ROUNDS_PLACEHOLDER
 N_FINAL_FULL_ROUNDS = N_FINAL_FULL_ROUNDS_PLACEHOLDER
@@ -56,7 +55,7 @@ PUB_INPUT_SIZE = PUB_INPUT_SIZE_PLACEHOLDER
 BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
-def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_ext_mat, inv_int_mat):
+def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_mat):
     fs: Mut = fs_new(proof_transcript)
 
     inner_pub_input = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START
@@ -213,8 +212,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_ex
             value_memory,
             value_acc,
             value_bytecode_acc,
-            inv_ext_mat,
-            inv_int_mat,
+            inv_mat
         )
     else:
         continue_recursion_ordered(
@@ -246,8 +244,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_ex
             value_memory,
             value_acc,
             value_bytecode_acc,
-            inv_ext_mat,
-            inv_int_mat,
+            inv_mat
         )
 
     return bytecode_claim
@@ -283,8 +280,7 @@ def continue_recursion_ordered(
     value_memory,
     value_acc,
     value_bytecode_acc,
-    inv_ext_mat,
-    inv_int_mat,
+    inv_mat,
 ):
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])
@@ -477,7 +473,7 @@ def continue_recursion_ordered(
             pcs_values[POSEIDON_TABLE_INDEX][0][POSEIDON_16_COL_INPUT_START + i][0],
             perm_out_0_7 + i * DIM,
         )
-    fs, gkr_input_point, gkr_input_evals = verify_poseidon_gkr(fs, poseidon_log_n_rows, poseidon_logup_point, perm_out_0_7, inv_ext_mat, inv_int_mat)
+    fs, gkr_input_point, gkr_input_evals = verify_poseidon_gkr(fs, poseidon_log_n_rows, poseidon_logup_point, perm_out_0_7, inv_mat)
     # Add GKR input claims to pcs
     pcs_points[POSEIDON_TABLE_INDEX].push(gkr_input_point)
     pcs_values[POSEIDON_TABLE_INDEX].push(DynArray([]))
@@ -777,7 +773,7 @@ def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_bet
     return res
 
 
-def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0_7, inv_ext_mat, inv_int_mat):
+def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0_7, inv_mat):
     # Receive perm_out[8..15] from prover
     fs, perm_out_8_15 = fs_receive_ef_inlined(fs, DIGEST_LEN)
     # Combine into full 16 claims
@@ -787,7 +783,7 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
     point: Mut = output_claim_point
     # Final full rounds (reversed)
     for round_idx in unroll(0, N_FINAL_FULL_ROUNDS):
-        claims = apply_inv_matrix(claims, inv_ext_mat)
+        claims = apply_inv_matrix(claims, inv_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_FINAL_FULL_ROUNDS - 1 - round_idx) * 16
         rc_sub = Array(16 * DIM)
@@ -798,7 +794,7 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
         claims = rc_sub
     # Partial rounds (reversed)
     for round_idx in unroll(0, N_PARTIAL_ROUNDS):
-        claims = apply_inv_matrix(claims, inv_int_mat)
+        claims = apply_inv_matrix(claims, inv_mat)
         fs, point, claims = verify_poseidon_gkr_round_partial(fs, log_n_poseidons, point, claims)
         rc_offset = (N_PARTIAL_ROUNDS - 1 - round_idx) * 16
         rc_sub = Array(16 * DIM)
@@ -809,7 +805,7 @@ def verify_poseidon_gkr(fs: Mut, log_n_poseidons, output_claim_point, perm_out_0
         claims = rc_sub
     # Initial full rounds (reversed)
     for round_idx in unroll(0, N_INITIAL_FULL_ROUNDS):
-        claims = apply_inv_matrix(claims, inv_ext_mat)
+        claims = apply_inv_matrix(claims, inv_mat)
         fs, point, claims = verify_poseidon_gkr_round_full(fs, log_n_poseidons, point, claims)
         rc_offset = (N_INITIAL_FULL_ROUNDS - 1 - round_idx) * 16
         rc_sub = Array(16 * DIM)

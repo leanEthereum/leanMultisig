@@ -66,18 +66,13 @@ def main():
     n_bytecode_claims = n_recursions * 2
     bytecode_claims = Array(n_bytecode_claims)
 
-    inv_ext_mat: Imu
-    inv_int_mat: Imu
+    inv_mat: Imu
     if n_recursions == 0:
-        inv_ext_mat = 0
-        inv_int_mat = 0
+        inv_mat = 0
     else:
-        inv_ext_mat = Array(256)
+        inv_mat = Array(256)
         for i in unroll(0, 256):
-            inv_ext_mat[i] = INV_EXTERNAL_MATRIX[i]
-        inv_int_mat = Array(256)
-        for i in unroll(0, 256):
-            inv_int_mat[i] = INV_INTERNAL_MATRIX[i]
+            inv_mat[i] = INV_MATRIX[i]
 
     for rec_idx in range(0, n_recursions):
         source_data = sub_slice_starts[rec_idx + 1]
@@ -130,7 +125,7 @@ def main():
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
 
         # Verify recursive proof - returns the second bytecode claim
-        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_ext_mat, inv_int_mat)
+        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_mat)
 
     # Ensure partition validity
     assert counter == n_total
