@@ -1,6 +1,7 @@
 use crate::{
     EF, F, FullRoundComputation, GKRPoseidonResult, POSEIDON_16_GKR_START, POSEIDON_16_N_GKR_COLS,
-    PartialRoundComputation, apply_matrix, build_poseidon_inv_matrix, poseidon_round_constants,
+    POSEIDON_24_GKR_START, POSEIDON_24_N_GKR_COLS, PartialRoundComputation, apply_matrix, build_poseidon_inv_matrix,
+    poseidon_round_constants,
 };
 use backend::*;
 use tracing::{info_span, instrument};
@@ -10,39 +11,47 @@ pub fn prove_poseidon_gkr<const WIDTH: usize>(
     prover_state: &mut impl FSProver<EF>,
     trace: &[Vec<F>],
     output_point: MultilinearPoint<EF>,
-    perm_out_0_7: &[EF],
+    perm_out_first: &[EF],
+    output_size: usize,
 ) -> GKRPoseidonResult {
     let inv_mds = build_poseidon_inv_matrix::<WIDTH>();
     let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
 
     let n_poseidons = trace[0].len();
     assert_eq!(output_point.0.len(), log2_strict_usize(n_poseidons));
-    assert_eq!(perm_out_0_7.len(), WIDTH / 2);
+    assert_eq!(perm_out_first.len(), output_size);
 
     let n_initial = initial_constants.len();
     let n_partial = partial_constants.len();
     let n_final = final_constants.len();
 
     // Layer offsets in the trace
-    let initial_start = POSEIDON_16_GKR_START;
+    let gkr_start = match WIDTH {
+        16 => POSEIDON_16_GKR_START,
+        24 => POSEIDON_24_GKR_START,
+        _ => unreachable!(),
+    };
+    let gkr_n_cols = match WIDTH {
+        16 => POSEIDON_16_N_GKR_COLS,
+        24 => POSEIDON_24_N_GKR_COLS,
+        _ => unreachable!(),
+    };
+    let initial_start = gkr_start;
     let partial_start = initial_start + n_initial * WIDTH;
     let final_start = partial_start + n_partial * WIDTH;
     let output_layer_start = final_start + n_final * WIDTH;
-    assert_eq!(
-        output_layer_start + WIDTH,
-        POSEIDON_16_GKR_START + POSEIDON_16_N_GKR_COLS
-    );
+    assert_eq!(output_layer_start + WIDTH, gkr_start + gkr_n_cols);
 
-    let perm_out_8_15: Vec<EF> = info_span!("computing perm_out[8..15]").in_scope(|| {
-        (WIDTH / 2..WIDTH)
+    let perm_out_rest: Vec<EF> = info_span!("computing perm_out_rest").in_scope(|| {
+        (output_size..WIDTH)
             .into_par_iter()
             .map(|col| (&trace[output_layer_start + col][..]).evaluate(&output_point))
             .collect()
     });
-    prover_state.add_extension_scalars(&perm_out_8_15);
+    prover_state.add_extension_scalars(&perm_out_rest);
 
     let mut point = output_point.0.clone();
-    let mut claims: Vec<EF> = [perm_out_0_7, &perm_out_8_15].concat();
+    let mut claims: Vec<EF> = [perm_out_first, &perm_out_rest].concat();
 
     // Final full rounds (backwards)
     for (idx, full_round_constants) in final_constants.iter().enumerate().rev() {

@@ -3,7 +3,7 @@ use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{init_tracing, poseidon16_compress, poseidon24_compress};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -12,14 +12,20 @@ DIM = 5
 N = 11
 M = 3
 DIGEST_LEN = 8
+P24_INPUT_LEFT = 9
+P24_INPUT_RIGHT = 15
+P24_OUTPUT = 9
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
-    base_ptr = pub_start + 88
-    ext_a_ptr = pub_start + 88 + N
-    ext_b_ptr = pub_start + 88 + N * (DIM + 1)
+    # poseidon24: left (9 elems at offset 56), right (15 elems at offset 65), output (9 elems at offset 80)
+    poseidon24(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT)
+
+    base_ptr = pub_start + 89
+    ext_a_ptr = pub_start + 89 + N
+    ext_b_ptr = pub_start + 89 + N * (DIM + 1)
 
     # dot_product_be: sum_i base[i] * ext_a[i]
     dot_product_be(base_ptr, ext_a_ptr, pub_start + 1000, N)
@@ -55,12 +61,16 @@ def main():
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
 
-    // Poseidon test data
+    // Poseidon16 test data: input at [32..48], expected output at [48..56]
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
     public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
+
+    // Poseidon24 test data: left at [56..65], right at [65..80], output at [80..89]
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
+    let poseidon_24_output = poseidon24_compress(poseidon_24_input);
+    public_input[80..89].copy_from_slice(&poseidon_24_output);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();
@@ -74,9 +84,9 @@ def main():
             .collect()
     };
 
-    public_input[88..][..N].copy_from_slice(&base_slice);
-    public_input[88 + N..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_a_slice));
-    public_input[88 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_b_slice));
+    public_input[89..][..N].copy_from_slice(&base_slice);
+    public_input[89 + N..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_a_slice));
+    public_input[89 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_b_slice));
 
     // dot_product_be result at 1000
     let dot_product_be_result: EF = dot_product(ext_a_slice.into_iter(), base_slice.into_iter());

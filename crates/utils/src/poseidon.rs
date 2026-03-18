@@ -13,6 +13,7 @@ pub const PARTIAL_ROUNDS_24: usize = POSEIDON1_PARTIAL_ROUNDS_24;
 static POSEIDON_16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
 static POSEIDON_16_OF_ZERO: OnceLock<[KoalaBear; 8]> = OnceLock::new();
 static POSEIDON_24_INSTANCE: OnceLock<Poseidon24> = OnceLock::new();
+static POSEIDON_24_OF_ZERO: OnceLock<[KoalaBear; 9]> = OnceLock::new();
 
 #[inline(always)]
 pub fn get_poseidon16() -> &'static Poseidon16 {
@@ -42,14 +43,19 @@ pub fn get_poseidon24() -> &'static Poseidon24 {
 }
 
 #[inline(always)]
-pub fn poseidon24_compress(input: [KoalaBear; 24]) -> [KoalaBear; 12] {
-    get_poseidon24().compress(input)[0..12].try_into().unwrap()
+pub fn get_poseidon_24_of_zero() -> &'static [KoalaBear; 9] {
+    POSEIDON_24_OF_ZERO.get_or_init(|| poseidon24_compress([KoalaBear::default(); 24]))
 }
 
-pub fn poseidon24_compress_pair(left: [KoalaBear; 12], right: [KoalaBear; 12]) -> [KoalaBear; 12] {
+#[inline(always)]
+pub fn poseidon24_compress(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
+    get_poseidon24().compress(input)[0..9].try_into().unwrap()
+}
+
+pub fn poseidon24_compress_pair(left: [KoalaBear; 9], right: [KoalaBear; 15]) -> [KoalaBear; 9] {
     let mut input = [KoalaBear::default(); 24];
-    input[..12].copy_from_slice(&left);
-    input[12..].copy_from_slice(&right);
+    input[..9].copy_from_slice(&left);
+    input[9..].copy_from_slice(&right);
     poseidon24_compress(input)
 }
 

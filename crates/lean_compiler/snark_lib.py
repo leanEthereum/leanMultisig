@@ -80,6 +80,10 @@ def poseidon16(left, right, output, mode):
     _ = left, right, output, mode
 
 
+def poseidon24(left, right, output):
+    _ = left, right, output
+
+
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 

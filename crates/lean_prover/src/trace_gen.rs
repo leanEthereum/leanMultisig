@@ -1,9 +1,9 @@
 use backend::*;
 use lean_vm::*;
-use poseidon_gkr::fill_poseidon_trace;
+use poseidon_gkr::{fill_poseidon_16_trace, fill_poseidon_24_trace};
 use std::{array, collections::BTreeMap};
 use tracing::info_span;
-use utils::{ToUsize, get_poseidon_16_of_zero, transposed_par_iter_mut};
+use utils::{ToUsize, get_poseidon_16_of_zero, get_poseidon_24_of_zero, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -98,6 +98,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     // Write poseidon(0) at the end of used memory for poseidon table padding rows
     let null_poseidon_16_hash_ptr = memory_padded.len();
     memory_padded.extend_from_slice(get_poseidon_16_of_zero());
+    let null_poseidon_24_hash_ptr = memory_padded.len();
+    memory_padded.extend_from_slice(get_poseidon_24_of_zero());
 
     // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
@@ -117,12 +119,37 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
-        pad_table(&table, &mut traces, null_poseidon_16_hash_ptr);
+        pad_table(
+            &table,
+            &mut traces,
+            null_poseidon_16_hash_ptr,
+            null_poseidon_24_hash_ptr,
+        );
     }
 
-    // Fill GKR layers and compressed outputs in poseidon trace
+    // Ensure poseidon24 is always the smallest (last) table by padding other tables if needed.
+    // The recursive aggregation verifier assumes this ordering.
+    let p24_log = traces[&Table::poseidon24()].log_n_rows;
+    for &table in &[Table::extension_op(), Table::poseidon16()] {
+        if traces[&table].log_n_rows < p24_log {
+            let target = 1usize << p24_log;
+            let trace = traces.get_mut(&table).unwrap();
+            let padding = if table == Table::poseidon16() {
+                default_poseidon_16_row(null_poseidon_16_hash_ptr)
+            } else {
+                table.padding_row()
+            };
+            for (col, val) in trace.base.iter_mut().zip(padding.iter()) {
+                col.resize(target, *val);
+            }
+            trace.log_n_rows = p24_log;
+        }
+    }
+
+    // Fill GKR layers and compressed outputs in poseidon traces
     info_span!("Poseidon GKR trace fill").in_scope(|| {
-        fill_poseidon_trace(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
+        fill_poseidon_16_trace(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
+        fill_poseidon_24_trace(&mut traces.get_mut(&Table::poseidon24()).unwrap().base);
     });
 
     ExecutionTrace {
@@ -133,7 +160,12 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
-fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_ptr: usize) {
+fn pad_table(
+    table: &Table,
+    traces: &mut BTreeMap<Table, TableTrace>,
+    null_poseidon_16_hash_ptr: usize,
+    null_poseidon_24_hash_ptr: usize,
+) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
 
@@ -141,7 +173,9 @@ fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let n_rows = 1 << trace.log_n_rows;
     let padding_row = if *table == Table::poseidon16() {
-        default_poseidon_16_row(null_hash_ptr)
+        default_poseidon_16_row(null_poseidon_16_hash_ptr)
+    } else if *table == Table::poseidon24() {
+        default_poseidon_24_row(null_poseidon_24_hash_ptr)
     } else {
         table.padding_row()
     };

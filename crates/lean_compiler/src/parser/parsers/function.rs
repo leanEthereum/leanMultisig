@@ -33,8 +33,11 @@ fn is_reserved_function_name(name: &str) -> bool {
     if RESERVED_FUNCTION_NAMES.contains(&name) || CUSTOM_HINTS.iter().any(|hint| hint.name() == name) {
         return true;
     }
-    // Check precompile names (poseidon16, extension_op functions)
-    if Table::poseidon16().name() == name {
+    // Check precompile names (poseidon16, poseidon24, extension_op functions)
+    if [Table::poseidon16(), Table::poseidon24()]
+        .iter()
+        .any(|t| t.name() == name)
+    {
         return true;
     }
     // Extension op function names

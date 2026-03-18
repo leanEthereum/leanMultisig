@@ -125,6 +125,16 @@ pub fn prove_execution(
                 })
                 .map(|(&k, &v)| (k, v))
                 .collect()
+        } else if table == Table::poseidon24() {
+            // output columns are not committed, but verified via GKR instead
+            logup_statements.columns_values[&table]
+                .iter()
+                .filter(|&(&col, _)| {
+                    debug_assert!(!(N_COMMITTED_COLS_P24..POSEIDON_24_COL_OUTPUT_START).contains(&col)); // no logup statement in intermediate GKR layers
+                    col < N_COMMITTED_COLS_P24
+                })
+                .map(|(&k, &v)| (k, v))
+                .collect()
         } else {
             logup_statements.columns_values[&table].clone()
         };
@@ -155,19 +165,20 @@ pub fn prove_execution(
         committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
-    // Poseidon GKR
-    info_span!("Poseidon GKR").in_scope(|| {
+    // Poseidon16 GKR
+    info_span!("Poseidon16 GKR").in_scope(|| {
         let trace = &traces[&Table::poseidon16()].base;
         let logup_point = &logup_statements.points[&Table::poseidon16()];
         let logup_col_evals = &logup_statements.columns_values[&Table::poseidon16()];
         // Derive perm_out[0..8] = output_eval[i] - input_eval[i]
-        let perm_out_0_7: Vec<EF> = (0..8)
+        let perm_out_0_7: Vec<EF> = (0..DIGEST_LEN)
             .map(|i| {
                 logup_col_evals[&(POSEIDON_16_COL_OUTPUT_START + i)]
                     - logup_col_evals[&(POSEIDON_16_COL_INPUT_START + i)]
             })
             .collect();
-        let p16_gkr_result = prove_poseidon_gkr::<16>(&mut prover_state, trace, logup_point.clone(), &perm_out_0_7);
+        let p16_gkr_result =
+            prove_poseidon_gkr::<16>(&mut prover_state, trace, logup_point.clone(), &perm_out_0_7, DIGEST_LEN);
 
         // Add GKR input claims to committed_statements
         let mut input_evals_map = BTreeMap::new();
@@ -179,6 +190,38 @@ pub fn prove_execution(
             .get_mut(&Table::poseidon16())
             .unwrap()
             .push((p16_gkr_result.input_point, input_evals_map));
+    });
+
+    // Poseidon24 GKR
+    info_span!("Poseidon24 GKR").in_scope(|| {
+        let trace = &traces[&Table::poseidon24()].base;
+        let logup_point = &logup_statements.points[&Table::poseidon24()];
+        let logup_col_evals = &logup_statements.columns_values[&Table::poseidon24()];
+        // Derive perm_out[0..9] = output_eval[i] - input_eval[i]
+        let perm_out_first: Vec<EF> = (0..POSEIDON_24_OUTPUT_SIZE)
+            .map(|i| {
+                logup_col_evals[&(POSEIDON_24_COL_OUTPUT_START + i)]
+                    - logup_col_evals[&(POSEIDON_24_COL_INPUT_START + i)]
+            })
+            .collect();
+        let p24_gkr_result = prove_poseidon_gkr::<24>(
+            &mut prover_state,
+            trace,
+            logup_point.clone(),
+            &perm_out_first,
+            POSEIDON_24_OUTPUT_SIZE,
+        );
+
+        // Add GKR input claims to committed_statements
+        let mut input_evals_map = BTreeMap::new();
+        debug_assert!(p24_gkr_result.input_evals.len() == 24);
+        for (i, eval) in p24_gkr_result.input_evals.iter().enumerate() {
+            input_evals_map.insert(POSEIDON_24_COL_INPUT_START + i, *eval);
+        }
+        committed_statements
+            .get_mut(&Table::poseidon24())
+            .unwrap()
+            .push((p24_gkr_result.input_point, input_evals_map));
     });
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));

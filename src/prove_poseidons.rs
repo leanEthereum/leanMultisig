@@ -3,7 +3,7 @@ use lean_vm::{
     EF, F, N_TOTAL_COLS_P16, POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START,
     POSEIDON_16_COL_OUTPUT_START, POSEIDON_16_COL_RES, ZERO_VEC_PTR,
 };
-use poseidon_gkr::{fill_poseidon_trace, prove_poseidon_gkr, verify_poseidon_gkr};
+use poseidon_gkr::{fill_poseidon_16_trace, prove_poseidon_gkr, verify_poseidon_gkr};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, init_tracing};
 
@@ -33,7 +33,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     trace[POSEIDON_16_COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
 
     // Fill GKR layers and compressed outputs
-    fill_poseidon_trace(&mut trace);
+    fill_poseidon_16_trace(&mut trace);
 
     let whir_config = WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),
@@ -76,7 +76,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         prover_state.add_extension_scalars(&perm_out_0_7);
 
         // Poseidon GKR proof
-        let gkr_result = prove_poseidon_gkr::<WIDTH>(&mut prover_state, &trace, output_point, &perm_out_0_7);
+        let gkr_result = prove_poseidon_gkr::<WIDTH>(&mut prover_state, &trace, output_point, &perm_out_0_7, WIDTH / 2);
 
         // WHIR statement: GKR input evals (16 columns, indexed 0..15)
         let statements = vec![SparseStatement::new(
@@ -111,7 +111,8 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
         // GKR verify
         let gkr_result =
-            verify_poseidon_gkr::<WIDTH>(&mut verifier_state, log_n_rows, &output_point, &perm_out_0_7).unwrap();
+            verify_poseidon_gkr::<WIDTH>(&mut verifier_state, log_n_rows, &output_point, &perm_out_0_7, WIDTH / 2)
+                .unwrap();
 
         // WHIR statement (same as prover)
         let statements = vec![SparseStatement::new(

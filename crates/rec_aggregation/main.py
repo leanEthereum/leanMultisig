@@ -40,18 +40,18 @@ def main():
     source_0 = sub_slice_starts[0]
     n_raw_xmss = source_0[0]
 
-    inv_ext_mat: Imu
-    inv_int_mat: Imu
+    inv_mds_16: Imu
+    inv_mds_24: Imu
     if n_recursions == 0:
-        inv_ext_mat = 0
-        inv_int_mat = 0
+        inv_mds_16 = 0
+        inv_mds_24 = 0
     else:
-        inv_ext_mat = Array(256)
-        for i in unroll(0, 256):
-            inv_ext_mat[i] = INV_EXTERNAL_MATRIX[i]
-        inv_int_mat = Array(256)
-        for i in unroll(0, 256):
-            inv_int_mat[i] = INV_INTERNAL_MATRIX[i]
+        inv_mds_16 = Array(16**2)
+        for i in unroll(0, 16**2):
+            inv_mds_16[i] = INV_MDS_16[i]
+        inv_mds_24 = Array(24**2)
+        for i in unroll(0, 24**2):
+            inv_mds_24[i] = INV_MDS_24[i]
 
     # 1->1 optimization
     if n_recursions == 1:
@@ -68,7 +68,7 @@ def main():
             copy_8(non_reserved_inner + 1, pubkeys_hash_expected)
             bytecode_claims = Array(2)
             bytecode_claims[0] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
-            bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_ext_mat, inv_int_mat)
+            bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_mds_16, inv_mds_24)
             reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output, bytecode_sumcheck_proof)
             return
 
@@ -135,7 +135,7 @@ def main():
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
 
         # Verify recursive proof - returns the second bytecode claim
-        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_ext_mat, inv_int_mat)
+        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, inv_mds_16, inv_mds_24)
 
     # Ensure partition validity
     assert counter == n_total

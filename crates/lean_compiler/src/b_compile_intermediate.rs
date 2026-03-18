@@ -501,6 +501,7 @@ fn compile_lines(
                 match table {
                     Table::ExtensionOp(_) => assert_eq!(args.len(), 5),
                     Table::Poseidon16(_) => assert_eq!(args.len(), 3),
+                    Table::Poseidon24(_) => assert_eq!(args.len(), 3),
                     Table::Execution(_) => unreachable!(),
                 }
                 // if arg_c is constant, create a variable (in memory) to hold it

@@ -2,8 +2,13 @@ use backend::*;
 
 use crate::*;
 
-pub const N_TABLES: usize = 3;
-pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+pub const N_TABLES: usize = 4;
+pub const ALL_TABLES: [Table; N_TABLES] = [
+    Table::execution(),
+    Table::extension_op(),
+    Table::poseidon16(),
+    Table::poseidon24(),
+];
 pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -12,6 +17,7 @@ pub enum Table {
     Execution(ExecutionTable<true>),
     ExtensionOp(ExtensionOpPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
+    Poseidon24(Poseidon24Precompile<true>),
 }
 
 #[macro_export]
@@ -21,6 +27,7 @@ macro_rules! delegate_to_inner {
         match $self {
             Self::ExtensionOp(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
+            Self::Poseidon24(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
     };
@@ -29,6 +36,7 @@ macro_rules! delegate_to_inner {
         match $self {
             Table::ExtensionOp(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
+            Table::Poseidon24(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
     };
@@ -43,6 +51,9 @@ impl Table {
     }
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
+    }
+    pub const fn poseidon24() -> Self {
+        Self::Poseidon24(Poseidon24Precompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())

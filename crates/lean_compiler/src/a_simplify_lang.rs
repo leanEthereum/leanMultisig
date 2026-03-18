@@ -2151,8 +2151,11 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon precompiles
+                        if let Some(table) = [Table::poseidon16(), Table::poseidon24()]
+                            .into_iter()
+                            .find(|t| function_name == t.name())
+                        {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2163,7 +2166,7 @@ fn simplify_lines(
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
                             res.push(SimpleLine::Precompile {
-                                table: Table::poseidon16(),
+                                table,
                                 args: simplified_args,
                             });
                             continue;

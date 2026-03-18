@@ -9,18 +9,19 @@ pub fn verify_poseidon_gkr<const WIDTH: usize>(
     verifier_state: &mut impl FSVerifier<EF>,
     log_n_poseidons: usize,
     output_claim_point: &MultilinearPoint<EF>,
-    perm_out_0_7: &[EF],
+    perm_out_first: &[EF],
+    output_size: usize,
 ) -> Result<GKRPoseidonResult, ProofError> {
     let inv_mds = build_poseidon_inv_matrix::<WIDTH>();
     let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
 
-    assert_eq!(perm_out_0_7.len(), WIDTH / 2);
+    assert_eq!(perm_out_first.len(), output_size);
 
-    // Receive perm_out[8..15] from prover
-    let perm_out_8_15 = verifier_state.next_extension_scalars_vec(WIDTH / 2)?;
+    // Receive remaining perm_out elements from prover
+    let perm_out_rest = verifier_state.next_extension_scalars_vec(WIDTH - output_size)?;
 
     let mut point = output_claim_point.0.clone();
-    let mut claims: Vec<EF> = [perm_out_0_7, &perm_out_8_15].concat();
+    let mut claims: Vec<EF> = [perm_out_first, &perm_out_rest].concat();
     assert_eq!(claims.len(), WIDTH);
 
     // Final full rounds (backwards)

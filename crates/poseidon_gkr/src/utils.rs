@@ -8,12 +8,21 @@ use crate::F;
 
 #[instrument(skip_all)]
 pub fn build_poseidon_inv_matrix<const WIDTH: usize>() -> [[F; WIDTH]; WIDTH] {
-    assert_eq!(WIDTH, 16);
+    assert!(WIDTH == 16 || WIDTH == 24, "Only WIDTH=16 and WIDTH=24 supported");
     let mut matrix: [[F; WIDTH]; WIDTH] = array::from_fn(|_| array::from_fn(|_| F::ZERO));
     for (i, row) in matrix.iter_mut().enumerate() {
         row[i] = F::ONE;
-        let arr: &mut [F; 16] = (&mut row[..]).try_into().unwrap();
-        mds_circ_16(arr);
+        match WIDTH {
+            16 => {
+                let arr: &mut [F; 16] = (&mut row[..]).try_into().unwrap();
+                mds_circ_16(arr);
+            }
+            24 => {
+                let arr: &mut [F; 24] = (&mut row[..]).try_into().unwrap();
+                mds_circ_24(arr);
+            }
+            _ => unreachable!(),
+        }
     }
     matrix = transpose_matrix(&matrix);
     inverse_matrix(&matrix)

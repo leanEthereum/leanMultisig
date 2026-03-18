@@ -18,10 +18,25 @@ pub const POSEIDON_16_N_GKR_COLS: usize = POSEIDON_16_N_GKR_LAYERS * 16;
 /// Total columns in the poseidon-16 trace: 20 (metadata+inputs) + 464 (GKR) + 8 (compressed outputs).
 pub const POSEIDON_16_N_TOTAL_COLS: usize = POSEIDON_16_GKR_START + POSEIDON_16_N_GKR_COLS + 8;
 
+/// Start of GKR layer columns in the poseidon-24 trace.
+pub const POSEIDON_24_GKR_START: usize = 28;
+
+/// Number of GKR layers: 1 input + 4 initial full + 23 partial + 4 final full = 32.
+pub const POSEIDON_24_N_GKR_LAYERS: usize = 32;
+
+/// Total GKR columns: 32 layers * 24 columns each.
+pub const POSEIDON_24_N_GKR_COLS: usize = POSEIDON_24_N_GKR_LAYERS * 24;
+
+/// Total columns in the poseidon-24 trace: 28 (metadata+inputs) + 768 (GKR) + 9 (compressed outputs).
+pub const POSEIDON_24_N_TOTAL_COLS: usize = POSEIDON_24_GKR_START + POSEIDON_24_N_GKR_COLS + 9;
+
+/// Output size for poseidon-24 compression.
+pub const POSEIDON_24_OUTPUT_SIZE: usize = 9;
+
 /// Fill the poseidon-16 trace columns [20..492] from the input columns [4..20].
 /// The first 20 columns (flag, addresses, inputs) must already be filled.
 #[instrument(skip_all)]
-pub fn fill_poseidon_trace(trace: &mut [Vec<F>]) {
+pub fn fill_poseidon_16_trace(trace: &mut [Vec<F>]) {
     const WIDTH: usize = 16;
     assert_eq!(trace.len(), POSEIDON_16_N_TOTAL_COLS);
     assert!(trace[0].len().is_power_of_two() && trace[0].len() > packing_width::<F>());
@@ -59,9 +74,9 @@ pub fn fill_poseidon_trace(trace: &mut [Vec<F>]) {
 
         let (left, right) = trace.split_at_mut(col);
         if is_full_round {
-            apply_full_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
+            apply_full_round_16::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
         } else {
-            apply_partial_round::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
+            apply_partial_round_16::<WIDTH>(&left[prev_in..], &mut right[..WIDTH], next_constants);
         }
         prev_in = col;
         col += WIDTH;
@@ -101,8 +116,8 @@ fn add_constants_to_cols<const WIDTH: usize>(
     }
 }
 
-/// Full round: cube all → circulant MDS → optionally add constants.
-fn apply_full_round<const WIDTH: usize>(
+/// Full round (width 16): cube all -> circulant MDS -> optionally add constants.
+fn apply_full_round_16<const WIDTH: usize>(
     input_cols: &[Vec<F>],
     output_cols: &mut [Vec<F>],
     constants: Option<&[F; WIDTH]>,
@@ -133,8 +148,8 @@ fn apply_full_round<const WIDTH: usize>(
     });
 }
 
-/// Partial round: cube state[0] only → circulant MDS → optionally add constants.
-fn apply_partial_round<const WIDTH: usize>(
+/// Partial round (width 16): cube state[0] only -> circulant MDS -> optionally add constants.
+fn apply_partial_round_16<const WIDTH: usize>(
     input_cols: &[Vec<F>],
     output_cols: &mut [Vec<F>],
     constants: Option<&[F; WIDTH]>,
@@ -152,6 +167,127 @@ fn apply_partial_round<const WIDTH: usize>(
         buff[0] = buff[0].cube();
         let buff16: &mut [FPacking<F>; 16] = (&mut buff[..]).try_into().unwrap();
         mds_circ_16(buff16);
+        if let Some(constants) = constants {
+            for j in 0..WIDTH {
+                buff[j] += constants[j];
+            }
+        }
+        for j in 0..WIDTH {
+            unsafe { *out_ptrs[j].load(Ordering::Relaxed).add(row) = buff[j] };
+        }
+    });
+}
+
+/// Fill the poseidon-24 trace columns [28..805] from the input columns [4..28].
+/// The first 28 columns (flag, addresses, inputs) must already be filled.
+#[instrument(skip_all)]
+pub fn fill_poseidon_24_trace(trace: &mut [Vec<F>]) {
+    const WIDTH: usize = 24;
+    assert_eq!(trace.len(), POSEIDON_24_N_TOTAL_COLS);
+    assert!(trace[0].len().is_power_of_two() && trace[0].len() > packing_width::<F>());
+    assert!(trace.iter().all(|col| col.len() == trace[0].len()));
+
+    let (initial_constants, partial_constants, final_constants) = poseidon_round_constants::<WIDTH>();
+    let n_initial = initial_constants.len(); // 4
+    let n_partial = partial_constants.len(); // 23
+    let n_total_rounds = n_initial + n_partial + final_constants.len(); // 31
+
+    // Concatenate all rounds of constants for easier indexing
+    let all_constants: Vec<&[F; WIDTH]> = initial_constants
+        .iter()
+        .chain(partial_constants.iter())
+        .chain(final_constants.iter())
+        .collect();
+    assert_eq!(all_constants.len(), n_total_rounds);
+    assert_eq!(1 + n_total_rounds, POSEIDON_24_N_GKR_LAYERS);
+
+    let mut col = POSEIDON_24_GKR_START;
+    let mut prev_in = 4; // input columns start at index 4
+
+    // Layer 0: input + constants[0] (Poseidon1 has no initial linear layer)
+    add_constants_to_cols::<WIDTH>(trace, prev_in, col, all_constants[0]);
+    prev_in = col;
+    col += WIDTH;
+
+    // Layers 1..n_total_rounds: each computed from the previous using round k's S-box type
+    for round in 0..n_total_rounds {
+        let next_constants: Option<&[F; WIDTH]> = if round < n_total_rounds - 1 {
+            Some(all_constants[round + 1])
+        } else {
+            None
+        };
+        let is_full_round = round < n_initial || round >= n_initial + n_partial;
+
+        let (left, right) = trace.split_at_mut(col);
+        if is_full_round {
+            apply_full_round_24(&left[prev_in..], &mut right[..WIDTH], next_constants);
+        } else {
+            apply_partial_round_24(&left[prev_in..], &mut right[..WIDTH], next_constants);
+        }
+        prev_in = col;
+        col += WIDTH;
+    }
+
+    assert_eq!(col, POSEIDON_24_GKR_START + POSEIDON_24_N_GKR_COLS);
+
+    // Compressed outputs: output_layer[i] + input[i] for i in 0..9
+    let output_col_start = col;
+    let output_layer_start = prev_in;
+    for i in 0..POSEIDON_24_OUTPUT_SIZE {
+        let (before, after) = trace.split_at_mut(output_col_start + i);
+        let dst = &mut after[0];
+        for (d, (&a, &b)) in dst
+            .iter_mut()
+            .zip(before[output_layer_start + i].iter().zip(before[4 + i].iter()))
+        {
+            *d = a + b;
+        }
+    }
+}
+
+/// Full round (width 24): cube all -> circulant MDS -> optionally add constants.
+fn apply_full_round_24(input_cols: &[Vec<F>], output_cols: &mut [Vec<F>], constants: Option<&[F; 24]>) {
+    const WIDTH: usize = 24;
+    let packed_inputs: [&[FPacking<F>]; WIDTH] = array::from_fn(|i| FPacking::<F>::pack_slice(&input_cols[i]));
+    let n_packed = packed_inputs[0].len();
+
+    let mut iter = output_cols.iter_mut();
+    let out_ptrs: [AtomicPtr<FPacking<F>>; WIDTH] =
+        array::from_fn(|_| AtomicPtr::new(FPacking::<F>::pack_slice_mut(iter.next().unwrap()).as_mut_ptr()));
+
+    (0..n_packed).into_par_iter().for_each(|row| {
+        let mut buff: [FPacking<F>; WIDTH] = array::from_fn(|j| packed_inputs[j][row]);
+        for v in &mut buff {
+            *v = v.cube();
+        }
+        let buff24: &mut [FPacking<F>; 24] = (&mut buff[..]).try_into().unwrap();
+        mds_circ_24(buff24);
+        if let Some(constants) = constants {
+            for j in 0..WIDTH {
+                buff[j] += constants[j];
+            }
+        }
+        for j in 0..WIDTH {
+            unsafe { *out_ptrs[j].load(Ordering::Relaxed).add(row) = buff[j] };
+        }
+    });
+}
+
+/// Partial round (width 24): cube state[0] only -> circulant MDS -> optionally add constants.
+fn apply_partial_round_24(input_cols: &[Vec<F>], output_cols: &mut [Vec<F>], constants: Option<&[F; 24]>) {
+    const WIDTH: usize = 24;
+    let packed_inputs: [&[FPacking<F>]; WIDTH] = array::from_fn(|i| FPacking::<F>::pack_slice(&input_cols[i]));
+    let n_packed = packed_inputs[0].len();
+
+    let mut iter = output_cols.iter_mut();
+    let out_ptrs: [AtomicPtr<FPacking<F>>; WIDTH] =
+        array::from_fn(|_| AtomicPtr::new(FPacking::<F>::pack_slice_mut(iter.next().unwrap()).as_mut_ptr()));
+
+    (0..n_packed).into_par_iter().for_each(|row| {
+        let mut buff: [FPacking<F>; WIDTH] = array::from_fn(|j| packed_inputs[j][row]);
+        buff[0] = buff[0].cube();
+        let buff24: &mut [FPacking<F>; 24] = (&mut buff[..]).try_into().unwrap();
+        mds_circ_24(buff24);
         if let Some(constants) = constants {
             for j in 0..WIDTH {
                 buff[j] += constants[j];

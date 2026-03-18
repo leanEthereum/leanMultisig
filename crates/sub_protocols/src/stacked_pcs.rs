@@ -207,8 +207,12 @@ pub fn total_whir_statements() -> usize {
         // bytecode lookup
         + 1 // PC
         + N_INSTRUCTION_COLUMNS
-        // Poseidon output columns (20-27): claims come from logup, and are proven via GKR ...
+        // Poseidon16 output columns: claims come from logup, and are proven via GKR ...
         - 8
-        // ... leading to 16 additional claims on the poseidon inputs
+        // ... leading to 16 additional claims on the poseidon16 inputs
         + 16
+        // Poseidon24 output columns: claims come from logup, and are proven via GKR ...
+        - 9
+        // ... leading to 24 additional claims on the poseidon24 inputs
+        + 24
 }

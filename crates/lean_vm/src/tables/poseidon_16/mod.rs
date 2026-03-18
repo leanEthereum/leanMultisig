@@ -5,7 +5,7 @@ use utils::{ToUsize, poseidon16_compress};
 
 pub(super) const WIDTH: usize = 16;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation between Poseidon / ExtensionOp precompiles
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2, ExtensionOp>=3
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_A: ColIndex = 1;

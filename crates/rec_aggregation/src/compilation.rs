@@ -329,18 +329,10 @@ fn build_replacements(
             "POSEIDON_16_COL_OUTPUT_START_PLACEHOLDER".to_string(),
             POSEIDON_16_COL_OUTPUT_START.to_string(),
         );
-        // Poseidon1: single circulant MDS → one inverse matrix (used for both placeholders)
-        let inv_mds = build_poseidon_inv_matrix::<16>();
+        let inv_mds_16 = build_poseidon_inv_matrix::<16>();
         let (initial_rc, partial_rc, final_rc) = poseidon_round_constants::<16>();
-        let fmt_matrix = |m: &[[F; 16]; 16]| {
-            let vals: Vec<String> = m
-                .iter()
-                .flat_map(|row| row.iter().map(|x| x.as_canonical_u32().to_string()))
-                .collect();
-            format!("[{}]", vals.join(", "))
-        };
-        replacements.insert("INV_EXTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
-        replacements.insert("INV_INTERNAL_MATRIX_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds));
+
+        replacements.insert("INV_MDS_16_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds_16));
         let fmt_rc_full = |rounds: &[[F; 16]]| {
             let vals: Vec<String> = rounds
                 .iter()
@@ -366,6 +358,60 @@ fn build_replacements(
         replacements.insert(
             "PARTIAL_ROUND_CONSTANTS_PLACEHOLDER".to_string(),
             fmt_rc_full(partial_rc),
+        );
+    }
+
+    // Poseidon24 GKR constants
+    {
+        replacements.insert(
+            "POSEIDON_24_TABLE_INDEX_PLACEHOLDER".to_string(),
+            Table::poseidon24().index().to_string(),
+        );
+        replacements.insert(
+            "POSEIDON_24_COL_INPUT_START_PLACEHOLDER".to_string(),
+            POSEIDON_24_COL_INPUT_START.to_string(),
+        );
+        replacements.insert(
+            "POSEIDON_24_COL_OUTPUT_START_PLACEHOLDER".to_string(),
+            POSEIDON_24_COL_OUTPUT_START.to_string(),
+        );
+        replacements.insert(
+            "POSEIDON_24_OUTPUT_SIZE_PLACEHOLDER".to_string(),
+            POSEIDON_24_OUTPUT_SIZE.to_string(),
+        );
+        let inv_mds_24 = build_poseidon_inv_matrix::<24>();
+        let (initial_rc_24, partial_rc_24, final_rc_24) = poseidon_round_constants::<24>();
+        replacements.insert("INV_MDS_24_PLACEHOLDER".to_string(), fmt_matrix(&inv_mds_24));
+        let fmt_rc_24 = |rounds: &[[F; 24]]| {
+            let vals: Vec<String> = rounds
+                .iter()
+                .flat_map(|rc| rc.iter().map(|x| x.as_canonical_u32().to_string()))
+                .collect();
+            format!("[{}]", vals.join(", "))
+        };
+        replacements.insert(
+            "N_INITIAL_FULL_ROUNDS_24_PLACEHOLDER".to_string(),
+            initial_rc_24.len().to_string(),
+        );
+        replacements.insert(
+            "N_PARTIAL_ROUNDS_24_PLACEHOLDER".to_string(),
+            partial_rc_24.len().to_string(),
+        );
+        replacements.insert(
+            "N_FINAL_FULL_ROUNDS_24_PLACEHOLDER".to_string(),
+            final_rc_24.len().to_string(),
+        );
+        replacements.insert(
+            "INITIAL_ROUND_CONSTANTS_24_PLACEHOLDER".to_string(),
+            fmt_rc_24(initial_rc_24),
+        );
+        replacements.insert(
+            "PARTIAL_ROUND_CONSTANTS_24_PLACEHOLDER".to_string(),
+            fmt_rc_24(partial_rc_24),
+        );
+        replacements.insert(
+            "FINAL_ROUND_CONSTANTS_24_PLACEHOLDER".to_string(),
+            fmt_rc_24(final_rc_24),
         );
     }
 
@@ -430,11 +476,20 @@ fn build_replacements(
     replacements
 }
 
+fn fmt_matrix<const N: usize>(m: &[[F; N]; N]) -> String {
+    let vals: Vec<String> = m
+        .iter()
+        .flat_map(|row| row.iter().map(|x| x.as_canonical_u32().to_string()))
+        .collect();
+    format!("[{}]", vals.join(", "))
+}
+
 fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
     res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
     res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
+    res += &air_eval_in_zk_dsl(Poseidon24Precompile::<false> {});
     res
 }
 

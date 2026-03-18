@@ -91,6 +91,16 @@ pub fn verify_execution(
                 })
                 .map(|(&k, &v)| (k, v))
                 .collect()
+        } else if table == Table::poseidon24() {
+            // output columns are not committed, but verified via GKR instead
+            logup_statements.columns_values[&table]
+                .iter()
+                .filter(|&(&col, _)| {
+                    debug_assert!(!(N_COMMITTED_COLS_P24..POSEIDON_24_COL_OUTPUT_START).contains(&col)); // no logup statement in intermediate GKR layers
+                    col < N_COMMITTED_COLS_P24
+                })
+                .map(|(&k, &v)| (k, v))
+                .collect()
         } else {
             logup_statements.columns_values[&table].clone()
         };
@@ -118,7 +128,7 @@ pub fn verify_execution(
         committed_statements.get_mut(table).unwrap().extend(this_air_claims);
     }
 
-    // Poseidon GKR verification
+    // Poseidon16 GKR verification
     {
         let logup_col_evals = &logup_statements.columns_values[&Table::poseidon16()];
         let logup_point = &logup_statements.points[&Table::poseidon16()];
@@ -136,6 +146,7 @@ pub fn verify_execution(
             table_n_vars[&Table::poseidon16()],
             logup_point,
             &perm_out_0_7,
+            DIGEST_LEN,
         )?;
 
         {
@@ -148,6 +159,40 @@ pub fn verify_execution(
                 .get_mut(&Table::poseidon16())
                 .unwrap()
                 .push((p16_gkr_result.input_point, input_evals_map));
+        }
+    }
+
+    // Poseidon24 GKR verification
+    {
+        let logup_col_evals = &logup_statements.columns_values[&Table::poseidon24()];
+        let logup_point = &logup_statements.points[&Table::poseidon24()];
+
+        // Derive perm_out[0..9] = output_eval[i] - input_eval[i]
+        let perm_out_first: Vec<EF> = (0..POSEIDON_24_OUTPUT_SIZE)
+            .map(|i| {
+                logup_col_evals[&(POSEIDON_24_COL_OUTPUT_START + i)]
+                    - logup_col_evals[&(POSEIDON_24_COL_INPUT_START + i)]
+            })
+            .collect();
+
+        let p24_gkr_result = verify_poseidon_gkr::<24>(
+            &mut verifier_state,
+            table_n_vars[&Table::poseidon24()],
+            logup_point,
+            &perm_out_first,
+            POSEIDON_24_OUTPUT_SIZE,
+        )?;
+
+        {
+            let mut input_evals_map = BTreeMap::new();
+            debug_assert!(p24_gkr_result.input_evals.len() == 24);
+            for (i, eval) in p24_gkr_result.input_evals.iter().enumerate() {
+                input_evals_map.insert(POSEIDON_24_COL_INPUT_START + i, *eval);
+            }
+            committed_statements
+                .get_mut(&Table::poseidon24())
+                .unwrap()
+                .push((p24_gkr_result.input_point, input_evals_map));
         }
     }
 
