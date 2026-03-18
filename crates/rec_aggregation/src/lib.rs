@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 use backend::*;
+use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
@@ -14,10 +15,10 @@ use xmss::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use crate::compilation::get_aggregation_bytecode;
+pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 
 pub mod benchmark;
-pub mod compilation;
+mod compilation;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
@@ -73,7 +74,7 @@ fn build_non_reserved_public_input(
     pi.push(slot_hi);
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
-    pi.extend_from_slice(bytecode_hash);
+    pi.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
     pi
 }
 
@@ -411,7 +412,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
 
         let claim_hash = poseidon_compress_slice(&data, false);
-        running_hash = poseidon16_compress_pair(running_hash, claim_hash);
+        running_hash = poseidon16_compress_pair(&running_hash, &claim_hash);
     }
     running_hash
 }

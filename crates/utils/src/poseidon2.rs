@@ -31,10 +31,10 @@ pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
     get_poseidon16().compress(input)[0..8].try_into().unwrap()
 }
 
-pub fn poseidon16_compress_pair(left: [KoalaBear; 8], right: [KoalaBear; 8]) -> [KoalaBear; 8] {
+pub fn poseidon16_compress_pair(left: &[KoalaBear; 8], right: &[KoalaBear; 8]) -> [KoalaBear; 8] {
     let mut input = [KoalaBear::default(); 16];
-    input[..8].copy_from_slice(&left);
-    input[8..].copy_from_slice(&right);
+    input[..8].copy_from_slice(left);
+    input[8..].copy_from_slice(right);
     poseidon16_compress(input)
 }
 

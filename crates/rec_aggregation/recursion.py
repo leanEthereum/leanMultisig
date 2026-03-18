@@ -47,7 +47,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
 
     inner_pub_input = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START
     fs = fs_observe(fs, inner_pub_input, PUB_INPUT_SIZE)  # observe public input
-    fs = fs_observe(fs, inner_pub_input + BYTECODE_HASH_OFFSET, DIGEST_LEN)  # observe bytecode hash
+    fs = fs_observe(fs, inner_pub_input + BYTECODE_HASH_OFFSET, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
     # table dims
     debug_assert(N_TABLES + 1 < DIGEST_LEN)
