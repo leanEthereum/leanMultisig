@@ -18,7 +18,7 @@ use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 
-pub(crate) fn get_aggregation_bytecode() -> &'static Bytecode {
+pub fn get_aggregation_bytecode() -> &'static Bytecode {
     BYTECODE
         .get()
         .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))

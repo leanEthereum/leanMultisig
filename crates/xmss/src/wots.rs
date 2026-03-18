@@ -109,7 +109,7 @@ impl WotsPublicKey {
 }
 
 pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| poseidon16_compress_pair(acc, Default::default()))
+    (0..n).fold(*a, |acc, _| poseidon16_compress_pair(&acc, &Default::default()))
 }
 
 pub fn iterate_hash_with_poseidon_trace(

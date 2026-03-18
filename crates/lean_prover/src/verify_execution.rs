@@ -20,7 +20,7 @@ pub fn verify_execution(
 ) -> Result<(ProofVerificationDetails, RawProof<F>), ProofError> {
     let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone())?;
     verifier_state.observe_scalars(public_input);
-    verifier_state.observe_scalars(&bytecode.hash);
+    verifier_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     let dims = verifier_state
         .next_base_scalars_vec(2 + N_TABLES)?
         .into_iter()

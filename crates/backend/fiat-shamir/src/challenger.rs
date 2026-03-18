@@ -21,19 +21,15 @@ impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
         }
     }
 
-    fn hash_state_with(&self, value: &[F; RATE]) -> [F; RATE] {
-        self.compressor.compress({
+    pub fn observe(&mut self, value: [F; RATE]) {
+        self.state = self.compressor.compress({
             let mut concat = [F::ZERO; WIDTH];
             concat[..RATE].copy_from_slice(&self.state);
-            concat[RATE..].copy_from_slice(value);
+            concat[RATE..].copy_from_slice(&value);
             concat
         })[..RATE]
             .try_into()
-            .unwrap()
-    }
-
-    pub fn observe(&mut self, value: [F; RATE]) {
-        self.state = self.hash_state_with(&value);
+            .unwrap();
     }
 
     pub fn observe_scalars(&mut self, scalars: &[F]) {
@@ -51,7 +47,15 @@ impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
         for i in 0..n + 1 {
             let mut domain_sep = [F::ZERO; RATE];
             domain_sep[0] = F::from_usize(i);
-            sampled.push(self.hash_state_with(&domain_sep));
+            let hashed = self.compressor.compress({
+                let mut concat = [F::ZERO; WIDTH];
+                concat[..RATE].copy_from_slice(&domain_sep);
+                concat[RATE..].copy_from_slice(&self.state);
+                concat
+            })[..RATE]
+                .try_into()
+                .unwrap();
+            sampled.push(hashed);
         }
         self.state = sampled.pop().unwrap();
         sampled

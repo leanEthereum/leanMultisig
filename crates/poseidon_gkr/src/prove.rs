@@ -128,7 +128,6 @@ fn prove_gkr_round<SC: SumcheckComputation<EF, ExtraData = Vec<EF>> + 'static>(
         computation,
         &batching_scalars_powers,
         Some((claim_point.to_vec(), None)),
-        false,
         prover_state,
         batched_claim,
         true,

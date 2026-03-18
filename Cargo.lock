@@ -383,6 +383,7 @@ dependencies = [
  "pest_derive",
  "poseidon_gkr",
  "rand",
+ "rec_aggregation",
  "sub_protocols",
  "tracing",
  "utils",
@@ -522,6 +523,7 @@ dependencies = [
  "mt-koala-bear",
  "mt-poly",
  "rayon",
+ "tracing",
 ]
 
 [[package]]

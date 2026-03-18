@@ -69,8 +69,8 @@ def fs_sample_chunks(fs, n_chunks: Const):
         domain_sep[0] = i
         set_to_7_zeros(domain_sep + 1)
         poseidon16(
-            fs,
             domain_sep,
+            fs,
             sampled + i * 8,
         )
     sampled[(n_chunks + 1) * 8] = fs[8]  # same transcript pointer
@@ -81,9 +81,9 @@ def fs_sample_chunks(fs, n_chunks: Const):
 @inline
 def fs_sample_ef(fs):
     sampled = Array(8)
-    poseidon16(fs, ZERO_VEC_PTR, sampled)
+    poseidon16(ZERO_VEC_PTR, fs, sampled)
     new_fs = Array(9)
-    poseidon16(fs, SAMPLING_DOMAIN_SEPARATOR_PTR, new_fs)
+    poseidon16(SAMPLING_DOMAIN_SEPARATOR_PTR, fs, new_fs)
     new_fs[8] = fs[8]  # same transcript pointer
     return new_fs, sampled
 
@@ -161,7 +161,7 @@ def fs_sample_data_with_offset(fs, n_chunks: Const, offset):
         domain_sep = Array(8)
         domain_sep[0] = offset + i
         set_to_7_zeros(domain_sep + 1)
-        poseidon16(fs, domain_sep, sampled + i * 8)
+        poseidon16(domain_sep, fs, sampled + i * 8)
     return sampled
 
 
@@ -172,7 +172,7 @@ def fs_finalize_sample(fs, total_n_chunks):
     domain_sep = Array(8)
     domain_sep[0] = total_n_chunks
     set_to_7_zeros(domain_sep + 1)
-    poseidon16(fs, domain_sep, new_fs)
+    poseidon16(domain_sep, fs, new_fs)
     new_fs[8] = fs[8]  # same transcript pointer
     return new_fs
 

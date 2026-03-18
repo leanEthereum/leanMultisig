@@ -61,7 +61,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, inv_ex
 
     inner_pub_input = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START
     fs = fs_observe(fs, inner_pub_input, PUB_INPUT_SIZE)  # observe public input
-    fs = fs_observe(fs, inner_pub_input + BYTECODE_HASH_OFFSET, DIGEST_LEN)  # observe bytecode hash
+    fs = fs_observe(fs, inner_pub_input + BYTECODE_HASH_OFFSET, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
     # table dims
     debug_assert(N_TABLES + 1 < DIGEST_LEN)
@@ -745,7 +745,7 @@ def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
     total += two_exp(log_bytecode_padded)
     for table_index in unroll(0, N_TABLES):
         n_rows = tables_heights[table_index]
-        total += n_rows * NUM_COMMITTED_COLS[table_index]
+        total += n_rows * NUM_COLS_AIR[table_index]
     debug_assert(30 - 24 < MIN_LOG_N_ROWS_PER_TABLE)  # cf log2_ceil
     return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
 

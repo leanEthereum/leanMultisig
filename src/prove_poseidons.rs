@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::{
     EF, F, N_TOTAL_COLS_P16, POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START,
-    POSEIDON_16_COL_OUTPUT_START, POSEIDON_16_COL_RES, POSEIDON_16_NULL_HASH_PTR, ZERO_VEC_PTR,
+    POSEIDON_16_COL_OUTPUT_START, POSEIDON_16_COL_RES, ZERO_VEC_PTR,
 };
 use poseidon_gkr::{fill_poseidon_trace, prove_poseidon_gkr, verify_poseidon_gkr};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -28,7 +28,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
     trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
-    trace[POSEIDON_16_COL_RES] = (0..n_rows).map(|_| F::from_usize(POSEIDON_16_NULL_HASH_PTR)).collect();
+    trace[POSEIDON_16_COL_RES] = (0..n_rows).map(|_| F::ZERO).collect(); // useless
     trace[POSEIDON_16_COL_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     trace[POSEIDON_16_COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
 

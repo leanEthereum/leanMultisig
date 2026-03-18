@@ -74,9 +74,9 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let fp = up[COL_FP];
         let (addr_a, addr_b, addr_c) = (up[COL_MEM_ADDRESS_A], up[COL_MEM_ADDRESS_B], up[COL_MEM_ADDRESS_C]);
 
-        let one_minus_flag_a_and_flag_ab_fp = AB::F::ONE - (flag_a + flag_ab_fp);
-        let one_minus_flag_b_and_flag_ab_fp = AB::F::ONE - (flag_b + flag_ab_fp);
-        let one_minus_flag_c_and_flag_c_fp = AB::F::ONE - (flag_c + flag_c_fp);
+        let one_minus_flag_a_and_flag_ab_fp = -(flag_a + flag_ab_fp - AB::F::ONE);
+        let one_minus_flag_b_and_flag_ab_fp = -(flag_b + flag_ab_fp - AB::F::ONE);
+        let one_minus_flag_c_and_flag_c_fp = -(flag_c + flag_c_fp - AB::F::ONE);
 
         let nu_a = flag_a * operand_a + one_minus_flag_a_and_flag_ab_fp * value_a + flag_ab_fp * (fp + operand_a);
         let nu_b = flag_b * operand_b + one_minus_flag_b_and_flag_ab_fp * value_b + flag_ab_fp * (fp + operand_b);
@@ -88,9 +88,9 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a - AB::F::ONE;
 
-        let add = aux * (AB::F::TWO - aux); // equals 1 when aux = 1, else equals 0 (when aux = 0 or aux = 2)
-        let deref = (aux * (aux - AB::F::ONE)).halve(); // equals 1 when aux = 2, else equals 0 (when aux = 0 or aux = 1)
-        let is_precompile = AB::F::ONE - (add + mul + deref + jump);
+        let add = aux * AB::F::TWO - aux * aux;
+        let deref = (aux * (aux - AB::F::ONE)).halve();
+        let is_precompile = -(add + mul + deref + jump - AB::F::ONE);
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
@@ -119,7 +119,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         builder.assert_zero(jump_and_condition * nu_a_minus_one);
         builder.assert_zero(jump_and_condition * (next_pc - nu_b));
         builder.assert_zero(jump_and_condition * (next_fp - nu_c));
-        let not_jump_and_condition = AB::F::ONE - jump_and_condition;
+        let not_jump_and_condition = -(jump_and_condition - AB::F::ONE);
         builder.assert_zero(not_jump_and_condition * (next_pc - pc_plus_one));
         builder.assert_zero(not_jump_and_condition * (next_fp - fp));
     }

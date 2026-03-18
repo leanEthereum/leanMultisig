@@ -67,12 +67,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     fn padding_row(&self) -> Vec<F> {
-        let mut row = vec![F::ZERO; N_TOTAL_COLS_P16];
-        row[1] = F::from_usize(ZERO_VEC_PTR);
-        row[2] = F::from_usize(ZERO_VEC_PTR);
-        row[3] = F::from_usize(POSEIDON_16_NULL_HASH_PTR);
-        // GKR layers are filled by fill_poseidon_trace after padding
-        row
+        // depends on null_poseidon_16_hash_ptr (cf lean_prover/trace_gen.rs)
+        unreachable!()
     }
 
     fn n_columns_total(&self) -> usize {
@@ -154,13 +150,23 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 flag,
-                &[AB::F::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res],
+                &[AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&flag));
-            builder.declare_values(&[AB::F::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res]);
+            builder.declare_values(&[AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA), index_a, index_b, index_res]);
         }
 
         builder.assert_bool(flag);
     }
+}
+
+
+pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
+    let mut row = vec![F::ZERO; N_TOTAL_COLS_P16];
+    row[1] = F::from_usize(ZERO_VEC_PTR);
+    row[2] = F::from_usize(ZERO_VEC_PTR);
+    row[3] = F::from_usize(null_hash_ptr);
+    // GKR layers are filled by fill_poseidon_trace after padding
+    row
 }

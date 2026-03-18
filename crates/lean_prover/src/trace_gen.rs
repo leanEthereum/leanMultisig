@@ -3,7 +3,7 @@ use lean_vm::*;
 use poseidon_gkr::fill_poseidon_trace;
 use std::{array, collections::BTreeMap};
 use tracing::info_span;
-use utils::{ToUsize, transposed_par_iter_mut};
+use utils::{ToUsize, get_poseidon_16_of_zero, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -94,8 +94,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         });
 
     let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
+
+    // Write poseidon(0) at the end of used memory for poseidon table padding rows
+    let null_poseidon_16_hash_ptr = memory_padded.len();
+    memory_padded.extend_from_slice(get_poseidon_16_of_zero());
+
     // IMPORTANT: memory size should always be >= number of VM cycles
-    let padded_memory_len = (memory.0.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
+    let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
     memory_padded.resize(padded_memory_len, F::ZERO);
 
     let ExecutionResult { mut traces, .. } = execution_result;
@@ -112,7 +117,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
-        pad_table(&table, &mut traces);
+        pad_table(&table, &mut traces, null_poseidon_16_hash_ptr);
     }
 
     // Fill GKR layers and compressed outputs in poseidon trace
@@ -128,14 +133,18 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
-fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>) {
+fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_ptr: usize) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.base[0].len();
 
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let n_rows = 1 << trace.log_n_rows;
-    let padding_row = table.padding_row();
+    let padding_row = if *table == Table::poseidon16() {
+        default_poseidon_16_row(null_hash_ptr)
+    } else {
+        table.padding_row()
+    };
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
         assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon16 -> we fill it later with SIMD + parallelism), but the first one should always be representative
         col.resize(n_rows, padding_row[i]);
