@@ -1,7 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, Rng};
 use serde::{Deserialize, Serialize};
-use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
+use utils::{ToUsize, poseidon16_compress, to_little_endian_bits};
 
 use crate::*;
 
@@ -25,14 +25,16 @@ pub struct WotsSignature {
 }
 
 impl WotsSecretKey {
-    pub fn random(rng: &mut impl CryptoRng) -> Self {
-        Self::new(rng.random())
+    pub fn random(rng: &mut impl CryptoRng, public_param: &PublicParam, slot: u32) -> Self {
+        Self::new(rng.random(), public_param, slot)
     }
 
-    pub fn new(pre_images: [Digest; V]) -> Self {
+    pub fn new(pre_images: [Digest; V], public_param: &PublicParam, slot: u32) -> Self {
         Self {
             pre_images,
-            public_key: WotsPublicKey(std::array::from_fn(|i| iterate_hash(&pre_images[i], CHAIN_LENGTH - 1))),
+            public_key: WotsPublicKey(std::array::from_fn(|i| {
+                iterate_hash(&pre_images[i], CHAIN_LENGTH - 1, public_param, slot, i, 0)
+            })),
         }
     }
 
@@ -44,16 +46,24 @@ impl WotsSecretKey {
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+        public_param: &PublicParam,
         randomness: [F; RANDOMNESS_LEN_FE],
     ) -> WotsSignature {
-        let encoding = wots_encode(message, slot, truncated_merkle_root, &randomness).unwrap();
-        self.sign_with_encoding(randomness, &encoding)
+        let encoding = wots_encode(message, slot, public_param, &randomness).unwrap();
+        self.sign_with_encoding(randomness, &encoding, public_param, slot)
     }
 
-    fn sign_with_encoding(&self, randomness: [F; RANDOMNESS_LEN_FE], encoding: &[u8; V]) -> WotsSignature {
+    fn sign_with_encoding(
+        &self,
+        randomness: [F; RANDOMNESS_LEN_FE],
+        encoding: &[u8; V],
+        public_param: &PublicParam,
+        slot: u32,
+    ) -> WotsSignature {
         WotsSignature {
-            chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
+            chain_tips: std::array::from_fn(|i| {
+                iterate_hash(&self.pre_images[i], encoding[i] as usize, public_param, slot, i, 0)
+            }),
             randomness,
         }
     }
@@ -64,31 +74,38 @@ impl WotsSignature {
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+        public_param: &PublicParam,
         signature: &Self,
     ) -> Option<WotsPublicKey> {
-        self.recover_public_key_with_poseidon_trace(message, slot, truncated_merkle_root, signature, &mut Vec::new())
+        self.recover_public_key_with_poseidon_trace(
+            message,
+            slot,
+            public_param,
+            signature,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
     }
 
     pub fn recover_public_key_with_poseidon_trace(
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+        public_param: &PublicParam,
         signature: &Self,
-        poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
+        poseidon_16_trace: &mut Poseidon16History,
+        poseidon_24_trace: &mut Poseidon24History,
     ) -> Option<WotsPublicKey> {
-        let encoding = wots_encode_with_poseidon_trace(
-            message,
-            slot,
-            truncated_merkle_root,
-            &signature.randomness,
-            poseidon_16_trace,
-        )?;
+        let encoding =
+            wots_encode_with_poseidon_trace(message, slot, public_param, &signature.randomness, poseidon_24_trace)?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
             iterate_hash_with_poseidon_trace(
                 &self.chain_tips[i],
                 CHAIN_LENGTH - 1 - encoding[i] as usize,
+                public_param,
+                slot,
+                i,
+                encoding[i] as usize,
                 poseidon_16_trace,
             )
         })))
@@ -100,39 +117,72 @@ impl WotsPublicKey {
         self.hash_with_poseidon_trace(&mut Vec::new())
     }
 
-    pub fn hash_with_poseidon_trace(&self, poseidon_16_trace: &mut Poseidon16History) -> Digest {
-        let init = poseidon16_compress_with_trace(&self.0[0], &self.0[1], poseidon_16_trace);
-        self.0[2..].iter().fold(init, |digest, chunk| {
-            poseidon16_compress_with_trace(&digest, chunk, poseidon_16_trace)
-        })
+    /// Hash the WOTS public key via Poseidon24 sponge absorbing flat chain data at rate 15.
+    /// V*8 FE absorbed in ceil(V*8/15) steps.
+    pub fn hash_with_poseidon_trace(&self, poseidon_24_trace: &mut Poseidon24History) -> Digest {
+        let flat: Vec<F> = self.0.iter().flat_map(|d| d.iter().copied()).collect();
+        let mut capacity = [F::ZERO; POSEIDON24_CAPACITY];
+        for chunk in flat.chunks(POSEIDON24_RATE) {
+            let mut input = [F::ZERO; 24];
+            input[..POSEIDON24_CAPACITY].copy_from_slice(&capacity);
+            input[POSEIDON24_CAPACITY..POSEIDON24_CAPACITY + chunk.len()].copy_from_slice(chunk);
+            // remaining positions are zero (padding for last chunk if V*8 % 15 != 0)
+            capacity = poseidon24_compress_with_trace(input, poseidon_24_trace);
+        }
+        capacity[..DIGEST_SIZE].try_into().unwrap()
     }
 }
 
-pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| poseidon16_compress_pair(&acc, &Default::default()))
+/// Chain hash using Poseidon16: digest(8) || tweak(2) || public_param(5) || zero(1) = 16
+pub fn iterate_hash(
+    a: &Digest,
+    n: usize,
+    public_param: &PublicParam,
+    slot: u32,
+    chain_index: usize,
+    start_step: usize,
+) -> Digest {
+    (0..n).fold(*a, |acc, j| {
+        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
+        let mut input = [F::ZERO; 16];
+        input[0..DIGEST_SIZE].copy_from_slice(&acc);
+        input[DIGEST_SIZE..DIGEST_SIZE + TWEAK_LEN].copy_from_slice(&tweak);
+        input[DIGEST_SIZE + TWEAK_LEN..DIGEST_SIZE + TWEAK_LEN + PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
+        // input[15] = F::ZERO (padding); total = 8+2+5+1 = 16
+        poseidon16_compress(input)
+    })
 }
 
 pub fn iterate_hash_with_poseidon_trace(
     a: &Digest,
     n: usize,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
+    public_param: &PublicParam,
+    slot: u32,
+    chain_index: usize,
+    start_step: usize,
+    poseidon_16_trace: &mut Poseidon16History,
 ) -> Digest {
-    (0..n).fold(*a, |acc, _| {
-        poseidon16_compress_with_trace(&acc, &Default::default(), poseidon_16_trace)
+    (0..n).fold(*a, |acc, j| {
+        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
+        let mut input = [F::ZERO; 16];
+        input[0..DIGEST_SIZE].copy_from_slice(&acc);
+        input[DIGEST_SIZE..DIGEST_SIZE + TWEAK_LEN].copy_from_slice(&tweak);
+        input[DIGEST_SIZE + TWEAK_LEN..DIGEST_SIZE + TWEAK_LEN + PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
+        poseidon16_compress_with_trace(input, poseidon_16_trace)
     })
 }
 
 pub fn find_randomness_for_wots_encoding(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+    public_param: &PublicParam,
     rng: &mut impl CryptoRng,
 ) -> ([F; RANDOMNESS_LEN_FE], [u8; V], usize) {
     let mut num_iters = 0;
     loop {
         num_iters += 1;
         let randomness = rng.random();
-        if let Some(encoding) = wots_encode(message, slot, truncated_merkle_root, &randomness) {
+        if let Some(encoding) = wots_encode(message, slot, public_param, &randomness) {
             return (randomness, encoding, num_iters);
         }
     }
@@ -141,45 +191,51 @@ pub fn find_randomness_for_wots_encoding(
 pub fn wots_encode(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+    public_param: &PublicParam,
     randomness: &[F; RANDOMNESS_LEN_FE],
 ) -> Option<[u8; V]> {
-    wots_encode_with_poseidon_trace(message, slot, truncated_merkle_root, randomness, &mut Vec::new())
+    wots_encode_with_poseidon_trace(message, slot, public_param, randomness, &mut Vec::new())
 }
 
+/// Encode (message, slot, public_param, randomness) into V chain indices via Poseidon24.
+/// Input layout: message(9) || tweak(2) || randomness(7) || public_param(5) || padding(1) = 24
+/// Output: 9 field elements. Each provides 24/W = 8 values at W bits. Take first V.
 pub fn wots_encode_with_poseidon_trace(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+    public_param: &PublicParam,
     randomness: &[F; RANDOMNESS_LEN_FE],
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
+    poseidon_24_trace: &mut Poseidon24History,
 ) -> Option<[u8; V]> {
-    // Encode slot as 2 field elements (16 bits each)
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
+    let tweak = make_tweak(TWEAK_TYPE_ENCODING, 0, slot);
 
-    // A = poseidon(message (9 fe), randomness (7 fe))
-    let mut a_input_right = [F::default(); 8];
-    a_input_right[0] = message[8];
-    a_input_right[1..1 + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    let a = poseidon16_compress_with_trace(message[..8].try_into().unwrap(), &a_input_right, poseidon_16_trace);
+    let mut input = [F::ZERO; 24];
+    input[0..MESSAGE_LEN_FE].copy_from_slice(message); // 9
+    input[MESSAGE_LEN_FE..MESSAGE_LEN_FE + TWEAK_LEN].copy_from_slice(&tweak); // 2
+    input[MESSAGE_LEN_FE + TWEAK_LEN..MESSAGE_LEN_FE + TWEAK_LEN + RANDOMNESS_LEN_FE].copy_from_slice(randomness); // 7
+    input[MESSAGE_LEN_FE + TWEAK_LEN + RANDOMNESS_LEN_FE
+        ..MESSAGE_LEN_FE + TWEAK_LEN + RANDOMNESS_LEN_FE + PUBLIC_PARAM_LEN_FE]
+        .copy_from_slice(public_param); // 5
+    // input[23] = F::ZERO (padding); total = 9+2+7+5+1 = 24
 
-    // B = poseidon(A (8 fe), slot (2 fe), truncated_merkle_root (6 fe))
-    let mut b_input_right = [F::default(); 8];
-    b_input_right[0] = slot_lo;
-    b_input_right[1] = slot_hi;
-    b_input_right[2..8].copy_from_slice(truncated_merkle_root);
-    let compressed = poseidon16_compress_with_trace(&a, &b_input_right, poseidon_16_trace);
+    let compressed = poseidon24_compress_with_trace(input, poseidon_24_trace);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding
         return None;
     }
+
+    // Extract V values from 9 output elements.
+    // Each element provides 24/W = 8 values at W=3 bits each (24 bits used).
+    // 9 elements * 8 values = 72 total, take first V.
+    let bits_per_element = (24 / W) * W; // 24
+
     let all_indices: Vec<_> = compressed
         .iter()
-        .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
+        .flat_map(|kb| to_little_endian_bits(kb.to_usize(), bits_per_element))
         .collect::<Vec<_>>()
         .chunks_exact(W)
-        .take(V + V_GRINDING)
+        .take(V)
         .map(|chunk| {
             chunk
                 .iter()
@@ -187,23 +243,20 @@ pub fn wots_encode_with_poseidon_trace(
                 .fold(0u8, |acc, (i, &bit)| acc | (u8::from(bit) << i))
         })
         .collect();
+
     is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {
-    if encoding.len() != V + V_GRINDING {
+    if encoding.len() != V {
         return false;
     }
     // All indices must be < CHAIN_LENGTH
     if !encoding.iter().all(|&x| (x as usize) < CHAIN_LENGTH) {
         return false;
     }
-    // First V indices must sum to TARGET_SUM
-    if encoding[..V].iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
-        return false;
-    }
-    // Last V_GRINDING indices must all be CHAIN_LENGTH-1 (grinding constraint)
-    if !encoding[V..].iter().all(|&x| x as usize == CHAIN_LENGTH - 1) {
+    // Indices must sum to TARGET_SUM
+    if encoding.iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
         return false;
     }
     true

@@ -9,6 +9,7 @@ pub struct XmssSecretKey {
     pub(crate) slot_start: u32, // inclusive
     pub(crate) slot_end: u32,   // inclusive
     pub(crate) seed: [u8; 20],
+    pub(crate) public_param: PublicParam,
     // At level l, stored indices go from (slot_start >> l) to (slot_end >> l).
     pub(crate) merkle_tree: Vec<Vec<Digest>>,
 }
@@ -23,15 +24,25 @@ pub struct XmssSignature {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssPublicKey {
     pub merkle_root: Digest,
+    pub public_param: PublicParam,
 }
 
-fn gen_wots_secret_key(seed: &[u8; 20], slot: u32) -> WotsSecretKey {
+/// Derive the public parameter deterministically from the seed.
+fn gen_public_param(seed: &[u8; 20]) -> PublicParam {
+    let mut rng_seed = [0u8; 32];
+    rng_seed[..20].copy_from_slice(seed);
+    rng_seed[20] = 0x02; // domain separator (0x00 = WOTS key, 0x01 = random node)
+    let mut rng = StdRng::from_seed(rng_seed);
+    rng.random()
+}
+
+fn gen_wots_secret_key(seed: &[u8; 20], slot: u32, public_param: &PublicParam) -> WotsSecretKey {
     let mut rng_seed = [0u8; 32];
     rng_seed[..20].copy_from_slice(seed);
     rng_seed[20] = 0x00;
     rng_seed[21..25].copy_from_slice(&slot.to_le_bytes());
     let mut rng = StdRng::from_seed(rng_seed);
-    WotsSecretKey::random(&mut rng)
+    WotsSecretKey::random(&mut rng, public_param, slot)
 }
 
 /// Deterministic pseudo-random digest for an out-of-range tree node.
@@ -58,12 +69,13 @@ pub fn xmss_key_gen(
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    let perm = default_koalabear_poseidon1_16();
+    let public_param = gen_public_param(&seed);
+
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start..=slot_end)
         .into_par_iter()
         .map(|slot| {
-            let wots = gen_wots_secret_key(&seed, slot);
+            let wots = gen_wots_secret_key(&seed, slot, &public_param);
             wots.public_key().hash()
         })
         .collect();
@@ -95,7 +107,7 @@ pub fn xmss_key_gen(
                         assert!(right_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, right_idx as u32)
                     };
-                    compress(&perm, [left, right])
+                    merkle_hash(&left, &right, level, i as u32, &public_param)
                 })
                 .collect()
         };
@@ -103,11 +115,13 @@ pub fn xmss_key_gen(
     }
     let pub_key = XmssPublicKey {
         merkle_root: merkle_tree.last().unwrap()[0],
+        public_param,
     };
     let secret_key = XmssSecretKey {
         slot_start,
         slot_end,
         seed,
+        public_param,
         merkle_tree,
     };
     Ok((secret_key, pub_key))
@@ -124,9 +138,8 @@ pub fn xmss_sign<R: CryptoRng>(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
 ) -> Result<XmssSignature, XmssSignatureError> {
-    let merkle_root = secret_key.public_key().merkle_root;
-    let truncated_merkle_root = merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
-    let (randomness, _, _) = find_randomness_for_wots_encoding(message, slot, truncated_merkle_root, rng);
+    let pub_key = secret_key.public_key();
+    let (randomness, _, _) = find_randomness_for_wots_encoding(message, slot, &pub_key.public_param, rng);
     xmss_sign_with_randomness(secret_key, message, slot, randomness)
 }
 
@@ -139,10 +152,8 @@ pub fn xmss_sign_with_randomness(
     if slot < secret_key.slot_start || slot > secret_key.slot_end {
         return Err(XmssSignatureError::SlotOutOfRange);
     }
-    let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot);
-    let merkle_root = secret_key.public_key().merkle_root;
-    let truncated_merkle_root = merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
-    let wots_signature = wots_secret_key.sign_with_randomness(message, slot, &truncated_merkle_root, randomness);
+    let wots_secret_key = gen_wots_secret_key(&secret_key.seed, slot, &secret_key.public_param);
+    let wots_signature = wots_secret_key.sign_with_randomness(message, slot, &secret_key.public_param, randomness);
     let merkle_proof = (0..LOG_LIFETIME)
         .map(|level| {
             let neighbour_index = (slot >> level) ^ 1;
@@ -166,6 +177,7 @@ impl XmssSecretKey {
     pub fn public_key(&self) -> XmssPublicKey {
         XmssPublicKey {
             merkle_root: self.merkle_tree.last().unwrap()[0],
+            public_param: self.public_param,
         }
     }
 }
@@ -188,33 +200,53 @@ pub fn xmss_verify_with_poseidon_trace(
     pub_key: &XmssPublicKey,
     message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
-) -> Result<Poseidon16History, XmssVerifyError> {
+) -> Result<(Poseidon16History, Poseidon24History), XmssVerifyError> {
     let mut poseidon_16_trace = Vec::new();
-    let truncated_merkle_root = pub_key.merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
+    let mut poseidon_24_trace = Vec::new();
     let wots_public_key = signature
         .wots_signature
         .recover_public_key_with_poseidon_trace(
             message,
             signature.slot,
-            &truncated_merkle_root,
+            &pub_key.public_param,
             &signature.wots_signature,
             &mut poseidon_16_trace,
+            &mut poseidon_24_trace,
         )
         .ok_or(XmssVerifyError::InvalidWots)?;
-    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_16_trace);
+    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_24_trace);
     if signature.merkle_proof.len() != LOG_LIFETIME {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
         let is_left = ((signature.slot >> level) & 1) == 0;
-        if is_left {
-            current_hash = poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace);
+        let parent_index = if level + 1 < 32 {
+            signature.slot >> (level + 1)
         } else {
-            current_hash = poseidon16_compress_with_trace(neighbour, &current_hash, &mut poseidon_16_trace);
+            0
+        };
+        if is_left {
+            current_hash = merkle_hash_with_trace(
+                &current_hash,
+                neighbour,
+                level + 1,
+                parent_index,
+                &pub_key.public_param,
+                &mut poseidon_24_trace,
+            );
+        } else {
+            current_hash = merkle_hash_with_trace(
+                neighbour,
+                &current_hash,
+                level + 1,
+                parent_index,
+                &pub_key.public_param,
+                &mut poseidon_24_trace,
+            );
         }
     }
     if current_hash == pub_key.merkle_root {
-        Ok(poseidon_16_trace)
+        Ok((poseidon_16_trace, poseidon_24_trace))
     } else {
         Err(XmssVerifyError::InvalidMerklePath)
     }
