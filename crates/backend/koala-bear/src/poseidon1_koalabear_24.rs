@@ -154,7 +154,7 @@ fn mds_karatsuba_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
     );
 }
 
-/// Public MDS for use by poseidon_gkr.
+/// Public circulant MDS multiply.
 #[inline(always)]
 pub fn mds_circ_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
     mds_karatsuba_24(state);
@@ -792,6 +792,26 @@ pub fn poseidon1_24_partial_constants() -> &'static [[KoalaBear; 24]] {
 #[inline(always)]
 pub fn poseidon1_24_final_constants() -> &'static [[KoalaBear; 24]] {
     &POSEIDON1_RC_24[POSEIDON1_HALF_FULL_ROUNDS_24 + POSEIDON1_PARTIAL_ROUNDS_24..]
+}
+
+pub fn poseidon1_24_sparse_m_i() -> &'static [[KoalaBear; 24]; 24] {
+    &precomputed_24().sparse_m_i
+}
+
+pub fn poseidon1_24_sparse_first_row() -> &'static Vec<[KoalaBear; 24]> {
+    &precomputed_24().sparse_first_row
+}
+
+pub fn poseidon1_24_sparse_v() -> &'static Vec<[KoalaBear; 24]> {
+    &precomputed_24().sparse_v
+}
+
+pub fn poseidon1_24_sparse_first_round_constants() -> &'static [KoalaBear; 24] {
+    &precomputed_24().sparse_first_round_constants
+}
+
+pub fn poseidon1_24_sparse_scalar_round_constants() -> &'static Vec<KoalaBear> {
+    &precomputed_24().sparse_round_constants
 }
 
 #[derive(Clone, Debug)]

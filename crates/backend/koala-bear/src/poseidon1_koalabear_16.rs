@@ -280,7 +280,7 @@ fn mds_karatsuba_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
     );
 }
 
-/// Public MDS for use by poseidon_gkr.
+/// Public circulant MDS multiply.
 #[inline(always)]
 pub fn mds_circ_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
     mds_karatsuba_16(state);
@@ -825,6 +825,31 @@ pub fn poseidon1_partial_constants() -> &'static [[KoalaBear; 16]] {
 #[inline(always)]
 pub fn poseidon1_final_constants() -> &'static [[KoalaBear; 16]] {
     &POSEIDON1_RC[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..]
+}
+
+pub fn poseidon1_sparse_m_i() -> &'static [[KoalaBear; 16]; 16] {
+    &precomputed().sparse_m_i
+}
+
+/// Per-round first row: `[mds_0_0, ŵ[0], ..., ŵ[14]]`.  Length = PARTIAL_ROUNDS.
+pub fn poseidon1_sparse_first_row() -> &'static Vec<[KoalaBear; 16]> {
+    &precomputed().sparse_first_row
+}
+
+/// Per-round rank-1 update vectors `v[r]`.  `v[r][0..14]` are the 15 update coefficients
+/// (index 15 is always zero).  Length = PARTIAL_ROUNDS.
+pub fn poseidon1_sparse_v() -> &'static Vec<[KoalaBear; 16]> {
+    &precomputed().sparse_v
+}
+
+/// Full-width constant vector added once before the `m_i` multiply.
+pub fn poseidon1_sparse_first_round_constants() -> &'static [KoalaBear; 16] {
+    &precomputed().sparse_first_round_constants
+}
+
+/// Scalar constants added to `state[0]` in partial rounds 0..RP-2. Length = RP-1.
+pub fn poseidon1_sparse_scalar_round_constants() -> &'static Vec<KoalaBear> {
+    &precomputed().sparse_round_constants
 }
 
 #[derive(Clone, Debug)]

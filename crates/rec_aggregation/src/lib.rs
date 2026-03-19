@@ -74,6 +74,8 @@ fn build_non_reserved_public_input(
     pi.push(slot_hi);
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
+    let padded_len = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN);
+    pi.resize(pi.len() + padded_len - bytecode_claim_output.len(), F::ZERO);
     pi.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
     pi
 }

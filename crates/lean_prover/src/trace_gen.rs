@@ -1,6 +1,5 @@
 use backend::*;
 use lean_vm::*;
-use poseidon_gkr::{fill_poseidon_16_trace, fill_poseidon_24_trace};
 use std::{array, collections::BTreeMap};
 use tracing::info_span;
 use utils::{ToUsize, get_poseidon_16_of_zero, get_poseidon_24_of_zero, transposed_par_iter_mut};
@@ -146,10 +145,10 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         }
     }
 
-    // Fill GKR layers and compressed outputs in poseidon traces
-    info_span!("Poseidon GKR trace fill").in_scope(|| {
-        fill_poseidon_16_trace(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
-        fill_poseidon_24_trace(&mut traces.get_mut(&Table::poseidon24()).unwrap().base);
+    // Fill AIR trace columns (intermediate round states + outputs)
+    info_span!("Poseidon AIR trace fill").in_scope(|| {
+        fill_trace_poseidon_16(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
+        fill_trace_poseidon_24(&mut traces.get_mut(&Table::poseidon24()).unwrap().base);
     });
 
     ExecutionTrace {
@@ -180,7 +179,7 @@ fn pad_table(
         table.padding_row()
     };
     trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
-        assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon16 -> we fill it later with SIMD + parallelism), but the first one should always be representative
+        assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon -> we fill it later with SIMD + parallelism), but the first one should always be representative
         col.resize(n_rows, padding_row[i]);
     });
 }

@@ -20,4 +20,3 @@ tracing.workspace = true
 air.workspace = true
 backend.workspace = true
 itertools.workspace = true
-poseidon_gkr.workspace = true
