@@ -19,7 +19,8 @@ def powers(alpha, n):
     # n: F
     assert n < 256
     assert 0 < n
-    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, i))
+    # 2**log2_ceil(i) is not really necessary but helps reduce byetcode size (traedoff cycles / bytecode size)
+    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, 2**log2_ceil(i)))
     return res
 
 
