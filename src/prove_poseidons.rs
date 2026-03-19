@@ -1,52 +1,83 @@
 use air::{prove_air, verify_air};
 use backend::*;
 use lean_vm::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START,
-    POSEIDON_16_COL_RES, Poseidon16Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16, num_cols_poseidon_16,
+    EF, ExtraDataForBuses, F, Poseidon16Precompile, Poseidon24Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16,
+    fill_trace_poseidon_24, num_cols_poseidon_16, num_cols_poseidon_24,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, init_tracing, padd_with_zero_to_next_power_of_two};
 
-const WIDTH: usize = 16;
+// Column layout is the same for both widths: FLAG=0, A=1, B=2, RES=3, INPUT_START=4
+const COL_FLAG: usize = 0;
+const COL_A: usize = 1;
+const COL_B: usize = 2;
+const COL_RES: usize = 3;
+const COL_INPUT_START: usize = 4;
 
 #[test]
 fn test_benchmark_air_poseidon_16() {
     benchmark_prove_poseidon_16(11, false);
 }
 
-#[allow(clippy::too_many_lines)]
+#[test]
+fn test_benchmark_air_poseidon_24() {
+    benchmark_prove_poseidon_24(11, false);
+}
+
 pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
+    benchmark_prove_poseidon(
+        log_n_rows,
+        tracing,
+        16,
+        num_cols_poseidon_16(),
+        &Poseidon16Precompile::<false>,
+        fill_trace_poseidon_16,
+    );
+}
+
+pub fn benchmark_prove_poseidon_24(log_n_rows: usize, tracing: bool) {
+    benchmark_prove_poseidon(
+        log_n_rows,
+        tracing,
+        24,
+        num_cols_poseidon_24(),
+        &Poseidon24Precompile::<false>,
+        fill_trace_poseidon_24,
+    );
+}
+
+#[allow(clippy::too_many_lines)]
+fn benchmark_prove_poseidon(
+    log_n_rows: usize,
+    tracing: bool,
+    width: usize,
+    n_cols: usize,
+    air: &impl Air<ExtraData = ExtraDataForBuses<EF>>,
+    fill_trace: fn(&mut [Vec<F>]),
+) {
     if tracing {
         init_tracing();
     }
     let n_rows = 1 << log_n_rows;
     let mut rng = StdRng::seed_from_u64(0);
 
-    let air = Poseidon16Precompile::<false>;
-    let n_cols = num_cols_poseidon_16();
-
     // Generate trace columns
     let mut trace = vec![vec![F::ZERO; n_rows]; n_cols];
-    for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH) {
+    for t in trace.iter_mut().skip(COL_INPUT_START).take(width) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
-    trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
-    trace[POSEIDON_16_COL_RES] = (0..n_rows).map(|_| F::ZERO).collect();
-    trace[POSEIDON_16_COL_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
-    trace[POSEIDON_16_COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
+    trace[COL_RES] = (0..n_rows).map(|_| F::ZERO).collect();
+    trace[COL_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
 
     // Fill AIR intermediate + output columns
-    fill_trace_poseidon_16(&mut trace);
+    fill_trace(&mut trace);
 
     // Verify AIR validity
     {
         let trace_refs: Vec<&[F]> = trace.iter().map(Vec::as_slice).collect();
-        air::check_air_validity::<Poseidon16Precompile<false>, EF>(
-            &air,
-            &ExtraDataForBuses::<EF>::default(),
-            &trace_refs,
-        )
-        .unwrap();
+        air::check_air_validity::<_, EF>(air, &ExtraDataForBuses::<EF>::default(), &trace_refs).unwrap();
     }
 
     let whir_config = WhirConfigBuilder {
@@ -82,7 +113,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             alpha_powers: air_alpha_powers,
             ..Default::default()
         };
-        let air_claims = prove_air::<EF, _>(&mut prover_state, &air, extra_data, &trace, None, true);
+        let air_claims = prove_air::<EF, _>(&mut prover_state, air, extra_data, &trace, None, true);
 
         // WHIR statement: AIR evaluation at the random point
         let betas = MultilinearPoint((0..log2_ceil_usize(n_cols)).map(|_| prover_state.sample()).collect());
@@ -94,7 +125,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     }
 
     println!(
-        "{} Poseidons / s",
+        "{} Poseidon-{width} / s",
         (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
     );
 
@@ -110,7 +141,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             alpha_powers: air_alpha_powers,
             ..Default::default()
         };
-        let air_claims = verify_air(&mut verifier_state, &air, extra_data, log_n_rows, None).unwrap();
+        let air_claims = verify_air(&mut verifier_state, air, extra_data, log_n_rows, None).unwrap();
 
         // WHIR statement (same as prover)
         let betas = MultilinearPoint((0..log2_ceil_usize(n_cols)).map(|_| verifier_state.sample()).collect());
