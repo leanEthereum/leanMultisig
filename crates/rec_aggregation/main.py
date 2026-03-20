@@ -103,7 +103,7 @@ def main():
         counter += 1
         pk0 = all_pubkeys + idx0 * DIGEST_LEN
         running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16(ZERO_VEC_PTR, pk0, running_hash)
+        poseidon16_compress(ZERO_VEC_PTR, pk0, running_hash)
 
         for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
@@ -112,7 +112,7 @@ def main():
             counter += 1
             pk = all_pubkeys + idx * DIGEST_LEN
             new_hash = Array(DIGEST_LEN)
-            poseidon16(running_hash, pk, new_hash)
+            poseidon16_compress(running_hash, pk, new_hash)
             running_hash = new_hash
 
         non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
@@ -146,7 +146,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
             assert claim_ptr[k] == 0
         claim_hash = slice_hash(claim_ptr, BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN)
         new_hash = Array(DIGEST_LEN)
-        poseidon16(bytecode_claims_hash, claim_hash, new_hash)
+        poseidon16_compress(bytecode_claims_hash, claim_hash, new_hash)
         bytecode_claims_hash = new_hash
 
     reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)

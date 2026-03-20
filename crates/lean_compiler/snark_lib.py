@@ -76,7 +76,7 @@ EQ_MLE_COEFFS_PTR = 45
 NONRESERVED_PROGRAM_INPUT_START = 50
 
 
-def poseidon16(left, right, output, mode):
+def poseidon16_compress(left, right, output, mode):
     _ = left, right, output, mode
 
 

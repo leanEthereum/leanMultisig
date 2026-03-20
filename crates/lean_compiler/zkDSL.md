@@ -417,16 +417,16 @@ ONE_EF_PTR     # [1, 0, 0, ...]
 
 ## Precompiles
 
-### poseidon16
+### poseidon16_compress
 Always in "compression" mode
 ```
-poseidon16(left, right, output, mode)
+poseidon16_compress(left, right, output)
 ```
 - `left`, `right`: pointers to 8 field elements each
 - `output`: pointer to result (8 elements)
 ```
-poseidon16(leaf_a, leaf_b, parent_hash)
-poseidon16(state, data, new_state)
+poseidon16_compress(leaf_a, leaf_b, parent_hash)
+poseidon16_compress(state, data, new_state)
 ```
 
 ### Extension Operations

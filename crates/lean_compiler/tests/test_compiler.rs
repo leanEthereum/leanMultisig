@@ -11,7 +11,7 @@ def main():
     a = NONRESERVED_PROGRAM_INPUT_START
     b = a + 8
     c = Array(8)
-    poseidon16(a, b, c)
+    poseidon16_compress(a, b, c)
 
     for i in range(0, 8):
         cc = c[i]
@@ -199,7 +199,7 @@ def main():
 
 @inline
 def func(a, b):
-    poseidon16(a, a, b)
+    poseidon16_compress(a, a, b)
     return
    "#;
     let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
