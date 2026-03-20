@@ -84,7 +84,7 @@ def main():
         rate[13] = 0
         rate[14] = 0
         new_cap = Array(9)
-        poseidon24(pk_hash_cap, rate, new_cap)
+        poseidon24_compress(pk_hash_cap, rate, new_cap)
         pk_hash_cap = new_cap
     copy_8(pk_hash_cap, pubkeys_hash_expected)
 
@@ -137,7 +137,7 @@ def main():
             rate[13] = 0
             rate[14] = 0
             new_cap = Array(9)
-            poseidon24(running_hash, rate, new_cap)
+            poseidon24_compress(running_hash, rate, new_cap)
             running_hash = new_cap
 
         non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, all_tweaks, pub_mem)
@@ -171,7 +171,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
             assert claim_ptr[k] == 0
         claim_hash = slice_hash(claim_ptr, BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN)
         new_hash = Array(DIGEST_LEN)
-        poseidon16(bytecode_claims_hash, claim_hash, new_hash)
+        poseidon16_compress(bytecode_claims_hash, claim_hash, new_hash)
         bytecode_claims_hash = new_hash
 
     reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)

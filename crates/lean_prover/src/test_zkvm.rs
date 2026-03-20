@@ -18,10 +18,10 @@ P24_OUTPUT = 9
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
-    poseidon16(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+    poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
     # poseidon24: left (9 elems at offset 56), right (15 elems at offset 65), output (9 elems at offset 80)
-    poseidon24(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT)
+    poseidon24_compress(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT)
 
     base_ptr = pub_start + 89
     ext_a_ptr = pub_start + 89 + N

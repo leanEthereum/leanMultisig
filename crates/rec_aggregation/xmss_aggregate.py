@@ -37,7 +37,7 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     chain_tweaks = all_tweaks + CHAIN_TWEAKS_OFFSET
     merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
 
-    # 1) Encode: poseidon24(message(9) || tweak(2) || randomness(7) || pp(5) || 0)
+    # 1) Encode: poseidon24_compress(message(9) || tweak(2) || randomness(7) || pp(5) || 0)
     enc_rate = Array(15)
     enc_rate[0] = encoding_tweak[0]
     enc_rate[1] = encoding_tweak[1]
@@ -46,7 +46,7 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     enc_rate[14] = 0
 
     encoding_fe = Array(POSEIDON24_CAP)
-    poseidon24(message, enc_rate, encoding_fe)
+    poseidon24_compress(message, enc_rate, encoding_fe)
 
     # 2) Decompose encoding_fe into chain indices (only first NUM_ENCODING_FE elements)
     encoding = Array(NUM_ENCODING_FE * CHUNKS_PER_FE)
@@ -108,16 +108,16 @@ def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_twea
         copy_8(input_ptr, output_ptr)
     elif num_hashes == 1:
         right = make_chain_right(public_param, chain_tweaks, chain_index, start_step)
-        poseidon16(input_ptr, right, output_ptr)
+        poseidon16_compress(input_ptr, right, output_ptr)
     else:
         states = Array((num_hashes - 1) * DIGEST_LEN)
         right0 = make_chain_right(public_param, chain_tweaks, chain_index, start_step)
-        poseidon16(input_ptr, right0, states)
+        poseidon16_compress(input_ptr, right0, states)
         for j in unroll(1, num_hashes - 1):
             right_j = make_chain_right(public_param, chain_tweaks, chain_index, start_step + j)
-            poseidon16(states + (j - 1) * DIGEST_LEN, right_j, states + j * DIGEST_LEN)
+            poseidon16_compress(states + (j - 1) * DIGEST_LEN, right_j, states + j * DIGEST_LEN)
         right_last = make_chain_right(public_param, chain_tweaks, chain_index, start_step + num_hashes - 1)
-        poseidon16(states + (num_hashes - 2) * DIGEST_LEN, right_last, output_ptr)
+        poseidon16_compress(states + (num_hashes - 2) * DIGEST_LEN, right_last, output_ptr)
 
     chain_sum_ptr[0] = n
     return
@@ -136,7 +136,7 @@ def wots_pk_hash_p24(wots_pk):
         copy_5(src + 5, rate + 5)
         copy_5(src + 10, rate + 10)
         new_capacity = Array(POSEIDON24_CAP)
-        poseidon24(capacity, rate, new_capacity)
+        poseidon24_compress(capacity, rate, new_capacity)
         capacity = new_capacity
     return capacity
 
@@ -201,7 +201,7 @@ def merkle_p24_one_level(is_left_bit, current, neighbour, output, public_param, 
     input_buf[23] = 0
 
     merkle_output = Array(POSEIDON24_CAP)
-    poseidon24(input_buf, input_buf + 9, merkle_output)
+    poseidon24_compress(input_buf, input_buf + 9, merkle_output)
     for k in unroll(0, DIGEST_LEN):
         output[k] = merkle_output[k]
     return

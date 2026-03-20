@@ -417,17 +417,24 @@ ONE_EF_PTR     # [1, 0, 0, ...]
 
 ## Precompiles
 
-### poseidon16
-Always in "compression" mode
+### poseidon16_compress
+Width-16 Poseidon2 compression: `output[0..8] = Poseidon2(left || right)[0..8] + left`.
 ```
-poseidon16(left, right, output, mode)
+poseidon16_compress(left, right, output)
 ```
-- `left`, `right`: pointers to 8 field elements each
+- `left`: pointer to 8 field elements
+- `right`: pointer to 8 field elements
 - `output`: pointer to result (8 elements)
+
+
+### poseidon24_compress
+Width-24 Poseidon2 compression: `output[0..9] = (Poseidon2(left || right) + left`.
 ```
-poseidon16(leaf_a, leaf_b, parent_hash)
-poseidon16(state, data, new_state)
+poseidon24_compress(left, right, output)
 ```
+- `left`: pointer to 9 field elements (capacity)
+- `right`: pointer to 15 field elements (rate)
+- `output`: pointer to result (9 elements)
 
 ### Extension Operations
 
