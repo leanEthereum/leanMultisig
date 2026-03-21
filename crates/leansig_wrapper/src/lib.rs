@@ -66,3 +66,15 @@ pub fn merkle_tweak(level: usize, pos_in_level: u32) -> [F; TWEAK_LEN] {
         F::from_canonical_checked(t1.as_canonical_u32()).unwrap(),
     ]
 }
+
+pub fn xmss_merkle_path(sig: &LeanSigSignature) -> &Vec<[F; DIGEST_SIZE_FE]> {
+    unsafe { std::mem::transmute(sig.path()) }
+}
+
+pub fn xmss_randomness(sig: &LeanSigSignature) -> &[F; RANDOMNESS_LEN_FE] {
+    unsafe { std::mem::transmute(sig.rho()) }
+}
+
+pub fn xmmss_revealed_chain_tips(sig: &LeanSigSignature) -> &Vec<[F; DIGEST_SIZE_FE]> {
+    unsafe { std::mem::transmute(sig.hashes()) }
+}

@@ -5,15 +5,7 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
-use leansig_wrapper::CHAIN_LENGTH;
-use leansig_wrapper::TWEAK_LEN;
-use leansig_wrapper::V;
-use leansig_wrapper::XmssPublicKey;
-use leansig_wrapper::chain_tweak;
-use leansig_wrapper::merkle_tweak;
-use leansig_wrapper::pubkey_merkle_root;
-use leansig_wrapper::pubkey_public_parameter;
-use leansig_wrapper::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE};
+use leansig_wrapper::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 
@@ -119,11 +111,11 @@ fn build_non_reserved_public_input(
     pi
 }
 
-fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
+fn encode_xmss_signature(sig: &LeanSigSignature) -> Vec<F> {
     let mut data = vec![];
-    data.extend(sig.wots_signature.randomness.to_vec());
-    data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
+    data.extend_from_slice(xmss_randomness(sig));
+    data.extend(xmmss_revealed_chain_tips(sig).iter().flat_map(|digest| digest.to_vec()));
+    for neighbor in xmss_merkle_path(sig) {
         data.extend(neighbor.to_vec());
     }
     assert_eq!(data.len(), SIG_SIZE_FE);
@@ -205,13 +197,13 @@ pub fn xmss_verify_aggregation(
 #[instrument(skip_all)]
 pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
-    mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
+    mut raw_xmss: Vec<(XmssPublicKey, LeanSigSignature)>,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
 ) -> AggregatedXMSS {
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
-    raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
+    raw_xmss.dedup_by(|(a, _), (b, _)| a == b);
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
@@ -245,8 +237,7 @@ pub fn xmss_aggregate(
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let n_all_tweaks_fe =
-            xmss::TWEAK_LEN + xmss::V * xmss::CHAIN_LENGTH * xmss::TWEAK_LEN + xmss::LOG_LIFETIME * xmss::TWEAK_LEN;
+        let n_all_tweaks_fe = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
         let bytecode_claim_offset = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
