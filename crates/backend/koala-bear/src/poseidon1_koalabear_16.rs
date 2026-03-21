@@ -271,12 +271,6 @@ pub fn mds_circ_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
 // Sparse matrix decomposition helpers (for NEON partial rounds)
 // =========================================================================
 
-/// Expand a circulant matrix from its first column into a dense NxN matrix.
-#[allow(dead_code)]
-fn circulant_to_dense(first_col: &[KoalaBear; 16]) -> [[KoalaBear; 16]; 16] {
-    core::array::from_fn(|i| core::array::from_fn(|j| first_col[(16 + i - j) % 16]))
-}
-
 /// Dense NxN matrix multiplication: C = A * B.
 fn matrix_mul_16(a: &[[KoalaBear; 16]; 16], b: &[[KoalaBear; 16]; 16]) -> [[KoalaBear; 16]; 16] {
     core::array::from_fn(|i| {

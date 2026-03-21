@@ -265,6 +265,18 @@ impl_sum_prod_base_field!(PackedMontyField31Neon, MontyField31, (FieldParameters
 
 impl<FP: FieldParameters> Algebra<MontyField31<FP>> for PackedMontyField31Neon<FP> {}
 
+impl<FP: FieldParameters> PackedMontyField31Neon<FP> {
+    /// Compute the dot product of a packed vector with a scalar vector.
+    ///
+    /// This is more efficient than broadcasting the scalars first, because the
+    /// Karatsuba recursion can keep the constant (rhs) side as cheap scalar
+    /// operations while only the lhs/output side uses SIMD.
+    #[inline(always)]
+    pub fn mixed_dot_product<const N: usize>(lhs: &[Self; N], rhs: &[MontyField31<FP>; N]) -> Self {
+        general_dot_product::<_, _, _, N>(lhs, rhs)
+    }
+}
+
 impl<FP: FieldParameters + RelativelyPrimePower<D>, const D: u64> InjectiveMonomial<D> for PackedMontyField31Neon<FP> {}
 
 impl<FP: FieldParameters + RelativelyPrimePower<D>, const D: u64> PermutationMonomial<D>
