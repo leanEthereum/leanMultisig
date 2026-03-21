@@ -12,14 +12,6 @@ type FPacking = <KoalaBear as Field>::Packing;
 const PACKING_WIDTH: usize = <FPacking as PackedValue>::WIDTH;
 
 #[test]
-fn test_poseidon1_packed() {
-    let poseidon1 = default_koalabear_poseidon1_16();
-    let mut state = [FPacking::ZERO; 16];
-    poseidon1.compress_in_place(&mut state);
-    let _ = black_box(state);
-}
-
-#[test]
 #[ignore]
 fn bench_poseidon() {
     // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_poseidon --exact --nocapture --ignored

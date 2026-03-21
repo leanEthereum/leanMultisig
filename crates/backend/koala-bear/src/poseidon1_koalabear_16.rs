@@ -130,25 +130,6 @@ fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
 }
 
 // =========================================================================
-// Circulant MDS via FFT (used for partial rounds in frequency domain)
-// =========================================================================
-
-/// Circulant MDS multiply via FFT: state = C * state.
-/// C * x = (1/16) * DIT_FFT(lambda ⊙ DIF_IFFT(x))
-#[allow(dead_code)]
-#[inline(always)]
-fn mds_fft_16<R: Algebra<KoalaBear>>(state: &mut [R; 16], lambda: &[KoalaBear; 16]) {
-    dif_ifft_16_mut(state);
-    for i in 0..16 {
-        state[i] *= lambda[i];
-    }
-    dit_fft_16_mut(state);
-    for s in state.iter_mut() {
-        *s = s.div_2exp_u64(4);
-    }
-}
-
-// =========================================================================
 // Circulant MDS via Karatsuba convolution (used for full rounds)
 //
 // Ported from Plonky3 mds/src/karatsuba_convolution.rs.
@@ -494,31 +475,19 @@ fn equivalent_round_constants(
 
 #[derive(Debug)]
 struct Precomputed {
-    /// Eigenvalues of circulant MDS in bit-reversed order.
-    lambda_br: [KoalaBear; 16],
-    /// Forward-substituted scalar constants for partial rounds.
-    textbook_scalar: [KoalaBear; POSEIDON1_PARTIAL_ROUNDS],
-    /// Residual from forward constant substitution.
-    textbook_residual: [KoalaBear; 16],
-
-    // --- Sparse matrix decomposition for NEON fast path ---
+    // --- Sparse matrix decomposition ---
     /// First round constant vector (full width), added once before m_i multiply.
-    #[allow(dead_code)]
     sparse_first_round_constants: [KoalaBear; 16],
     /// Dense transition matrix m_i, applied once before the partial round loop.
-    #[allow(dead_code)]
     sparse_m_i: [[KoalaBear; 16]; 16],
     /// Per-round full first row: [mds_0_0, ŵ[0], ..., ŵ[14]].
     /// Length = POSEIDON1_PARTIAL_ROUNDS.
-    #[allow(dead_code)]
     sparse_first_row: Vec<[KoalaBear; 16]>,
     /// Per-round first-column vectors (excluding [0,0]).
     /// `v[r]` = [v[0], ..., v[14], 0]. Length = POSEIDON1_PARTIAL_ROUNDS.
-    #[allow(dead_code)]
     sparse_v: Vec<[KoalaBear; 16]>,
     /// Scalar constants for partial rounds 0..RP-2.
     /// Length = POSEIDON1_PARTIAL_ROUNDS - 1.
-    #[allow(dead_code)]
     sparse_round_constants: Vec<KoalaBear>,
 
     // --- NEON pre-packed constants ---
@@ -562,43 +531,16 @@ type FP = crate::KoalaBearParameters;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 type PackedKB = crate::PackedKoalaBearNeon;
 
-impl Precomputed {
-    #[allow(dead_code)]
-    fn lambda_br(&self) -> &[KoalaBear; 16] {
-        &self.lambda_br
-    }
-}
-
 static PRECOMPUTED: OnceLock<Precomputed> = OnceLock::new();
 
 fn precomputed() -> &'static Precomputed {
     PRECOMPUTED.get_or_init(|| {
-        // Eigenvalues: IDFT_unnorm(col) in bit-reversed order.
-        let mut lambda_br = MDS_CIRC_COL;
-        dif_ifft_16_mut(&mut lambda_br);
-
-        // Dense MDS for forward constant substitution.
+        // Dense MDS for sparse decomposition.
         let mds: [[KoalaBear; 16]; 16] =
             core::array::from_fn(|i| core::array::from_fn(|j| MDS_CIRC_COL[(16 + i - j) % 16]));
 
         let partial_rc =
             &POSEIDON1_RC[POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS];
-
-        // --- Textbook (frequency-domain) constants ---
-        let mut acc = [KoalaBear::ZERO; 16];
-        let mut textbook_scalar = [KoalaBear::ZERO; POSEIDON1_PARTIAL_ROUNDS];
-        for (k, rc) in partial_rc.iter().enumerate() {
-            textbook_scalar[k] = rc[0] + acc[0];
-            let remainder: [KoalaBear; 16] =
-                core::array::from_fn(|i| if i == 0 { KoalaBear::ZERO } else { rc[i] + acc[i] });
-            acc = core::array::from_fn(|i| {
-                let mut s = KoalaBear::ZERO;
-                for j in 0..16 {
-                    s += mds[i][j] * remainder[j];
-                }
-                s
-            });
-        }
 
         // --- Sparse matrix decomposition constants ---
         let mds_inv = matrix_inverse_16(&mds);
@@ -651,6 +593,8 @@ fn precomputed() -> &'static Precomputed {
             let packed_fused_bias: [PackedKB; 16] = fused_bias.map(pack);
 
             // Pre-packed eigenvalues * INV16 (absorbs /16 into eigenvalues).
+            let mut lambda_br = MDS_CIRC_COL;
+            dif_ifft_16_mut(&mut lambda_br);
             let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
             let packed_lambda_over_16: [PackedKB; 16] = core::array::from_fn(|i| pack(lambda_br[i] * inv16));
 
@@ -668,9 +612,6 @@ fn precomputed() -> &'static Precomputed {
         };
 
         Precomputed {
-            lambda_br,
-            textbook_scalar,
-            textbook_residual: acc,
             sparse_first_round_constants: first_round_constants,
             sparse_m_i: m_i,
             sparse_first_row,
@@ -861,74 +802,37 @@ impl Poseidon1KoalaBear16 {
     #[inline(always)]
     #[allow(clippy::needless_range_loop)]
     fn permute_generic<R: Algebra<KoalaBear> + InjectiveMonomial<3>>(&self, state: &mut [R; 16]) {
-        let lambda = &self.pre.lambda_br;
-
-        // Initial full rounds (all but last).
-        for rc in &poseidon1_initial_constants()[..POSEIDON1_HALF_FULL_ROUNDS - 1] {
+        // Initial full rounds.
+        for rc in poseidon1_initial_constants() {
             Self::full_round(state, rc);
         }
 
-        // Last initial full round: AddRC + S-box, then enter frequency domain
-        // (fuses the last MDS with the frequency-domain entry, saving one FFT pair).
-        let rc_last = &poseidon1_initial_constants()[POSEIDON1_HALF_FULL_ROUNDS - 1];
-        for (s, &c) in state.iter_mut().zip(rc_last.iter()) {
+        // --- Partial rounds via sparse matrix decomposition ---
+        // Add first-round constants.
+        for (s, &c) in state.iter_mut().zip(self.pre.sparse_first_round_constants.iter()) {
             *s += c;
         }
-        for s in state.iter_mut() {
-            *s = s.injective_exp_n();
-        }
-
-        // --- Partial rounds in frequency domain ---
-        //
-        // The circulant MDS is diagonal in IDFT domain: multiply by eigenvalues.
-        // With forward constant substitution, each partial round reduces to:
-        //   state[0] += scalar, state[0] = state[0]^3, state = MDS * state.
-        // In frequency domain: add scalar to all bins, apply eigenvalues.
-        // s0 = sum(f_br) / 16  (always a simple sum of IDFT coefficients).
+        // Apply dense transition matrix m_i (once).
         {
-            let tb_scalar = &self.pre.textbook_scalar;
-            let tb_residual = &self.pre.textbook_residual;
-
-            let mut f_br = *state;
-            dif_ifft_16_mut(&mut f_br);
-
-            // Apply MDS of last initial full round.
-            for j in 0..16 {
-                f_br[j] *= lambda[j];
-            }
-            let mut s0 = f_br[0];
-            for j in 1..16 {
-                s0 += f_br[j];
-            }
-            s0 = s0.div_2exp_u64(4);
-
-            for k in 0..POSEIDON1_PARTIAL_ROUNDS {
-                let s0_prime = s0 + tb_scalar[k];
-                let cube = s0_prime.injective_exp_n();
-                let update = cube - s0;
-
+            let input = *state;
+            for i in 0..16 {
+                state[i] = R::ZERO;
                 for j in 0..16 {
-                    f_br[j] += update;
+                    state[i] += input[j] * self.pre.sparse_m_i[i][j];
                 }
-                for j in 0..16 {
-                    f_br[j] *= lambda[j];
-                }
-
-                s0 = f_br[0];
-                for j in 1..16 {
-                    s0 += f_br[j];
-                }
-                s0 = s0.div_2exp_u64(4);
             }
-
-            // Return to time domain.
-            dit_fft_16_mut(&mut f_br);
-            for j in 0..16 {
-                state[j] = f_br[j].div_2exp_u64(4);
+        }
+        // Loop over partial rounds: S-box + scalar constant + sparse matmul.
+        for r in 0..POSEIDON1_PARTIAL_ROUNDS {
+            state[0] = state[0].injective_exp_n();
+            if r < POSEIDON1_PARTIAL_ROUNDS - 1 {
+                state[0] += self.pre.sparse_round_constants[r];
             }
-            // Add residual from forward constant substitution.
-            for j in 0..16 {
-                state[j] += tb_residual[j];
+            // Sparse matrix multiply: O(16) per round.
+            let old_s0 = state[0];
+            state[0] = parity_dot(*state, self.pre.sparse_first_row[r]);
+            for i in 1..16 {
+                state[i] += old_s0 * self.pre.sparse_v[r][i - 1];
             }
         }
 
