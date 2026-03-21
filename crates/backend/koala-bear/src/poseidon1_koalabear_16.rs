@@ -2,6 +2,8 @@
 
 use std::sync::OnceLock;
 
+use core::ops::Mul;
+
 use crate::KoalaBear;
 use crate::symmetric::Permutation;
 use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
@@ -138,7 +140,10 @@ fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
 // =========================================================================
 
 #[inline(always)]
-fn parity_dot<R: Algebra<KoalaBear>, const N: usize>(lhs: [R; N], rhs: [KoalaBear; N]) -> R {
+fn parity_dot<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>, const N: usize>(
+    lhs: [R; N],
+    rhs: [KoalaBear; N],
+) -> R {
     let mut acc = lhs[0] * rhs[0];
     for i in 1..N {
         acc += lhs[i] * rhs[i];
@@ -147,7 +152,7 @@ fn parity_dot<R: Algebra<KoalaBear>, const N: usize>(lhs: [R; N], rhs: [KoalaBea
 }
 
 #[inline(always)]
-fn conv4<R: Algebra<KoalaBear>>(lhs: [R; 4], rhs: [KoalaBear; 4], output: &mut [R]) {
+fn conv4<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(lhs: [R; 4], rhs: [KoalaBear; 4], output: &mut [R]) {
     let u_p = [lhs[0] + lhs[2], lhs[1] + lhs[3]];
     let u_m = [lhs[0] - lhs[2], lhs[1] - lhs[3]];
     let v_p = [rhs[0] + rhs[2], rhs[1] + rhs[3]];
@@ -165,7 +170,11 @@ fn conv4<R: Algebra<KoalaBear>>(lhs: [R; 4], rhs: [KoalaBear; 4], output: &mut [
 }
 
 #[inline(always)]
-fn negacyclic_conv4<R: Algebra<KoalaBear>>(lhs: [R; 4], rhs: [KoalaBear; 4], output: &mut [R]) {
+fn negacyclic_conv4<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 4],
+    rhs: [KoalaBear; 4],
+    output: &mut [R],
+) {
     output[0] = parity_dot(lhs, [rhs[0], -rhs[3], -rhs[2], -rhs[1]]);
     output[1] = parity_dot(lhs, [rhs[1], rhs[0], -rhs[3], -rhs[2]]);
     output[2] = parity_dot(lhs, [rhs[2], rhs[1], rhs[0], -rhs[3]]);
@@ -173,7 +182,7 @@ fn negacyclic_conv4<R: Algebra<KoalaBear>>(lhs: [R; 4], rhs: [KoalaBear; 4], out
 }
 
 #[inline(always)]
-fn conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
+fn conv_n_recursive<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>, const N: usize, const H: usize>(
     lhs: [R; N],
     rhs: [KoalaBear; N],
     output: &mut [R],
@@ -201,7 +210,11 @@ fn conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
 }
 
 #[inline(always)]
-fn negacyclic_conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
+fn negacyclic_conv_n_recursive<
+    R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>,
+    const N: usize,
+    const H: usize,
+>(
     lhs: [R; N],
     rhs: [KoalaBear; N],
     output: &mut [R],
@@ -239,18 +252,22 @@ fn negacyclic_conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: u
 }
 
 #[inline(always)]
-fn conv8<R: Algebra<KoalaBear>>(lhs: [R; 8], rhs: [KoalaBear; 8], output: &mut [R]) {
+fn conv8<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(lhs: [R; 8], rhs: [KoalaBear; 8], output: &mut [R]) {
     conv_n_recursive(lhs, rhs, output, conv4::<R>, negacyclic_conv4::<R>);
 }
 
 #[inline(always)]
-fn negacyclic_conv8<R: Algebra<KoalaBear>>(lhs: [R; 8], rhs: [KoalaBear; 8], output: &mut [R]) {
+fn negacyclic_conv8<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 8],
+    rhs: [KoalaBear; 8],
+    output: &mut [R],
+) {
     negacyclic_conv_n_recursive(lhs, rhs, output, negacyclic_conv4::<R>);
 }
 
 /// Circulant MDS multiply via Karatsuba convolution: state = C * state.
 #[inline(always)]
-fn mds_karatsuba_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
+fn mds_karatsuba_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
     let input = *state;
     conv_n_recursive(
         input,
@@ -263,7 +280,7 @@ fn mds_karatsuba_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
 
 /// Public circulant MDS multiply.
 #[inline(always)]
-pub fn mds_circ_16<R: Algebra<KoalaBear>>(state: &mut [R; 16]) {
+pub fn mds_circ_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
     mds_karatsuba_16(state);
 }
 

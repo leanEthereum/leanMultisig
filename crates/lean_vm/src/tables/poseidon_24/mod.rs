@@ -4,6 +4,61 @@ use crate::*;
 use backend::*;
 use utils::{ToUsize, poseidon24_compress};
 
+/// Dispatch `mds_circ_24` through concrete types.
+#[inline(always)]
+fn mds_air_24<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_24]) {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                mds_circ_24::<$t>(unsafe { &mut *(state as *mut [A; WIDTH_24] as *mut [$t; WIDTH_24]) });
+                return;
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
+#[inline(always)]
+fn add_kb_24<A: 'static>(a: &mut A, value: F) {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                *unsafe { &mut *(a as *mut A as *mut $t) } += value;
+                return;
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
+#[inline(always)]
+fn mul_kb_24<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                let r = unsafe { std::ptr::read(&a as *const A as *const $t) } * value;
+                return unsafe { std::ptr::read(&r as *const $t as *const A) };
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
 mod trace_gen;
 pub use trace_gen::default_poseidon_24_row;
 pub use trace_gen::fill_trace_poseidon_24;
@@ -210,7 +265,7 @@ fn eval_poseidon1_24<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols24<A
     // --- Sparse partial rounds ---
     let frc = poseidon1_24_sparse_first_round_constants();
     for (s, &c) in state.iter_mut().zip(frc.iter()) {
-        add_koala_bear_24(s, c);
+        add_kb_24(s, c);
     }
     dense_mat_vec_air_24(poseidon1_24_sparse_m_i(), &mut state);
 
@@ -224,7 +279,7 @@ fn eval_poseidon1_24<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols24<A
         state[0] = local.partial_rounds[round];
         // Scalar round constant (not on last round)
         if round < PARTIAL_ROUNDS_24 - 1 {
-            add_koala_bear_24(&mut state[0], scalar_rc[round]);
+            add_kb_24(&mut state[0], scalar_rc[round]);
         }
         // Sparse matrix
         sparse_mat_air_24(&mut state, &first_rows[round], &v_vecs[round]);
@@ -264,15 +319,15 @@ fn eval_2_full_rounds_24<AB: AirBuilder>(
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
-        add_koala_bear_24(s, *r);
+        add_kb_24(s, *r);
         *s = s.cube();
     }
-    mds_karatsuba_air_24(state);
+    mds_air_24(state);
     for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
-        add_koala_bear_24(s, *r);
+        add_kb_24(s, *r);
         *s = s.cube();
     }
-    mds_karatsuba_air_24(state);
+    mds_air_24(state);
     for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
         builder.assert_eq(*state_i, *post_i);
         *state_i = *post_i;
@@ -289,15 +344,15 @@ fn eval_last_2_full_rounds_24<AB: AirBuilder>(
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
-        add_koala_bear_24(s, *r);
+        add_kb_24(s, *r);
         *s = s.cube();
     }
-    mds_karatsuba_air_24(state);
+    mds_air_24(state);
     for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
-        add_koala_bear_24(s, *r);
+        add_kb_24(s, *r);
         *s = s.cube();
     }
-    mds_karatsuba_air_24(state);
+    mds_air_24(state);
     // add inputs to outputs (for compression)
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += *init_state_i;
@@ -312,139 +367,13 @@ fn eval_last_2_full_rounds_24<AB: AirBuilder>(
 // AIR-friendly linear algebra for width-24 Karatsuba convolution (3→6→12→24)
 // =========================================================================
 
-// MDS circulant column (same canonical values as MDS_CIRC_COL_24 in poseidon1_koalabear_24.rs)
-const MDS_CIRC_COL_24_CANONICAL: [F; 24] = KoalaBear::new_array([
-    0x2D0AAAAB, 0x0878A07F, 0x17E118F6, 0x5C7790FA, 0x0A6E572C, 0x6BE4DF69, 0x0524C7F2, 0x0C23DC41, 0x3C2C3DBE,
-    0x1689DD98, 0x5D57AFC2, 0x2495A71D, 0x68FC71C8, 0x0360405D, 0x26D52A61, 0x3C0F5038, 0x77CDA9E2, 0x729601A7,
-    0x18D6F3CA, 0x60703026, 0x6D91A8D5, 0x04ECBEB5, 0x17F5551D, 0x64850517,
-]);
-
-#[inline]
-fn mds_karatsuba_air_24<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_24]) {
-    let input = *state;
-    let mut output = [A::ZERO; WIDTH_24];
-    conv_air_24::<A, 24, 12>(
-        input,
-        MDS_CIRC_COL_24_CANONICAL,
-        &mut output,
-        conv12_air::<A>,
-        negacyclic_conv12_air::<A>,
-    );
-    *state = output;
-}
-
-#[inline(always)]
-fn parity_dot_air_24<A: PrimeCharacteristicRing + 'static, const N: usize>(lhs: [A; N], rhs: [F; N]) -> A {
-    let mut acc = mul_koala_bear_24(lhs[0], rhs[0]);
-    for i in 1..N {
-        acc += mul_koala_bear_24(lhs[i], rhs[i]);
-    }
-    acc
-}
-
-#[inline(always)]
-fn conv3_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 3], rhs: [F; 3], output: &mut [A]) {
-    output[0] = parity_dot_air_24(lhs, [rhs[0], rhs[2], rhs[1]]);
-    output[1] = parity_dot_air_24(lhs, [rhs[1], rhs[0], rhs[2]]);
-    output[2] = parity_dot_air_24(lhs, [rhs[2], rhs[1], rhs[0]]);
-}
-
-#[inline(always)]
-fn negacyclic_conv3_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 3], rhs: [F; 3], output: &mut [A]) {
-    output[0] = parity_dot_air_24(lhs, [rhs[0], -rhs[2], -rhs[1]]);
-    output[1] = parity_dot_air_24(lhs, [rhs[1], rhs[0], -rhs[2]]);
-    output[2] = parity_dot_air_24(lhs, [rhs[2], rhs[1], rhs[0]]);
-}
-
-#[inline(always)]
-fn conv_air_24<A: PrimeCharacteristicRing + 'static, const N: usize, const H: usize>(
-    lhs: [A; N],
-    rhs: [F; N],
-    output: &mut [A],
-    inner_conv: fn([A; H], [F; H], &mut [A]),
-    inner_neg: fn([A; H], [F; H], &mut [A]),
-) {
-    let mut lp = [A::ZERO; H];
-    let mut ln = [A::ZERO; H];
-    let mut rp = [F::ZERO; H];
-    let mut rn = [F::ZERO; H];
-    for i in 0..H {
-        lp[i] = lhs[i] + lhs[i + H];
-        ln[i] = lhs[i] - lhs[i + H];
-        rp[i] = rhs[i] + rhs[i + H];
-        rn[i] = rhs[i] - rhs[i + H];
-    }
-    let (left, right) = output.split_at_mut(H);
-    inner_neg(ln, rn, left);
-    inner_conv(lp, rp, right);
-    for i in 0..H {
-        left[i] += right[i];
-        left[i] = left[i].halve();
-        right[i] -= left[i];
-    }
-}
-
-#[inline(always)]
-fn negacyclic_conv_air_24<A: PrimeCharacteristicRing + 'static, const N: usize, const H: usize>(
-    lhs: [A; N],
-    rhs: [F; N],
-    output: &mut [A],
-    inner_neg: fn([A; H], [F; H], &mut [A]),
-) {
-    let mut le = [A::ZERO; H];
-    let mut lo = [A::ZERO; H];
-    let mut ls = [A::ZERO; H];
-    let mut re = [F::ZERO; H];
-    let mut ro = [F::ZERO; H];
-    let mut rs = [F::ZERO; H];
-    for i in 0..H {
-        le[i] = lhs[2 * i];
-        lo[i] = lhs[2 * i + 1];
-        ls[i] = le[i] + lo[i];
-        re[i] = rhs[2 * i];
-        ro[i] = rhs[2 * i + 1];
-        rs[i] = re[i] + ro[i];
-    }
-    let mut es = [A::ZERO; H];
-    let (left, right) = output.split_at_mut(H);
-    inner_neg(le, re, &mut es);
-    inner_neg(lo, ro, left);
-    inner_neg(ls, rs, right);
-    right[0] -= es[0] + left[0];
-    es[0] -= left[H - 1];
-    for i in 1..H {
-        right[i] -= es[i] + left[i];
-        es[i] += left[i - 1];
-    }
-    for i in 0..H {
-        output[2 * i] = es[i];
-        output[2 * i + 1] = output[i + H];
-    }
-}
-
-fn conv6_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 6], rhs: [F; 6], output: &mut [A]) {
-    conv_air_24(lhs, rhs, output, conv3_air::<A>, negacyclic_conv3_air::<A>);
-}
-
-fn negacyclic_conv6_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 6], rhs: [F; 6], output: &mut [A]) {
-    negacyclic_conv_air_24(lhs, rhs, output, negacyclic_conv3_air::<A>);
-}
-
-fn conv12_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 12], rhs: [F; 12], output: &mut [A]) {
-    conv_air_24(lhs, rhs, output, conv6_air::<A>, negacyclic_conv6_air::<A>);
-}
-
-fn negacyclic_conv12_air<A: PrimeCharacteristicRing + 'static>(lhs: [A; 12], rhs: [F; 12], output: &mut [A]) {
-    negacyclic_conv_air_24(lhs, rhs, output, negacyclic_conv6_air::<A>);
-}
-
 #[inline]
 fn dense_mat_vec_air_24<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 24]; 24], state: &mut [A; WIDTH_24]) {
     let input = *state;
     for i in 0..WIDTH_24 {
         let mut acc = A::ZERO;
         for j in 0..WIDTH_24 {
-            acc += mul_koala_bear_24(input[j], mat[i][j]);
+            acc += mul_kb_24(input[j], mat[i][j]);
         }
         state[i] = acc;
     }
@@ -459,49 +388,10 @@ fn sparse_mat_air_24<A: PrimeCharacteristicRing + 'static>(
     let old_s0 = state[0];
     let mut new_s0 = A::ZERO;
     for j in 0..WIDTH_24 {
-        new_s0 += mul_koala_bear_24(state[j], first_row[j]);
+        new_s0 += mul_kb_24(state[j], first_row[j]);
     }
     state[0] = new_s0;
     for i in 1..WIDTH_24 {
-        state[i] += mul_koala_bear_24(old_s0, v[i - 1]);
-    }
-}
-
-#[inline(always)]
-fn add_koala_bear_24<A: 'static>(a: &mut A, value: F) {
-    if TypeId::of::<A>() == TypeId::of::<F>() {
-        *unsafe { std::mem::transmute::<&mut A, &mut F>(a) } += value;
-    } else if TypeId::of::<A>() == TypeId::of::<EF>() {
-        *unsafe { std::mem::transmute::<&mut A, &mut EF>(a) } += value;
-    } else if TypeId::of::<A>() == TypeId::of::<FPacking<F>>() {
-        *unsafe { std::mem::transmute::<&mut A, &mut FPacking<F>>(a) } += value;
-    } else if TypeId::of::<A>() == TypeId::of::<EFPacking<EF>>() {
-        *unsafe { std::mem::transmute::<&mut A, &mut EFPacking<EF>>(a) } += FPacking::<F>::from(value);
-    } else if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
-        *unsafe { std::mem::transmute::<&mut A, &mut SymbolicExpression<KoalaBear>>(a) } += value;
-    } else {
-        unreachable!()
-    }
-}
-
-#[inline(always)]
-fn mul_koala_bear_24<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
-    if TypeId::of::<A>() == TypeId::of::<F>() {
-        let r = *unsafe { std::mem::transmute::<&A, &F>(&a) } * value;
-        unsafe { std::mem::transmute_copy::<F, A>(&r) }
-    } else if TypeId::of::<A>() == TypeId::of::<EF>() {
-        let r = *unsafe { std::mem::transmute::<&A, &EF>(&a) } * value;
-        unsafe { std::mem::transmute_copy::<EF, A>(&r) }
-    } else if TypeId::of::<A>() == TypeId::of::<FPacking<F>>() {
-        let r = *unsafe { std::mem::transmute::<&A, &FPacking<F>>(&a) } * value;
-        unsafe { std::mem::transmute_copy::<FPacking<F>, A>(&r) }
-    } else if TypeId::of::<A>() == TypeId::of::<EFPacking<EF>>() {
-        let r = *unsafe { std::mem::transmute::<&A, &EFPacking<EF>>(&a) } * FPacking::<F>::from(value);
-        unsafe { std::mem::transmute_copy::<EFPacking<EF>, A>(&r) }
-    } else if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
-        let r = *unsafe { std::mem::transmute::<&A, &SymbolicExpression<KoalaBear>>(&a) } * value;
-        unsafe { std::mem::transmute_copy::<SymbolicExpression<KoalaBear>, A>(&r) }
-    } else {
-        unreachable!()
+        state[i] += mul_kb_24(old_s0, v[i - 1]);
     }
 }
