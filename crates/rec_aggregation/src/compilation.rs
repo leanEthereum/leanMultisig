@@ -11,7 +11,10 @@ use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W};
+use xmss::{
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
+    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
+};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
@@ -364,6 +367,17 @@ fn build_replacements(
     replacements.insert(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
+    );
+    replacements.insert(
+        "WOTS_PUBKET_SPONGE_DOMAIN_SEP_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            WOTS_PUBKET_SPONGE_DOMAIN_SEP
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     );
 
     // Bytecode zero eval

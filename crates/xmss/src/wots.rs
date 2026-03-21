@@ -5,6 +5,10 @@ use utils::{ToUsize, poseidon16_compress, to_little_endian_bits};
 
 use crate::*;
 
+pub const WOTS_PUBKET_SPONGE_DOMAIN_SEP: [F; POSEIDON24_CAPACITY] = F::new_array([
+    2060061975, 916902315, 229801915, 83751504, 2093549181, 1743125625, 721042244, 1252069948, 1192880636,
+]);
+
 #[derive(Debug)]
 pub struct WotsSecretKey {
     pub pre_images: [Digest; V],
@@ -121,7 +125,7 @@ impl WotsPublicKey {
     /// V*8 FE absorbed in ceil(V*8/15) steps.
     pub fn hash_with_poseidon_trace(&self, poseidon_24_trace: &mut Poseidon24History) -> Digest {
         let flat: Vec<F> = self.0.iter().flat_map(|d| d.iter().copied()).collect();
-        let mut capacity = [F::ZERO; POSEIDON24_CAPACITY];
+        let mut capacity = WOTS_PUBKET_SPONGE_DOMAIN_SEP;
         for chunk in flat.chunks(POSEIDON24_RATE) {
             let mut input = [F::ZERO; 24];
             input[..POSEIDON24_CAPACITY].copy_from_slice(&capacity);
