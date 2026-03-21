@@ -6,7 +6,7 @@
 
 **Field:** KoalaBear, p = 2^31 - 2^24 + 1. Each field element fits in a u32.
 
-**Hash:** Poseidon2 (width 24) in compression mode: `compress: [F; 24] -> [F; 9]` (capacity 9, rate 15). Applies the Poseidon2 permutation, adds the input (feed-forward), and returns the first 9 elements.
+**Hash:** Poseidon1 (width 24) in compression mode: `compress: [F; 24] -> [F; 9]` (capacity 9, rate 15). Applies the Poseidon1 permutation, adds the input (feed-forward), and returns the first 9 elements.
 
 **Digest:** 8 field elements (~248 bits). Used for tree nodes and chain values (taken from first 8 of the 9-element output).
 
@@ -35,7 +35,7 @@
 
 Converts (message, slot, public_param, randomness) into 45 chain indices via a **fixed-sum encoding** (indices sum to TARGET_SUM, eliminating the need for checksum chains).
 
-1. `compressed = Poseidon24_compress(message(9) || tweak(2) || randomness(7) || public_param(5) || 0)`
+1. `compressed = Poseidon1_24_compress(message(9) || tweak(2) || randomness(7) || public_param(5) || 0)`
 2. Reject if any element of compressed equals -1 (uniformity guard).
 3. Extract 15 bits per element (little-endian), split into 3-bit chunks: 9 elements * 5 values = 45 values.
 4. Valid iff: all 45 values sum to 200. Otherwise retry with new randomness.
@@ -56,7 +56,7 @@ Domain separation via public_param ensures multi-user security without needing g
 
 ## 3. XMSS
 
-**Tree:** Binary Merkle tree of depth LOG_LIFETIME = 32 (2^32 slots). Nodes = `Poseidon24_compress(left(8) || right(8) || tweak(2) || public_param(5) || 0)[0..8]`.
+**Tree:** Binary Merkle tree of depth LOG_LIFETIME = 32 (2^32 slots). Nodes = `Poseidon1_24_compress(left(8) || right(8) || tweak(2) || public_param(5) || 0)[0..8]`.
 
 ### 3.1 Key Generation
 
