@@ -368,6 +368,14 @@ def copy_8(a, b):
 
 
 @inline
+def copy_15(a, b):
+    copy_5(a, b)
+    copy_5(a + 5, b + 5)
+    copy_5(a + 10, b + 10)
+    return
+
+
+@inline
 def copy_16(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + 5, ONE_EF_PTR, b + 5)

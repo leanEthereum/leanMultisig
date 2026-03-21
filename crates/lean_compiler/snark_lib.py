@@ -128,6 +128,8 @@ def log2_ceil(x: int) -> int:
 def div_ceil(a: int, b: int) -> int:
     return (a + b - 1) // b
 
+def div_floor(a: int, b: int) -> int:
+    return a // b
 
 def next_multiple_of(x: int, n: int) -> int:
     return x + (n - x % n) % n

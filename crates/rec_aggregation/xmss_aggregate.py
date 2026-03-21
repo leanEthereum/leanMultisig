@@ -16,6 +16,7 @@ MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = 8  # LOG_LIFETIME // MERKLE_LEVELS_PER_CHUNK = 32 // 4
 
 POSEIDON24_CAP = 9
+POSEIDON24_RATE = 15
 CHUNKS_PER_FE = 24 / W  # 8
 NUM_ENCODING_FE = div_ceil(V, CHUNKS_PER_FE)  # ceil(V/8)
 
@@ -125,16 +126,23 @@ def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_twea
 
 @inline
 def wots_pk_hash_p24(wots_pk):
-    N_WOTS_HASH_STEPS = V * DIGEST_LEN / 15
-    debug_assert(V * DIGEST_LEN == N_WOTS_HASH_STEPS * 15)
+    TOTAL = V * DIGEST_LEN
+    REMAINDER = TOTAL % POSEIDON24_RATE
     capacity: Mut = Array(POSEIDON24_CAP)
     set_to_9_zeros(capacity)
-    for step in unroll(0, N_WOTS_HASH_STEPS):
-        src = wots_pk + step * 15
-        rate = Array(15)
-        copy_5(src, rate)
-        copy_5(src + 5, rate + 5)
-        copy_5(src + 10, rate + 10)
+    N_FULL_STEPS = div_floor(TOTAL, POSEIDON24_RATE)
+    for step in unroll(0, N_FULL_STEPS):
+        src = wots_pk + step * POSEIDON24_RATE
+        new_capacity = Array(POSEIDON24_CAP)
+        poseidon24_compress(capacity, src, new_capacity)
+        capacity = new_capacity
+    if REMAINDER != 0:
+        src = wots_pk + N_FULL_STEPS * POSEIDON24_RATE
+        rate = Array(POSEIDON24_RATE)
+        for i in unroll(0, REMAINDER):
+            rate[i] = src[i]
+        for i in unroll(REMAINDER, POSEIDON24_RATE):
+            rate[i] = 0
         new_capacity = Array(POSEIDON24_CAP)
         poseidon24_compress(capacity, rate, new_capacity)
         capacity = new_capacity

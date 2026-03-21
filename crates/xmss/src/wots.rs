@@ -228,7 +228,7 @@ pub fn wots_encode_with_poseidon_trace(
     // Extract V values from 9 output elements.
     // Each element provides 24/W = 8 values at W=3 bits each (24 bits used).
     // 9 elements * 8 values = 72 total, take first V.
-    let bits_per_element = (24 / W) * W; // 24
+    let bits_per_element = 24;
 
     let all_indices: Vec<_> = compressed
         .iter()
