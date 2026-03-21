@@ -5,9 +5,15 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
-use leansig_wrapper::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE
-};
+use leansig_wrapper::CHAIN_LENGTH;
+use leansig_wrapper::TWEAK_LEN;
+use leansig_wrapper::V;
+use leansig_wrapper::XmssPublicKey;
+use leansig_wrapper::chain_tweak;
+use leansig_wrapper::merkle_tweak;
+use leansig_wrapper::pubkey_merkle_root;
+use leansig_wrapper::pubkey_public_parameter;
+use leansig_wrapper::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE};
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 
@@ -41,8 +47,8 @@ pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
     for pk in pub_keys {
         let mut input = [F::ZERO; 24];
         input[..9].copy_from_slice(&capacity);
-        input[9..17].copy_from_slice(&pk.merkle_root);
-        input[17..22].copy_from_slice(&pk.public_param);
+        input[9..17].copy_from_slice(&pubkey_merkle_root(pk));
+        input[17..22].copy_from_slice(&pubkey_public_parameter(pk));
         // input[22..24] = zeros (padding)
         capacity = utils::poseidon24_compress(input);
     }
@@ -67,23 +73,23 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 
 /// Pre-compute ALL tweaks for a slot: encoding(2) + chain(V*CHAIN_LENGTH*2) + merkle(LOG_LIFETIME*2).
 fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
-    let n = xmss::TWEAK_LEN + xmss::V * xmss::CHAIN_LENGTH * xmss::TWEAK_LEN + xmss::LOG_LIFETIME * xmss::TWEAK_LEN;
+    let n = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
     let mut tweaks = Vec::with_capacity(n);
     // Encoding tweak
-    let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_ENCODING, 0, slot);
+    let [t0, t1] = [F::from_u32(slot % F::ORDER_U32), F::from_u32(slot / F::ORDER_U32)];
     tweaks.extend([t0, t1]);
     // Chain tweaks
-    for chain_idx in 0..xmss::V {
-        for step in 0..xmss::CHAIN_LENGTH {
-            let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_CHAIN, chain_idx * xmss::CHAIN_LENGTH + step, slot);
+    for chain_idx in 0..V {
+        for step in 0..CHAIN_LENGTH {
+            let [t0, t1] = chain_tweak(slot, chain_idx as u32, step as u32);
             tweaks.extend([t0, t1]);
         }
     }
     // Merkle tweaks
-    for level in 0..xmss::LOG_LIFETIME {
+    for level in 0..LOG_LIFETIME {
         let parent_level = level + 1;
         let parent_index = if parent_level < 32 { slot >> parent_level } else { 0 };
-        let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_MERKLE, parent_level, parent_index);
+        let [t0, t1] = merkle_tweak(level, parent_index as u32);
         tweaks.extend([t0, t1]);
     }
     assert_eq!(tweaks.len(), n);
