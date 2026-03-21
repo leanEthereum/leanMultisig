@@ -13,7 +13,6 @@ prox-gaps-conjecture = []
 pest.workspace = true
 pest_derive.workspace = true
 utils.workspace = true
-xmss.workspace = true
 rand.workspace = true
 
 tracing.workspace = true
@@ -26,5 +25,4 @@ itertools.workspace = true
 poseidon_gkr.workspace = true
 
 [dev-dependencies]
-xmss.workspace = true
 rec_aggregation.workspace = true

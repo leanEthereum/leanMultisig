@@ -1,0 +1,11 @@
+[package]
+name = "leansig_wrapper"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+leansig.workspace = true
+backend.workspace = true

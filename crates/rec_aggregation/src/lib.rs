@@ -5,12 +5,11 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
+use leansig_wrapper::{
+    LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE
+};
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, Poseidon24History, SIG_SIZE_FE, XmssPublicKey, XmssSignature,
-    slot_to_field_elements, xmss_verify_with_poseidon_trace,
-};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
