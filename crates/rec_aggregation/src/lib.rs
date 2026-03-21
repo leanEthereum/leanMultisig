@@ -369,7 +369,7 @@ pub fn xmss_aggregate(
     }
 
     let n_dup = dup_pub_keys.len();
-    let pubkey_fe_size = DIGEST_LEN + xmss::PUBLIC_PARAM_LEN_FE;
+    let pubkey_fe_size = DIGEST_LEN + PUBLIC_PARAM_LEN_FE;
     let pubkeys_block_size = (n_sigs + n_dup) * pubkey_fe_size;
 
     // Compute absolute memory addresses for each source block
@@ -393,12 +393,12 @@ pub fn xmss_aggregate(
     assert_eq!(private_input.len(), header_size);
 
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
-        private_input.extend_from_slice(&pk.public_param);
+        private_input.extend_from_slice(&pubkey_merkle_root(pk));
+        private_input.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
-        private_input.extend_from_slice(&pk.public_param);
+        private_input.extend_from_slice(&pubkey_merkle_root(pk));
+        private_input.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for block in &source_blocks {
         private_input.extend_from_slice(block);
@@ -461,7 +461,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
 
 #[instrument(skip_all)]
 fn precompute_poseidons(
-    raw_signers: &[(XmssPublicKey, XmssSignature)],
+    raw_signers: &[(XmssPublicKey, LeanSigSignature)],
     message: &[F; MESSAGE_LEN_FE],
 ) -> (Poseidon16History, Poseidon24History) {
     let traces: Vec<_> = raw_signers
