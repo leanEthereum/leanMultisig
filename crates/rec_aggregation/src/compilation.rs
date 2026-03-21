@@ -36,11 +36,9 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
     let n_all_tweaks_fe = (1 + V * (1 << W) + LOG_LIFETIME) * TWEAK_LEN;
-    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + slot(2)
-    //   + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
+    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
     let pub_input_size = 1
         + DIGEST_LEN
-        + 2
         + MESSAGE_LEN_FE
         + N_MERKLE_CHUNKS_FOR_SLOT
         + n_all_tweaks_fe
