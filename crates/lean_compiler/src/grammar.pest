@@ -121,6 +121,7 @@ primary = {
     log2_ceil_expr |
     next_multiple_of_expr |
     div_ceil_expr |
+    div_floor_expr |
     saturating_sub_expr |
     len_expr |
     array_access_expr |
@@ -138,6 +139,7 @@ function_call_expr = { identifier ~ "(" ~ tuple_expression? ~ ")" }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 div_ceil_expr = { "div_ceil" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
+div_floor_expr = { "div_floor" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 saturating_sub_expr = { "saturating_sub" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 len_expr = { "len" ~ "(" ~ len_argument ~ ")" }
 len_argument = { identifier ~ ("[" ~ expression ~ "]")* }
