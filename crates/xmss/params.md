@@ -1,4 +1,4 @@
-# XMSS parameters (WIP)
+# XMSS parameters
 
 > **Warning:** The current implementation does not match the [leanSig](https://github.com/leanEthereum/leanSig) paper and does not provide 128-bit security in the Standard Model (though it may still be secure in the ROM/QROM). Expect changes in the future.
 
@@ -6,67 +6,67 @@
 
 **Field:** KoalaBear, p = 2^31 - 2^24 + 1. Each field element fits in a u32.
 
-**Hash:** Poseidon2 (width 16) in compression mode: `compress: [F; 16] -> [F; 8]`. Applies the Poseidon2 permutation, adds the input (feed-forward), and returns the first 8 elements.
+**Hash:** Poseidon2 (width 24) in compression mode: `compress: [F; 24] -> [F; 9]` (capacity 9, rate 15). Applies the Poseidon2 permutation, adds the input (feed-forward), and returns the first 9 elements.
 
-**Digest:** 8 field elements (~248 bits). Used for tree nodes, and chain values.
+**Digest:** 8 field elements (~248 bits). Used for tree nodes and chain values (taken from first 8 of the 9-element output).
 
-**Chain step:** `chain_step(x) = compress(x, 0)`. Iterated n times: `iterate_hash(x, n) = chain_step^n(x)`.
+**Public parameter:** 5 field elements, derived deterministically from the seed.
+
+**Tweaks:** 2 field elements for domain separation. Encodes (tweak_type, sub_position, index) where tweak_type distinguishes chain/wots_pk/merkle/encoding operations.
+
+**Chain step:** `chain_step(x, tweak, pp) = compress(zeros(9) || x(8) || tweak(2) || pp(5))[0..8]`. Iterated n times with per-step tweaks.
 
 ## 2. WOTS
 
 | Parameter | Symbol | Value |
 |---|---|---|
-| Chains | V | 40 |
+| Chains | V | 45 |
 | Winternitz parameter | W | 3 |
 | Chain length | CHAIN_LENGTH | 2^W = 8 |
-| Verifier chain hashes | NUM_CHAIN_HASHES | 120 |
-| Signer chain hashes | TARGET_SUM | 160 (= V*(CHAIN_LENGTH-1) - NUM_CHAIN_HASHES) |
-| Grinding chains | V_GRINDING | 3 |
+| Verifier chain hashes | NUM_CHAIN_HASHES | 115 |
+| Signer chain hashes | TARGET_SUM | 200 (= V*(CHAIN_LENGTH-1) - NUM_CHAIN_HASHES) |
 | Message length | MESSAGE_LEN_FE | 9 |
 | Randomness length | RANDOMNESS_LEN_FE | 7 |
-| Truncated root length | TRUNCATED_MERKLE_ROOT_LEN_FE | 6 |
+| Public parameter length | PUBLIC_PARAM_LEN_FE | 5 |
+| Tweak length | TWEAK_LEN | 2 |
+| Secret size (per chain) | DIGEST_SIZE | 8 |
 
 ### 2.1 Encoding
 
-Converts (message, randomness, slot, truncated_merkle_root) into 40 chain indices via a **fixed-sum encoding** (indices sum to TARGET_SUM, eliminating the need for checksum chains).
+Converts (message, slot, public_param, randomness) into 45 chain indices via a **fixed-sum encoding** (indices sum to TARGET_SUM, eliminating the need for checksum chains).
 
-1. `A = compress(message[0..8], [message[8], randomness[0..7]])`
-2. `B = compress(A, [slot_lo, slot_hi, merkle_root[0..6]])` where slot is split into two 16-bit field elements.
-3. Reject if any element of B equals -1 (uniformity guard).
-4. Extract 24 bits per element of B (little-endian), split into 3-bit chunks, take first 43.
-5. Valid iff: first 40 sum to 160, last 3 all equal 7. Otherwise retry with new randomness.
+1. `compressed = Poseidon24_compress(message(9) || tweak(2) || randomness(7) || public_param(5) || 0)`
+2. Reject if any element of compressed equals -1 (uniformity guard).
+3. Extract 15 bits per element (little-endian), split into 3-bit chunks: 9 elements * 5 values = 45 values.
+4. Valid iff: all 45 values sum to 200. Otherwise retry with new randomness.
 
-(Note: adding part of the merkle root to the encoding computation contributes to multi-user security via domain-separation, otherwise the security of the encoding W * (V + V_GRINDING) would degrade bellow 128 bits with multiple users.)
+Domain separation via public_param ensures multi-user security without needing grinding chains.
 
 ### 2.2 Keys
 
-- **Secret key:** 40 random pre-image digests.
-- **Public key:** `pk[i] = iterate_hash(pre_image[i], 7)` for each chain.
-- **Public key hash:** sequential left fold: `compress(compress(...compress(pk[0], pk[1])..., pk[38]), pk[39])` (39 compressions).
+- **Secret key:** 45 random pre-image digests (8 FE each).
+- **Public key:** `pk[i] = iterate_hash(pre_image[i], 7, pp, slot, i, 0)` for each chain.
+- **Public key hash:** sequential Poseidon24 sponge: for each chain i, `capacity = compress(capacity(9) || pk[i](8) || tweak(2) || pp(5))` (45 compressions). Output = capacity[0..8].
 
 ### 2.3 Sign and Verify
 
-**Sign:** Find randomness r yielding a valid encoding, then `chain_tip[i] = iterate_hash(pre_image[i], encoding[i])`. Signature = (chain_tips, r).
+**Sign:** Find randomness r yielding a valid encoding, then `chain_tip[i] = iterate_hash(pre_image[i], encoding[i], pp, slot, i, 0)`. Signature = (chain_tips, r).
 
-**Verify (public key recovery):** Recompute encoding from (message, slot, truncated_root, r), then `recovered_pk[i] = iterate_hash(chain_tip[i], 7 - encoding[i])`.
+**Verify (public key recovery):** Recompute encoding from (message, slot, public_param, r), then `recovered_pk[i] = iterate_hash(chain_tip[i], 7 - encoding[i], pp, slot, i, encoding[i])`.
 
 ## 3. XMSS
 
-**Tree:** Binary Merkle tree of depth LOG_LIFETIME = 32 (2^32 slots). Nodes = `compress(left, right)`.
+**Tree:** Binary Merkle tree of depth LOG_LIFETIME = 32 (2^32 slots). Nodes = `Poseidon24_compress(left(8) || right(8) || tweak(2) || public_param(5) || 0)[0..8]`.
 
 ### 3.1 Key Generation
 
-Inputs: seed (32 bytes), slot range [start, end]. Only WOTS leaves for [start, end] are generated; Merkle nodes outside this range are filled with deterministic random digests (derived from the seed). To an observer, the resulting tree is indistinguishable from a full 2^32-leaf tree.
+Inputs: seed (20 bytes), slot range [start, end]. Only WOTS leaves for [start, end] are generated; Merkle nodes outside this range are filled with deterministic random digests (derived from the seed). Public parameter derived deterministically from seed (domain separator 0x02).
 
-**Public key:** the Merkle root (single digest).
-
-
-...
-TODO
+**Public key:** Merkle root (8 FE) + public parameter (5 FE) = 13 field elements.
 
 ## 4. Properties
 
-- public key size: 31 bytes
+- public key size: 13 field elements = ~50 bytes
 - num. hashes at signing: < 2^16 (mostly grinding at encoding)
-- num. hashes at verification: 2 (encoding) + NUM_CHAIN_HASHES + V + LOG_LIFETIME = 194
-- sig. size : RANDOMNESS_LEN_FE + 8 * (V + LOG_LIFETIME) = 583 field elements = 2.21 KiB
+- num. hashes at verification: 1 (encoding) + NUM_CHAIN_HASHES + V (WOTS PK hash) + LOG_LIFETIME (Merkle) = 1 + 115 + 45 + 32 = 193
+- sig. size: RANDOMNESS_LEN_FE + 8 * (V + LOG_LIFETIME) = 7 + 8 * 77 = 623 field elements = 2.43 KiB

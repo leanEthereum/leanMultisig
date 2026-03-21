@@ -13,14 +13,16 @@ use crate::{
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
-use xmss::Poseidon16History;
+use xmss::{Poseidon16History, Poseidon24History};
 
 #[derive(Debug)]
 pub struct ExecutionWitness<'a> {
     /// Private field elements loaded into memory after public memory.
     pub private_input: &'a [F],
-    /// Used for performance.
+    /// Precomputed Poseidon16 hashes (for non-XMSS usage).
     pub poseidons_16_precomputed: &'a Poseidon16History,
+    /// Precomputed Poseidon24 hashes (from XMSS verification).
+    pub poseidons_24_precomputed: &'a Poseidon24History,
     /// XMSS signatures, one Vec<F> per signature (each of length SIG_SIZE_FE)
     pub xmss_signatures: &'a [Vec<F>],
     /// Merkle paths for WHIR recursion, one Vec<F> per hint_merkle call
@@ -29,11 +31,12 @@ pub struct ExecutionWitness<'a> {
 
 impl ExecutionWitness<'_> {
     pub fn empty() -> Self {
-        // Use a reference to a local static to provide a &Poseidon16History
-        static EMPTY: Poseidon16History = vec![];
+        static EMPTY_16: Poseidon16History = vec![];
+        static EMPTY_24: Poseidon24History = vec![];
         Self {
             private_input: &[],
-            poseidons_16_precomputed: &EMPTY,
+            poseidons_16_precomputed: &EMPTY_16,
+            poseidons_24_precomputed: &EMPTY_24,
             xmss_signatures: &[],
             merkle_paths: &[],
         }
@@ -159,6 +162,7 @@ fn execute_bytecode_helper(
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     let private_input = witness.private_input;
     let poseidons_precomputed = witness.poseidons_16_precomputed;
+    let poseidons_24_precomputed = witness.poseidons_24_precomputed;
     let xmss_signatures = witness.xmss_signatures;
     let merkle_paths = witness.merkle_paths;
 
@@ -196,6 +200,7 @@ fn execute_bytecode_helper(
     let mut fps = Vec::new();
 
     let mut n_poseidon_precomputed_used = 0;
+    let mut n_poseidon24_precomputed_used = 0;
 
     let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
@@ -258,6 +263,8 @@ fn execute_bytecode_helper(
             jump_counts: &mut jump_counts,
             poseidon16_precomputed: poseidons_precomputed,
             n_poseidon16_precomputed_used: &mut n_poseidon_precomputed_used,
+            poseidon24_precomputed: poseidons_24_precomputed,
+            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction
             .execute_instruction(&mut instruction_ctx)
@@ -273,6 +280,11 @@ fn execute_bytecode_helper(
         n_poseidon_precomputed_used,
         poseidons_precomputed.len(),
         "Not all precomputed Poseidon16 were used"
+    );
+    assert_eq!(
+        n_poseidon24_precomputed_used,
+        poseidons_24_precomputed.len(),
+        "Not all precomputed Poseidon24 were used"
     );
     assert_eq!(
         xmss_hint_index,

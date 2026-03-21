@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
@@ -29,12 +29,19 @@ pub fn init_aggregation_bytecode() {
 
 fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
-    let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
+    let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
-    //                   + message + merkle_chunks_for_slot + bytecode_claim_padded + bytecode_hash(8)
-    let pub_input_size =
-        1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
+    let n_all_tweaks_fe = (1 + V * (1 << W) + LOG_LIFETIME) * TWEAK_LEN;
+    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + slot(2)
+    //   + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
+    let pub_input_size = 1
+        + DIGEST_LEN
+        + 2
+        + MESSAGE_LEN_FE
+        + N_MERKLE_CHUNKS_FOR_SLOT
+        + n_all_tweaks_fe
+        + claim_data_size_padded
+        + DIGEST_LEN;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let replacements = build_replacements(
         inner_program_log_size,
@@ -53,7 +60,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 18;
+    let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -344,8 +351,12 @@ fn build_replacements(
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
-    replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
+    replacements.insert(
+        "PUBLIC_PARAM_LEN_PLACEHOLDER".to_string(),
+        PUBLIC_PARAM_LEN_FE.to_string(),
+    );
+    replacements.insert("TWEAK_LEN_PLACEHOLDER".to_string(), TWEAK_LEN.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
     replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());

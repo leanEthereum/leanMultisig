@@ -72,6 +72,8 @@ pub struct InstructionContext<'a> {
     pub jump_counts: &'a mut usize,
     pub poseidon16_precomputed: &'a [([F; 16], [F; 8])],
     pub n_poseidon16_precomputed_used: &'a mut usize,
+    pub poseidon24_precomputed: &'a [([F; 24], [F; 9])],
+    pub n_poseidon24_precomputed_used: &'a mut usize,
 }
 
 impl Instruction {

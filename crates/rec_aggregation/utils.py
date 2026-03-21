@@ -353,6 +353,14 @@ def set_to_8_zeros(a):
 
 
 @inline
+def set_to_9_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, zero_ptr)
+    return
+
+
+@inline
 def copy_8(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
