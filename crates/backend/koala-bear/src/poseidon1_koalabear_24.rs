@@ -161,32 +161,35 @@ pub fn mds_circ_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
 }
 
 // =========================================================================
-// NEON-optimized Karatsuba using dot_product (fewer Montgomery reductions)
+// NEON-optimized Karatsuba using mixed_dot_product (fewer Montgomery reductions)
 //
-// On NEON, dot_product_4 accumulates 4 products in 64-bit precision and
-// does a single Montgomery reduction. This is ~4x fewer reductions than
-// the generic parity_dot which reduces per-multiply.
+// On NEON, mixed_dot_product accumulates products in 64-bit precision and
+// does a single Montgomery reduction. The rhs (MDS column) stays as scalar
+// KoalaBear values throughout the recursion, avoiding redundant NEON
+// add/sub operations and SIMD port contention. Only at the leaf level
+// are scalars broadcast to NEON lanes for the multiply-accumulate.
 // =========================================================================
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod neon_karatsuba {
     use super::*;
     type P = PackedKB;
+    type F = KoalaBear;
 
     #[inline(always)]
-    fn pdot<const N: usize>(lhs: [P; N], rhs: [P; N]) -> P {
-        P::dot_product(&lhs, &rhs)
+    fn pdot<const N: usize>(lhs: [P; N], rhs: [F; N]) -> P {
+        P::mixed_dot_product(&lhs, &rhs)
     }
 
     #[inline(always)]
-    fn conv3(lhs: [P; 3], rhs: [P; 3], output: &mut [P]) {
+    fn conv3(lhs: [P; 3], rhs: [F; 3], output: &mut [P]) {
         output[0] = pdot(lhs, [rhs[0], rhs[2], rhs[1]]);
         output[1] = pdot(lhs, [rhs[1], rhs[0], rhs[2]]);
         output[2] = pdot(lhs, [rhs[2], rhs[1], rhs[0]]);
     }
 
     #[inline(always)]
-    fn negacyclic_conv3(lhs: [P; 3], rhs: [P; 3], output: &mut [P]) {
+    fn negacyclic_conv3(lhs: [P; 3], rhs: [F; 3], output: &mut [P]) {
         output[0] = pdot(lhs, [rhs[0], -rhs[2], -rhs[1]]);
         output[1] = pdot(lhs, [rhs[1], rhs[0], -rhs[2]]);
         output[2] = pdot(lhs, [rhs[2], rhs[1], rhs[0]]);
@@ -195,15 +198,15 @@ mod neon_karatsuba {
     #[inline(always)]
     fn conv_n<const N: usize, const H: usize>(
         lhs: [P; N],
-        rhs: [P; N],
+        rhs: [F; N],
         output: &mut [P],
-        inner_conv: fn([P; H], [P; H], &mut [P]),
-        inner_neg: fn([P; H], [P; H], &mut [P]),
+        inner_conv: fn([P; H], [F; H], &mut [P]),
+        inner_neg: fn([P; H], [F; H], &mut [P]),
     ) {
         let mut lp = [P::ZERO; H];
         let mut ln = [P::ZERO; H];
-        let mut rp = [P::ZERO; H];
-        let mut rn = [P::ZERO; H];
+        let mut rp = [F::ZERO; H];
+        let mut rn = [F::ZERO; H];
         for i in 0..H {
             lp[i] = lhs[i] + lhs[i + H];
             ln[i] = lhs[i] - lhs[i + H];
@@ -223,16 +226,16 @@ mod neon_karatsuba {
     #[inline(always)]
     fn negacyclic_conv_n<const N: usize, const H: usize>(
         lhs: [P; N],
-        rhs: [P; N],
+        rhs: [F; N],
         output: &mut [P],
-        inner_neg: fn([P; H], [P; H], &mut [P]),
+        inner_neg: fn([P; H], [F; H], &mut [P]),
     ) {
         let mut le = [P::ZERO; H];
         let mut lo = [P::ZERO; H];
         let mut ls = [P::ZERO; H];
-        let mut re = [P::ZERO; H];
-        let mut ro = [P::ZERO; H];
-        let mut rs = [P::ZERO; H];
+        let mut re = [F::ZERO; H];
+        let mut ro = [F::ZERO; H];
+        let mut rs = [F::ZERO; H];
         for i in 0..H {
             le[i] = lhs[2 * i];
             lo[i] = lhs[2 * i + 1];
@@ -259,27 +262,27 @@ mod neon_karatsuba {
     }
 
     #[inline(always)]
-    fn conv6(lhs: [P; 6], rhs: [P; 6], output: &mut [P]) {
+    fn conv6(lhs: [P; 6], rhs: [F; 6], output: &mut [P]) {
         conv_n(lhs, rhs, output, conv3, negacyclic_conv3);
     }
 
     #[inline(always)]
-    fn negacyclic_conv6(lhs: [P; 6], rhs: [P; 6], output: &mut [P]) {
+    fn negacyclic_conv6(lhs: [P; 6], rhs: [F; 6], output: &mut [P]) {
         negacyclic_conv_n(lhs, rhs, output, negacyclic_conv3);
     }
 
     #[inline(always)]
-    fn conv12(lhs: [P; 12], rhs: [P; 12], output: &mut [P]) {
+    fn conv12(lhs: [P; 12], rhs: [F; 12], output: &mut [P]) {
         conv_n(lhs, rhs, output, conv6, negacyclic_conv6);
     }
 
     #[inline(always)]
-    fn negacyclic_conv12(lhs: [P; 12], rhs: [P; 12], output: &mut [P]) {
+    fn negacyclic_conv12(lhs: [P; 12], rhs: [F; 12], output: &mut [P]) {
         negacyclic_conv_n(lhs, rhs, output, negacyclic_conv6);
     }
 
     #[inline(always)]
-    pub(super) fn mds_karatsuba_24_neon(state: &mut [P; 24], col: &[P; 24]) {
+    pub(super) fn mds_karatsuba_24_neon(state: &mut [P; 24], col: &[F; 24]) {
         let input = *state;
         conv_n(input, *col, state.as_mut_slice(), conv12, negacyclic_conv12);
     }
@@ -482,8 +485,10 @@ struct NeonPrecomputed24 {
     packed_last_initial_rc: [core::arch::aarch64::int32x4_t; 24],
     /// Terminal full round constants in negative NEON form.
     packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 24]; POSEIDON1_HALF_FULL_ROUNDS_24],
-    /// Pre-packed MDS circulant column for NEON Karatsuba.
-    packed_mds_col: [PackedKB; 24],
+    /// MDS circulant column for NEON Karatsuba (scalar, not packed).
+    /// Kept as scalar so the Karatsuba recursion avoids redundant NEON
+    /// operations on the constant side, reducing SIMD port contention.
+    mds_col: [KoalaBear; 24],
     /// Fused matrix: m_i * MDS.
     packed_fused_mi_mds: [[PackedKB; 24]; 24],
     /// Fused bias: m_i * first_round_constants.
@@ -506,19 +511,14 @@ impl std::fmt::Debug for NeonPrecomputed24 {
 #[derive(Debug)]
 struct Precomputed24 {
     /// First round constant vector (full width), added once before m_i multiply.
-    #[allow(dead_code)]
     sparse_first_round_constants: F24,
     /// Dense transition matrix m_i, applied once before the partial round loop.
-    #[allow(dead_code)]
     sparse_m_i: M24,
     /// Per-round full first row: [mds_0_0, ŵ[0], ..., ŵ[22]].
-    #[allow(dead_code)]
     sparse_first_row: Vec<F24>,
     /// Per-round first-column vectors (excluding [0,0]).
-    #[allow(dead_code)]
     sparse_v: Vec<F24>,
     /// Scalar constants for partial rounds 0..RP-2.
-    #[allow(dead_code)]
     sparse_round_constants: Vec<KoalaBear>,
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -574,8 +574,8 @@ fn precomputed_24() -> &'static Precomputed24 {
             let packed_round_constants: [PackedKB; POSEIDON1_PARTIAL_ROUNDS_24 - 1] =
                 core::array::from_fn(|r| pack(scalar_round_constants[r]));
 
-            // Pre-packed MDS column for NEON Karatsuba.
-            let packed_mds_col: [PackedKB; 24] = MDS_CIRC_COL_24.map(pack);
+            // MDS column for NEON Karatsuba (scalar, not packed).
+            let mds_col: [KoalaBear; 24] = MDS_CIRC_COL_24;
 
             // Fused matrix: m_i * MDS.
             let fused_mi_mds = matrix_mul_24(&m_i, &mds);
@@ -589,7 +589,7 @@ fn precomputed_24() -> &'static Precomputed24 {
                 packed_initial_rc,
                 packed_last_initial_rc,
                 packed_terminal_rc,
-                packed_mds_col,
+                mds_col,
                 packed_fused_mi_mds,
                 packed_fused_bias,
                 packed_sparse_first_row,
@@ -871,7 +871,7 @@ impl Poseidon1KoalaBear24 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.packed_mds_col);
+            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.mds_col);
         }
 
         // --- Last initial full round: AddRC + S-box, then fused (m_i * MDS) ---
@@ -929,7 +929,7 @@ impl Poseidon1KoalaBear24 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.packed_mds_col);
+            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.mds_col);
         }
     }
 
