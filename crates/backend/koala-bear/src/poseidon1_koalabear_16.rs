@@ -129,24 +129,6 @@ fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     dit(f, 7, 15, W7);
 }
 
-// =========================================================================
-// Circulant MDS via FFT (used for partial rounds in frequency domain)
-// =========================================================================
-
-/// Circulant MDS multiply via FFT: state = C * state.
-/// C * x = (1/16) * DIT_FFT(lambda ⊙ DIF_IFFT(x))
-#[allow(dead_code)]
-#[inline(always)]
-fn mds_fft_16<R: Algebra<KoalaBear>>(state: &mut [R; 16], lambda: &[KoalaBear; 16]) {
-    dif_ifft_16_mut(state);
-    for i in 0..16 {
-        state[i] *= lambda[i];
-    }
-    dit_fft_16_mut(state);
-    for s in state.iter_mut() {
-        *s = s.div_2exp_u64(4);
-    }
-}
 
 // =========================================================================
 // Circulant MDS via Karatsuba convolution (used for full rounds)
