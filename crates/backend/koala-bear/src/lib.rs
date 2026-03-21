@@ -8,7 +8,6 @@ mod koala_bear;
 pub mod monty_31;
 mod poseidon1_koalabear_16;
 mod poseidon1_koalabear_24;
-pub mod poseidon2;
 pub mod quintic_extension;
 pub mod symmetric;
 
@@ -33,14 +32,6 @@ pub use koala_bear::*;
 // Re-export koala bear poseidon1 types
 pub use poseidon1_koalabear_16::*;
 pub use poseidon1_koalabear_24::*;
-
-// Re-export key poseidon2 types
-pub use poseidon2::{
-    ExternalLayer, ExternalLayerConstants, ExternalLayerConstructor, GenericPoseidon2LinearLayers, HLMDSMat4,
-    InternalLayer, InternalLayerConstructor, MDSMat4, Poseidon2, add_rc_and_sbox_generic,
-    external_initial_permute_state, external_terminal_permute_state, mds_light_permutation,
-    poseidon2_round_numbers_128,
-};
 
 // Re-export quintic extension types
 pub use quintic_extension::*;

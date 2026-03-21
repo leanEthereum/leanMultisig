@@ -47,7 +47,7 @@
 \newpage
 
 \section{What is the goal of this zkVM?}
-Post-quantum signatures are at least an order of magnitude larger than their pre-quantum counterparts, but the migration is necessary to ensure Ethereum's security. Hash-based signatures offer strong security guarantees and conceptual simplicity, making them a promising candidate: leanXMSS at the consensus layer (where statefulness is not an issue, see \cite{ethereum_signatures}, \cite{top_hypercube}, and \cite{LeanSig}), and leanSPHINCS at the execution layer. A promising choice of hash function is Poseidon2 \cite{poseidon2}, for its snark-friendliness.
+Post-quantum signatures are at least an order of magnitude larger than their pre-quantum counterparts, but the migration is necessary to ensure Ethereum's security. Hash-based signatures offer strong security guarantees and conceptual simplicity, making them a promising candidate: leanXMSS at the consensus layer (where statefulness is not an issue, see \cite{ethereum_signatures}, \cite{top_hypercube}, and \cite{LeanSig}), and leanSPHINCS at the execution layer. A promising choice of hash function is Poseidon \cite{poseidon1}, for its snark-friendliness.
 
 Since post-quantum signatures are much larger, we need to aggregate them. However, they lack the algebraic structure that makes aggregation easy for elliptic-curve schemes like BLS. Instead, we can aggregate them using a snark---itself hash-based, keeping everything post-quantum.
 
@@ -133,7 +133,7 @@ Aggregation and merging are unified in a single program, that attests that a giv
 Advantages:
 \begin{itemize}
     \item small field $\xrightarrow{}$ less Poseidon rounds
-    \item $x \xrightarrow{} x^3$ is an automorphism of $\Fp^*$, meaning efficient S-box for Poseidon2 (in BabyBear, it's degree $7$)
+    \item $x \xrightarrow{} x^3$ is an automorphism of $\Fp^*$, meaning efficient S-box for Poseidon (in BabyBear, it's degree $7$)
     \item $< 2^{31}$ $\xrightarrow{}$ the sum of 2 field elements can be stored in an u32
 \end{itemize}
 
@@ -263,16 +263,16 @@ $$
 
 \subsection{Precompiles}
 
-There are two "precompile" instructions: EXTENSION\_OP and POSEIDON2, used for special computation (extension field operations and hashing). Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
+There are two "precompile" instructions: EXTENSION\_OP and POSEIDON, used for special computation (extension field operations and hashing). Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
 
 $\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \textbf{fp} + \alpha$ and $\nu_B = \textbf{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
 
-\subsubsection{POSEIDON2}
+\subsubsection{POSEIDON}
 
 Compression of 16 field elements (two blocks of 8) into 8 field elements.
 
 $$
-\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon2}(\textbf{m}[\nu_A..\nu_A + 8] | \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
+\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] | \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
 $$
 
 \vspace{2mm}

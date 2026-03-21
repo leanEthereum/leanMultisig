@@ -418,7 +418,7 @@ ONE_EF_PTR     # [1, 0, 0, ...]
 ## Precompiles
 
 ### poseidon16_compress
-Width-16 Poseidon2 compression: `output[0..8] = Poseidon2(left || right)[0..8] + left`.
+Width-16 Poseidon compression: `output[0..8] = Poseidon(left || right)[0..8] + left`.
 ```
 poseidon16_compress(left, right, output)
 ```
@@ -427,7 +427,7 @@ poseidon16_compress(left, right, output)
 - `output`: pointer to result (8 elements)
 
 ### poseidon24_compress
-Width-24 Poseidon2 compression: `output[0..9] = (Poseidon2(left || right) + left`.
+Width-24 Poseidon compression: `output[0..9] = (Poseidon(left || right) + left`.
 ```
 poseidon24_compress(left, right, output)
 ```

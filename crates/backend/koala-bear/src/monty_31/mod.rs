@@ -5,7 +5,6 @@
 mod data_traits;
 #[allow(clippy::module_inception)]
 mod monty_31;
-pub(crate) mod poseidon2_monty;
 pub(crate) mod utils;
 
 // Skip mds.rs for now - requires karatsuba_convolution dependency
@@ -39,5 +38,4 @@ pub use x86_64_avx512::*;
 
 pub use data_traits::*;
 pub use monty_31::*;
-pub use poseidon2_monty::*;
 pub use utils::{monty_add, monty_sub};
