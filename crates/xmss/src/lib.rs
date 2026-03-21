@@ -13,7 +13,7 @@ type F = KoalaBear;
 type Digest = [F; DIGEST_SIZE];
 
 // WOTS
-pub const V: usize = 45;
+pub const V: usize = 46;
 pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const TARGET_SUM: usize = 200;
