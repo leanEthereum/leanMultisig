@@ -351,7 +351,7 @@ mod tests {
     use std::time::Instant;
 
     use koala_bear::QuinticExtensionFieldKB;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     type F = QuinticExtensionFieldKB;
     type EF = QuinticExtensionFieldKB;

@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use field::*;
-use rand::{Rng, distr::StandardUniform};
+use rand::{Rng, RngExt, distr::StandardUniform};
 use serde::{Deserialize, Serialize};
 
 /// A point `(x_1, ..., x_n)` in `F^n` for some field `F`.
