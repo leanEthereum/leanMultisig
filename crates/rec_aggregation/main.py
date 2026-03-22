@@ -8,7 +8,7 @@ MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
-BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS + N_ALL_TWEAKS
+BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + MESSAGE_LEN + N_MERKLE_CHUNKS + N_ALL_TWEAKS
 
 
 def main():
@@ -19,10 +19,7 @@ def main():
     assert n_sigs - 1 < MAX_N_SIGS
     pubkeys_hash_expected = pub_mem + 1
     message = pubkeys_hash_expected + DIGEST_LEN
-    slot_ptr = message + MESSAGE_LEN
-    slot_lo = slot_ptr[0]
-    slot_hi = slot_ptr[1]
-    merkle_chunks_for_slot = slot_ptr + 2
+    merkle_chunks_for_slot = message + MESSAGE_LEN
     all_tweaks = merkle_chunks_for_slot + N_MERKLE_CHUNKS
     bytecode_claim_output = pub_mem + BYTECODE_CLAIM_OFFSET
 
@@ -52,7 +49,7 @@ def main():
             bytecode_value_hint = source_data + 1 + n_sub
             inner_pub_mem = bytecode_value_hint + DIM
             proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
-            non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sigs, message, slot_lo, slot_hi, merkle_chunks_for_slot, all_tweaks, pub_mem)
+            non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sigs, message, merkle_chunks_for_slot, all_tweaks, pub_mem)
             copy_8(non_reserved_inner + 1, pubkeys_hash_expected)
             bytecode_claims = Array(2)
             bytecode_claims[0] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
@@ -127,7 +124,7 @@ def main():
             poseidon24_compress(running_hash, rate, new_cap)
             running_hash = new_cap
 
-        non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, all_tweaks, pub_mem)
+        non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, merkle_chunks_for_slot, all_tweaks, pub_mem)
         copy_8(running_hash, non_reserved_inner + 1)
 
         # Collect inner bytecode claim from inner pub mem
@@ -194,7 +191,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     return
 
 
-def verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, all_tweaks, pub_mem):
+def verify_inner_pub_mem(inner_pub_mem, n_sub, message, merkle_chunks_for_slot, all_tweaks, pub_mem):
     debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)
     for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
         copy_5(i * DIM, inner_pub_mem + i * DIM)
@@ -204,12 +201,10 @@ def verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle
     debug_assert(MESSAGE_LEN <= 2 * DIM)
     copy_5(message, inner_msg)
     copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
-    inner_msg[MESSAGE_LEN] = slot_lo
-    inner_msg[MESSAGE_LEN + 1] = slot_hi
     for k in unroll(0, N_MERKLE_CHUNKS):
-        inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
+        inner_msg[MESSAGE_LEN+ k] = merkle_chunks_for_slot[k]
     # Copy all pre-computed tweaks to inner pub mem (786 FE = 157*5 + 1)
-    inner_all_tweaks = inner_msg + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS
+    inner_all_tweaks = inner_msg + MESSAGE_LEN + N_MERKLE_CHUNKS
     n_tweak_copy5 = (N_ALL_TWEAKS - N_ALL_TWEAKS % DIM) / DIM
     for k in unroll(0, n_tweak_copy5):
         copy_5(all_tweaks + k * DIM, inner_all_tweaks + k * DIM)

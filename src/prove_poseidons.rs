@@ -4,7 +4,7 @@ use lean_vm::{
     EF, ExtraDataForBuses, F, Poseidon16Precompile, Poseidon24Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16,
     fill_trace_poseidon_24, num_cols_poseidon_16, num_cols_poseidon_24,
 };
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, init_tracing, padd_with_zero_to_next_power_of_two};
 
 // Column layout is the same for both widths: FLAG=0, A=1, B=2, RES=3, INPUT_START=4

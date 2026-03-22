@@ -576,7 +576,7 @@ mod tests {
     use field::{PrimeCharacteristicRing, TwoAdicField};
     use koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use poly::*;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use crate::*;
 

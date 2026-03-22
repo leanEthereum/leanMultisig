@@ -2,7 +2,7 @@ use crate::{default_whir_config, prove_execution::prove_execution, verify_execut
 use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{init_tracing, poseidon16_compress, poseidon24_compress};
 
 #[test]

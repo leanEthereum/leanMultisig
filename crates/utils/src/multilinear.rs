@@ -86,7 +86,7 @@ pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 

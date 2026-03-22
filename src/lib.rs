@@ -20,7 +20,7 @@ pub fn setup_verifier() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::Rng;
+    use rand::RngExt;
     use xmss::signers_cache::{
         BENCHMARK_SLOT, find_randomness_for_benchmark, message_for_benchmark, reconstruct_signer_for_benchmark,
     };

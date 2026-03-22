@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 use backend::*;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 
 use crate::*;
 
