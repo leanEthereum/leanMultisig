@@ -5,7 +5,7 @@ use leansig::{
     signature::{
         SignatureScheme,
         generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
-            PubKeyAbortingTargetSumLifetime32Dim64Base8, SIGAbortingTargetSumLifetime32Dim64Base8,
+            PubKeyAbortingTargetSumLifetime32Dim64Base8, SchemeAbortingTargetSumLifetime32Dim64Base8,
             SecretKeyAbortingTargetSumLifetime32Dim64Base8, SigAbortingTargetSumLifetime32Dim64Base8,
         },
     },
@@ -40,7 +40,7 @@ use rand::CryptoRng;
 
 pub type LeanSigTH = PoseidonTweakHash<PUBLIC_PARAM_LEN_FE, DIGEST_SIZE_FE, TWEAK_LEN, POSEIDON24_CAPACITY, V>;
 
-pub type LeanSigScheme = SIGAbortingTargetSumLifetime32Dim64Base8;
+pub type LeanSigScheme = SchemeAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssPublicKey = PubKeyAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssSecretKey = SecretKeyAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssSignature = SigAbortingTargetSumLifetime32Dim64Base8;
