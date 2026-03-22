@@ -94,9 +94,9 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
 def make_chain_right(public_param, chain_tweaks, chain_index, step):
     right = Array(DIGEST_LEN)
     tweak_idx = (chain_index * CHAIN_LENGTH + step) * TWEAK_LEN
-    right[0] = chain_tweaks[tweak_idx]
-    right[1] = chain_tweaks[tweak_idx + 1]
-    copy_5(public_param, right + 2)
+    copy_5(public_param, right)
+    right[5] = chain_tweaks[tweak_idx]
+    right[6] = chain_tweaks[tweak_idx + 1]
     right[7] = 0
     return right
 
