@@ -16,9 +16,12 @@ pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode
 
 pub mod benchmark;
 mod compilation;
-mod signers_cache;
+pub mod signers_cache;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
+const _: () = {
+    assert!(LOG_LIFETIME % MERKLE_LEVELS_PER_CHUNK_FOR_SLOT == 0);
+};
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 #[derive(Debug, Clone)]

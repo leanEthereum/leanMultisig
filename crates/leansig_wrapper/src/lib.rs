@@ -125,3 +125,20 @@ pub fn xmss_keygen<R: CryptoRng>(
     let (pk, sk) = LeanSigScheme::key_gen(rng, activation_epoch as usize, num_active_epochs as usize);
     (sk, pk)
 }
+
+pub fn xmss_sign(sk: &XmssSecretKey, message: &[u8; MESSAGE_LENGTH], slot: u32) -> Result<XmssSignature, ()> {
+    LeanSigScheme::sign(sk, slot, message).map_err(|_| ())
+}
+
+pub fn xmss_verify(
+    pk: &XmssPublicKey,
+    slot: u32,
+    message: &[u8; MESSAGE_LENGTH],
+    sig: &XmssSignature,
+) -> Result<(), ()> {
+    if LeanSigScheme::verify(pk, slot, message, sig) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}

@@ -3,11 +3,11 @@ use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerEr
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
 use backend::*;
+use leansig_wrapper::SIG_SIZE_FE;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use leansig_wrapper::SIG_SIZE_FE;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.

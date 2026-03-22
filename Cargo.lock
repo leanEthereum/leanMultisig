@@ -1180,6 +1180,7 @@ dependencies = [
  "backend",
  "clap",
  "lean_vm",
+ "leansig_wrapper",
  "poseidon_gkr",
  "rand 0.10.0",
  "rec_aggregation",

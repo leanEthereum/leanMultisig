@@ -5,6 +5,10 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
+use leansig_wrapper::{
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
+    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
+};
 use poseidon_gkr::{build_poseidon_inv_matrix, poseidon_round_constants};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -12,10 +16,6 @@ use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use leansig_wrapper::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
-    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
-};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
