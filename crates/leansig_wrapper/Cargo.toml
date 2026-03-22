@@ -9,4 +9,5 @@ workspace = true
 [dependencies]
 leansig.workspace = true
 backend.workspace = true
+rand.workspace = true
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b4dcde46" }

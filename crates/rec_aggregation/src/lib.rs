@@ -16,6 +16,7 @@ pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode
 
 pub mod benchmark;
 mod compilation;
+mod signers_cache;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
@@ -111,7 +112,7 @@ fn build_non_reserved_public_input(
     pi
 }
 
-fn encode_xmss_signature(sig: &LeanSigSignature) -> Vec<F> {
+fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     let mut data = vec![];
     data.extend_from_slice(xmss_randomness(sig));
     data.extend(xmmss_revealed_chain_tips(sig).iter().flat_map(|digest| digest.to_vec()));
@@ -197,7 +198,7 @@ pub fn xmss_verify_aggregation(
 #[instrument(skip_all)]
 pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
-    mut raw_xmss: Vec<(XmssPublicKey, LeanSigSignature)>,
+    mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
     message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     log_inv_rate: usize,
@@ -461,7 +462,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
 
 #[instrument(skip_all)]
 fn precompute_poseidons(
-    raw_signers: &[(XmssPublicKey, LeanSigSignature)],
+    raw_signers: &[(XmssPublicKey, XmssSignature)],
     slot: u32,
     message: &[u8; MESSAGE_LENGTH],
 ) -> (Poseidon16History, Poseidon24History) {
