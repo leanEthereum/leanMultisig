@@ -39,12 +39,12 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     chain_tweaks = all_tweaks + CHAIN_TWEAKS_OFFSET
     merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
 
-    # 1) Encode: poseidon24_compress(message(9) || tweak(2) || randomness(7) || pp(5) || 0)
+    # 1) Encode: poseidon24_compress(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)
-    enc_rate[0] = encoding_tweak[0]
-    enc_rate[1] = encoding_tweak[1]
-    copy_7(randomness, enc_rate + 2)
-    copy_5(public_param, enc_rate + 9)
+    copy_5(public_param, enc_rate)
+    enc_rate[5] = encoding_tweak[0]
+    enc_rate[6] = encoding_tweak[1]
+    copy_7(randomness, enc_rate + 7)
     enc_rate[14] = 0
 
     encoding_fe = Array(POSEIDON24_CAP)
