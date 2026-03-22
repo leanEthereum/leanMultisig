@@ -2,13 +2,14 @@ use std::array;
 
 use backend::{KoalaBear, integers::QuotientMap};
 use leansig::{
-    signature::generalized_xmss::{
-        instantiations_aborting::lifetime_2_to_the_32::SigAbortingTargetSumLifetime32Dim64Base8,
-        instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::{
-            PubKeyTopLevelTargetSumLifetime32Dim64Base8, SIGTopLevelTargetSumLifetime32Dim64Base8,
+    signature::{
+        SignatureScheme,
+        generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
+            PubKeyAbortingTargetSumLifetime32Dim64Base8, SIGAbortingTargetSumLifetime32Dim64Base8,
+            SigAbortingTargetSumLifetime32Dim64Base8,
         },
     },
-    symmetric::tweak_hash::poseidon::PoseidonTweakHash,
+    symmetric::{message_hash::encode_message, tweak_hash::poseidon::PoseidonTweakHash},
 };
 use p3_field::PrimeField32;
 
@@ -18,6 +19,7 @@ pub const CHAIN_LENGTH: usize = 1 << W;
 pub const TARGET_SUM: usize = 200;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 7;
+pub const MESSAGE_LENGTH: usize = 32;
 pub const MESSAGE_LEN_FE: usize = 9;
 pub const PUBLIC_PARAM_LEN_FE: usize = 5;
 pub const TWEAK_LEN: usize = 2;
@@ -33,12 +35,12 @@ pub const WOTS_PUBKET_SPONGE_DOMAIN_SEP: [F; POSEIDON24_CAPACITY] = F::new_array
     2060061975, 916902315, 229801915, 83751504, 2093549181, 1743125625, 721042244, 1252069948, 1192880636,
 ]);
 
-pub use leansig::symmetric::tweak_hash::TweakableHash;
+pub use leansig::symmetric::{tweak_hash::TweakableHash};
 
 pub type LeanSigTH = PoseidonTweakHash<PUBLIC_PARAM_LEN_FE, DIGEST_SIZE_FE, TWEAK_LEN, POSEIDON24_CAPACITY, V>;
 
-pub type LeanSigScheme = SIGTopLevelTargetSumLifetime32Dim64Base8;
-pub type XmssPublicKey = PubKeyTopLevelTargetSumLifetime32Dim64Base8;
+pub type LeanSigScheme = SIGAbortingTargetSumLifetime32Dim64Base8;
+pub type XmssPublicKey = PubKeyAbortingTargetSumLifetime32Dim64Base8;
 pub type LeanSigSignature = SigAbortingTargetSumLifetime32Dim64Base8;
 
 pub fn pubkey_merkle_root(pub_keys: &XmssPublicKey) -> [F; DIGEST_SIZE_FE] {
@@ -77,4 +79,38 @@ pub fn xmss_randomness(sig: &LeanSigSignature) -> &[F; RANDOMNESS_LEN_FE] {
 
 pub fn xmmss_revealed_chain_tips(sig: &LeanSigSignature) -> &Vec<[F; DIGEST_SIZE_FE]> {
     unsafe { std::mem::transmute(sig.hashes()) }
+}
+
+pub type Poseidon24History = Vec<([F; 24], [F; 9])>;
+pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
+
+pub fn xmss_verify_with_trace(
+    pk: &XmssPublicKey,
+    slot: u32,
+    message: &[u8; MESSAGE_LENGTH],
+    sig: &LeanSigSignature,
+) -> Result<(Poseidon16History, Poseidon24History), ()> {
+    let (result, p16_trace, p24_trace) = LeanSigScheme::verify_with_trace(pk, slot, message, sig);
+    let p16_trace = p16_trace
+        .into_iter()
+        .map(|(state, output)| {
+            let state = array::from_fn(|i| F::from_canonical_checked(state[i].as_canonical_u32()).unwrap());
+            let output = array::from_fn(|i| F::from_canonical_checked(output[i].as_canonical_u32()).unwrap());
+            (state, output)
+        })
+        .collect();
+    let p24_trace = p24_trace
+        .into_iter()
+        .map(|(state, output)| {
+            let state = array::from_fn(|i| F::from_canonical_checked(state[i].as_canonical_u32()).unwrap());
+            let output = array::from_fn(|i| F::from_canonical_checked(output[i].as_canonical_u32()).unwrap());
+            (state, output)
+        })
+        .collect();
+    if result { Ok((p16_trace, p24_trace)) } else { Err(()) }
+}
+
+pub fn xmss_encode_message(message: &[u8; MESSAGE_LENGTH]) -> [F; MESSAGE_LEN_FE] {
+    let encoded = encode_message::<MESSAGE_LEN_FE>(message);
+    array::from_fn(|i| F::from_canonical_checked(encoded[i].as_canonical_u32()).unwrap())
 }

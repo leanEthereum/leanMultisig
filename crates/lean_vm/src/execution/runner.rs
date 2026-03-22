@@ -11,12 +11,9 @@ use crate::{
     Table, TableTrace,
 };
 use backend::*;
+use leansig_wrapper::{Poseidon16History, Poseidon24History};
 use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
-
-
-pub type Poseidon24History = Vec<([F; 24], [F; 9])>;
-pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
 
 #[derive(Debug)]
 pub struct ExecutionWitness<'a> {

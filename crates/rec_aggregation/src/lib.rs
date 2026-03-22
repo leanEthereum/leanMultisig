@@ -91,7 +91,7 @@ fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
 fn build_non_reserved_public_input(
     n_sigs: usize,
     slice_hash: &[F; DIGEST_LEN],
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     bytecode_claim_output: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
@@ -99,7 +99,7 @@ fn build_non_reserved_public_input(
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
     pi.extend_from_slice(slice_hash);
-    pi.extend_from_slice(message);
+    pi.extend(xmss_encode_message(message));
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend(compute_all_tweaks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
@@ -143,7 +143,7 @@ impl AggregatedXMSS {
         postcard::from_bytes(&decompressed).ok()
     }
 
-    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+    pub fn public_input(&self, message: &[u8; MESSAGE_LENGTH], slot: u32) -> Vec<F> {
         let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
@@ -182,7 +182,7 @@ impl AggregatedXMSS {
 
 pub fn xmss_verify_aggregation(
     agg_sig: &AggregatedXMSS,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
 ) -> Result<ProofVerificationDetails, ProofError> {
     if !agg_sig.pub_keys.is_sorted() {
@@ -198,7 +198,7 @@ pub fn xmss_verify_aggregation(
 pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
     mut raw_xmss: Vec<(XmssPublicKey, LeanSigSignature)>,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     log_inv_rate: usize,
 ) -> AggregatedXMSS {
@@ -406,7 +406,7 @@ pub fn xmss_aggregate(
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
     // TODO precompute all the other poseidons
-    let (xmss_poseidons_16_precomputed, xmss_poseidons_24_precomputed) = precompute_poseidons(&raw_xmss, message);
+    let (xmss_poseidons_16_precomputed, xmss_poseidons_24_precomputed) = precompute_poseidons(&raw_xmss, slot, message);
 
     // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
     // Each opening produces two entries: leaf_data, then the flattened path.
@@ -462,11 +462,12 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
 #[instrument(skip_all)]
 fn precompute_poseidons(
     raw_signers: &[(XmssPublicKey, LeanSigSignature)],
-    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    message: &[u8; MESSAGE_LENGTH],
 ) -> (Poseidon16History, Poseidon24History) {
     let traces: Vec<_> = raw_signers
         .par_iter()
-        .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message, sig).unwrap())
+        .map(|(pub_key, sig)| xmss_verify_with_trace(pub_key, slot, message, sig).unwrap())
         .collect();
     let (p16s, p24s): (Vec<_>, Vec<_>) = traces.into_iter().unzip();
     (

@@ -40,8 +40,6 @@ enum Cli {
 fn main() {
     let cli = Cli::parse();
 
-    todo!("preprocess hashes when signing XMSS");
-
     match cli {
         Cli::Xmss {
             n_signatures,
