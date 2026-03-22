@@ -1,5 +1,5 @@
 use backend::*;
-use rand::{CryptoRng, Rng, SeedableRng, rngs::StdRng};
+use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 
 use crate::*;

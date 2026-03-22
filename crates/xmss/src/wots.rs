@@ -1,5 +1,5 @@
 use backend::*;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, RngExt};
 use serde::{Deserialize, Serialize};
 use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
 

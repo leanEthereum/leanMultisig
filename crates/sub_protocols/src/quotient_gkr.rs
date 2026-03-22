@@ -201,7 +201,7 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
     use utils::{build_prover_state, build_verifier_state, init_tracing};
 
     type EF = QuinticExtensionFieldKB;

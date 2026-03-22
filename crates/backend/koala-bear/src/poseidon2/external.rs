@@ -21,8 +21,8 @@ use alloc::vec::Vec;
 
 use crate::symmetric::{MdsPermutation, Permutation};
 use field::{Field, PrimeCharacteristicRing};
-use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
+use rand::{Rng, RngExt};
 
 /// Multiply a 4-element vector x by
 /// [ 5 7 1 3 ]
