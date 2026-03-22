@@ -199,15 +199,15 @@ def merkle_p24_one_level(is_left_bit, current, neighbour, output, public_param, 
     tweak_ptr = merkle_tweaks + child_level * TWEAK_LEN
 
     input_buf = Array(24)
+    copy_5(public_param, input_buf)
+    input_buf[5] = tweak_ptr[0]
+    input_buf[6] = tweak_ptr[1]
     if is_left_bit == 0:
-        copy_8(neighbour, input_buf)
-        copy_8(current, input_buf + 8)
+        copy_8(neighbour, input_buf + 7)
+        copy_8(current, input_buf + 15)
     else:
-        copy_8(current, input_buf)
-        copy_8(neighbour, input_buf + 8)
-    input_buf[16] = tweak_ptr[0]
-    input_buf[17] = tweak_ptr[1]
-    copy_5(public_param, input_buf + 18)
+        copy_8(current, input_buf + 7)
+        copy_8(neighbour, input_buf + 15)
     input_buf[23] = 0
 
     merkle_output = Array(POSEIDON24_CAP)
