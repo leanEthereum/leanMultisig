@@ -21,7 +21,7 @@ mod tests {
     use super::*;
     use leansig_wrapper::{MESSAGE_LENGTH, xmss_keygen, xmss_sign, xmss_verify};
     use rand::{SeedableRng, rngs::StdRng};
-    use rec_aggregation::signers_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signers_cache};
+    use rec_aggregation::signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures};
 
     #[test]
     fn test_xmss_signature() {
@@ -43,7 +43,7 @@ mod tests {
         let log_inv_rate = 2; // [1, 2, 3 or 4] (lower = faster but bigger proofs)
         let message = BENCHMARK_MESSAGE;
         let slot: u32 = BENCHMARK_SLOT;
-        let signatures = get_benchmark_signers_cache();
+        let signatures = get_benchmark_signatures();
 
         let pub_keys_and_sigs_a = signatures[0..3].to_vec();
         let aggregated_a = xmss_aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);

@@ -6,7 +6,7 @@ use std::time::Instant;
 use utils::ansi as s;
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::signers_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signers_cache};
+use crate::signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures};
 use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
@@ -297,7 +297,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     let n_sigs = count_signers(topology, overlap);
 
-    let cache = get_benchmark_signers_cache();
+    let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
     let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].to_vec().into_iter().unzip();
 
