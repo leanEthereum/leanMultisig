@@ -1063,7 +1063,7 @@ mod tests {
 
     use field::Field;
     use koala_bear::QuinticExtensionFieldKB;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
     type F = koala_bear::KoalaBear;

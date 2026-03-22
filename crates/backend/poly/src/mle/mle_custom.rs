@@ -18,7 +18,7 @@ mod tests {
     use crate::{EvaluationsList, MultilinearPoint};
     use field::PrimeCharacteristicRing;
     use koala_bear::KoalaBear;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
     type F = KoalaBear;

@@ -64,7 +64,7 @@ rec_aggregation = { path = "crates/rec_aggregation" }
 
 # External
 clap = { version = "4.5.59", features = ["derive"] }
-rand = "0.9.2"
+rand = "0.10.0"
 rayon = "1.11.0"
 pest = "2.7"
 pest_derive = "2.7"

@@ -4,7 +4,7 @@ use lean_vm::{
     POSEIDON_24_OUTPUT_SIZE, ZERO_VEC_PTR,
 };
 use poseidon_gkr::{fill_poseidon_16_trace, fill_poseidon_24_trace, prove_poseidon_gkr, verify_poseidon_gkr};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, init_tracing};
 
 const COL_FLAG: usize = 0;
