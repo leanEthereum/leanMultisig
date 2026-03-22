@@ -22,13 +22,12 @@ pub const BENCHMARK_MESSAGE: [u8; MESSAGE_LENGTH] = [
     78, 32, 21, 11, 1, 76, 255, 254, 0, 0, 22, 11, 11, 87, 87, 32, 11, 32, 11, 76, 23, 12, 11, 2, 2, 2, 2, 2, 2, 3, 4,
     5,
 ];
-pub const NUM_BENCHMARK_SIGNERS: usize = 10000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 100;
 
 #[derive(Serialize, Deserialize)]
 struct SignersCacheFile {
     slot: u32,
     message: Vec<u8>,
-    num_signers: usize,
     signatures: Vec<(XmssPublicKey, XmssSignature)>,
 }
 
@@ -52,7 +51,6 @@ fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(X
 
     if cached.slot != BENCHMARK_SLOT
         || cached.message != BENCHMARK_MESSAGE
-        || cached.num_signers != NUM_BENCHMARK_SIGNERS
         || cached.signatures.len() != NUM_BENCHMARK_SIGNERS
         || cached.signatures[0].0 != *first_pubkey
     {
@@ -99,7 +97,6 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
     let cache_file = SignersCacheFile {
         slot: BENCHMARK_SLOT,
         message: BENCHMARK_MESSAGE.to_vec(),
-        num_signers: NUM_BENCHMARK_SIGNERS,
         signatures: signers.clone(),
     };
     let encoded = postcard::to_allocvec(&cache_file).expect("serialization failed");
