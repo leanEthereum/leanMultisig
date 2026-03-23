@@ -11,7 +11,6 @@ use crate::{
     Table, TableTrace,
 };
 use backend::*;
-use leansig_wrapper::{Poseidon16History, Poseidon24History};
 use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
 
@@ -19,10 +18,6 @@ use utils::ToUsize;
 pub struct ExecutionWitness<'a> {
     /// Private field elements loaded into memory after public memory.
     pub private_input: &'a [F],
-    /// Precomputed Poseidon16 hashes (for non-XMSS usage).
-    pub poseidons_16_precomputed: &'a Poseidon16History,
-    /// Precomputed Poseidon24 hashes (from XMSS verification).
-    pub poseidons_24_precomputed: &'a Poseidon24History,
     /// XMSS signatures, one Vec<F> per signature (each of length SIG_SIZE_FE)
     pub xmss_signatures: &'a [Vec<F>],
     /// Merkle paths for WHIR recursion, one Vec<F> per hint_merkle call
@@ -31,12 +26,8 @@ pub struct ExecutionWitness<'a> {
 
 impl ExecutionWitness<'_> {
     pub fn empty() -> Self {
-        static EMPTY_16: Poseidon16History = vec![];
-        static EMPTY_24: Poseidon24History = vec![];
         Self {
             private_input: &[],
-            poseidons_16_precomputed: &EMPTY_16,
-            poseidons_24_precomputed: &EMPTY_24,
             xmss_signatures: &[],
             merkle_paths: &[],
         }
@@ -161,8 +152,6 @@ fn execute_bytecode_helper(
     profiling: bool,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     let private_input = witness.private_input;
-    let poseidons_precomputed = witness.poseidons_16_precomputed;
-    let poseidons_24_precomputed = witness.poseidons_24_precomputed;
     let xmss_signatures = witness.xmss_signatures;
     let merkle_paths = witness.merkle_paths;
 
@@ -198,9 +187,6 @@ fn execute_bytecode_helper(
 
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
-
-    let mut n_poseidon_precomputed_used = 0;
-    let mut n_poseidon24_precomputed_used = 0;
 
     let mut traces = BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i]))));
 
@@ -261,10 +247,6 @@ fn execute_bytecode_helper(
             mul_counts: &mut mul_counts,
             deref_counts: &mut deref_counts,
             jump_counts: &mut jump_counts,
-            poseidon16_precomputed: poseidons_precomputed,
-            n_poseidon16_precomputed_used: &mut n_poseidon_precomputed_used,
-            poseidon24_precomputed: poseidons_24_precomputed,
-            n_poseidon24_precomputed_used: &mut n_poseidon24_precomputed_used,
         };
         instruction
             .execute_instruction(&mut instruction_ctx)
@@ -276,16 +258,6 @@ fn execute_bytecode_helper(
     // Order matters because some src addresses might point to targets of other hints
     resolve_deref_hints(&mut memory, &pending_deref_hints);
 
-    assert_eq!(
-        n_poseidon_precomputed_used,
-        poseidons_precomputed.len(),
-        "Not all precomputed Poseidon16 were used"
-    );
-    assert_eq!(
-        n_poseidon24_precomputed_used,
-        poseidons_24_precomputed.len(),
-        "Not all precomputed Poseidon24 were used"
-    );
     assert_eq!(
         xmss_hint_index,
         xmss_signatures.len(),
@@ -332,8 +304,6 @@ fn execute_bytecode_helper(
         private_input_size: private_input.len(),
         runtime_memory: runtime_memory_size,
         memory_usage_percent: used_memory_cells as f64 / memory.0.len() as f64 * 100.0,
-        n_poseidon_precomputed_used,
-        n_poseidons_precomputed_total: poseidons_precomputed.len(),
         stdout: std::mem::take(std_out),
         profiling_report,
     };

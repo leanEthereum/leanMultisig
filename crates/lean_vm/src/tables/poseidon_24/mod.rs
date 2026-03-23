@@ -151,13 +151,7 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         input[..POSEIDON_24_INPUT_LEFT_SIZE].copy_from_slice(&arg0);
         input[POSEIDON_24_INPUT_LEFT_SIZE..].copy_from_slice(&arg1);
 
-        let output = match ctx.poseidon24_precomputed.get(*ctx.n_poseidon24_precomputed_used) {
-            Some(precomputed) if precomputed.0 == input => {
-                *ctx.n_poseidon24_precomputed_used += 1;
-                precomputed.1
-            }
-            _ => poseidon24_compress(input),
-        };
+        let output = poseidon24_compress(input);
 
         let res_a: [F; POSEIDON_24_OUTPUT_SIZE] = output[..POSEIDON_24_OUTPUT_SIZE].try_into().unwrap();
 
