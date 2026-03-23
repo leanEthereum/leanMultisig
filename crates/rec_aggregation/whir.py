@@ -258,8 +258,8 @@ def sample_stir_indexes_and_fold(
     folded_domain_size = domain_size - folding_factor
 
     fs = fs_grinding(fs, query_grinding_bits)
-    sampled, total_chunks = fs_sample_queries(fs, num_queries)
-
+    sampled, fs = fs_sample_queries(fs, num_queries)
+    
     merkle_leaves = Array(num_queries)
     circle_values = Array(num_queries)
 
@@ -279,8 +279,6 @@ def sample_stir_indexes_and_fold(
         circle_values,
         merkle_leaves,
     )
-
-    fs = fs_finalize_sample(fs, total_chunks)
 
     folds = Array(num_queries * DIM)
 

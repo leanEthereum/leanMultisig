@@ -188,4 +188,5 @@ def fs_sample_queries(fs, n_samples):
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
     sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
-    return sampled, total_chunks
+    new_fs = fs_finalize_sample(fs, total_chunks)
+    return sampled, new_fs
