@@ -426,7 +426,6 @@ poseidon16_compress(left, right, output)
 - `right`: pointer to 8 field elements
 - `output`: pointer to result (8 elements)
 
-
 ### poseidon24_compress
 Width-24 Poseidon compression: `output[0..9] = (Poseidon(left || right) + left`.
 ```

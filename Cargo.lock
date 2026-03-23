@@ -1181,7 +1181,6 @@ dependencies = [
  "clap",
  "lean_vm",
  "leansig_wrapper",
- "poseidon_gkr",
  "rand 0.10.0",
  "rec_aggregation",
  "sub_protocols",
@@ -1214,7 +1213,6 @@ dependencies = [
  "lean_vm",
  "pest",
  "pest_derive",
- "poseidon_gkr",
  "rand 0.10.0",
  "rec_aggregation",
  "sub_protocols",
@@ -1232,7 +1230,6 @@ dependencies = [
  "leansig_wrapper",
  "pest",
  "pest_derive",
- "poseidon_gkr",
  "rand 0.10.0",
  "tracing",
  "utils",
@@ -1765,16 +1762,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poseidon_gkr"
-version = "0.1.0"
-dependencies = [
- "backend",
- "rand 0.10.0",
- "tracing",
- "utils",
-]
-
-[[package]]
 name = "postcard"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,7 +2001,6 @@ dependencies = [
  "lean_vm",
  "leansig_wrapper",
  "lz4_flex",
- "poseidon_gkr",
  "postcard",
  "rand 0.10.0",
  "serde",

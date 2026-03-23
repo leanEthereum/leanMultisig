@@ -22,8 +22,8 @@ pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to 
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 4] = [
     (Table::execution(), 25),
     (Table::extension_op(), 20),
-    (Table::poseidon16(), 21),
-    (Table::poseidon24(), 21),
+    (Table::poseidon16(), 19),
+    (Table::poseidon24(), 19),
 ];
 
 /// Starting program counter

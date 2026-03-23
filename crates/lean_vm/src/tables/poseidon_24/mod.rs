@@ -1,9 +1,72 @@
+use std::any::TypeId;
+
 use crate::*;
 use backend::*;
-use poseidon_gkr::{POSEIDON_24_GKR_START, POSEIDON_24_N_GKR_COLS, POSEIDON_24_N_TOTAL_COLS};
 use utils::{ToUsize, poseidon24_compress};
 
+/// Dispatch `mds_circ_24` through concrete types.
+#[inline(always)]
+fn mds_air_24<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_24]) {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                mds_circ_24::<$t>(unsafe { &mut *(state as *mut [A; WIDTH_24] as *mut [$t; WIDTH_24]) });
+                return;
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
+#[inline(always)]
+fn add_kb_24<A: 'static>(a: &mut A, value: F) {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                *unsafe { &mut *(a as *mut A as *mut $t) } += value;
+                return;
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
+#[inline(always)]
+fn mul_kb_24<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
+    macro_rules! dispatch {
+        ($t:ty) => {
+            if TypeId::of::<A>() == TypeId::of::<$t>() {
+                let r = unsafe { std::ptr::read(&a as *const A as *const $t) } * value;
+                return unsafe { std::ptr::read(&r as *const $t as *const A) };
+            }
+        };
+    }
+    dispatch!(F);
+    dispatch!(EF);
+    dispatch!(FPacking<F>);
+    dispatch!(EFPacking<EF>);
+    dispatch!(SymbolicExpression<KoalaBear>);
+    unreachable!()
+}
+
+mod trace_gen;
+pub use trace_gen::default_poseidon_24_row;
+pub use trace_gen::fill_trace_poseidon_24;
+
 pub(super) const WIDTH_24: usize = 24;
+const HALF_INITIAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
+const PARTIAL_ROUNDS_24: usize = POSEIDON1_PARTIAL_ROUNDS_24;
+const HALF_FINAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 
 pub const POSEIDON_24_PRECOMPILE_DATA: usize = 2; // domain separation: Poseidon16=1, Poseidon24=2, ExtensionOp>=3
 
@@ -16,16 +79,7 @@ pub const POSEIDON_24_COL_A: ColIndex = 1;
 pub const POSEIDON_24_COL_B: ColIndex = 2;
 pub const POSEIDON_24_COL_RES: ColIndex = 3;
 pub const POSEIDON_24_COL_INPUT_START: ColIndex = 4;
-pub const POSEIDON_24_COL_OUTPUT_START: ColIndex = POSEIDON_24_GKR_START + POSEIDON_24_N_GKR_COLS;
-
-/// Number of AIR columns (flag + 3 addresses). Inputs are committed but not AIR-constrained.
-pub const N_AIR_COLS_P24: usize = 4;
-
-/// Committed columns: 4 AIR + 24 inputs
-pub const N_COMMITTED_COLS_P24: usize = POSEIDON_24_COL_INPUT_START + WIDTH_24; // 4 + 24 = 28
-
-/// including GKR layers (not committed)
-pub const N_TOTAL_COLS_P24: usize = POSEIDON_24_N_TOTAL_COLS;
+pub const POSEIDON_24_COL_OUTPUT_START: ColIndex = num_cols_poseidon_24() - POSEIDON_24_OUTPUT_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile<const BUS: bool>;
@@ -78,14 +132,6 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         unreachable!()
     }
 
-    fn n_columns_total(&self) -> usize {
-        N_TOTAL_COLS_P24
-    }
-
-    fn n_committed_columns(&self) -> usize {
-        N_COMMITTED_COLS_P24
-    }
-
     #[inline(always)]
     fn execute(
         &self,
@@ -125,7 +171,7 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
             trace.base[POSEIDON_24_COL_INPUT_START + i].push(*value);
         }
 
-        // the rest of the trace (GKR layers) is filled at the end of execution (for parallelism + SIMD)
+        // the rest of the trace is filled at the end of the execution (for parallelism + SIMD)
 
         Ok(())
     }
@@ -134,55 +180,214 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
 impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns(&self) -> usize {
-        N_AIR_COLS_P24
+        num_cols_poseidon_24()
     }
     fn degree_air(&self) -> usize {
-        2
+        9
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 1
+        // 1 bool check + bus + (HALF_INITIAL * WIDTH) + PARTIAL_ROUNDS + ((HALF_FINAL-1) * WIDTH) + OUTPUT_SIZE
+        // = 1 + bus + 2*24 + 23 + 1*24 + 9 = 1 + bus + 48 + 23 + 24 + 9 = 1 + bus + 104
+        BUS as usize + 105
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let up = builder.up();
-        let flag = up[POSEIDON_24_COL_FLAG];
-        let index_a = up[POSEIDON_24_COL_A];
-        let index_b = up[POSEIDON_24_COL_B];
-        let index_res = up[POSEIDON_24_COL_RES];
+        let cols: Poseidon1Cols24<AB::IF> = {
+            let up = builder.up();
+            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon1Cols24<AB::IF>>() };
+            debug_assert!(prefix.is_empty(), "Alignment should match");
+            debug_assert!(suffix.is_empty(), "Alignment should match");
+            debug_assert_eq!(shorts.len(), 1);
+            unsafe { std::ptr::read(&shorts[0]) }
+        };
 
         // Bus data: [POSEIDON_24_PRECOMPILE_DATA (constant), a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                flag,
+                cols.flag,
                 &[
                     AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA),
-                    index_a,
-                    index_b,
-                    index_res,
+                    cols.index_a,
+                    cols.index_b,
+                    cols.index_res,
                 ],
             ));
         } else {
-            builder.declare_values(std::slice::from_ref(&flag));
+            builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[
                 AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA),
-                index_a,
-                index_b,
-                index_res,
+                cols.index_a,
+                cols.index_b,
+                cols.index_res,
             ]);
         }
 
-        builder.assert_bool(flag);
+        builder.assert_bool(cols.flag);
+
+        eval_poseidon1_24(builder, &cols)
     }
 }
 
-pub fn default_poseidon_24_row(null_hash_ptr: usize) -> Vec<F> {
-    let mut row = vec![F::ZERO; N_TOTAL_COLS_P24];
-    row[1] = F::from_usize(ZERO_VEC_PTR);
-    row[2] = F::from_usize(ZERO_VEC_PTR);
-    row[3] = F::from_usize(null_hash_ptr);
-    // GKR layers are filled by fill_poseidon_24_trace after padding
-    row
+#[repr(C)]
+#[derive(Debug)]
+pub(super) struct Poseidon1Cols24<T> {
+    pub flag: T,
+    pub index_a: T,
+    pub index_b: T,
+    pub index_res: T,
+
+    pub inputs: [T; WIDTH_24],
+    pub beginning_full_rounds: [[T; WIDTH_24]; HALF_INITIAL_FULL_ROUNDS_24],
+    pub partial_rounds: [T; PARTIAL_ROUNDS_24],
+    pub ending_full_rounds: [[T; WIDTH_24]; HALF_FINAL_FULL_ROUNDS_24 - 1],
+    pub outputs: [T; POSEIDON_24_OUTPUT_SIZE],
+}
+
+fn eval_poseidon1_24<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols24<AB::IF>) {
+    let mut state: [_; WIDTH_24] = local.inputs;
+
+    // No initial linear layer for Poseidon1
+
+    let initial_constants = poseidon1_24_initial_constants();
+    for round in 0..HALF_INITIAL_FULL_ROUNDS_24 {
+        eval_2_full_rounds_24(
+            &mut state,
+            &local.beginning_full_rounds[round],
+            &initial_constants[2 * round],
+            &initial_constants[2 * round + 1],
+            builder,
+        );
+    }
+
+    // --- Sparse partial rounds ---
+    let frc = poseidon1_24_sparse_first_round_constants();
+    for (s, &c) in state.iter_mut().zip(frc.iter()) {
+        add_kb_24(s, c);
+    }
+    dense_mat_vec_air_24(poseidon1_24_sparse_m_i(), &mut state);
+
+    let first_rows = poseidon1_24_sparse_first_row();
+    let v_vecs = poseidon1_24_sparse_v();
+    let scalar_rc = poseidon1_24_sparse_scalar_round_constants();
+    for round in 0..PARTIAL_ROUNDS_24 {
+        // S-box on state[0]
+        state[0] = state[0].cube();
+        builder.assert_eq(state[0], local.partial_rounds[round]);
+        state[0] = local.partial_rounds[round];
+        // Scalar round constant (not on last round)
+        if round < PARTIAL_ROUNDS_24 - 1 {
+            add_kb_24(&mut state[0], scalar_rc[round]);
+        }
+        // Sparse matrix
+        sparse_mat_air_24(&mut state, &first_rows[round], &v_vecs[round]);
+    }
+
+    let final_constants = poseidon1_24_final_constants();
+    for round in 0..HALF_FINAL_FULL_ROUNDS_24 - 1 {
+        eval_2_full_rounds_24(
+            &mut state,
+            &local.ending_full_rounds[round],
+            &final_constants[2 * round],
+            &final_constants[2 * round + 1],
+            builder,
+        );
+    }
+
+    eval_last_2_full_rounds_24(
+        &local.inputs,
+        &mut state,
+        &local.outputs,
+        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS_24 - 1)],
+        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS_24 - 1) + 1],
+        builder,
+    );
+}
+
+pub const fn num_cols_poseidon_24() -> usize {
+    size_of::<Poseidon1Cols24<u8>>()
+}
+
+#[inline]
+fn eval_2_full_rounds_24<AB: AirBuilder>(
+    state: &mut [AB::IF; WIDTH_24],
+    post_full_round: &[AB::IF; WIDTH_24],
+    round_constants_1: &[F; WIDTH_24],
+    round_constants_2: &[F; WIDTH_24],
+    builder: &mut AB,
+) {
+    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+        add_kb_24(s, *r);
+        *s = s.cube();
+    }
+    mds_air_24(state);
+    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
+        add_kb_24(s, *r);
+        *s = s.cube();
+    }
+    mds_air_24(state);
+    for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
+        builder.assert_eq(*state_i, *post_i);
+        *state_i = *post_i;
+    }
+}
+
+#[inline]
+fn eval_last_2_full_rounds_24<AB: AirBuilder>(
+    initial_state: &[AB::IF; WIDTH_24],
+    state: &mut [AB::IF; WIDTH_24],
+    outputs: &[AB::IF; POSEIDON_24_OUTPUT_SIZE],
+    round_constants_1: &[F; WIDTH_24],
+    round_constants_2: &[F; WIDTH_24],
+    builder: &mut AB,
+) {
+    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+        add_kb_24(s, *r);
+        *s = s.cube();
+    }
+    mds_air_24(state);
+    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
+        add_kb_24(s, *r);
+        *s = s.cube();
+    }
+    mds_air_24(state);
+    // add inputs to outputs (for compression)
+    for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
+        *state_i += *init_state_i;
+    }
+    for (state_i, output_i) in state[..POSEIDON_24_OUTPUT_SIZE].iter_mut().zip(outputs) {
+        builder.assert_eq(*state_i, *output_i);
+        *state_i = *output_i;
+    }
+}
+
+#[inline]
+fn dense_mat_vec_air_24<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 24]; 24], state: &mut [A; WIDTH_24]) {
+    let input = *state;
+    for i in 0..WIDTH_24 {
+        let mut acc = A::ZERO;
+        for j in 0..WIDTH_24 {
+            acc += mul_kb_24(input[j], mat[i][j]);
+        }
+        state[i] = acc;
+    }
+}
+
+#[inline]
+fn sparse_mat_air_24<A: PrimeCharacteristicRing + 'static>(
+    state: &mut [A; WIDTH_24],
+    first_row: &[F; WIDTH_24],
+    v: &[F; WIDTH_24],
+) {
+    let old_s0 = state[0];
+    let mut new_s0 = A::ZERO;
+    for j in 0..WIDTH_24 {
+        new_s0 += mul_kb_24(state[j], first_row[j]);
+    }
+    state[0] = new_s0;
+    for i in 1..WIDTH_24 {
+        state[i] += mul_kb_24(old_s0, v[i - 1]);
+    }
 }

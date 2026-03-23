@@ -2,6 +2,8 @@
 
 use std::sync::OnceLock;
 
+use core::ops::Mul;
+
 use crate::KoalaBear;
 use crate::symmetric::Permutation;
 use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
@@ -33,7 +35,10 @@ const MDS_CIRC_COL_24: [KoalaBear; 24] = KoalaBear::new_array([
 // =========================================================================
 
 #[inline(always)]
-fn parity_dot<R: Algebra<KoalaBear>, const N: usize>(lhs: [R; N], rhs: [KoalaBear; N]) -> R {
+fn parity_dot<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>, const N: usize>(
+    lhs: [R; N],
+    rhs: [KoalaBear; N],
+) -> R {
     let mut acc = lhs[0] * rhs[0];
     for i in 1..N {
         acc += lhs[i] * rhs[i];
@@ -42,21 +47,25 @@ fn parity_dot<R: Algebra<KoalaBear>, const N: usize>(lhs: [R; N], rhs: [KoalaBea
 }
 
 #[inline(always)]
-fn conv3<R: Algebra<KoalaBear>>(lhs: [R; 3], rhs: [KoalaBear; 3], output: &mut [R]) {
+fn conv3<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(lhs: [R; 3], rhs: [KoalaBear; 3], output: &mut [R]) {
     output[0] = parity_dot(lhs, [rhs[0], rhs[2], rhs[1]]);
     output[1] = parity_dot(lhs, [rhs[1], rhs[0], rhs[2]]);
     output[2] = parity_dot(lhs, [rhs[2], rhs[1], rhs[0]]);
 }
 
 #[inline(always)]
-fn negacyclic_conv3<R: Algebra<KoalaBear>>(lhs: [R; 3], rhs: [KoalaBear; 3], output: &mut [R]) {
+fn negacyclic_conv3<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 3],
+    rhs: [KoalaBear; 3],
+    output: &mut [R],
+) {
     output[0] = parity_dot(lhs, [rhs[0], -rhs[2], -rhs[1]]);
     output[1] = parity_dot(lhs, [rhs[1], rhs[0], -rhs[2]]);
     output[2] = parity_dot(lhs, [rhs[2], rhs[1], rhs[0]]);
 }
 
 #[inline(always)]
-fn conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
+fn conv_n_recursive<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>, const N: usize, const H: usize>(
     lhs: [R; N],
     rhs: [KoalaBear; N],
     output: &mut [R],
@@ -84,7 +93,11 @@ fn conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
 }
 
 #[inline(always)]
-fn negacyclic_conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: usize>(
+fn negacyclic_conv_n_recursive<
+    R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>,
+    const N: usize,
+    const H: usize,
+>(
     lhs: [R; N],
     rhs: [KoalaBear; N],
     output: &mut [R],
@@ -122,28 +135,40 @@ fn negacyclic_conv_n_recursive<R: Algebra<KoalaBear>, const N: usize, const H: u
 }
 
 #[inline(always)]
-fn conv6<R: Algebra<KoalaBear>>(lhs: [R; 6], rhs: [KoalaBear; 6], output: &mut [R]) {
+fn conv6<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(lhs: [R; 6], rhs: [KoalaBear; 6], output: &mut [R]) {
     conv_n_recursive(lhs, rhs, output, conv3::<R>, negacyclic_conv3::<R>);
 }
 
 #[inline(always)]
-fn negacyclic_conv6<R: Algebra<KoalaBear>>(lhs: [R; 6], rhs: [KoalaBear; 6], output: &mut [R]) {
+fn negacyclic_conv6<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 6],
+    rhs: [KoalaBear; 6],
+    output: &mut [R],
+) {
     negacyclic_conv_n_recursive(lhs, rhs, output, negacyclic_conv3::<R>);
 }
 
 #[inline(always)]
-fn conv12<R: Algebra<KoalaBear>>(lhs: [R; 12], rhs: [KoalaBear; 12], output: &mut [R]) {
+fn conv12<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 12],
+    rhs: [KoalaBear; 12],
+    output: &mut [R],
+) {
     conv_n_recursive(lhs, rhs, output, conv6::<R>, negacyclic_conv6::<R>);
 }
 
 #[inline(always)]
-fn negacyclic_conv12<R: Algebra<KoalaBear>>(lhs: [R; 12], rhs: [KoalaBear; 12], output: &mut [R]) {
+fn negacyclic_conv12<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    lhs: [R; 12],
+    rhs: [KoalaBear; 12],
+    output: &mut [R],
+) {
     negacyclic_conv_n_recursive(lhs, rhs, output, negacyclic_conv6::<R>);
 }
 
 /// Circulant MDS multiply via Karatsuba convolution: state = C * state.
 #[inline(always)]
-fn mds_karatsuba_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
+fn mds_karatsuba_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 24]) {
     let input = *state;
     conv_n_recursive(
         input,
@@ -154,9 +179,9 @@ fn mds_karatsuba_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
     );
 }
 
-/// Public MDS for use by poseidon_gkr.
+/// Public circulant MDS multiply.
 #[inline(always)]
-pub fn mds_circ_24<R: Algebra<KoalaBear>>(state: &mut [R; 24]) {
+pub fn mds_circ_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 24]) {
     mds_karatsuba_24(state);
 }
 
@@ -792,6 +817,26 @@ pub fn poseidon1_24_partial_constants() -> &'static [[KoalaBear; 24]] {
 #[inline(always)]
 pub fn poseidon1_24_final_constants() -> &'static [[KoalaBear; 24]] {
     &POSEIDON1_RC_24[POSEIDON1_HALF_FULL_ROUNDS_24 + POSEIDON1_PARTIAL_ROUNDS_24..]
+}
+
+pub fn poseidon1_24_sparse_m_i() -> &'static [[KoalaBear; 24]; 24] {
+    &precomputed_24().sparse_m_i
+}
+
+pub fn poseidon1_24_sparse_first_row() -> &'static Vec<[KoalaBear; 24]> {
+    &precomputed_24().sparse_first_row
+}
+
+pub fn poseidon1_24_sparse_v() -> &'static Vec<[KoalaBear; 24]> {
+    &precomputed_24().sparse_v
+}
+
+pub fn poseidon1_24_sparse_first_round_constants() -> &'static [KoalaBear; 24] {
+    &precomputed_24().sparse_first_round_constants
+}
+
+pub fn poseidon1_24_sparse_scalar_round_constants() -> &'static Vec<KoalaBear> {
+    &precomputed_24().sparse_round_constants
 }
 
 #[derive(Clone, Debug)]

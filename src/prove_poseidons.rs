@@ -1,12 +1,13 @@
+use air::{prove_air, verify_air};
 use backend::*;
 use lean_vm::{
-    EF, F, N_TOTAL_COLS_P16, N_TOTAL_COLS_P24, POSEIDON_16_COL_OUTPUT_START, POSEIDON_24_COL_OUTPUT_START,
-    POSEIDON_24_OUTPUT_SIZE, ZERO_VEC_PTR,
+    EF, ExtraDataForBuses, F, Poseidon16Precompile, Poseidon24Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16,
+    fill_trace_poseidon_24, num_cols_poseidon_16, num_cols_poseidon_24,
 };
-use poseidon_gkr::{fill_poseidon_16_trace, fill_poseidon_24_trace, prove_poseidon_gkr, verify_poseidon_gkr};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::{build_prover_state, build_verifier_state, init_tracing};
+use utils::{build_prover_state, build_verifier_state, init_tracing, padd_with_zero_to_next_power_of_two};
 
+// Column layout is the same for both widths: FLAG=0, A=1, B=2, RES=3, INPUT_START=4
 const COL_FLAG: usize = 0;
 const COL_A: usize = 1;
 const COL_B: usize = 2;
@@ -24,34 +25,34 @@ fn test_benchmark_air_poseidon_24() {
 }
 
 pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
-    benchmark_prove_poseidon::<16>(
+    benchmark_prove_poseidon(
         log_n_rows,
         tracing,
-        N_TOTAL_COLS_P16,
-        POSEIDON_16_COL_OUTPUT_START,
-        8,
-        fill_poseidon_16_trace,
+        16,
+        num_cols_poseidon_16(),
+        &Poseidon16Precompile::<false>,
+        fill_trace_poseidon_16,
     );
 }
 
 pub fn benchmark_prove_poseidon_24(log_n_rows: usize, tracing: bool) {
-    benchmark_prove_poseidon::<24>(
+    benchmark_prove_poseidon(
         log_n_rows,
         tracing,
-        N_TOTAL_COLS_P24,
-        POSEIDON_24_COL_OUTPUT_START,
-        POSEIDON_24_OUTPUT_SIZE,
-        fill_poseidon_24_trace,
+        24,
+        num_cols_poseidon_24(),
+        &Poseidon24Precompile::<false>,
+        fill_trace_poseidon_24,
     );
 }
 
 #[allow(clippy::too_many_lines)]
-fn benchmark_prove_poseidon<const WIDTH: usize>(
+fn benchmark_prove_poseidon(
     log_n_rows: usize,
     tracing: bool,
-    n_total_cols: usize,
-    col_output_start: usize,
-    output_size: usize,
+    width: usize,
+    n_cols: usize,
+    air: &impl Air<ExtraData = ExtraDataForBuses<EF>>,
     fill_trace: fn(&mut [Vec<F>]),
 ) {
     if tracing {
@@ -61,8 +62,8 @@ fn benchmark_prove_poseidon<const WIDTH: usize>(
     let mut rng = StdRng::seed_from_u64(0);
 
     // Generate trace columns
-    let mut trace = vec![vec![F::ZERO; n_rows]; n_total_cols];
-    for t in trace.iter_mut().skip(COL_INPUT_START).take(WIDTH) {
+    let mut trace = vec![vec![F::ZERO; n_rows]; n_cols];
+    for t in trace.iter_mut().skip(COL_INPUT_START).take(width) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
     trace[COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
@@ -70,8 +71,14 @@ fn benchmark_prove_poseidon<const WIDTH: usize>(
     trace[COL_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     trace[COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
 
-    // Fill GKR layers and compressed outputs
+    // Fill AIR intermediate + output columns
     fill_trace(&mut trace);
+
+    // Verify AIR validity
+    {
+        let trace_refs: Vec<&[F]> = trace.iter().map(Vec::as_slice).collect();
+        air::check_air_validity::<_, EF>(air, &ExtraDataForBuses::<EF>::default(), &trace_refs).unwrap();
+    }
 
     let whir_config = WhirConfigBuilder {
         folding_factor: FoldingFactor::new(7, 4),
@@ -85,53 +92,40 @@ fn benchmark_prove_poseidon<const WIDTH: usize>(
 
     let mut prover_state = build_prover_state();
 
-    let packed_n_vars = log2_ceil_usize(WIDTH << log_n_rows);
+    // Commit all columns
+    let packed_n_vars = log2_ceil_usize(n_cols << log_n_rows);
     let whir_config = WhirConfig::new(&whir_config, packed_n_vars);
 
     let time = std::time::Instant::now();
 
     {
         let mut committed_pol = F::zero_vec(1 << packed_n_vars);
-        for i in 0..WIDTH {
-            committed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(&trace[COL_INPUT_START + i]);
+        for (i, col) in trace.iter().enumerate() {
+            committed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(col);
         }
         let committed_pol = MleOwned::Base(committed_pol);
-        let witness = whir_config.commit(&mut prover_state, &committed_pol, WIDTH << log_n_rows);
+        let witness = whir_config.commit(&mut prover_state, &committed_pol, n_cols << log_n_rows);
 
-        // Sample output evaluation point
-        let output_point = MultilinearPoint((0..log_n_rows).map(|_| prover_state.sample()).collect());
+        // AIR proof
+        let alpha = prover_state.sample();
+        let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
+        let extra_data = ExtraDataForBuses {
+            alpha_powers: air_alpha_powers,
+            ..Default::default()
+        };
+        let air_claims = prove_air::<EF, _>(&mut prover_state, air, extra_data, &trace, None, true);
 
-        // Compute perm_out[0..output_size] = output[i] - input[i] at output_point
-        let perm_out_first: Vec<EF> = (0..output_size)
-            .map(|i| {
-                let out_eval = (&trace[col_output_start + i][..n_rows]).evaluate(&output_point);
-                let in_eval = (&trace[COL_INPUT_START + i][..n_rows]).evaluate(&output_point);
-                out_eval - in_eval
-            })
-            .collect();
-        prover_state.add_extension_scalars(&perm_out_first);
+        // WHIR statement: AIR evaluation at the random point
+        let betas = MultilinearPoint((0..log2_ceil_usize(n_cols)).map(|_| prover_state.sample()).collect());
+        let packed_point = MultilinearPoint([betas.0.clone(), air_claims.point.0].concat());
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas.0));
 
-        // Poseidon GKR proof
-        let gkr_result =
-            prove_poseidon_gkr::<WIDTH>(&mut prover_state, &trace, output_point, &perm_out_first, output_size);
-
-        // WHIR statement: GKR input evals (WIDTH columns, indexed 0..WIDTH-1)
-        let statements = vec![SparseStatement::new(
-            packed_n_vars,
-            gkr_result.input_point,
-            gkr_result
-                .input_evals
-                .iter()
-                .enumerate()
-                .map(|(i, &eval)| SparseValue::new(i, eval))
-                .collect(),
-        )];
-
+        let statements = vec![SparseStatement::dense(packed_point, packed_eval)];
         whir_config.prove(&mut prover_state, statements, witness, &committed_pol.by_ref());
     }
 
     println!(
-        "{} Poseidon-{WIDTH} / s",
+        "{} Poseidon-{width} / s",
         (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
     );
 
@@ -140,34 +134,21 @@ fn benchmark_prove_poseidon<const WIDTH: usize>(
 
         let parsed_commitment = whir_config.parse_commitment::<F>(&mut verifier_state).unwrap();
 
-        // Sample output evaluation point (same as prover via Fiat-Shamir)
-        let output_point = MultilinearPoint((0..log_n_rows).map(|_| verifier_state.sample()).collect());
-
-        // Receive perm_out from prover
-        let perm_out_first = verifier_state.next_extension_scalars_vec(output_size).unwrap();
-
-        // GKR verify
-        let gkr_result = verify_poseidon_gkr::<WIDTH>(
-            &mut verifier_state,
-            log_n_rows,
-            &output_point,
-            &perm_out_first,
-            output_size,
-        )
-        .unwrap();
+        // AIR verify
+        let alpha = verifier_state.sample();
+        let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(air.n_constraints() + 1);
+        let extra_data = ExtraDataForBuses {
+            alpha_powers: air_alpha_powers,
+            ..Default::default()
+        };
+        let air_claims = verify_air(&mut verifier_state, air, extra_data, log_n_rows, None).unwrap();
 
         // WHIR statement (same as prover)
-        let statements = vec![SparseStatement::new(
-            packed_n_vars,
-            gkr_result.input_point,
-            gkr_result
-                .input_evals
-                .iter()
-                .enumerate()
-                .map(|(i, &eval)| SparseValue::new(i, eval))
-                .collect(),
-        )];
+        let betas = MultilinearPoint((0..log2_ceil_usize(n_cols)).map(|_| verifier_state.sample()).collect());
+        let packed_point = MultilinearPoint([betas.0.clone(), air_claims.point.0].concat());
+        let packed_eval = padd_with_zero_to_next_power_of_two(&air_claims.evals).evaluate(&MultilinearPoint(betas.0));
 
+        let statements = vec![SparseStatement::dense(packed_point, packed_eval)];
         whir_config
             .verify(&mut verifier_state, &parsed_commitment, statements)
             .unwrap();

@@ -17,10 +17,10 @@ def div_ceil_dynamic(a, b: Const):
 def powers(alpha, n):
     # alpha: EF
     # n: F
-    assert n < 256
+    assert n < 512
     assert 0 < n
     # 2**log2_ceil(i) is not really necessary but helps reduce byetcode size (traedoff cycles / bytecode size)
-    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, 2**log2_ceil(i)))
+    res = match_range(n, range(1, 512), lambda i: powers_const(alpha, 2**log2_ceil(i)))
     return res
 
 
