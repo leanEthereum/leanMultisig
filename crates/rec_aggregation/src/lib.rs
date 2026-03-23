@@ -5,12 +5,9 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
+use leansig_wrapper::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, Poseidon24History, SIG_SIZE_FE, XmssPublicKey, XmssSignature,
-    xmss_verify_with_poseidon_trace,
-};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -19,8 +16,12 @@ pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode
 
 pub mod benchmark;
 mod compilation;
+pub mod signatures_cache;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
+const _: () = {
+    assert!(LOG_LIFETIME % MERKLE_LEVELS_PER_CHUNK_FOR_SLOT == 0);
+};
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 #[derive(Debug, Clone)]
@@ -42,8 +43,8 @@ pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
     for pk in pub_keys {
         let mut input = [F::ZERO; 24];
         input[..9].copy_from_slice(&capacity);
-        input[9..17].copy_from_slice(&pk.merkle_root);
-        input[17..22].copy_from_slice(&pk.public_param);
+        input[9..17].copy_from_slice(&pubkey_merkle_root(pk));
+        input[17..22].copy_from_slice(&pubkey_public_parameter(pk));
         // input[22..24] = zeros (padding)
         capacity = utils::poseidon24_compress(input);
     }
@@ -66,25 +67,33 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
     chunks
 }
 
-/// Pre-compute ALL tweaks for a slot: encoding(2) + chain(V*CHAIN_LENGTH*2) + merkle(LOG_LIFETIME*2).
+/// Pre-compute ALL tweaks for a slot:
+/// encoding(2) + chain(V*CHAIN_LENGTH*2) + leaf_tweak(2) + merkle(LOG_LIFETIME*2).
 fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
-    let n = xmss::TWEAK_LEN + xmss::V * xmss::CHAIN_LENGTH * xmss::TWEAK_LEN + xmss::LOG_LIFETIME * xmss::TWEAK_LEN;
+    let n = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
     let mut tweaks = Vec::with_capacity(n);
-    // Encoding tweak
-    let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_ENCODING, 0, slot);
+    // Encoding tweak: encode_epoch(slot) = ((slot << 8) | TWEAK_SEPARATOR_MSG) in base-p
+    let acc = ((slot as u64) << 8) | 0x02u64;
+    let [t0, t1] = [
+        F::from_u64(acc % F::ORDER_U64),
+        F::from_u64(acc / F::ORDER_U64),
+    ];
     tweaks.extend([t0, t1]);
     // Chain tweaks
-    for chain_idx in 0..xmss::V {
-        for step in 0..xmss::CHAIN_LENGTH {
-            let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_CHAIN, chain_idx * xmss::CHAIN_LENGTH + step, slot);
+    for chain_idx in 0..V {
+        for step in 0..CHAIN_LENGTH {
+            let [t0, t1] = chain_tweak(slot, chain_idx as u32, step as u32);
             tweaks.extend([t0, t1]);
         }
     }
-    // Merkle tweaks
-    for level in 0..xmss::LOG_LIFETIME {
+    // Leaf tweak: tree_tweak(0, slot) for hashing chain ends into a leaf node
+    let [t0, t1] = merkle_tweak(0, slot);
+    tweaks.extend([t0, t1]);
+    // Merkle tweaks: tree_tweak(l+1, slot >> (l+1)) for each level l
+    for level in 0..LOG_LIFETIME {
         let parent_level = level + 1;
         let parent_index = if parent_level < 32 { slot >> parent_level } else { 0 };
-        let [t0, t1] = xmss::make_tweak(xmss::TWEAK_TYPE_MERKLE, parent_level, parent_index);
+        let [t0, t1] = merkle_tweak(parent_level, parent_index as u32);
         tweaks.extend([t0, t1]);
     }
     assert_eq!(tweaks.len(), n);
@@ -94,7 +103,7 @@ fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
 fn build_non_reserved_public_input(
     n_sigs: usize,
     slice_hash: &[F; DIGEST_LEN],
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     bytecode_claim_output: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
@@ -102,7 +111,7 @@ fn build_non_reserved_public_input(
     let mut pi = vec![];
     pi.push(F::from_usize(n_sigs));
     pi.extend_from_slice(slice_hash);
-    pi.extend_from_slice(message);
+    pi.extend(xmss_encode_message(message));
     pi.extend(compute_merkle_chunks_for_slot(slot));
     pi.extend(compute_all_tweaks_for_slot(slot));
     pi.extend_from_slice(bytecode_claim_output);
@@ -116,9 +125,9 @@ fn build_non_reserved_public_input(
 
 fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     let mut data = vec![];
-    data.extend(sig.wots_signature.randomness.to_vec());
-    data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
+    data.extend_from_slice(xmss_randomness(sig));
+    data.extend(xmmss_revealed_chain_tips(sig).iter().flat_map(|digest| digest.to_vec()));
+    for neighbor in xmss_merkle_path(sig) {
         data.extend(neighbor.to_vec());
     }
     assert_eq!(data.len(), SIG_SIZE_FE);
@@ -146,7 +155,7 @@ impl AggregatedXMSS {
         postcard::from_bytes(&decompressed).ok()
     }
 
-    pub fn public_input(&self, message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+    pub fn public_input(&self, message: &[u8; MESSAGE_LENGTH], slot: u32) -> Vec<F> {
         let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
@@ -185,7 +194,7 @@ impl AggregatedXMSS {
 
 pub fn xmss_verify_aggregation(
     agg_sig: &AggregatedXMSS,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
 ) -> Result<ProofVerificationDetails, ProofError> {
     if !agg_sig.pub_keys.is_sorted() {
@@ -201,12 +210,12 @@ pub fn xmss_verify_aggregation(
 pub fn xmss_aggregate(
     children: &[AggregatedXMSS],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     log_inv_rate: usize,
 ) -> AggregatedXMSS {
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
-    raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
+    raw_xmss.dedup_by(|(a, _), (b, _)| a == b);
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
@@ -240,8 +249,7 @@ pub fn xmss_aggregate(
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let n_all_tweaks_fe =
-            xmss::TWEAK_LEN + xmss::V * xmss::CHAIN_LENGTH * xmss::TWEAK_LEN + xmss::LOG_LIFETIME * xmss::TWEAK_LEN;
+        let n_all_tweaks_fe = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
         let bytecode_claim_offset = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
@@ -373,7 +381,7 @@ pub fn xmss_aggregate(
     }
 
     let n_dup = dup_pub_keys.len();
-    let pubkey_fe_size = DIGEST_LEN + xmss::PUBLIC_PARAM_LEN_FE;
+    let pubkey_fe_size = DIGEST_LEN + PUBLIC_PARAM_LEN_FE;
     let pubkeys_block_size = (n_sigs + n_dup) * pubkey_fe_size;
 
     // Compute absolute memory addresses for each source block
@@ -397,12 +405,12 @@ pub fn xmss_aggregate(
     assert_eq!(private_input.len(), header_size);
 
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
-        private_input.extend_from_slice(&pk.public_param);
+        private_input.extend_from_slice(&pubkey_merkle_root(pk));
+        private_input.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
-        private_input.extend_from_slice(&pk.public_param);
+        private_input.extend_from_slice(&pubkey_merkle_root(pk));
+        private_input.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for block in &source_blocks {
         private_input.extend_from_slice(block);
@@ -410,7 +418,7 @@ pub fn xmss_aggregate(
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
     // TODO precompute all the other poseidons
-    let (xmss_poseidons_16_precomputed, xmss_poseidons_24_precomputed) = precompute_poseidons(&raw_xmss, message);
+    let (xmss_poseidons_16_precomputed, xmss_poseidons_24_precomputed) = precompute_poseidons(&raw_xmss, slot, message);
 
     // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
     // Each opening produces two entries: leaf_data, then the flattened path.
@@ -466,11 +474,12 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
 #[instrument(skip_all)]
 fn precompute_poseidons(
     raw_signers: &[(XmssPublicKey, XmssSignature)],
-    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    message: &[u8; MESSAGE_LENGTH],
 ) -> (Poseidon16History, Poseidon24History) {
     let traces: Vec<_> = raw_signers
         .par_iter()
-        .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message, sig).unwrap())
+        .map(|(pub_key, sig)| xmss_verify_with_trace(pub_key, slot, message, sig).unwrap())
         .collect();
     let (p16s, p24s): (Vec<_>, Vec<_>) = traces.into_iter().unzip();
     (

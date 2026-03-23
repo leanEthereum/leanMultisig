@@ -5,16 +5,16 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
+use leansig_wrapper::{
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
+    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
-    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
-};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
@@ -34,7 +34,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    let n_all_tweaks_fe = (1 + V * (1 << W) + LOG_LIFETIME) * TWEAK_LEN;
+    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN; // encoding + chain + leaf + merkle
     // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
     let pub_input_size = 1
         + DIGEST_LEN

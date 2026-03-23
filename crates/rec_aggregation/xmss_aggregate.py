@@ -20,11 +20,13 @@ POSEIDON24_CAP = 9
 POSEIDON24_RATE = 15
 CHUNKS_PER_FE = 24 / W  # 8
 NUM_ENCODING_FE = div_ceil(V, CHUNKS_PER_FE)  # ceil(V/8)
+Q = 127  # Rejection parameter: p = Q * CHAIN_LENGTH^CHUNKS_PER_FE + 1 = 127 * 8^8 + 1
 
-# All tweaks layout: encoding_tweak(2) + chain_tweaks(V*CHAIN_LENGTH*2) + merkle_tweaks(LOG_LIFETIME*2)
-N_ALL_TWEAKS = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN
+# All tweaks layout: encoding_tweak(2) + chain_tweaks(V*CHAIN_LENGTH*2) + leaf_tweak(2) + merkle_tweaks(LOG_LIFETIME*2)
+N_ALL_TWEAKS = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN
 CHAIN_TWEAKS_OFFSET = TWEAK_LEN
-MERKLE_TWEAKS_OFFSET = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN
+LEAF_TWEAK_OFFSET = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN
+MERKLE_TWEAKS_OFFSET = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN
 
 
 @inline
@@ -37,14 +39,15 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     # Tweak pointers (all pre-computed in public input)
     encoding_tweak = all_tweaks
     chain_tweaks = all_tweaks + CHAIN_TWEAKS_OFFSET
+    leaf_tweak = all_tweaks + LEAF_TWEAK_OFFSET
     merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
 
-    # 1) Encode: poseidon24_compress(message(9) || tweak(2) || randomness(7) || pp(5) || 0)
+    # 1) Encode: poseidon24_compress(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)
-    enc_rate[0] = encoding_tweak[0]
-    enc_rate[1] = encoding_tweak[1]
-    copy_7(randomness, enc_rate + 2)
-    copy_5(public_param, enc_rate + 9)
+    copy_5(public_param, enc_rate)
+    enc_rate[5] = encoding_tweak[0]
+    enc_rate[6] = encoding_tweak[1]
+    copy_7(randomness, enc_rate + 7)
     enc_rate[14] = 0
 
     encoding_fe = Array(POSEIDON24_CAP)
@@ -58,10 +61,10 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     for i in unroll(0, NUM_ENCODING_FE):
         for j in unroll(0, CHUNKS_PER_FE):
             assert encoding[i * CHUNKS_PER_FE + j] < CHAIN_LENGTH
-        assert remaining[i] < 2**7 - 1
-        partial_sum: Mut = remaining[i] * 2**24
+        assert remaining[i] < Q
+        partial_sum: Mut = remaining[i]
         for j in unroll(0, CHUNKS_PER_FE):
-            partial_sum += encoding[i * CHUNKS_PER_FE + j] * CHAIN_LENGTH ** j
+            partial_sum += encoding[i * CHUNKS_PER_FE + j] * (Q * CHAIN_LENGTH ** j)
         assert partial_sum == encoding_fe[i]
 
     # 3) Chain hashing with Poseidon16 + pre-computed tweaks
@@ -81,8 +84,8 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
 
     assert target_sum == TARGET_SUM
 
-    # 4) WOTS PK hash with Poseidon24 sponge
-    wots_pk_hashed = wots_pk_hash_p24(wots_public_key)
+    # 4) WOTS PK hash with Poseidon24 sponge (parameter + leaf_tweak prefix)
+    wots_pk_hashed = wots_pk_hash_p24(wots_public_key, public_param, leaf_tweak)
 
     # 5) Merkle verify with Poseidon24 + pre-computed tweaks
     xmss_merkle_verify_p24(wots_pk_hashed, merkle_path, merkle_chunks, merkle_root, public_param, merkle_tweaks)
@@ -94,9 +97,9 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
 def make_chain_right(public_param, chain_tweaks, chain_index, step):
     right = Array(DIGEST_LEN)
     tweak_idx = (chain_index * CHAIN_LENGTH + step) * TWEAK_LEN
-    right[0] = chain_tweaks[tweak_idx]
-    right[1] = chain_tweaks[tweak_idx + 1]
-    copy_5(public_param, right + 2)
+    copy_5(public_param, right)
+    right[5] = chain_tweaks[tweak_idx]
+    right[6] = chain_tweaks[tweak_idx + 1]
     right[7] = 0
     return right
 
@@ -104,7 +107,7 @@ def make_chain_right(public_param, chain_tweaks, chain_index, step):
 @inline
 def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_tweaks, chain_index):
     num_hashes = (CHAIN_LENGTH - 1) - n
-    start_step = n
+    start_step = n + 1
 
     if num_hashes == 0:
         copy_8(input_ptr, output_ptr)
@@ -126,20 +129,34 @@ def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_twea
 
 
 @inline
-def wots_pk_hash_p24(wots_pk):
-    TOTAL = V * DIGEST_LEN
-    REMAINDER = TOTAL % POSEIDON24_RATE
+def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
+    # Sponge input: parameter(5) | leaf_tweak(2) | chain_ends(V*8) = 375 elements
+    # 375 / 15 = 25 exact chunks, no remainder
+    PREFIX_LEN = PUBLIC_PARAM_LEN + TWEAK_LEN  # 7
     capacity: Mut = Array(POSEIDON24_CAP)
     for i in unroll(0, POSEIDON24_CAP):
         capacity[i] = WOTS_PUBKET_SPONGE_DOMAIN_SEP[i]
-    N_FULL_STEPS = div_floor(TOTAL, POSEIDON24_RATE)
+    # First chunk: parameter(5) | leaf_tweak(2) | wots_pk[0..8]
+    first_rate = Array(POSEIDON24_RATE)
+    copy_5(public_param, first_rate)
+    first_rate[5] = leaf_tweak[0]
+    first_rate[6] = leaf_tweak[1]
+    copy_8(wots_pk, first_rate + PREFIX_LEN)
+    new_capacity = Array(POSEIDON24_CAP)
+    poseidon24_compress(capacity, first_rate, new_capacity)
+    capacity = new_capacity
+    # Remaining data: wots_pk[8..] = V*DIGEST_LEN - 8 elements
+    WOTS_PK_OFFSET = POSEIDON24_RATE - PREFIX_LEN  # 8
+    REMAINING = V * DIGEST_LEN - WOTS_PK_OFFSET
+    REMAINDER = REMAINING % POSEIDON24_RATE
+    N_FULL_STEPS = div_floor(REMAINING, POSEIDON24_RATE)
     for step in unroll(0, N_FULL_STEPS):
-        src = wots_pk + step * POSEIDON24_RATE
+        src = wots_pk + WOTS_PK_OFFSET + step * POSEIDON24_RATE
         new_capacity = Array(POSEIDON24_CAP)
         poseidon24_compress(capacity, src, new_capacity)
         capacity = new_capacity
     if REMAINDER != 0:
-        src = wots_pk + N_FULL_STEPS * POSEIDON24_RATE
+        src = wots_pk + WOTS_PK_OFFSET + N_FULL_STEPS * POSEIDON24_RATE
         rate = Array(POSEIDON24_RATE)
         for i in unroll(0, REMAINDER):
             rate[i] = src[i]
@@ -199,15 +216,15 @@ def merkle_p24_one_level(is_left_bit, current, neighbour, output, public_param, 
     tweak_ptr = merkle_tweaks + child_level * TWEAK_LEN
 
     input_buf = Array(24)
+    copy_5(public_param, input_buf)
+    input_buf[5] = tweak_ptr[0]
+    input_buf[6] = tweak_ptr[1]
     if is_left_bit == 0:
-        copy_8(neighbour, input_buf)
-        copy_8(current, input_buf + 8)
+        copy_8(neighbour, input_buf + 7)
+        copy_8(current, input_buf + 15)
     else:
-        copy_8(current, input_buf)
-        copy_8(neighbour, input_buf + 8)
-    input_buf[16] = tweak_ptr[0]
-    input_buf[17] = tweak_ptr[1]
-    copy_5(public_param, input_buf + 18)
+        copy_8(current, input_buf + 7)
+        copy_8(neighbour, input_buf + 15)
     input_buf[23] = 0
 
     merkle_output = Array(POSEIDON24_CAP)
