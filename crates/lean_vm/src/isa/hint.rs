@@ -74,6 +74,7 @@ pub enum CustomHint {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeBitsXMSS,
+    DecomposeBitsMerkleWhir,
     DecomposeBits,
     LessThan,
     Log2Ceil,
@@ -82,8 +83,9 @@ pub enum CustomHint {
     Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 7] = [
+pub const CUSTOM_HINTS: [CustomHint; 8] = [
     CustomHint::DecomposeBitsXMSS,
+    CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
@@ -96,6 +98,7 @@ impl CustomHint {
     pub fn name(&self) -> &str {
         match self {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
+            Self::DecomposeBitsMerkleWhir => "hint_decompose_bits_merkle_whir",
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
@@ -108,6 +111,7 @@ impl CustomHint {
     pub fn n_args(&self) -> usize {
         match self {
             Self::DecomposeBitsXMSS => 5,
+            Self::DecomposeBitsMerkleWhir => 4,
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
@@ -150,6 +154,20 @@ impl CustomHint {
                     ctx.memory.set(memory_index_remaining, F::from_usize(r_i))?;
                     memory_index_remaining += 1;
                 }
+            }
+            Self::DecomposeBitsMerkleWhir => {
+                let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(24_usize.is_multiple_of(chunk_size));
+                let mut memory_index_decomposed = decomposed_ptr;
+                for i in 0..24 / chunk_size {
+                    let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
+                    ctx.memory.set(memory_index_decomposed, value)?;
+                    memory_index_decomposed += 1;
+                }
+                ctx.memory
+                    .set(args[1].memory_address(ctx.fp)?, F::from_usize(value >> 24))?;
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
