@@ -75,10 +75,6 @@ pub enum CustomHint {
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeBitsXMSS,
     DecomposeBits,
-    /// Decompose a field element into lo (< 2^16) and hi (< 2^14) parts:
-    /// a = lo + hi * 2^16
-    /// Args: value, lo_ptr, hi_ptr
-    Decompose16,
     LessThan,
     Log2Ceil,
     PrivateInputStart,
@@ -86,10 +82,9 @@ pub enum CustomHint {
     Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 7] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBits,
-    CustomHint::Decompose16,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
     CustomHint::PrivateInputStart,
@@ -102,7 +97,6 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
             Self::DecomposeBits => "hint_decompose_bits",
-            Self::Decompose16 => "hint_decompose_16",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
@@ -115,7 +109,6 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => 5,
             Self::DecomposeBits => 4,
-            Self::Decompose16 => 3,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
@@ -177,15 +170,6 @@ impl CustomHint {
                     ctx.memory
                         .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
                 }
-            }
-            Self::Decompose16 => {
-                let value = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let lo_ptr = args[1].memory_address(ctx.fp)?;
-                let hi_ptr = args[2].memory_address(ctx.fp)?;
-                let lo = value & 0xFFFF;
-                let hi = value >> 16;
-                ctx.memory.set(lo_ptr, F::from_usize(lo))?;
-                ctx.memory.set(hi_ptr, F::from_usize(hi))?;
             }
             Self::LessThan => {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;
