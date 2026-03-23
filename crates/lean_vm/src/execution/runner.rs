@@ -11,9 +11,9 @@ use crate::{
     Table, TableTrace,
 };
 use backend::*;
+use leansig_wrapper::{Poseidon16History, Poseidon24History};
 use std::collections::{BTreeMap, BTreeSet};
 use utils::ToUsize;
-use xmss::{Poseidon16History, Poseidon24History};
 
 #[derive(Debug)]
 pub struct ExecutionWitness<'a> {

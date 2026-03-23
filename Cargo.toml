@@ -18,7 +18,6 @@ members = [
     "crates/backend/air",
     "crates/backend/fiat-shamir",
     "crates/backend/sumcheck",
-    "crates/whir",
 ]
 
 [workspace.lints]
@@ -55,7 +54,6 @@ wildcard_imports = "allow"
 air = { path = "crates/air" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
-xmss = { path = "crates/xmss" }
 sub_protocols = { path = "crates/sub_protocols" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
@@ -76,7 +74,8 @@ tracing-subscriber = { version = "0.3.23", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.3.0", features = ["ansi", "smallvec"] }
 postcard = { version = "1.1.3", features = ["alloc"] }
 lz4_flex = "0.13.0"
-
+leansig = { path = "../zk/leanSig" }
+leansig_wrapper = { path = "crates/leansig_wrapper" }
 backend = { path = "crates/backend" }
 
 [features]
@@ -85,11 +84,11 @@ prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
-xmss.workspace = true
 air.workspace = true
 rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true
+leansig_wrapper.workspace = true
 
 lean_vm.workspace = true
 backend.workspace = true

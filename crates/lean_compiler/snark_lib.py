@@ -111,11 +111,6 @@ def poly_eq_ee(a, b, result, length=None):
 def hint_decompose_bits(value, bits, n_bits, endian):
     _ = value, bits, n_bits, endian
 
-
-def hint_decompose_16(a, lo, hi):
-    _ = a, lo, hi
-
-
 def hint_less_than(a, b, result_ptr):
     _ = a, b, result_ptr
 
@@ -166,6 +161,10 @@ def hint_private_input_start(priv_start):
 
 
 def hint_decompose_bits_xmss(*args):
+    _ = args
+
+
+def hint_decompose_bits_merkle_whir(*args):
     _ = args
 
 

@@ -3,11 +3,11 @@ use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerEr
 use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::operands::MemOrConstant;
 use backend::*;
+use leansig_wrapper::SIG_SIZE_FE;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::SIG_SIZE_FE;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -74,11 +74,8 @@ pub enum CustomHint {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     DecomposeBitsXMSS,
+    DecomposeBitsMerkleWhir,
     DecomposeBits,
-    /// Decompose a field element into lo (< 2^16) and hi (< 2^14) parts:
-    /// a = lo + hi * 2^16
-    /// Args: value, lo_ptr, hi_ptr
-    Decompose16,
     LessThan,
     Log2Ceil,
     PrivateInputStart,
@@ -88,8 +85,8 @@ pub enum CustomHint {
 
 pub const CUSTOM_HINTS: [CustomHint; 8] = [
     CustomHint::DecomposeBitsXMSS,
+    CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
-    CustomHint::Decompose16,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
     CustomHint::PrivateInputStart,
@@ -101,8 +98,8 @@ impl CustomHint {
     pub fn name(&self) -> &str {
         match self {
             Self::DecomposeBitsXMSS => "hint_decompose_bits_xmss",
+            Self::DecomposeBitsMerkleWhir => "hint_decompose_bits_merkle_whir",
             Self::DecomposeBits => "hint_decompose_bits",
-            Self::Decompose16 => "hint_decompose_16",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
@@ -114,8 +111,8 @@ impl CustomHint {
     pub fn n_args(&self) -> usize {
         match self {
             Self::DecomposeBitsXMSS => 5,
+            Self::DecomposeBitsMerkleWhir => 4,
             Self::DecomposeBits => 4,
-            Self::Decompose16 => 3,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
@@ -127,25 +124,50 @@ impl CustomHint {
     pub fn execute(&self, args: &[MemOrConstant], ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
+                // Aborting hypercube decomposition: a_i = Q * d_i + r_i
+                // where d_i = floor(a_i / Q), r_i = a_i mod Q, Q = 127
+                // Then d_i is decomposed into base-w digits (w = 2^chunk_size)
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
+                let q: usize = 127; // Q parameter for aborting hypercube (p = Q * w^z + 1)
+                let base = 1 << chunk_size;
+                let n_chunks = 24 / chunk_size;
                 let mut memory_index_decomposed = decomposed_ptr;
                 let mut memory_index_remaining = remaining_ptr;
-                #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
-                    for i in 0..24 / chunk_size {
-                        let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
-                        ctx.memory.set(memory_index_decomposed, value)?;
+                    let mut d_i = value / q; // floor(a_i / Q)
+                    let r_i = value % q; // a_i mod Q
+                    for _ in 0..n_chunks {
+                        ctx.memory.set(memory_index_decomposed, F::from_usize(d_i % base))?;
+                        d_i /= base;
                         memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
+                    assert_eq!(
+                        d_i, 0,
+                        "d_i does not fit in {n_chunks} base-{base} digits -> invalid XMSS encoding"
+                    );
+                    ctx.memory.set(memory_index_remaining, F::from_usize(r_i))?;
                     memory_index_remaining += 1;
                 }
+            }
+            Self::DecomposeBitsMerkleWhir => {
+                let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(24_usize.is_multiple_of(chunk_size));
+                let mut memory_index_decomposed = decomposed_ptr;
+                for i in 0..24 / chunk_size {
+                    let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
+                    ctx.memory.set(memory_index_decomposed, value)?;
+                    memory_index_decomposed += 1;
+                }
+                ctx.memory
+                    .set(args[1].memory_address(ctx.fp)?, F::from_usize(value >> 24))?;
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -166,15 +188,6 @@ impl CustomHint {
                     ctx.memory
                         .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
                 }
-            }
-            Self::Decompose16 => {
-                let value = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let lo_ptr = args[1].memory_address(ctx.fp)?;
-                let hi_ptr = args[2].memory_address(ctx.fp)?;
-                let lo = value & 0xFFFF;
-                let hi = value >> 16;
-                ctx.memory.set(lo_ptr, F::from_usize(lo))?;
-                ctx.memory.set(hi_ptr, F::from_usize(hi))?;
             }
             Self::LessThan => {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;

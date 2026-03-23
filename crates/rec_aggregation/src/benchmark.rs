@@ -1,14 +1,12 @@
-use std::io::{self, Write};
-use std::time::Instant;
-
 use backend::*;
 use lean_vm::*;
-use xmss::signers_cache::*;
-use xmss::{XmssPublicKey, XmssSignature};
-
+use leansig_wrapper::{XmssPublicKey, XmssSignature};
+use std::io::{self, Write};
+use std::time::Instant;
 use utils::ansi as s;
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
+use crate::signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures};
 use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
@@ -217,8 +215,6 @@ fn build_aggregation(
     overlap: usize,
     tracing: bool,
 ) -> (AggregatedXMSS, f64) {
-    let message = message_for_benchmark();
-    let slot = BENCHMARK_SLOT;
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
@@ -247,7 +243,13 @@ fn build_aggregation(
     }
 
     let time = Instant::now();
-    let result = xmss_aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
+    let result = xmss_aggregate(
+        &child_results,
+        raw_xmss,
+        &BENCHMARK_MESSAGE,
+        BENCHMARK_SLOT,
+        topology.log_inv_rate,
+    );
     let elapsed = time.elapsed();
 
     if tracing {
@@ -295,13 +297,9 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     let n_sigs = count_signers(topology, overlap);
 
-    let cache = get_benchmark_signers_cache();
+    let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
-    let paired: Vec<_> = (0..n_sigs)
-        .into_par_iter()
-        .map(|i| reconstruct_signer_for_benchmark(i, cache[i]))
-        .collect();
-    let (pub_keys, signatures): (Vec<_>, Vec<_>) = paired.into_iter().unzip();
+    let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].to_vec().into_iter().unzip();
 
     init_aggregation_bytecode();
     println!(
@@ -323,8 +321,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
-    let message = message_for_benchmark();
-    crate::xmss_verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
+    crate::xmss_verify_aggregation(&aggregated_sigs, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
     time
 }
 
