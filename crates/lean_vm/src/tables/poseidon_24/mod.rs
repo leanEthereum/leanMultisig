@@ -363,10 +363,6 @@ fn eval_last_2_full_rounds_24<AB: AirBuilder>(
     }
 }
 
-// =========================================================================
-// AIR-friendly linear algebra for width-24 Karatsuba convolution (3→6→12→24)
-// =========================================================================
-
 #[inline]
 fn dense_mat_vec_air_24<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 24]; 24], state: &mut [A; WIDTH_24]) {
     let input = *state;
