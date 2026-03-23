@@ -146,17 +146,17 @@ def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
     poseidon24_compress(capacity, first_rate, new_capacity)
     capacity = new_capacity
     # Remaining data: wots_pk[8..] = V*DIGEST_LEN - 8 elements
-    WK_OFFSET = POSEIDON24_RATE - PREFIX_LEN  # 8
-    REMAINING = V * DIGEST_LEN - WK_OFFSET
+    WOTS_PK_OFFSET = POSEIDON24_RATE - PREFIX_LEN  # 8
+    REMAINING = V * DIGEST_LEN - WOTS_PK_OFFSET
     REMAINDER = REMAINING % POSEIDON24_RATE
     N_FULL_STEPS = div_floor(REMAINING, POSEIDON24_RATE)
     for step in unroll(0, N_FULL_STEPS):
-        src = wots_pk + WK_OFFSET + step * POSEIDON24_RATE
+        src = wots_pk + WOTS_PK_OFFSET + step * POSEIDON24_RATE
         new_capacity = Array(POSEIDON24_CAP)
         poseidon24_compress(capacity, src, new_capacity)
         capacity = new_capacity
     if REMAINDER != 0:
-        src = wots_pk + WK_OFFSET + N_FULL_STEPS * POSEIDON24_RATE
+        src = wots_pk + WOTS_PK_OFFSET + N_FULL_STEPS * POSEIDON24_RATE
         rate = Array(POSEIDON24_RATE)
         for i in unroll(0, REMAINDER):
             rate[i] = src[i]

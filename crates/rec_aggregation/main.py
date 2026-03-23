@@ -216,12 +216,13 @@ def verify_inner_pub_mem(inner_pub_mem, n_sub, message, merkle_chunks_for_slot, 
     copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
     for k in unroll(0, N_MERKLE_CHUNKS):
         inner_msg[MESSAGE_LEN+ k] = merkle_chunks_for_slot[k]
-    # Copy all pre-computed tweaks to inner pub mem (786 FE = 157*5 + 1)
+    # Copy all pre-computed tweaks to inner pub mem
     inner_all_tweaks = inner_msg + MESSAGE_LEN + N_MERKLE_CHUNKS
-    n_tweak_copy5 = (N_ALL_TWEAKS - N_ALL_TWEAKS % DIM) / DIM
+    n_tweak_copy5 = div_floor(N_ALL_TWEAKS, DIM)
     for k in unroll(0, n_tweak_copy5):
         copy_5(all_tweaks + k * DIM, inner_all_tweaks + k * DIM)
-    inner_all_tweaks[n_tweak_copy5 * DIM] = all_tweaks[n_tweak_copy5 * DIM]
+    for k in unroll(0, N_ALL_TWEAKS % DIM):
+        inner_all_tweaks[n_tweak_copy5 * DIM + k] = all_tweaks[n_tweak_copy5 * DIM + k]
     own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
     copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
     return non_reserved_inner

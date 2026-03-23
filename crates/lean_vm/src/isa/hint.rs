@@ -152,7 +152,7 @@ impl CustomHint {
                     }
                     assert_eq!(
                         d_i, 0,
-                        "d_i={d_i} does not fit in {n_chunks} base-{base} digits (fe index {i}, value {value})"
+                        "d_i does not fit in {n_chunks} base-{base} digits -> invalid XMSS encoding"
                     );
                     ctx.memory.set(memory_index_remaining, F::from_usize(r_i))?;
                     memory_index_remaining += 1;

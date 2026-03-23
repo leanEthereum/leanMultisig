@@ -49,11 +49,27 @@ fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(X
     let decompressed = lz4_flex::decompress_size_prepended(&data).ok()?;
     let cached: SignersCacheFile = postcard::from_bytes(&decompressed).ok()?;
 
-    if cached.slot != BENCHMARK_SLOT
-        || cached.message != BENCHMARK_MESSAGE
-        || cached.signatures.len() != NUM_BENCHMARK_SIGNERS
-        || cached.signatures[0].0 != *first_pubkey
-    {
+    if cached.slot != BENCHMARK_SLOT {
+        println!(
+            "Cache slot {} does not match benchmark slot {}, recomputing...",
+            cached.slot, BENCHMARK_SLOT
+        );
+        return None;
+    }
+    if cached.message != BENCHMARK_MESSAGE {
+        println!("Cache message does not match benchmark message, recomputing...");
+        return None;
+    }
+    if cached.signatures.len() != NUM_BENCHMARK_SIGNERS {
+        println!(
+            "Cache contains {} signatures, expected {}, recomputing...",
+            cached.signatures.len(),
+            NUM_BENCHMARK_SIGNERS
+        );
+        return None;
+    }
+    if cached.signatures[0].0 != *first_pubkey {
+        println!("Cache first public key does not match computed first public key, recomputing...");
         return None;
     }
 
