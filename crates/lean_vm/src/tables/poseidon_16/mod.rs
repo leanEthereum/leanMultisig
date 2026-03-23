@@ -71,12 +71,12 @@ const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
 const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2, ExtensionOp>=3
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3, ExtensionOp>=4
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_16_COL_A: ColIndex = 1;
-pub const POSEIDON_16_COL_B: ColIndex = 2;
-pub const POSEIDON_16_COL_RES: ColIndex = 3;
+pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = 1;
+pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 2;
+pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
@@ -95,16 +95,16 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     fn lookups(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
-                index: POSEIDON_16_COL_A,
+                index: POSEIDON_16_COL_INDEX_INPUT_LEFT,
                 values: (POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + DIGEST_LEN).collect(),
             },
             LookupIntoMemory {
-                index: POSEIDON_16_COL_B,
+                index: POSEIDON_16_COL_INDEX_INPUT_RIGHT,
                 values: (POSEIDON_16_COL_INPUT_START + DIGEST_LEN..POSEIDON_16_COL_INPUT_START + DIGEST_LEN * 2)
                     .collect(),
             },
             LookupIntoMemory {
-                index: POSEIDON_16_COL_RES,
+                index: POSEIDON_16_COL_INDEX_INPUT_RES,
                 values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN).collect(),
             },
         ]
@@ -116,9 +116,9 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             selector: POSEIDON_16_COL_FLAG,
             data: vec![
                 BusData::Constant(POSEIDON_PRECOMPILE_DATA),
-                BusData::Column(POSEIDON_16_COL_A),
-                BusData::Column(POSEIDON_16_COL_B),
-                BusData::Column(POSEIDON_16_COL_RES),
+                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT),
+                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT),
+                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES),
             ],
         }
     }
@@ -154,9 +154,9 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
 
         trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
-        trace.base[POSEIDON_16_COL_A].push(arg_a);
-        trace.base[POSEIDON_16_COL_B].push(arg_b);
-        trace.base[POSEIDON_16_COL_RES].push(index_res_a);
+        trace.base[POSEIDON_16_COL_INDEX_INPUT_LEFT].push(arg_a);
+        trace.base[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
+        trace.base[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }

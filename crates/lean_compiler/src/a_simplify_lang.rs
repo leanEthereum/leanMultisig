@@ -2152,19 +2152,29 @@ fn simplify_lines(
                         }
 
                         // Special handling for poseidon precompiles
-                        if let Some(table) = [Table::poseidon16(), Table::poseidon24()]
-                            .into_iter()
-                            .find(|t| function_name == t.name())
-                        {
+                        let is_p16 = function_name == "poseidon16_compress";
+                        let is_p24_0_9 = function_name == "poseidon24_compress_0_9";
+                        let is_p24_9_18 = function_name == "poseidon24_compress_9_18";
+                        if is_p16 || is_p24_0_9 || is_p24_9_18 {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            let simplified_args = args
+                            let mut simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            if is_p24_0_9 {
+                                simplified_args.push(SimpleExpr::one());
+                            } else if is_p24_9_18 {
+                                simplified_args.push(SimpleExpr::zero());
+                            }
+                            let table = if is_p16 {
+                                Table::poseidon16()
+                            } else {
+                                Table::poseidon24()
+                            };
                             res.push(SimpleLine::Precompile {
                                 table,
                                 args: simplified_args,

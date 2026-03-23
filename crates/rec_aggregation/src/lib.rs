@@ -7,6 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use leansig_wrapper::*;
 use tracing::instrument;
+use utils::poseidon24_compress_0_9;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,7 @@ pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
         input[9..17].copy_from_slice(&pubkey_merkle_root(pk));
         input[17..22].copy_from_slice(&pubkey_public_parameter(pk));
         // input[22..24] = zeros (padding)
-        capacity = utils::poseidon24_compress(input);
+        capacity = poseidon24_compress_0_9(input);
     }
     capacity[..DIGEST_LEN].try_into().unwrap()
 }
@@ -74,10 +75,7 @@ fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
     let mut tweaks = Vec::with_capacity(n);
     // Encoding tweak: encode_epoch(slot) = ((slot << 8) | TWEAK_SEPARATOR_MSG) in base-p
     let acc = ((slot as u64) << 8) | 0x02u64;
-    let [t0, t1] = [
-        F::from_u64(acc % F::ORDER_U64),
-        F::from_u64(acc / F::ORDER_U64),
-    ];
+    let [t0, t1] = [F::from_u64(acc % F::ORDER_U64), F::from_u64(acc / F::ORDER_U64)];
     tweaks.extend([t0, t1]);
     // Chain tweaks
     for chain_idx in 0..V {

@@ -22,7 +22,7 @@ pub const BENCHMARK_MESSAGE: [u8; MESSAGE_LENGTH] = [
     78, 32, 21, 11, 1, 76, 255, 254, 0, 0, 22, 11, 11, 87, 87, 32, 11, 32, 11, 76, 23, 12, 11, 2, 2, 2, 2, 2, 2, 3, 4,
     5,
 ];
-pub const NUM_BENCHMARK_SIGNERS: usize = 10000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 3000;
 
 #[derive(Serialize, Deserialize)]
 struct SignersCacheFile {

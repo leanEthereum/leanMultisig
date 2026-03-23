@@ -2,7 +2,10 @@ use tracing::instrument;
 
 use crate::{
     F, ZERO_VEC_PTR,
-    tables::{POSEIDON_24_OUTPUT_SIZE, Poseidon1Cols24, WIDTH_24, num_cols_poseidon_24},
+    tables::{
+        POSEIDON_24_COL_PRECOMPILE_DATA, POSEIDON_24_OUTPUT_SIZE, POSEIDON_24_PRECOMPILE_DATA_OFFSET, Poseidon1Cols24,
+        WIDTH_24, num_cols_poseidon_24,
+    },
 };
 use backend::*;
 
@@ -42,7 +45,7 @@ pub fn fill_trace_poseidon_24(trace: &mut [Vec<F>]) {
 }
 
 pub fn default_poseidon_24_row(null_hash_ptr: usize) -> Vec<F> {
-    let mut row = vec![F::ZERO; num_cols_poseidon_24()];
+    let mut row = vec![F::ZERO; num_cols_poseidon_24() + 1];
     let ptrs: Vec<*mut F> = (0..num_cols_poseidon_24())
         .map(|i| unsafe { row.as_mut_ptr().add(i) })
         .collect();
@@ -50,11 +53,14 @@ pub fn default_poseidon_24_row(null_hash_ptr: usize) -> Vec<F> {
     let perm: &mut Poseidon1Cols24<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols24<&mut F>) };
     perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
     *perm.flag = F::ZERO;
-    *perm.index_a = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_b = F::from_usize(ZERO_VEC_PTR);
+    *perm.is_output_0_9 = F::ONE;
+    *perm.index_input_left = F::from_usize(ZERO_VEC_PTR);
+    *perm.index_input_right = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(null_hash_ptr);
 
     generate_trace_rows_for_perm_24(perm);
+    // virtual column: precompile_data = OFFSET + is_output_0_9 (which is 1 for padding)
+    row[POSEIDON_24_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + 1);
     row
 }
 
@@ -127,6 +133,7 @@ fn generate_trace_rows_for_perm_24<F: Algebra<KoalaBear> + Copy>(perm: &mut Pose
         &mut perm.outputs,
         &poseidon1_24_final_constants()[2 * n_ending_full_rounds],
         &poseidon1_24_final_constants()[2 * n_ending_full_rounds + 1],
+        *perm.is_output_0_9,
     );
 }
 
@@ -161,6 +168,7 @@ fn generate_last_2_full_rounds_24<F: Algebra<KoalaBear> + Copy>(
     outputs: &mut [&mut F; POSEIDON_24_OUTPUT_SIZE],
     round_constants_1: &[KoalaBear; WIDTH_24],
     round_constants_2: &[KoalaBear; WIDTH_24],
+    is_output_0_9: F,
 ) {
     for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
         *state_i += *const_i;
@@ -174,8 +182,16 @@ fn generate_last_2_full_rounds_24<F: Algebra<KoalaBear> + Copy>(
     }
     mds_circ_24(state);
 
-    // Add inputs to outputs (compression)
-    for ((output, state_i), &input_i) in outputs.iter_mut().zip(state).zip(inputs) {
-        **output = *state_i + input_i;
+    // Feedforward: state += inputs
+    for (state_i, input_i) in state.iter_mut().zip(inputs) {
+        *state_i += *input_i;
+    }
+    // Select output[0..9] or output[9..18] based on is_output_0_9
+    for ((output, first), second) in outputs
+        .iter_mut()
+        .zip(&state[..POSEIDON_24_OUTPUT_SIZE])
+        .zip(&state[POSEIDON_24_OUTPUT_SIZE..][..POSEIDON_24_OUTPUT_SIZE])
+    {
+        **output = *first * is_output_0_9 + *second * (F::ONE - is_output_0_9);
     }
 }

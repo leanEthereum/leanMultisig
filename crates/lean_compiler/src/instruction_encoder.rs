@@ -56,7 +56,11 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         } => {
             let precompile_data = match *table {
                 Table::Poseidon16(_) => POSEIDON_PRECOMPILE_DATA,
-                Table::Poseidon24(_) => POSEIDON_24_PRECOMPILE_DATA,
+                Table::Poseidon24(_) => {
+                    let is_output_first = *aux_1;
+                    assert!(is_output_first == 0 || is_output_first == 1);
+                    POSEIDON_24_PRECOMPILE_DATA_OFFSET + is_output_first
+                }
                 Table::ExtensionOp(_) => {
                     let size = *aux_1;
                     let mode = *aux_2;

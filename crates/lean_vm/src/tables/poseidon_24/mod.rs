@@ -2,7 +2,8 @@ use std::any::TypeId;
 
 use crate::*;
 use backend::*;
-use utils::{ToUsize, poseidon24_compress};
+use utils::poseidon24_compress_9_18;
+use utils::{ToUsize, poseidon24_compress_0_9};
 
 /// Dispatch `mds_circ_24` through concrete types.
 #[inline(always)]
@@ -68,18 +69,27 @@ const HALF_INITIAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 const PARTIAL_ROUNDS_24: usize = POSEIDON1_PARTIAL_ROUNDS_24;
 const HALF_FINAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 
-pub const POSEIDON_24_PRECOMPILE_DATA: usize = 2; // domain separation: Poseidon16=1, Poseidon24=2, ExtensionOp>=3
+pub const POSEIDON_24_PRECOMPILE_DATA_OFFSET: usize = 2; // domain separation: Poseidon16=1, Poseidon24= 2 or 3, ExtensionOp>=4
+
+// input = 24 field elements
+// output = poseidon24(input) + input (feedforward for compression)
+// POSEIDON_24_COL_IS_OUTPUT_0_9 = 1 means the result is output[0..9]
+// POSEIDON_24_COL_IS_OUTPUT_0_9 = 0 means the result is output[9..19]
 
 pub const POSEIDON_24_INPUT_LEFT_SIZE: usize = 9;
 pub const POSEIDON_24_INPUT_RIGHT_SIZE: usize = 15;
 pub const POSEIDON_24_OUTPUT_SIZE: usize = 9;
 
-pub const POSEIDON_24_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_24_COL_A: ColIndex = 1;
-pub const POSEIDON_24_COL_B: ColIndex = 2;
-pub const POSEIDON_24_COL_RES: ColIndex = 3;
-pub const POSEIDON_24_COL_INPUT_START: ColIndex = 4;
+pub const POSEIDON_24_COL_FLAG: ColIndex = 0; // (boolean = when the precompile is called)
+pub const POSEIDON_24_COL_IS_OUTPUT_0_9: ColIndex = 1; // (boolean, cf above)
+pub const POSEIDON_24_COL_INDEX_INPUT_LEFT: ColIndex = 2;
+pub const POSEIDON_24_COL_INDEX_INPUT_RIGHT: ColIndex = 3;
+pub const POSEIDON_24_COL_INDEX_RES: ColIndex = 4;
+pub const POSEIDON_24_COL_INPUT_START: ColIndex = 5;
 pub const POSEIDON_24_COL_OUTPUT_START: ColIndex = num_cols_poseidon_24() - POSEIDON_24_OUTPUT_SIZE;
+
+// virtual columns (not committed)
+pub const POSEIDON_24_COL_PRECOMPILE_DATA: usize = num_cols_poseidon_24(); // (2 or 3) = POSEIDON_24_PRECOMPILE_DATA_OFFSET (2) + POSEIDON_24_COL_IS_OUTPUT_0_9 (0 or 1)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon24Precompile<const BUS: bool>;
@@ -96,18 +106,18 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
     fn lookups(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
-                index: POSEIDON_24_COL_A,
+                index: POSEIDON_24_COL_INDEX_INPUT_LEFT,
                 values: (POSEIDON_24_COL_INPUT_START..POSEIDON_24_COL_INPUT_START + POSEIDON_24_INPUT_LEFT_SIZE)
                     .collect(),
             },
             LookupIntoMemory {
-                index: POSEIDON_24_COL_B,
+                index: POSEIDON_24_COL_INDEX_INPUT_RIGHT,
                 values: (POSEIDON_24_COL_INPUT_START + POSEIDON_24_INPUT_LEFT_SIZE
                     ..POSEIDON_24_COL_INPUT_START + POSEIDON_24_INPUT_LEFT_SIZE + POSEIDON_24_INPUT_RIGHT_SIZE)
                     .collect(),
             },
             LookupIntoMemory {
-                index: POSEIDON_24_COL_RES,
+                index: POSEIDON_24_COL_INDEX_RES,
                 values: (POSEIDON_24_COL_OUTPUT_START..POSEIDON_24_COL_OUTPUT_START + POSEIDON_24_OUTPUT_SIZE)
                     .collect(),
             },
@@ -119,12 +129,20 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
             direction: BusDirection::Pull,
             selector: POSEIDON_24_COL_FLAG,
             data: vec![
-                BusData::Constant(POSEIDON_24_PRECOMPILE_DATA),
-                BusData::Column(POSEIDON_24_COL_A),
-                BusData::Column(POSEIDON_24_COL_B),
-                BusData::Column(POSEIDON_24_COL_RES),
+                BusData::Column(POSEIDON_24_COL_PRECOMPILE_DATA),
+                BusData::Column(POSEIDON_24_COL_INDEX_INPUT_LEFT),
+                BusData::Column(POSEIDON_24_COL_INDEX_INPUT_RIGHT),
+                BusData::Column(POSEIDON_24_COL_INDEX_RES),
             ],
         }
+    }
+
+    fn n_columns_total(&self) -> usize {
+        self.n_columns() + 1 // +1 for POSEIDON_24_POSEIDON_24_COL_PRECOMPILE_DATA
+    }
+
+    fn n_committed_columns(&self) -> usize {
+        self.n_columns()
     }
 
     fn padding_row(&self) -> Vec<F> {
@@ -135,35 +153,48 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
     #[inline(always)]
     fn execute(
         &self,
-        arg_a: F,
-        arg_b: F,
-        index_res_a: F,
-        _: usize,
+        index_input_left: F,
+        index_input_right: F,
+        index_res: F,
+        is_output_first: usize,
         _: usize,
         ctx: &mut InstructionContext<'_>,
     ) -> Result<(), RunnerError> {
+        assert!(is_output_first == 0 || is_output_first == 1);
+        let is_output_0_9 = is_output_first == 1;
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
-        let arg0 = ctx.memory.get_slice(arg_a.to_usize(), POSEIDON_24_INPUT_LEFT_SIZE)?;
-        let arg1 = ctx.memory.get_slice(arg_b.to_usize(), POSEIDON_24_INPUT_RIGHT_SIZE)?;
+        let arg0 = ctx
+            .memory
+            .get_slice(index_input_left.to_usize(), POSEIDON_24_INPUT_LEFT_SIZE)?;
+        let arg1 = ctx
+            .memory
+            .get_slice(index_input_right.to_usize(), POSEIDON_24_INPUT_RIGHT_SIZE)?;
 
         let mut input = [F::ZERO; POSEIDON_24_INPUT_LEFT_SIZE + POSEIDON_24_INPUT_RIGHT_SIZE];
         input[..POSEIDON_24_INPUT_LEFT_SIZE].copy_from_slice(&arg0);
         input[POSEIDON_24_INPUT_LEFT_SIZE..].copy_from_slice(&arg1);
 
-        let output = poseidon24_compress(input);
+        let result = if is_output_0_9 {
+            poseidon24_compress_0_9(input)
+        } else {
+            poseidon24_compress_9_18(input)
+        };
 
-        let res_a: [F; POSEIDON_24_OUTPUT_SIZE] = output[..POSEIDON_24_OUTPUT_SIZE].try_into().unwrap();
+        let res_a: [F; POSEIDON_24_OUTPUT_SIZE] = result[..POSEIDON_24_OUTPUT_SIZE].try_into().unwrap();
 
-        ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
+        ctx.memory.set_slice(index_res.to_usize(), &res_a)?;
 
         trace.base[POSEIDON_24_COL_FLAG].push(F::ONE);
-        trace.base[POSEIDON_24_COL_A].push(arg_a);
-        trace.base[POSEIDON_24_COL_B].push(arg_b);
-        trace.base[POSEIDON_24_COL_RES].push(index_res_a);
+        trace.base[POSEIDON_24_COL_IS_OUTPUT_0_9].push(F::from_bool(is_output_0_9));
+        trace.base[POSEIDON_24_COL_INDEX_INPUT_LEFT].push(index_input_left);
+        trace.base[POSEIDON_24_COL_INDEX_INPUT_RIGHT].push(index_input_right);
+        trace.base[POSEIDON_24_COL_INDEX_RES].push(index_res);
         for (i, value) in input.iter().enumerate() {
             trace.base[POSEIDON_24_COL_INPUT_START + i].push(*value);
         }
+        trace.base[POSEIDON_24_COL_PRECOMPILE_DATA]
+            .push(F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + is_output_first));
 
         // the rest of the trace is filled at the end of the execution (for parallelism + SIMD)
 
@@ -177,15 +208,13 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
         num_cols_poseidon_24()
     }
     fn degree_air(&self) -> usize {
-        9
+        10
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        // 1 bool check + bus + (HALF_INITIAL * WIDTH) + PARTIAL_ROUNDS + ((HALF_FINAL-1) * WIDTH) + OUTPUT_SIZE
-        // = 1 + bus + 2*24 + 23 + 1*24 + 9 = 1 + bus + 48 + 23 + 24 + 9 = 1 + bus + 104
-        BUS as usize + 105
+        BUS as usize + 106
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols24<AB::IF> = {
@@ -197,29 +226,32 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
             unsafe { std::ptr::read(&shorts[0]) }
         };
 
+        let precompile_data = cols.is_output_0_9 + AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET);
+
         // Bus data: [POSEIDON_24_PRECOMPILE_DATA (constant), a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag,
                 &[
-                    AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA),
-                    cols.index_a,
-                    cols.index_b,
+                    precompile_data,
+                    cols.index_input_left,
+                    cols.index_input_right,
                     cols.index_res,
                 ],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[
-                AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA),
-                cols.index_a,
-                cols.index_b,
+                precompile_data,
+                cols.index_input_left,
+                cols.index_input_right,
                 cols.index_res,
             ]);
         }
 
         builder.assert_bool(cols.flag);
+        builder.assert_bool(cols.is_output_0_9);
 
         eval_poseidon1_24(builder, &cols)
     }
@@ -229,8 +261,9 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
 #[derive(Debug)]
 pub(super) struct Poseidon1Cols24<T> {
     pub flag: T,
-    pub index_a: T,
-    pub index_b: T,
+    pub is_output_0_9: T,
+    pub index_input_left: T,
+    pub index_input_right: T,
     pub index_res: T,
 
     pub inputs: [T; WIDTH_24],
@@ -296,6 +329,7 @@ fn eval_poseidon1_24<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols24<A
         &local.outputs,
         &final_constants[2 * (HALF_FINAL_FULL_ROUNDS_24 - 1)],
         &final_constants[2 * (HALF_FINAL_FULL_ROUNDS_24 - 1) + 1],
+        local.is_output_0_9,
         builder,
     );
 }
@@ -335,6 +369,7 @@ fn eval_last_2_full_rounds_24<AB: AirBuilder>(
     outputs: &[AB::IF; POSEIDON_24_OUTPUT_SIZE],
     round_constants_1: &[F; WIDTH_24],
     round_constants_2: &[F; WIDTH_24],
+    is_output_first: AB::IF,
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
@@ -351,9 +386,15 @@ fn eval_last_2_full_rounds_24<AB: AirBuilder>(
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += *init_state_i;
     }
-    for (state_i, output_i) in state[..POSEIDON_24_OUTPUT_SIZE].iter_mut().zip(outputs) {
-        builder.assert_eq(*state_i, *output_i);
-        *state_i = *output_i;
+    for ((output_i, first_state_i), second_state_i) in outputs
+        .iter()
+        .zip(&state[..POSEIDON_24_OUTPUT_SIZE])
+        .zip(&state[POSEIDON_24_OUTPUT_SIZE..][..POSEIDON_24_OUTPUT_SIZE])
+    {
+        builder.assert_eq(
+            *output_i,
+            *first_state_i * is_output_first + *second_state_i * (AB::IF::ONE - is_output_first),
+        );
     }
 }
 

@@ -42,7 +42,7 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     leaf_tweak = all_tweaks + LEAF_TWEAK_OFFSET
     merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
 
-    # 1) Encode: poseidon24_compress(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
+    # 1) Encode: poseidon24_compress_0_9(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)
     copy_5(public_param, enc_rate)
     enc_rate[5] = encoding_tweak[0]
@@ -51,7 +51,7 @@ def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkl
     enc_rate[14] = 0
 
     encoding_fe = Array(POSEIDON24_CAP)
-    poseidon24_compress(message, enc_rate, encoding_fe)
+    poseidon24_compress_0_9(message, enc_rate, encoding_fe)
 
     # 2) Decompose encoding_fe into chain indices (only first NUM_ENCODING_FE elements)
     encoding = Array(NUM_ENCODING_FE * CHUNKS_PER_FE)
@@ -143,7 +143,7 @@ def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
     first_rate[6] = leaf_tweak[1]
     copy_8(wots_pk, first_rate + PREFIX_LEN)
     new_capacity = Array(POSEIDON24_CAP)
-    poseidon24_compress(capacity, first_rate, new_capacity)
+    poseidon24_compress_0_9(capacity, first_rate, new_capacity)
     capacity = new_capacity
     # Remaining data: wots_pk[8..] = V*DIGEST_LEN - 8 elements
     WOTS_PK_OFFSET = POSEIDON24_RATE - PREFIX_LEN  # 8
@@ -153,7 +153,7 @@ def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
     for step in unroll(0, N_FULL_STEPS):
         src = wots_pk + WOTS_PK_OFFSET + step * POSEIDON24_RATE
         new_capacity = Array(POSEIDON24_CAP)
-        poseidon24_compress(capacity, src, new_capacity)
+        poseidon24_compress_0_9(capacity, src, new_capacity)
         capacity = new_capacity
     if REMAINDER != 0:
         src = wots_pk + WOTS_PK_OFFSET + N_FULL_STEPS * POSEIDON24_RATE
@@ -163,7 +163,7 @@ def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
         for i in unroll(REMAINDER, POSEIDON24_RATE):
             rate[i] = 0
         new_capacity = Array(POSEIDON24_CAP)
-        poseidon24_compress(capacity, rate, new_capacity)
+        poseidon24_compress_0_9(capacity, rate, new_capacity)
         capacity = new_capacity
     return capacity
 
@@ -228,7 +228,7 @@ def merkle_p24_one_level(is_left_bit, current, neighbour, output, public_param, 
     input_buf[23] = 0
 
     merkle_output = Array(POSEIDON24_CAP)
-    poseidon24_compress(input_buf, input_buf + 9, merkle_output)
+    poseidon24_compress_0_9(input_buf, input_buf + 9, merkle_output)
     for k in unroll(0, DIGEST_LEN):
         output[k] = merkle_output[k]
     return

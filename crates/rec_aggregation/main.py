@@ -68,7 +68,7 @@ def main():
         rate[13] = 0
         rate[14] = 0
         new_cap = Array(9)
-        poseidon24_compress(pk_hash_cap, rate, new_cap)
+        poseidon24_compress_0_9(pk_hash_cap, rate, new_cap)
         pk_hash_cap = new_cap
     copy_8(pk_hash_cap, pubkeys_hash_expected)
 
@@ -121,7 +121,7 @@ def main():
             rate[13] = 0
             rate[14] = 0
             new_cap = Array(9)
-            poseidon24_compress(running_hash, rate, new_cap)
+            poseidon24_compress_0_9(running_hash, rate, new_cap)
             running_hash = new_cap
 
         non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, merkle_chunks_for_slot, all_tweaks, pub_mem)

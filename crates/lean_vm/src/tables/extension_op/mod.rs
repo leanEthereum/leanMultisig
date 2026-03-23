@@ -11,7 +11,7 @@ use air::*;
 mod exec;
 pub use exec::fill_trace_extension_op;
 
-// domain separation: Poseidon16=1, Poseidon24=2, ExtensionOp>=4
+// domain separation: Poseidon16=1, Poseidon24= 2 or 3, ExtensionOp>=4
 /// Extension op PRECOMPILE_DATA bit-field encoding:
 /// aux = 2*is_be + 4*flag_add + 8*flag_mul + 16*flag_poly_eq + 32*len
 pub const EXT_OP_ADD_EE: usize = 4; //       0 + 4

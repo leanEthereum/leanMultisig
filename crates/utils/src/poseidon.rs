@@ -44,19 +44,24 @@ pub fn get_poseidon24() -> &'static Poseidon24 {
 
 #[inline(always)]
 pub fn get_poseidon_24_of_zero() -> &'static [KoalaBear; 9] {
-    POSEIDON_24_OF_ZERO.get_or_init(|| poseidon24_compress([KoalaBear::default(); 24]))
+    POSEIDON_24_OF_ZERO.get_or_init(|| poseidon24_compress_0_9([KoalaBear::default(); 24]))
 }
 
 #[inline(always)]
-pub fn poseidon24_compress(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
+pub fn poseidon24_compress_0_9(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
     get_poseidon24().compress(input)[0..9].try_into().unwrap()
 }
 
-pub fn poseidon24_compress_pair(left: [KoalaBear; 9], right: [KoalaBear; 15]) -> [KoalaBear; 9] {
+#[inline(always)]
+pub fn poseidon24_compress_9_18(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
+    get_poseidon24().compress(input)[9..18].try_into().unwrap()
+}
+
+pub fn poseidon24_compress_0_9_pair(left: [KoalaBear; 9], right: [KoalaBear; 15]) -> [KoalaBear; 9] {
     let mut input = [KoalaBear::default(); 24];
     input[..9].copy_from_slice(&left);
     input[9..].copy_from_slice(&right);
-    poseidon24_compress(input)
+    poseidon24_compress_0_9(input)
 }
 
 /// If `use_iv` is false, the length of the slice must be constant (not malleable).
