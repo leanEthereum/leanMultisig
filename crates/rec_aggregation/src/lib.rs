@@ -7,10 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, Poseidon16History, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements,
-    xmss_verify_with_poseidon_trace,
-};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -368,9 +365,6 @@ pub fn xmss_aggregate(
     }
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
-    // TODO precompute all the other poseidons
-    let xmss_poseidons_16_precomputed = precompute_poseidons(&raw_xmss, message);
-
     // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
     // Each opening produces two entries: leaf_data, then the flattened path.
     let merkle_paths: Vec<Vec<F>> = child_raw_proofs
@@ -385,7 +379,6 @@ pub fn xmss_aggregate(
 
     let witness = ExecutionWitness {
         private_input: &private_input,
-        poseidons_16_precomputed: &xmss_poseidons_16_precomputed,
         xmss_signatures: &xmss_signatures,
         merkle_paths: &merkle_paths,
     };
@@ -419,16 +412,4 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         running_hash = poseidon16_compress_pair(&running_hash, &claim_hash);
     }
     running_hash
-}
-
-#[instrument(skip_all)]
-fn precompute_poseidons(
-    raw_signers: &[(XmssPublicKey, XmssSignature)],
-    message: &[F; MESSAGE_LEN_FE],
-) -> Poseidon16History {
-    let traces: Vec<_> = raw_signers
-        .par_iter()
-        .map(|(pub_key, sig)| xmss_verify_with_poseidon_trace(pub_key, message, sig).unwrap())
-        .collect();
-    traces.into_par_iter().flatten().collect()
 }

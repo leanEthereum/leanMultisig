@@ -88,13 +88,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         input[..DIGEST_LEN].copy_from_slice(&arg0);
         input[DIGEST_LEN..].copy_from_slice(&arg1);
 
-        let output = match ctx.poseidon16_precomputed.get(*ctx.n_poseidon16_precomputed_used) {
-            Some(precomputed) if precomputed.0 == input => {
-                *ctx.n_poseidon16_precomputed_used += 1;
-                precomputed.1
-            }
-            _ => poseidon16_compress(input),
-        };
+        let output = poseidon16_compress(input);
 
         let res_a: [F; DIGEST_LEN] = output[..DIGEST_LEN].try_into().unwrap();
 

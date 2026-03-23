@@ -1,6 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
+use utils::poseidon16_compress_pair;
 
 use crate::*;
 
@@ -181,40 +182,30 @@ pub fn xmss_verify(
     message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
 ) -> Result<(), XmssVerifyError> {
-    xmss_verify_with_poseidon_trace(pub_key, message, signature).map(|_| ())
-}
-
-pub fn xmss_verify_with_poseidon_trace(
-    pub_key: &XmssPublicKey,
-    message: &[F; MESSAGE_LEN_FE],
-    signature: &XmssSignature,
-) -> Result<Poseidon16History, XmssVerifyError> {
-    let mut poseidon_16_trace = Vec::new();
     let truncated_merkle_root = pub_key.merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_public_key = signature
         .wots_signature
-        .recover_public_key_with_poseidon_trace(
+        .recover_public_key(
             message,
             signature.slot,
             &truncated_merkle_root,
             &signature.wots_signature,
-            &mut poseidon_16_trace,
         )
         .ok_or(XmssVerifyError::InvalidWots)?;
-    let mut current_hash = wots_public_key.hash_with_poseidon_trace(&mut poseidon_16_trace);
+    let mut current_hash = wots_public_key.hash();
     if signature.merkle_proof.len() != LOG_LIFETIME {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
         let is_left = ((signature.slot >> level) & 1) == 0;
         if is_left {
-            current_hash = poseidon16_compress_with_trace(&current_hash, neighbour, &mut poseidon_16_trace);
+            current_hash = poseidon16_compress_pair(&current_hash, neighbour);
         } else {
-            current_hash = poseidon16_compress_with_trace(neighbour, &current_hash, &mut poseidon_16_trace);
+            current_hash = poseidon16_compress_pair(neighbour, &current_hash);
         }
     }
     if current_hash == pub_key.merkle_root {
-        Ok(poseidon_16_trace)
+        Ok(())
     } else {
         Err(XmssVerifyError::InvalidMerklePath)
     }

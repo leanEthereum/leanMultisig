@@ -2,7 +2,6 @@
 pub mod signers_cache;
 mod wots;
 use backend::KoalaBear;
-use utils::poseidon16_compress;
 pub use wots::*;
 mod xmss;
 pub use xmss::*;
@@ -25,12 +24,3 @@ pub const MESSAGE_LEN_FE: usize = 9;
 pub const TRUNCATED_MERKLE_ROOT_LEN_FE: usize = 6;
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
-
-pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
-
-fn poseidon16_compress_with_trace(a: &Digest, b: &Digest, poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>) -> Digest {
-    let input: [F; 16] = [*a, *b].concat().try_into().unwrap();
-    let output = poseidon16_compress(input);
-    poseidon_16_trace.push((input, output));
-    output
-}
