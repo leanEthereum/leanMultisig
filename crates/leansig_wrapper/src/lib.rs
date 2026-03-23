@@ -11,6 +11,7 @@ use leansig::{
     },
     symmetric::{message_hash::encode_message, tweak_hash::poseidon::PoseidonTweakHash},
 };
+use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
 use p3_field::PrimeField32;
 
 pub const V: usize = 46;
@@ -44,6 +45,9 @@ pub type LeanSigScheme = SchemeAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssPublicKey = PubKeyAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssSecretKey = SecretKeyAbortingTargetSumLifetime32Dim64Base8;
 pub type XmssSignature = SigAbortingTargetSumLifetime32Dim64Base8;
+
+pub type FastKeyGenScheme = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SchemeAbortingTargetSumLifetime32Dim64Base8;
+pub type FastKeyGenSecretKey = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SecretKeyAbortingTargetSumLifetime32Dim64Base8;
 
 pub fn pubkey_merkle_root(pub_keys: &XmssPublicKey) -> [F; DIGEST_SIZE_FE] {
     assert_eq!(pub_keys.root().len(), DIGEST_SIZE_FE);
@@ -101,15 +105,20 @@ pub fn xmss_encode_message(message: &[u8; MESSAGE_LENGTH]) -> [F; MESSAGE_LEN_FE
     array::from_fn(|i| F::from_canonical_checked(encoded[i].as_canonical_u32()).unwrap())
 }
 
-pub fn xmss_keygen<R: CryptoRng>(
+pub fn xmss_keygen_fast<R: CryptoRng>(
     rng: &mut R,
     activation_epoch: u32,
     num_active_epochs: u32,
-) -> (XmssSecretKey, XmssPublicKey) {
-    let (pk, sk) = LeanSigScheme::key_gen(rng, activation_epoch as usize, num_active_epochs as usize);
+) -> (FastKeyGenSecretKey, XmssPublicKey) {
+    let (pk, sk) = FastKeyGenScheme::key_gen(rng, activation_epoch as usize, num_active_epochs as usize);
+    let pk = unsafe { std::mem::transmute(pk) };
     (sk, pk)
 }
 
-pub fn xmss_sign(sk: &XmssSecretKey, message: &[u8; MESSAGE_LENGTH], slot: u32) -> Result<XmssSignature, ()> {
-    LeanSigScheme::sign(sk, slot, message).map_err(|_| ())
+pub fn xmss_sign_fast(
+    sk: &FastKeyGenSecretKey,
+    message: &[u8; MESSAGE_LENGTH],
+    slot: u32,
+) -> Result<XmssSignature, ()> {
+    unsafe { std::mem::transmute(FastKeyGenScheme::sign(sk, slot, message).map_err(|_| ())?) }
 }

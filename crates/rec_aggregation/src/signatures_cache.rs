@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use backend::*;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::*;
@@ -22,7 +22,7 @@ pub const BENCHMARK_MESSAGE: [u8; MESSAGE_LENGTH] = [
     78, 32, 21, 11, 1, 76, 255, 254, 0, 0, 22, 11, 11, 87, 87, 32, 11, 32, 11, 76, 23, 12, 11, 2, 2, 2, 2, 2, 2, 3, 4,
     5,
 ];
-pub const NUM_BENCHMARK_SIGNERS: usize = 3000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 10000;
 
 #[derive(Serialize, Deserialize)]
 struct SignersCacheFile {
@@ -32,19 +32,19 @@ struct SignersCacheFile {
 }
 
 fn cache_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/benchmark_signers_cache.bin")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/benchmark_signers_cache.bin")
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {
     let mut rng = StdRng::seed_from_u64(index as u64);
-    let key_start = BENCHMARK_SLOT - rng.random_range(0..3);
-    let key_end = BENCHMARK_SLOT + rng.random_range(1..3);
-    let (sk, pk) = xmss_keygen(&mut rng, key_start, key_end);
-    let sig = xmss_sign(&sk, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
+    let key_start = BENCHMARK_SLOT;
+    let key_end = BENCHMARK_SLOT + 1;
+    let (sk, pk) = xmss_keygen_fast(&mut rng, key_start, key_end);
+    let sig = xmss_sign_fast(&sk, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
     (pk, sig)
 }
 
-fn try_load_cache(path: &PathBuf, _first_pubkey: &XmssPublicKey) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
+fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
     let data = fs::read(path).ok()?;
     let decompressed = lz4_flex::decompress_size_prepended(&data).ok()?;
     let cached: SignersCacheFile = postcard::from_bytes(&decompressed).ok()?;
@@ -68,11 +68,10 @@ fn try_load_cache(path: &PathBuf, _first_pubkey: &XmssPublicKey) -> Option<Vec<(
         );
         return None;
     }
-    // if cached.signatures[0].0 != *first_pubkey {
-    //     println!("Cache first public key does not match computed first public key, recomputing...");
-    //     return None;
-    // }
-    tracing::warn!("We are not checking the cache first public key against a freshly computed one.");
+    if cached.signatures[0].0 != *first_pubkey {
+        println!("Cache first public key does not match computed first public key, recomputing...");
+        return None;
+    }
 
     Some(cached.signatures)
 }
@@ -95,7 +94,7 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
             let signer = compute_signer(index);
             let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
             print!(
-                "\rComputing benchmark signatures: {:.0}%",
+                "\rPrecomputing benchmark signatures (cached after first run): {:.0}%",
                 100.0 * done as f64 / NUM_BENCHMARK_SIGNERS as f64
             );
             signer
@@ -103,7 +102,7 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
         .collect();
 
     println!(
-        "\rComputing benchmark signatures: 100% - done ({:.2}s)",
+        "\rGenerating signatures for benchmark (one-time operation): 100% - done ({:.2}s)",
         time.elapsed().as_secs_f32()
     );
 

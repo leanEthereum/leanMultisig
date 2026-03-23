@@ -19,7 +19,7 @@ pub fn setup_verifier() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use leansig_wrapper::{MESSAGE_LENGTH, xmss_keygen, xmss_sign, xmss_verify};
+    use leansig_wrapper::{MESSAGE_LENGTH, xmss_keygen_fast, xmss_sign_fast, xmss_verify};
     use rand::{SeedableRng, rngs::StdRng};
     use rec_aggregation::signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures};
 
@@ -31,8 +31,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let message_hash: [u8; MESSAGE_LENGTH] = std::array::from_fn(|i| i as u8);
 
-        let (secret_key, pub_key) = xmss_keygen(&mut rng, start, end);
-        let signature = xmss_sign(&secret_key, &message_hash, slot).unwrap();
+        let (secret_key, pub_key) = xmss_keygen_fast(&mut rng, start, end);
+        let signature = xmss_sign_fast(&secret_key, &message_hash, slot).unwrap();
         xmss_verify(&pub_key, slot, &message_hash, &signature).unwrap();
     }
 
