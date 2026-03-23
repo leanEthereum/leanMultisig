@@ -83,33 +83,17 @@ pub fn xmmss_revealed_chain_tips(sig: &XmssSignature) -> &Vec<[F; DIGEST_SIZE_FE
     unsafe { std::mem::transmute(sig.hashes()) }
 }
 
-pub type Poseidon24History = Vec<([F; 24], [F; 9])>;
-pub type Poseidon16History = Vec<([F; 16], [F; 8])>;
-
-pub fn xmss_verify_with_trace(
+pub fn xmss_verify(
     pk: &XmssPublicKey,
     slot: u32,
     message: &[u8; MESSAGE_LENGTH],
     sig: &XmssSignature,
-) -> Result<(Poseidon16History, Poseidon24History), ()> {
-    let (result, p16_trace, p24_trace) = LeanSigScheme::verify_with_trace(pk, slot, message, sig);
-    let p16_trace = p16_trace
-        .into_iter()
-        .map(|(state, output)| {
-            let state = array::from_fn(|i| F::from_canonical_checked(state[i].as_canonical_u32()).unwrap());
-            let output = array::from_fn(|i| F::from_canonical_checked(output[i].as_canonical_u32()).unwrap());
-            (state, output)
-        })
-        .collect();
-    let p24_trace = p24_trace
-        .into_iter()
-        .map(|(state, output)| {
-            let state = array::from_fn(|i| F::from_canonical_checked(state[i].as_canonical_u32()).unwrap());
-            let output = array::from_fn(|i| F::from_canonical_checked(output[i].as_canonical_u32()).unwrap());
-            (state, output)
-        })
-        .collect();
-    if result { Ok((p16_trace, p24_trace)) } else { Err(()) }
+) -> Result<(), ()> {
+    if LeanSigScheme::verify(pk, slot, message, sig) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 pub fn xmss_encode_message(message: &[u8; MESSAGE_LENGTH]) -> [F; MESSAGE_LEN_FE] {
@@ -128,17 +112,4 @@ pub fn xmss_keygen<R: CryptoRng>(
 
 pub fn xmss_sign(sk: &XmssSecretKey, message: &[u8; MESSAGE_LENGTH], slot: u32) -> Result<XmssSignature, ()> {
     LeanSigScheme::sign(sk, slot, message).map_err(|_| ())
-}
-
-pub fn xmss_verify(
-    pk: &XmssPublicKey,
-    slot: u32,
-    message: &[u8; MESSAGE_LENGTH],
-    sig: &XmssSignature,
-) -> Result<(), ()> {
-    if LeanSigScheme::verify(pk, slot, message, sig) {
-        Ok(())
-    } else {
-        Err(())
-    }
 }

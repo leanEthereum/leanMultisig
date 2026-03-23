@@ -44,7 +44,7 @@ fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {
     (pk, sig)
 }
 
-fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
+fn try_load_cache(path: &PathBuf, _first_pubkey: &XmssPublicKey) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
     let data = fs::read(path).ok()?;
     let decompressed = lz4_flex::decompress_size_prepended(&data).ok()?;
     let cached: SignersCacheFile = postcard::from_bytes(&decompressed).ok()?;
@@ -68,10 +68,11 @@ fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(X
         );
         return None;
     }
-    if cached.signatures[0].0 != *first_pubkey {
-        println!("Cache first public key does not match computed first public key, recomputing...");
-        return None;
-    }
+    // if cached.signatures[0].0 != *first_pubkey {
+    //     println!("Cache first public key does not match computed first public key, recomputing...");
+    //     return None;
+    // }
+    tracing::warn!("We are not checking the cache first public key against a freshly computed one.");
 
     Some(cached.signatures)
 }
