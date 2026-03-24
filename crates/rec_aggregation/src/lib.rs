@@ -71,7 +71,7 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 /// Pre-compute ALL tweaks for a slot:
 /// encoding(2) + chain(V*CHAIN_LENGTH*2) + leaf_tweak(2) + merkle(LOG_LIFETIME*2).
 fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
-    let n = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
+    let n = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
     let mut tweaks = Vec::with_capacity(n);
     // Encoding tweak: encode_epoch(slot) = ((slot << 8) | TWEAK_SEPARATOR_MSG) in base-p
     let acc = ((slot as u64) << 8) | 0x02u64;
@@ -79,7 +79,7 @@ fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
     tweaks.extend([t0, t1]);
     // Chain tweaks
     for chain_idx in 0..V {
-        for step in 0..CHAIN_LENGTH {
+        for step in 0..BASE {
             let [t0, t1] = chain_tweak(slot, chain_idx as u32, step as u32);
             tweaks.extend([t0, t1]);
         }
@@ -247,8 +247,8 @@ pub fn xmss_aggregate(
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let n_all_tweaks_fe = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN + LOG_LIFETIME * TWEAK_LEN;
-        let bytecode_claim_offset = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
+        let n_all_tweaks_fe = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_public_input(
@@ -379,7 +379,7 @@ pub fn xmss_aggregate(
     }
 
     let n_dup = dup_pub_keys.len();
-    let pubkey_fe_size = DIGEST_LEN + PUBLIC_PARAM_LEN_FE;
+    let pubkey_fe_size = DIGEST_LEN + PARAMETER_LEN;
     let pubkeys_block_size = (n_sigs + n_dup) * pubkey_fe_size;
 
     // Compute absolute memory addresses for each source block

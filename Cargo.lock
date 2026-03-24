@@ -1238,7 +1238,7 @@ dependencies = [
 [[package]]
 name = "leansig"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/leanSig?branch=devnet4#6b03aaa6e17317428e6c2d5ad0f425c3290a785a"
+source = "git+https://github.com/leanEthereum/leanSig?branch=devnet4#76e38811e2e8665bb1a7b7e8858e78ed22c5d5e8"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
@@ -1258,7 +1258,7 @@ dependencies = [
 [[package]]
 name = "leansig_fast_keygen"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#318d9d061f3b3d468480c6f67bae13ada48f05f6"
+source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#2d7fa1d883ec8094803961c1933413d6b405126f"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
@@ -1846,9 +1846,9 @@ dependencies = [
 
 [[package]]
 name = "proptest"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
+checksum = "4b45fcc2344c680f5025fe57779faef368840d0bd1f42f216291f0dc4ace4744"
 dependencies = [
  "bit-set",
  "bit-vec",
@@ -2618,9 +2618,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
+checksum = "da36089a805484bcccfffe0739803392c8298778a2d2f09febf76fac5ad9025b"
 
 [[package]]
 name = "unicode-xid"

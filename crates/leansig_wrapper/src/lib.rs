@@ -2,33 +2,45 @@ use std::array;
 
 use backend::{KoalaBear, integers::QuotientMap};
 use leansig::{
+    inc_encoding::target_sum::TargetSumEncoding,
     signature::{
         SignatureScheme,
-        generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
-            PubKeyAbortingTargetSumLifetime32Dim64Base8, SchemeAbortingTargetSumLifetime32Dim64Base8,
-            SecretKeyAbortingTargetSumLifetime32Dim64Base8, SigAbortingTargetSumLifetime32Dim64Base8,
+        generalized_xmss::{
+            GeneralizedXMSSPublicKey, GeneralizedXMSSSecretKey, GeneralizedXMSSSignature,
+            GeneralizedXMSSSignatureScheme,
         },
     },
-    symmetric::{message_hash::encode_message, tweak_hash::poseidon::PoseidonTweakHash},
+    symmetric::{
+        message_hash::{aborting::AbortingHypercubeMessageHash, encode_message},
+        prf::shake_to_field::ShakePRFtoF,
+        tweak_hash::poseidon::PoseidonTweakHash,
+    },
 };
 use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
 use p3_field::PrimeField32;
 
 pub const V: usize = 46;
-pub const W: usize = 3;
-pub const CHAIN_LENGTH: usize = 1 << W;
+pub const BASE: usize = 1 << W;
+const Z: usize = 8;
+const Q: usize = 127;
 pub const TARGET_SUM: usize = 200;
-pub const LOG_LIFETIME: usize = 32;
-pub const RANDOMNESS_LEN_FE: usize = 7;
+pub const RAND_LEN_FE: usize = 7;
+pub const HASH_LEN_FE: usize = 8;
+pub const MSG_LEN_FE: usize = 9;
+pub const PARAMETER_LEN: usize = 5;
+pub const TWEAK_LEN_FE: usize = 2;
+
+pub const W: usize = 3;
 pub const MESSAGE_LENGTH: usize = 32;
-pub const MESSAGE_LEN_FE: usize = 9;
-pub const PUBLIC_PARAM_LEN_FE: usize = 5;
-pub const TWEAK_LEN: usize = 2;
 pub const POSEIDON24_CAPACITY: usize = 9;
 pub const POSEIDON24_RATE: usize = 15;
-pub const DIGEST_SIZE_FE: usize = 8;
 
-pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE_FE;
+#[cfg(feature = "test-config")]
+pub const LOG_LIFETIME: usize = 8;
+#[cfg(not(feature = "test-config"))]
+pub const LOG_LIFETIME: usize = 32;
+
+pub const SIG_SIZE_FE: usize = RAND_LEN_FE + (V + LOG_LIFETIME) * HASH_LEN_FE;
 
 pub(crate) type F = KoalaBear;
 
@@ -39,27 +51,39 @@ pub const WOTS_PUBKET_SPONGE_DOMAIN_SEP: [F; POSEIDON24_CAPACITY] = F::new_array
 pub use leansig::symmetric::tweak_hash::TweakableHash;
 use rand::CryptoRng;
 
-pub type LeanSigTH = PoseidonTweakHash<PUBLIC_PARAM_LEN_FE, DIGEST_SIZE_FE, TWEAK_LEN, POSEIDON24_CAPACITY, V>;
+pub type LeanSigTH = PoseidonTweakHash<PARAMETER_LEN, HASH_LEN_FE, TWEAK_LEN_FE, POSEIDON24_CAPACITY, V>;
 
-pub type LeanSigScheme = SchemeAbortingTargetSumLifetime32Dim64Base8;
-pub type XmssPublicKey = PubKeyAbortingTargetSumLifetime32Dim64Base8;
-pub type XmssSecretKey = SecretKeyAbortingTargetSumLifetime32Dim64Base8;
-pub type XmssSignature = SigAbortingTargetSumLifetime32Dim64Base8;
+type MH =
+    AbortingHypercubeMessageHash<PARAMETER_LEN, RAND_LEN_FE, HASH_LEN_FE, V, BASE, Z, Q, TWEAK_LEN_FE, MSG_LEN_FE>;
+type TH = PoseidonTweakHash<PARAMETER_LEN, HASH_LEN_FE, TWEAK_LEN_FE, POSEIDON24_CAPACITY, V>;
+type PrF = ShakePRFtoF<HASH_LEN_FE, RAND_LEN_FE>;
+type IE = TargetSumEncoding<MH, TARGET_SUM>;
 
-pub type FastKeyGenScheme = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SchemeAbortingTargetSumLifetime32Dim64Base8;
-pub type FastKeyGenSecretKey = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SecretKeyAbortingTargetSumLifetime32Dim64Base8;
+pub type LeanSigScheme = GeneralizedXMSSSignatureScheme<PrF, IE, TH, LOG_LIFETIME>;
+pub type XmssPublicKey = GeneralizedXMSSPublicKey<TH>;
+pub type XmssSecretKey = GeneralizedXMSSSecretKey<PrF, IE, TH, LOG_LIFETIME>;
+pub type XmssSignature = GeneralizedXMSSSignature<IE, TH>;
 
-pub fn pubkey_merkle_root(pub_keys: &XmssPublicKey) -> [F; DIGEST_SIZE_FE] {
-    assert_eq!(pub_keys.root().len(), DIGEST_SIZE_FE);
+#[cfg(feature = "test-config")]
+pub type FastKeyGenScheme = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_8::SchemeAbortingTargetSumLifetime8Dim46Base8;
+#[cfg(feature = "test-config")]
+pub type FastKeyGenSecretKey = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_8::SecretKeyAbortingTargetSumLifetime8Dim46Base8;
+#[cfg(not(feature = "test-config"))]
+pub type FastKeyGenScheme = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SchemeAbortingTargetSumLifetime32Dim46Base8;
+#[cfg(not(feature = "test-config"))]
+pub type FastKeyGenSecretKey = leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::SecretKeyAbortingTargetSumLifetime32Dim46Base8;
+
+pub fn pubkey_merkle_root(pub_keys: &XmssPublicKey) -> [F; HASH_LEN_FE] {
+    assert_eq!(pub_keys.root().len(), HASH_LEN_FE);
     array::from_fn(|i| F::from_canonical_checked(pub_keys.root()[i].as_canonical_u32()).unwrap())
 }
 
-pub fn pubkey_public_parameter(pub_keys: &XmssPublicKey) -> [F; PUBLIC_PARAM_LEN_FE] {
-    assert_eq!(pub_keys.parameter().len(), PUBLIC_PARAM_LEN_FE);
+pub fn pubkey_public_parameter(pub_keys: &XmssPublicKey) -> [F; PARAMETER_LEN] {
+    assert_eq!(pub_keys.parameter().len(), PARAMETER_LEN);
     array::from_fn(|i| F::from_canonical_checked(pub_keys.parameter()[i].as_canonical_u32()).unwrap())
 }
 
-pub fn chain_tweak(slot: u32, chain_idx: u32, step: u32) -> [F; TWEAK_LEN] {
+pub fn chain_tweak(slot: u32, chain_idx: u32, step: u32) -> [F; TWEAK_LEN_FE] {
     let [t0, t1] = LeanSigTH::chain_tweak(slot, chain_idx as u8, step as u8).to_field_elements();
     [
         F::from_canonical_checked(t0.as_canonical_u32()).unwrap(),
@@ -67,7 +91,7 @@ pub fn chain_tweak(slot: u32, chain_idx: u32, step: u32) -> [F; TWEAK_LEN] {
     ]
 }
 
-pub fn merkle_tweak(level: usize, pos_in_level: u32) -> [F; TWEAK_LEN] {
+pub fn merkle_tweak(level: usize, pos_in_level: u32) -> [F; TWEAK_LEN_FE] {
     let [t0, t1] = LeanSigTH::tree_tweak(level as u8, pos_in_level).to_field_elements();
     [
         F::from_canonical_checked(t0.as_canonical_u32()).unwrap(),
@@ -75,15 +99,15 @@ pub fn merkle_tweak(level: usize, pos_in_level: u32) -> [F; TWEAK_LEN] {
     ]
 }
 
-pub fn xmss_merkle_path(sig: &XmssSignature) -> &Vec<[F; DIGEST_SIZE_FE]> {
+pub fn xmss_merkle_path(sig: &XmssSignature) -> &Vec<[F; HASH_LEN_FE]> {
     unsafe { std::mem::transmute(sig.path()) }
 }
 
-pub fn xmss_randomness(sig: &XmssSignature) -> &[F; RANDOMNESS_LEN_FE] {
+pub fn xmss_randomness(sig: &XmssSignature) -> &[F; RAND_LEN_FE] {
     unsafe { std::mem::transmute(sig.rho()) }
 }
 
-pub fn xmmss_revealed_chain_tips(sig: &XmssSignature) -> &Vec<[F; DIGEST_SIZE_FE]> {
+pub fn xmmss_revealed_chain_tips(sig: &XmssSignature) -> &Vec<[F; HASH_LEN_FE]> {
     unsafe { std::mem::transmute(sig.hashes()) }
 }
 
@@ -101,8 +125,8 @@ pub fn xmss_verify(
     }
 }
 
-pub fn xmss_encode_message(message: &[u8; MESSAGE_LENGTH]) -> [F; MESSAGE_LEN_FE] {
-    let encoded = encode_message::<MESSAGE_LEN_FE>(message);
+pub fn xmss_encode_message(message: &[u8; MESSAGE_LENGTH]) -> [F; MSG_LEN_FE] {
+    let encoded = encode_message::<MSG_LEN_FE>(message);
     array::from_fn(|i| F::from_canonical_checked(encoded[i].as_canonical_u32()).unwrap())
 }
 

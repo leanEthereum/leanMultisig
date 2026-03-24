@@ -78,9 +78,9 @@ lz4_flex = "0.13.0"
 leansig = { git = "https://github.com/leanEthereum/leanSig", branch = "devnet4" }
 leansig_fast_keygen = { git = "https://github.com/TomWambsgans/leanSig", branch = "devnet4-fast-keygen" }
 
-
 [features]
 prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
+test-config = ["rec_aggregation/test-config"]
 
 [dependencies]
 clap.workspace = true

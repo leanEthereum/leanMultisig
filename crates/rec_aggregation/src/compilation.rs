@@ -6,8 +6,7 @@ use lean_prover::{
 };
 use lean_vm::*;
 use leansig_wrapper::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, TWEAK_LEN, V, W,
-    WOTS_PUBKET_SPONGE_DOMAIN_SEP,
+    LOG_LIFETIME, MSG_LEN_FE, PARAMETER_LEN, RAND_LEN_FE, TARGET_SUM, TWEAK_LEN_FE, V, W, WOTS_PUBKET_SPONGE_DOMAIN_SEP,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -34,15 +33,10 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN; // encoding + chain + leaf + merkle
+    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN_FE; // encoding + chain + leaf + merkle
     // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
-    let pub_input_size = 1
-        + DIGEST_LEN
-        + MESSAGE_LEN_FE
-        + N_MERKLE_CHUNKS_FOR_SLOT
-        + n_all_tweaks_fe
-        + claim_data_size_padded
-        + DIGEST_LEN;
+    let pub_input_size =
+        1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let replacements = build_replacements(
         inner_program_log_size,
@@ -353,15 +347,12 @@ fn build_replacements(
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
-    replacements.insert(
-        "PUBLIC_PARAM_LEN_PLACEHOLDER".to_string(),
-        PUBLIC_PARAM_LEN_FE.to_string(),
-    );
-    replacements.insert("TWEAK_LEN_PLACEHOLDER".to_string(), TWEAK_LEN.to_string());
+    replacements.insert("PUBLIC_PARAM_LEN_PLACEHOLDER".to_string(), PARAMETER_LEN.to_string());
+    replacements.insert("TWEAK_LEN_PLACEHOLDER".to_string(), TWEAK_LEN_FE.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
-    replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
-    replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());
+    replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MSG_LEN_FE.to_string());
+    replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RAND_LEN_FE.to_string());
     replacements.insert(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),

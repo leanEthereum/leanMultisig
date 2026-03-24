@@ -17,7 +17,7 @@ pub fn get_benchmark_signatures() -> &'static Vec<(XmssPublicKey, XmssSignature)
     SIGNERS_CACHE.get_or_init(gen_benchmark_signers_cache)
 }
 
-pub const BENCHMARK_SLOT: u32 = 1111;
+pub const BENCHMARK_SLOT: u32 = 111;
 pub const BENCHMARK_MESSAGE: [u8; MESSAGE_LENGTH] = [
     78, 32, 21, 11, 1, 76, 255, 254, 0, 0, 22, 11, 11, 87, 87, 32, 11, 32, 11, 76, 23, 12, 11, 2, 2, 2, 2, 2, 2, 3, 4,
     5,
@@ -32,7 +32,11 @@ struct SignersCacheFile {
 }
 
 fn cache_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/benchmark_signers_cache.bin")
+    #[cfg(feature = "test-config")]
+    let file = "benchmark_signers_cache_test.bin";
+    #[cfg(not(feature = "test-config"))]
+    let file = "benchmark_signers_cache.bin";
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/{file}"))
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {

@@ -25,13 +25,13 @@ mod tests {
 
     #[test]
     fn test_xmss_signature() {
-        let start = 555;
-        let end = 565;
-        let slot = 560;
-        let mut rng = StdRng::seed_from_u64(0);
+        let activation_epoch = 111;
+        let num_active_epochs = 39;
+        let slot = 124;
+        let mut rng: StdRng = StdRng::seed_from_u64(0);
         let message_hash: [u8; MESSAGE_LENGTH] = std::array::from_fn(|i| i as u8);
 
-        let (secret_key, pub_key) = xmss_keygen_fast(&mut rng, start, end);
+        let (secret_key, pub_key) = xmss_keygen_fast(&mut rng, activation_epoch, num_active_epochs);
         let signature = xmss_sign_fast(&secret_key, &message_hash, slot).unwrap();
         xmss_verify(&pub_key, slot, &message_hash, &signature).unwrap();
     }
