@@ -4,7 +4,10 @@ use crate::{
     parser::{ConstArrayValue, parse_program},
 };
 use backend::PrimeCharacteristicRing;
-use lean_vm::{Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, SourceLocation, Table, TableT};
+use lean_vm::{
+    Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, POSEIDON_24_MODE_COMPRESS_0_9,
+    POSEIDON_24_MODE_PERMUTE_0_9, POSEIDON_24_MODE_PERMUTE_9_18, SourceLocation, Table, TableT,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -2153,9 +2156,11 @@ fn simplify_lines(
 
                         // Special handling for poseidon precompiles
                         let is_p16 = function_name == "poseidon16_compress";
-                        let is_p24_0_9 = function_name == "poseidon24_compress_0_9";
-                        let is_p24_9_18 = function_name == "poseidon24_compress_9_18";
-                        if is_p16 || is_p24_0_9 || is_p24_9_18 {
+                        let is_p24_compress_0_9 = function_name == "poseidon24_compress_0_9";
+                        let is_p24_permute_0_9 = function_name == "poseidon24_permute_0_9";
+                        let is_p24_permute_9_18 = function_name == "poseidon24_permute_9_18";
+                        let is_p24 = is_p24_compress_0_9 || is_p24_permute_0_9 || is_p24_permute_9_18;
+                        if is_p16 || is_p24 {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2165,10 +2170,12 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            if is_p24_0_9 {
-                                simplified_args.push(SimpleExpr::one());
-                            } else if is_p24_9_18 {
-                                simplified_args.push(SimpleExpr::zero());
+                            if is_p24_compress_0_9 {
+                                simplified_args.push(SimpleExpr::scalar(F::from_usize(POSEIDON_24_MODE_COMPRESS_0_9)));
+                            } else if is_p24_permute_0_9 {
+                                simplified_args.push(SimpleExpr::scalar(F::from_usize(POSEIDON_24_MODE_PERMUTE_0_9)));
+                            } else if is_p24_permute_9_18 {
+                                simplified_args.push(SimpleExpr::scalar(F::from_usize(POSEIDON_24_MODE_PERMUTE_9_18)));
                             }
                             let table = if is_p16 {
                                 Table::poseidon16()

@@ -1,3 +1,4 @@
+use backend::symmetric::Permutation;
 use backend::*;
 use std::sync::OnceLock;
 
@@ -55,6 +56,16 @@ pub fn poseidon24_compress_0_9(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
 #[inline(always)]
 pub fn poseidon24_compress_9_18(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
     get_poseidon24().compress(input)[9..18].try_into().unwrap()
+}
+
+#[inline(always)]
+pub fn poseidon24_permute_0_9(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
+    get_poseidon24().permute(input)[0..9].try_into().unwrap()
+}
+
+#[inline(always)]
+pub fn poseidon24_permute_9_18(input: [KoalaBear; 24]) -> [KoalaBear; 9] {
+    get_poseidon24().permute(input)[9..18].try_into().unwrap()
 }
 
 pub fn poseidon24_compress_0_9_pair(left: [KoalaBear; 9], right: [KoalaBear; 15]) -> [KoalaBear; 9] {

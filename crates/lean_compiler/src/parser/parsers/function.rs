@@ -27,7 +27,8 @@ pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
     "match_range",
     "poseidon16_compress",
     "poseidon24_compress_0_9",
-    "poseidon24_compress_9_18",
+    "poseidon24_permute_0_9",
+    "poseidon24_permute_9_18",
 ];
 
 /// Check if a function name is reserved.
