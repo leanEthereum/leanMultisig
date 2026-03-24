@@ -32,7 +32,7 @@ struct SignersCacheFile {
 }
 
 fn cache_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data/benchmark_signers_cache.bin")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/benchmark_signers_cache.bin")
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {

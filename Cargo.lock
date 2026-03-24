@@ -1238,7 +1238,7 @@ dependencies = [
 [[package]]
 name = "leansig"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4#4b0fbe85bdb79e24e30addc9df565150ce51e943"
+source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4#489b425a60c34cfe851dafa935ebd7f023bced54"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
@@ -1258,7 +1258,7 @@ dependencies = [
 [[package]]
 name = "leansig_fast_keygen"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#956b58391a2251e83ce9a7c5c4069b3bde69270e"
+source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#318d9d061f3b3d468480c6f67bae13ada48f05f6"
 dependencies = [
  "dashmap",
  "ethereum_ssz",

@@ -69,7 +69,7 @@ const HALF_INITIAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 const PARTIAL_ROUNDS_24: usize = POSEIDON1_PARTIAL_ROUNDS_24;
 const HALF_FINAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 
-pub const POSEIDON_24_PRECOMPILE_DATA_OFFSET: usize = 2; // domain separation: Poseidon16=1, Poseidon24= 2 or 3, ExtensionOp>=4
+pub const POSEIDON_24_PRECOMPILE_DATA_OFFSET: usize = 2; // domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
 
 // input = 24 field elements
 // output = poseidon24(input) + input (feedforward for compression)

@@ -71,7 +71,7 @@ const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
 const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3, ExtensionOp>=4
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3 or 4, ExtensionOp>=8
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = 1;

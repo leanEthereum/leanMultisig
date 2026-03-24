@@ -4,7 +4,9 @@ use crate::F;
 use crate::Memory;
 use crate::RunnerError;
 use crate::TableTrace;
-use crate::tables::extension_op::{EXT_OP_LEN_MULTIPLIER, air::*};
+use crate::tables::extension_op::{
+    EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, EXT_OP_LEN_MULTIPLIER, air::*,
+};
 use backend::*;
 use utils::ToUsize;
 
@@ -141,7 +143,10 @@ fn exec_multi_row(
     let flag_add_f = F::from_bool(flag_add);
     let flag_mul_f = F::from_bool(flag_mul);
     let flag_poly_eq_f = F::from_bool(flag_poly_eq);
-    let mode_bits = 2 * is_be as usize + 4 * flag_add as usize + 8 * flag_mul as usize + 16 * flag_poly_eq as usize;
+    let mode_bits = EXT_OP_FLAG_IS_BE * is_be as usize
+        + EXT_OP_FLAG_ADD * flag_add as usize
+        + EXT_OP_FLAG_MUL * flag_mul as usize
+        + EXT_OP_FLAG_POLY_EQ * flag_poly_eq as usize;
 
     let result_coords = result.as_basis_coefficients_slice();
 
