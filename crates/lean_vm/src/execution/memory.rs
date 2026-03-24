@@ -1,27 +1,61 @@
-//! Memory management for the VM
 use crate::MAX_LOG_MEMORY_SIZE;
 use crate::core::{DIMENSION, EF, F};
 use crate::diagnostics::RunnerError;
 use backend::*;
 
-/// VM memory implementation with sparse allocation
+pub trait MemoryAccess {
+    fn get(&self, index: usize) -> Result<F, RunnerError>;
+    fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError>;
+
+    fn get_slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        (0..len).map(|i| self.get(start + i)).collect()
+    }
+
+    fn set_slice(&mut self, start: usize, values: &[F]) -> Result<(), RunnerError> {
+        for (i, v) in values.iter().enumerate() {
+            self.set(start + i, *v)?;
+        }
+        Ok(())
+    }
+
+    fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
+        let mut coeffs = [F::ZERO; DIMENSION];
+        for (offset, coeff) in coeffs.iter_mut().enumerate() {
+            *coeff = self.get(index + offset)?;
+        }
+        Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
+    }
+
+    fn set_ef_element(&mut self, index: usize, value: EF) -> Result<(), RunnerError> {
+        for (i, v) in value.as_basis_coefficients_slice().iter().enumerate() {
+            self.set(index + i, *v)?;
+        }
+        Ok(())
+    }
+
+    fn get_continuous_slice_of_ef_elements(&self, index: usize, len: usize) -> Result<Vec<EF>, RunnerError> {
+        (0..len).map(|i| self.get_ef_element(index + i * DIMENSION)).collect()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Memory(pub Vec<Option<F>>);
 
+impl MemoryAccess for Memory {
+    fn get(&self, index: usize) -> Result<F, RunnerError> {
+        self.get(index)
+    }
+
+    fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
+        self.set(index, value)
+    }
+}
+
 impl Memory {
-    /// Creates a new memory instance, initializing it with public data
     pub fn new(public_memory: Vec<F>) -> Self {
         Self(public_memory.into_par_iter().map(Some).collect())
     }
 
-    /// Creates an empty memory instance
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
-    /// Reads a single value from a memory address
-    ///
-    /// Returns an error if the address is uninitialized
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.0
             .get(index)
@@ -30,10 +64,6 @@ impl Memory {
             .ok_or(RunnerError::UndefinedMemory(index))
     }
 
-    /// Sets a value at a memory address
-    ///
-    /// Returns an error if the address is already set to a different value
-    /// or if we exceed memory limits
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
         if index >= self.0.len() {
             if index >= 1 << MAX_LOG_MEMORY_SIZE {
@@ -54,47 +84,82 @@ impl Memory {
         }
         Ok(())
     }
+}
 
-    /// Gets the current size of allocated memory
-    pub const fn size(&self) -> usize {
-        self.0.len()
-    }
+/// A segmented view into VM memory for parallel execution.
+///
+/// |--------- shared (read-only) ---------|-- seg 1 --|-- seg 2 --|-- ... --|-- seg N --|
+///                                        ^                       ^
+/// 0                                  split_at              this segment's
+///                                                       exclusive &mut slice
+///
+/// - `shared`: `[0, split_at)` — pre-batch data + iteration 0's completed frame.
+///   Fully written before segments are created. Immutable borrow, safe for all to read.
+/// - `segment`: `[segment_start, segment_start + len)` — this segment's exclusive frame.
+/// - Reads outside both → `UndefinedMemory` (speculative Deref into another segment's
+///   frame gracefully fails; resolved by `resolve_deref_hints`).
+/// - Writes outside `segment` → deferred, applied sequentially after the parallel phase.
+#[derive(Debug)]
+pub struct SegmentMemory<'a> {
+    shared: &'a [Option<F>],
+    segment: &'a mut [Option<F>],
+    segment_start: usize,
+    deferred_writes: Vec<(usize, F)>,
+}
 
-    /// Get an extension field element from memory
-    pub fn get_ef_element(&self, index: usize) -> Result<EF, RunnerError> {
-        // index: non vectorized pointer
-        let mut coeffs = [F::ZERO; DIMENSION];
-        for (offset, coeff) in coeffs.iter_mut().enumerate() {
-            *coeff = self.get(index + offset)?;
+impl<'a> SegmentMemory<'a> {
+    pub fn new(shared: &'a [Option<F>], segment: &'a mut [Option<F>], segment_start: usize) -> Self {
+        Self {
+            shared,
+            segment,
+            segment_start,
+            deferred_writes: Vec::new(),
         }
-        Ok(EF::from_basis_coefficients_slice(&coeffs).unwrap())
     }
 
-    /// Get a continuous slice of extension field elements
-    pub fn get_continuous_slice_of_ef_elements(
-        &self,
-        index: usize, // normal pointer
-        len: usize,
-    ) -> Result<Vec<EF>, RunnerError> {
-        (0..len).map(|i| self.get_ef_element(index + i * DIMENSION)).collect()
+    pub fn into_deferred_writes(self) -> Vec<(usize, F)> {
+        self.deferred_writes
     }
+}
 
-    /// Set an extension field element in memory
-    pub fn set_ef_element(&mut self, index: usize, value: EF) -> Result<(), RunnerError> {
-        for (i, v) in value.as_basis_coefficients_slice().iter().enumerate() {
-            self.set(index + i, *v)?;
+impl MemoryAccess for SegmentMemory<'_> {
+    fn get(&self, index: usize) -> Result<F, RunnerError> {
+        if index < self.segment_start {
+            self.shared
+                .get(index)
+                .copied()
+                .flatten()
+                .ok_or(RunnerError::UndefinedMemory(index))
+        } else {
+            let offset = index - self.segment_start;
+            if offset < self.segment.len() {
+                self.segment[offset].ok_or(RunnerError::UndefinedMemory(index))
+            } else {
+                Err(RunnerError::UndefinedMemory(index))
+            }
         }
-        Ok(())
     }
 
-    pub fn get_slice(&self, start: usize, len: usize) -> Result<Vec<F>, RunnerError> {
-        (0..len).map(|i| self.get(start + i)).collect()
-    }
-
-    pub fn set_slice(&mut self, start: usize, values: &[F]) -> Result<(), RunnerError> {
-        for (i, v) in values.iter().enumerate() {
-            self.set(start + i, *v)?;
+    fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
+        let in_segment = index >= self.segment_start && (index - self.segment_start) < self.segment.len();
+        if !in_segment {
+            self.deferred_writes.push((index, value));
+            return Ok(());
         }
-        Ok(())
+        {
+            let offset = index - self.segment_start;
+            if let Some(existing) = self.segment[offset] {
+                if existing != value {
+                    return Err(RunnerError::MemoryAlreadySet {
+                        address: index,
+                        prev_value: existing,
+                        new_value: value,
+                    });
+                }
+            } else {
+                self.segment[offset] = Some(value);
+            }
+            Ok(())
+        }
     }
 }

@@ -70,7 +70,7 @@ pub fn prove_execution(
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
             for lookup in table.lookups() {
-                for i in &trace.base[lookup.index] {
+                for i in &trace.columns[lookup.index] {
                     for j in 0..lookup.values.len() {
                         memory_acc[i.to_usize() + j] += F::ONE;
                     }
@@ -82,7 +82,7 @@ pub fn prove_execution(
     // // TODO parrallelize
     let mut bytecode_acc = F::zero_vec(bytecode.padded_size());
     info_span!("Building bytecode access count").in_scope(|| {
-        for pc in traces[&Table::execution()].base[COL_PC].iter() {
+        for pc in traces[&Table::execution()].columns[COL_PC].iter() {
             bytecode_acc[pc.to_usize()] += F::ONE;
         }
     });
@@ -234,7 +234,7 @@ fn prove_bus_and_air(
                     prover_state,
                     $t,
                     extra_data,
-                    &trace.base[..$t.n_columns()],
+                    &trace.columns[..$t.n_columns()],
                     Some(bus_virtual_statement),
                     $t.n_columns() + $t.n_down_columns() > 5, // heuristic
                 )

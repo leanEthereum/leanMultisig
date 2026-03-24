@@ -4,12 +4,13 @@ use super::Operation;
 use super::operands::{MemOrConstant, MemOrFpOrConstant};
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
-use crate::execution::Memory;
+use crate::execution::memory::MemoryAccess;
 use crate::tables::TableT;
 use crate::{Table, TableTrace};
 use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::ops::AddAssign;
 use utils::ToUsize;
 
 /// Complete set of VM instruction types with comprehensive operation support
@@ -58,26 +59,38 @@ pub enum Instruction {
     },
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct InstructionCounts {
+    pub add: usize,
+    pub mul: usize,
+    pub deref: usize,
+    pub jump: usize,
+}
+
+impl AddAssign for InstructionCounts {
+    fn add_assign(&mut self, rhs: Self) {
+        self.add += rhs.add;
+        self.mul += rhs.mul;
+        self.deref += rhs.deref;
+        self.jump += rhs.jump;
+    }
+}
+
 /// Execution context for instruction processing
 #[derive(Debug)]
-pub struct InstructionContext<'a> {
-    pub memory: &'a mut Memory,
+pub struct InstructionContext<'a, M: MemoryAccess> {
+    pub memory: &'a mut M,
     pub fp: &'a mut usize,
     pub pc: &'a mut usize,
     pub pcs: &'a Vec<usize>,
     pub traces: &'a mut BTreeMap<Table, TableTrace>,
-    pub add_counts: &'a mut usize,
-    pub mul_counts: &'a mut usize,
-    pub deref_counts: &'a mut usize,
-    pub jump_counts: &'a mut usize,
-    pub poseidon16_precomputed: &'a [([F; 16], [F; 8])],
-    pub n_poseidon16_precomputed_used: &'a mut usize,
+    pub counts: &'a mut InstructionCounts,
 }
 
 impl Instruction {
     /// Execute this instruction within the given execution context
     #[inline(always)]
-    pub fn execute_instruction(&self, ctx: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
+    pub fn execute_instruction<M: MemoryAccess>(&self, ctx: &mut InstructionContext<'_, M>) -> Result<(), RunnerError> {
         match self {
             Self::Computation {
                 operation,
@@ -118,8 +131,8 @@ impl Instruction {
                 }
 
                 match operation {
-                    Operation::Add => *ctx.add_counts += 1,
-                    Operation::Mul => *ctx.mul_counts += 1,
+                    Operation::Add => ctx.counts.add += 1,
+                    Operation::Mul => ctx.counts.mul += 1,
                 }
 
                 *ctx.pc += 1;
@@ -140,7 +153,7 @@ impl Instruction {
                     ctx.memory.set(ptr.to_usize() + shift_1, value)?;
                 }
 
-                *ctx.deref_counts += 1;
+                ctx.counts.deref += 1;
                 *ctx.pc += 1;
                 Ok(())
             }
@@ -159,7 +172,7 @@ impl Instruction {
                     *ctx.fp = updated_fp.read_value(ctx.memory, *ctx.fp)?.to_usize();
                 }
 
-                *ctx.jump_counts += 1;
+                ctx.counts.jump += 1;
                 Ok(())
             }
 

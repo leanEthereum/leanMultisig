@@ -66,22 +66,22 @@ def main():
     # Buffer for partition verification
     n_total = n_sigs + n_dup
     buffer = Array(n_total)
-    counter: Mut = 0
 
     # Raw XMSS source (source 0)
     raw_indices = source_0 + 1
 
-    for i in range(0, n_raw_xmss):  # TODO dynamic unroll ?
+    for i in parallel_range(0, n_raw_xmss):
         # mark buffer for partition verification
         idx = raw_indices[i]
         assert idx < n_total
-        buffer[idx] = counter
-        counter += 1
+        buffer[idx] = i
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
         sig = Array(SIG_SIZE)
         hint_xmss(sig)
         xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
+
+    counter: Mut = n_raw_xmss
 
     # Recursive sources
     n_bytecode_claims = n_recursions * 2

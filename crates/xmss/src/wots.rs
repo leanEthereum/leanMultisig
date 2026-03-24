@@ -67,59 +67,24 @@ impl WotsSignature {
         truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
         signature: &Self,
     ) -> Option<WotsPublicKey> {
-        self.recover_public_key_with_poseidon_trace(message, slot, truncated_merkle_root, signature, &mut Vec::new())
-    }
-
-    pub fn recover_public_key_with_poseidon_trace(
-        &self,
-        message: &[F; MESSAGE_LEN_FE],
-        slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-        signature: &Self,
-        poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
-    ) -> Option<WotsPublicKey> {
-        let encoding = wots_encode_with_poseidon_trace(
-            message,
-            slot,
-            truncated_merkle_root,
-            &signature.randomness,
-            poseidon_16_trace,
-        )?;
+        let encoding = wots_encode(message, slot, truncated_merkle_root, &signature.randomness)?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
-            iterate_hash_with_poseidon_trace(
-                &self.chain_tips[i],
-                CHAIN_LENGTH - 1 - encoding[i] as usize,
-                poseidon_16_trace,
-            )
+            iterate_hash(&self.chain_tips[i], CHAIN_LENGTH - 1 - encoding[i] as usize)
         })))
     }
 }
 
 impl WotsPublicKey {
     pub fn hash(&self) -> Digest {
-        self.hash_with_poseidon_trace(&mut Vec::new())
-    }
-
-    pub fn hash_with_poseidon_trace(&self, poseidon_16_trace: &mut Poseidon16History) -> Digest {
-        let init = poseidon16_compress_with_trace(&self.0[0], &self.0[1], poseidon_16_trace);
-        self.0[2..].iter().fold(init, |digest, chunk| {
-            poseidon16_compress_with_trace(&digest, chunk, poseidon_16_trace)
-        })
+        let init = poseidon16_compress_pair(&self.0[0], &self.0[1]);
+        self.0[2..]
+            .iter()
+            .fold(init, |digest, chunk| poseidon16_compress_pair(&digest, chunk))
     }
 }
 
 pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
     (0..n).fold(*a, |acc, _| poseidon16_compress_pair(&acc, &Default::default()))
-}
-
-pub fn iterate_hash_with_poseidon_trace(
-    a: &Digest,
-    n: usize,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
-) -> Digest {
-    (0..n).fold(*a, |acc, _| {
-        poseidon16_compress_with_trace(&acc, &Default::default(), poseidon_16_trace)
-    })
 }
 
 pub fn find_randomness_for_wots_encoding(
@@ -144,16 +109,6 @@ pub fn wots_encode(
     truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
     randomness: &[F; RANDOMNESS_LEN_FE],
 ) -> Option<[u8; V]> {
-    wots_encode_with_poseidon_trace(message, slot, truncated_merkle_root, randomness, &mut Vec::new())
-}
-
-pub fn wots_encode_with_poseidon_trace(
-    message: &[F; MESSAGE_LEN_FE],
-    slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-    randomness: &[F; RANDOMNESS_LEN_FE],
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
-) -> Option<[u8; V]> {
     // Encode slot as 2 field elements (16 bits each)
     let [slot_lo, slot_hi] = slot_to_field_elements(slot);
 
@@ -161,14 +116,14 @@ pub fn wots_encode_with_poseidon_trace(
     let mut a_input_right = [F::default(); 8];
     a_input_right[0] = message[8];
     a_input_right[1..1 + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    let a = poseidon16_compress_with_trace(message[..8].try_into().unwrap(), &a_input_right, poseidon_16_trace);
+    let a = poseidon16_compress_pair(message[..8].try_into().unwrap(), &a_input_right);
 
     // B = poseidon(A (8 fe), slot (2 fe), truncated_merkle_root (6 fe))
     let mut b_input_right = [F::default(); 8];
     b_input_right[0] = slot_lo;
     b_input_right[1] = slot_hi;
     b_input_right[2..8].copy_from_slice(truncated_merkle_root);
-    let compressed = poseidon16_compress_with_trace(&a, &b_input_right, poseidon_16_trace);
+    let compressed = poseidon16_compress_pair(&a, &b_input_right);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding

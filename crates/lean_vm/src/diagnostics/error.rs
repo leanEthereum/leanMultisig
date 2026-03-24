@@ -15,6 +15,7 @@ pub enum RunnerError {
     PCOutOfBounds,
     DebugAssertFailed(String, SourceLocation),
     InvalidExtensionOp,
+    ParallelSegmentFailed(usize, Box<RunnerError>),
 }
 
 pub type VMResult<T> = Result<T, RunnerError>;

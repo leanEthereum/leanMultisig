@@ -15,8 +15,6 @@ pub struct ExecutionMetadata {
     pub private_input_size: usize,
     pub runtime_memory: usize,
     pub memory_usage_percent: f64,
-    pub n_poseidon_precomputed_used: usize,
-    pub n_poseidons_precomputed_total: usize,
     pub stdout: String,
     pub profiling_report: Option<String>,
 }
@@ -55,11 +53,6 @@ impl ExecutionMetadata {
         ));
         out.push_str(&format!("Runtime memory: {}\n", pretty_integer(self.runtime_memory)));
         out.push_str(&format!("Memory usage: {:.1}%\n", self.memory_usage_percent));
-        out.push_str(&format!(
-            "Poseidon2_16 precomputed used: {}/{}\n",
-            pretty_integer(self.n_poseidon_precomputed_used),
-            pretty_integer(self.n_poseidons_precomputed_total)
-        ));
         out.push('\n');
         if self.n_poseidons > 0 {
             out.push_str(&format!(
@@ -82,7 +75,7 @@ impl ExecutionMetadata {
 
 #[derive(Debug)]
 pub struct ExecutionResult {
-    pub no_vec_runtime_memory: usize,
+    pub runtime_memory_size: usize,
     pub public_memory_size: usize,
     pub memory: Memory,
     pub pcs: Vec<usize>,

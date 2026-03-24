@@ -203,6 +203,7 @@ impl Parse<Line> for ForStatementParser {
                 let n_bits = ExpressionParser.parse(next_inner_pair(&mut range_inner, "n_bits")?, ctx)?;
                 LoopKind::DynamicUnroll { n_bits }
             }
+            Rule::parallel_range => LoopKind::ParallelRange,
             _ => LoopKind::Range,
         };
 

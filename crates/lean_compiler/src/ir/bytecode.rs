@@ -6,9 +6,6 @@ use std::fmt::{Display, Formatter};
 /// A match statement bytecode block
 #[derive(Debug, Clone)]
 pub struct MatchBlock {
-    /// Name of the function containing the match block
-    pub function_name: Label,
-
     /// Cases of the match block
     pub match_cases: Vec<Vec<IntermediateInstruction>>,
 }

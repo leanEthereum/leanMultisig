@@ -117,7 +117,7 @@ pub fn stack_polynomials_and_commit(
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
         for col_index in 0..table.n_columns() {
-            let col = &traces[table].base[col_index];
+            let col = &traces[table].columns[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
         }
