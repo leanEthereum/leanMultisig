@@ -112,7 +112,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     traces.insert(
         Table::execution(),
         TableTrace {
-            base: Vec::from(main_trace),
+            columns: Vec::from(main_trace),
             non_padded_n_rows: n_cycles,
             log_n_rows: log2_ceil_usize(n_cycles),
         },
@@ -138,7 +138,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             } else {
                 table.padding_row()
             };
-            for (col, val) in trace.base.iter_mut().zip(padding.iter()) {
+            for (col, val) in trace.columns.iter_mut().zip(padding.iter()) {
                 col.resize(target, *val);
             }
             trace.log_n_rows = p24_log;
@@ -147,8 +147,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     // Fill AIR trace columns (intermediate round states + outputs)
     info_span!("Poseidon AIR trace fill").in_scope(|| {
-        fill_trace_poseidon_16(&mut traces.get_mut(&Table::poseidon16()).unwrap().base);
-        fill_trace_poseidon_24(&mut traces.get_mut(&Table::poseidon24()).unwrap().base);
+        fill_trace_poseidon_16(&mut traces.get_mut(&Table::poseidon16()).unwrap().columns);
+        fill_trace_poseidon_24(&mut traces.get_mut(&Table::poseidon24()).unwrap().columns);
     });
 
     ExecutionTrace {
@@ -166,7 +166,7 @@ fn pad_table(
     null_poseidon_24_hash_ptr: usize,
 ) {
     let trace = traces.get_mut(table).unwrap();
-    let h = trace.base[0].len();
+    let h = trace.columns[0].len();
 
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
@@ -178,7 +178,7 @@ fn pad_table(
     } else {
         table.padding_row()
     };
-    trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
+    trace.columns.par_iter_mut().enumerate().for_each(|(i, col)| {
         assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon -> we fill it later with SIMD + parallelism), but the first one should always be representative
         col.resize(n_rows, padding_row[i]);
     });

@@ -1,7 +1,7 @@
 use crate::DIMENSION;
 use crate::EF;
 use crate::F;
-use crate::Memory;
+use crate::MemoryAccess;
 use crate::RunnerError;
 use crate::TableTrace;
 use crate::tables::extension_op::{
@@ -35,7 +35,14 @@ fn accumulate(elem: EF, comp_tail: EF, op: Op) -> EF {
 
 /// For single-element Add/Mul ops, solve for an unknown operand when the result is known.
 /// A op B = C: if A unknown, A = C inv_op B; if B unknown, B = C inv_op A.
-fn solve_unknowns(ptr_a: F, ptr_b: F, ptr_res: F, is_be: bool, op: Op, memory: &mut Memory) -> Result<(), RunnerError> {
+fn solve_unknowns(
+    ptr_a: F,
+    ptr_b: F,
+    ptr_res: F,
+    is_be: bool,
+    op: Op,
+    memory: &mut impl MemoryAccess,
+) -> Result<(), RunnerError> {
     let addr_a = ptr_a.to_usize();
     let addr_b = ptr_b.to_usize();
     let addr_res = ptr_res.to_usize();
@@ -88,7 +95,7 @@ fn exec_multi_row(
     size: usize,
     is_be: bool,
     op: Op,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     assert!(size >= 1);
@@ -154,33 +161,33 @@ fn exec_multi_row(
         let is_start = i == 0;
         let current_len = size - i;
 
-        trace.base[COL_IS_BE].push(is_be_f);
-        trace.base[COL_START].push(F::from_bool(is_start));
-        trace.base[COL_FLAG_ADD].push(flag_add_f);
-        trace.base[COL_FLAG_MUL].push(flag_mul_f);
-        trace.base[COL_FLAG_POLY_EQ].push(flag_poly_eq_f);
-        trace.base[COL_LEN].push(F::from_usize(current_len));
-        trace.base[COL_IDX_A].push(idx_as[i]);
-        trace.base[COL_IDX_B].push(idx_bs[i]);
-        trace.base[COL_IDX_RES].push(ptr_res);
+        trace.columns[COL_IS_BE].push(is_be_f);
+        trace.columns[COL_START].push(F::from_bool(is_start));
+        trace.columns[COL_FLAG_ADD].push(flag_add_f);
+        trace.columns[COL_FLAG_MUL].push(flag_mul_f);
+        trace.columns[COL_FLAG_POLY_EQ].push(flag_poly_eq_f);
+        trace.columns[COL_LEN].push(F::from_usize(current_len));
+        trace.columns[COL_IDX_A].push(idx_as[i]);
+        trace.columns[COL_IDX_B].push(idx_bs[i]);
+        trace.columns[COL_IDX_RES].push(ptr_res);
 
         // COL_VA+0..5: filled later by fill_trace_extension_op (push zeros as placeholders)
         for k in 0..DIMENSION {
-            trace.base[COL_VA + k].push(F::ZERO);
+            trace.columns[COL_VA + k].push(F::ZERO);
         }
         for (k, &val) in v_bs[i].as_basis_coefficients_slice().iter().enumerate() {
-            trace.base[COL_VB + k].push(val);
+            trace.columns[COL_VB + k].push(val);
         }
         for (k, &val) in result_coords.iter().enumerate() {
-            trace.base[COL_VRES + k].push(val);
+            trace.columns[COL_VRES + k].push(val);
         }
         for (k, &val) in computations[i].as_basis_coefficients_slice().iter().enumerate() {
-            trace.base[COL_COMP + k].push(val);
+            trace.columns[COL_COMP + k].push(val);
         }
 
         // Virtual columns
-        trace.base[COL_ACTIVATION_FLAG].push(F::from_bool(is_start));
-        trace.base[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
+        trace.columns[COL_ACTIVATION_FLAG].push(F::from_bool(is_start));
+        trace.columns[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
     }
 
     Ok(())
@@ -191,7 +198,7 @@ pub(super) fn exec_add_be(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Add, memory, trace)
@@ -202,7 +209,7 @@ pub(super) fn exec_add_ee(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Add, memory, trace)
@@ -213,7 +220,7 @@ pub(super) fn exec_dot_product_be(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Mul, memory, trace)
@@ -224,7 +231,7 @@ pub(super) fn exec_dot_product_ee(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Mul, memory, trace)
@@ -235,7 +242,7 @@ pub(super) fn exec_poly_eq_be(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::PolyEq, memory, trace)
@@ -246,7 +253,7 @@ pub(super) fn exec_poly_eq_ee(
     ptr_b: F,
     ptr_res: F,
     size: usize,
-    memory: &mut Memory,
+    memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
@@ -255,11 +262,11 @@ pub(super) fn exec_poly_eq_ee(
 /// Fill the VALUE_A columns (5 base field coordinates) after execution
 /// by looking up memory at idx_A addresses.
 pub fn fill_trace_extension_op(trace: &mut TableTrace, memory: &[F]) {
-    let n = trace.base[COL_IDX_A].len();
+    let n = trace.columns[COL_IDX_A].len();
     for i in 0..n {
-        let addr = trace.base[COL_IDX_A][i].to_usize();
+        let addr = trace.columns[COL_IDX_A][i].to_usize();
         for k in 0..DIMENSION {
-            trace.base[COL_VA + k][i] = memory[addr + k];
+            trace.columns[COL_VA + k][i] = memory[addr + k];
         }
     }
 }

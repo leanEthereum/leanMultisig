@@ -1,6 +1,7 @@
 use crate::core::{F, Label, SourceLocation};
-use crate::diagnostics::{MemoryObject, MemoryObjectType, MemoryProfile, RunnerError};
-use crate::execution::{ExecutionHistory, Memory};
+use crate::diagnostics::RunnerError;
+use crate::execution::ExecutionHistory;
+use crate::execution::memory::MemoryAccess;
 use crate::isa::operands::MemOrConstant;
 use backend::*;
 use leansig_wrapper::SIG_SIZE_FE;
@@ -22,8 +23,6 @@ pub enum Hint {
     },
     /// Request memory allocation
     RequestMemory {
-        /// Function name this allocation is associated with (for profiling)
-        function_name: Label,
         /// Memory offset where hint will be stored: m[fp + offset]
         offset: usize,
         /// The requested memory size
@@ -45,11 +44,6 @@ pub enum Hint {
     Label {
         label: Label,
     },
-    /// Stack frame size (for memory profiling)
-    StackFrame {
-        label: Label,
-        size: usize,
-    },
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
     Custom(CustomHint, Vec<MemOrConstant>),
@@ -63,6 +57,17 @@ pub enum Hint {
     /// Panic hint with optional error message (for debugging)
     Panic {
         message: Option<String>,
+    },
+    /// Marks the start of a parallelizable loop body.
+    /// Placed at the entry of the loop's recursive function, before the condition check.
+    /// The runner executes the first iteration to learn the per-iteration allocation,
+    /// then executes remaining iterations in parallel.
+    ParallelBatchStart {
+        /// Total number of function args (iterator + external vars).
+        /// Frame layout: [return_pc, saved_fp, arg0=iterator, arg1, ..., argN-1, locals...]
+        n_args: usize,
+        /// End value of the loop: either `m[fp + offset]` (runtime) or a constant.
+        end_value: MemOrConstant,
     },
 }
 
@@ -121,7 +126,11 @@ impl CustomHint {
         }
     }
 
-    pub fn execute(&self, args: &[MemOrConstant], ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
+    pub fn execute<M: MemoryAccess>(
+        &self,
+        args: &[MemOrConstant],
+        ctx: &mut HintExecutionContext<'_, '_, M>,
+    ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
                 // Aborting hypercube decomposition: a_i = Q * d_i + r_i
@@ -203,31 +212,31 @@ impl CustomHint {
             }
             Self::PrivateInputStart => {
                 let res_ptr = args[0].memory_address(ctx.fp)?;
-                ctx.memory.set(res_ptr, F::from_usize(ctx.private_input_start))?;
+                ctx.memory.set(res_ptr, F::from_usize(ctx.hints.private_input_start))?;
             }
             Self::Xmss => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.xmss_hint_index;
+                let index = *ctx.hints.xmss_hint_index;
                 assert!(
-                    index < ctx.xmss_signatures.len(),
+                    index < ctx.hints.xmss_signatures.len(),
                     "hint_xmss: not enough XMSS signatures (index={})",
                     index
                 );
-                let sig = &ctx.xmss_signatures[index];
+                let sig = &ctx.hints.xmss_signatures[index];
                 assert_eq!(sig.len(), SIG_SIZE_FE);
                 ctx.memory.set_slice(buf_ptr, sig)?;
-                *ctx.xmss_hint_index += 1;
+                *ctx.hints.xmss_hint_index += 1;
             }
             Self::Merkle => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.merkle_hint_index;
+                let index = *ctx.hints.merkle_hint_index;
                 assert!(
-                    index < ctx.merkle_paths.len(),
+                    index < ctx.hints.merkle_paths.len(),
                     "hint_merkle: not enough Merkle paths (index={})",
                     index
                 );
-                let path = &ctx.merkle_paths[index];
+                let path = &ctx.hints.merkle_paths[index];
                 assert_eq!(
                     path.len(),
                     n,
@@ -236,7 +245,7 @@ impl CustomHint {
                     path.len()
                 );
                 ctx.memory.set_slice(buf_ptr, path)?;
-                *ctx.merkle_hint_index += 1;
+                *ctx.hints.merkle_hint_index += 1;
             }
         }
         Ok(())
@@ -262,57 +271,46 @@ pub struct BooleanExpr<E> {
     pub kind: Boolean,
 }
 
-/// Execution state for hint processing
 #[derive(Debug)]
-pub struct HintExecutionContext<'a> {
-    pub memory: &'a mut Memory,
-    pub fp: usize,
-    pub ap: &'a mut usize,
+pub struct DiagnosticState<'a> {
     pub std_out: &'a mut String,
     pub instruction_history: &'a mut ExecutionHistory,
     pub cpu_cycles_before_new_line: &'a mut usize,
-    pub cpu_cycles: usize,
     pub last_checkpoint_cpu_cycles: &'a mut usize,
     pub checkpoint_ap: &'a mut usize,
-    pub profiling: bool,
-    pub memory_profile: &'a mut MemoryProfile,
+}
+
+#[derive(Debug)]
+pub struct HintState<'a> {
+    pub diagnostics: Option<DiagnosticState<'a>>,
     pub private_input_start: usize,
     pub xmss_signatures: &'a [Vec<F>],
     pub xmss_hint_index: &'a mut usize,
     pub merkle_paths: &'a [Vec<F>],
     pub merkle_hint_index: &'a mut usize,
-    /// Pending deref hints: (target_addr, src_addr)
-    /// Constraint: memory[target_addr] = memory[memory[src_addr]]
-    /// Resolved at end of execution in correct order.
+}
+
+#[derive(Debug)]
+pub struct HintExecutionContext<'a, 'h, M: MemoryAccess> {
+    pub hints: &'a mut HintState<'h>,
+    pub memory: &'a mut M,
+    pub fp: usize,
+    pub ap: &'a mut usize,
+    pub cpu_cycles: usize,
     pub pending_deref_hints: &'a mut Vec<(usize, usize)>,
 }
 
 impl Hint {
     /// Execute this hint within the given execution context
     #[inline(always)]
-    pub fn execute_hint(&self, ctx: &mut HintExecutionContext<'_>) -> Result<(), RunnerError> {
+    pub fn execute_hint<M: MemoryAccess>(&self, ctx: &mut HintExecutionContext<'_, '_, M>) -> Result<(), RunnerError> {
         match self {
-            Self::RequestMemory {
-                function_name,
-                offset,
-                size,
-            } => {
+            Self::RequestMemory { offset, size } => {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
 
                 let allocation_start_addr = *ctx.ap;
                 ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
                 *ctx.ap += size;
-
-                if ctx.profiling {
-                    ctx.memory_profile.objects.insert(
-                        allocation_start_addr,
-                        MemoryObject {
-                            object_type: MemoryObjectType::NonVectorHeapObject,
-                            function_name: function_name.clone(),
-                            size,
-                        },
-                    );
-                }
             }
             Self::Custom(hint, args) => {
                 hint.execute(args, ctx)?;
@@ -323,52 +321,41 @@ impl Hint {
                 ctx.memory.set(ctx.fp + *res_offset, result)?;
             }
             Self::Print { line_info, content } => {
-                let values = content
-                    .iter()
-                    .map(|value| Ok(value.read_value(ctx.memory, ctx.fp)?.to_string()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                // Logs for performance analysis:
-                if values[0] == "123456789" {
-                    if values.len() == 1 {
-                        *ctx.std_out += "[CHECKPOINT]\n";
-                    } else {
-                        assert_eq!(values.len(), 2);
-                        let new_no_vec_memory = *ctx.ap - *ctx.checkpoint_ap;
-                        *ctx.std_out += &format!(
-                            "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}\n",
-                            values[1],
-                            pretty_integer(ctx.cpu_cycles - *ctx.last_checkpoint_cpu_cycles),
-                            pretty_integer(new_no_vec_memory),
-                        );
+                if let Some(diag) = &mut ctx.hints.diagnostics {
+                    let values = content
+                        .iter()
+                        .map(|value| Ok(value.read_value(ctx.memory, ctx.fp)?.to_string()))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if values[0] == "123456789" {
+                        if values.len() == 1 {
+                            *diag.std_out += "[CHECKPOINT]\n";
+                        } else {
+                            assert_eq!(values.len(), 2);
+                            let new_no_vec_memory = *ctx.ap - *diag.checkpoint_ap;
+                            *diag.std_out += &format!(
+                                "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}\n",
+                                values[1],
+                                pretty_integer(ctx.cpu_cycles - *diag.last_checkpoint_cpu_cycles),
+                                pretty_integer(new_no_vec_memory),
+                            );
+                        }
+                        *diag.last_checkpoint_cpu_cycles = ctx.cpu_cycles;
+                        *diag.checkpoint_ap = *ctx.ap;
                     }
-
-                    *ctx.last_checkpoint_cpu_cycles = ctx.cpu_cycles;
-                    *ctx.checkpoint_ap = *ctx.ap;
+                    let line_info = line_info.replace(';', "");
+                    *diag.std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
                 }
-
-                let line_info = line_info.replace(';', "");
-                *ctx.std_out += &format!("\"{}\" -> {}\n", line_info, values.join(", "));
             }
             Self::LocationReport { location } => {
-                ctx.instruction_history.lines.push(*location);
-                ctx.instruction_history
-                    .lines_cycles
-                    .push(*ctx.cpu_cycles_before_new_line);
-                *ctx.cpu_cycles_before_new_line = 0;
-            }
-            Self::Label { .. } => {}
-            Self::StackFrame { label, size } => {
-                if ctx.profiling {
-                    ctx.memory_profile.objects.insert(
-                        ctx.fp,
-                        MemoryObject {
-                            object_type: MemoryObjectType::StackFrame,
-                            function_name: label.clone(),
-                            size: *size,
-                        },
-                    );
+                if let Some(diag) = &mut ctx.hints.diagnostics {
+                    diag.instruction_history.lines.push(*location);
+                    diag.instruction_history
+                        .lines_cycles
+                        .push(*diag.cpu_cycles_before_new_line);
+                    *diag.cpu_cycles_before_new_line = 0;
                 }
             }
+            Self::Label { .. } => {}
             Self::DebugAssert(bool_expr, location) => {
                 let left = bool_expr.left.read_value(ctx.memory, ctx.fp)?;
                 let right = bool_expr.right.read_value(ctx.memory, ctx.fp)?;
@@ -395,10 +382,14 @@ impl Hint {
                 ctx.pending_deref_hints.push((target_addr, src_addr));
             }
             Self::Panic { message } => {
-                if let Some(msg) = message {
-                    *ctx.std_out += &format!("[PANIC] {}\n", msg);
+                if let Some(msg) = message
+                    && let Some(diag) = &mut ctx.hints.diagnostics
+                {
+                    *diag.std_out += &format!("[PANIC] {}\n", msg);
                 }
             }
+            // Handled by the runner's parallel dispatch; no-op in sequential mode.
+            Self::ParallelBatchStart { .. } => {}
         }
         Ok(())
     }
@@ -407,11 +398,7 @@ impl Hint {
 impl Display for Hint {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RequestMemory {
-                function_name: _,
-                offset,
-                size,
-            } => {
+            Self::RequestMemory { offset, size } => {
                 write!(f, "m[fp + {offset}] = request_memory({size})")
             }
             Self::Custom(hint, args) => {
@@ -440,9 +427,6 @@ impl Display for Hint {
             Self::Label { label } => {
                 write!(f, "label: {label}")
             }
-            Self::StackFrame { label, size } => {
-                write!(f, "stack frame for {label} size {size}")
-            }
             Self::DebugAssert(bool_expr, location) => {
                 write!(f, "debug_assert {bool_expr} at {location:?}")
             }
@@ -456,6 +440,9 @@ impl Display for Hint {
                 Some(msg) => write!(f, "panic: \"{msg}\""),
                 None => write!(f, "panic"),
             },
+            Self::ParallelBatchStart { n_args, end_value } => {
+                write!(f, "parallel_batch_start(n_args={n_args}, end={end_value})")
+            }
         }
     }
 }

@@ -105,8 +105,8 @@ pub fn prove_generic_logup(
 
         if *table == Table::execution() {
             // 0] bytecode lookup
-            let pc_column = &trace.base[COL_PC];
-            let bytecode_columns = &trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
+            let pc_column = &trace.columns[COL_PC];
+            let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
             numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
                 *num = EF::ONE;
             }); // TODO embedding overhead
@@ -128,7 +128,7 @@ pub fn prove_generic_logup(
         let bus = table.bus();
         numerators[offset..][..1 << log_n_rows]
             .par_iter_mut()
-            .zip(&trace.base[bus.selector])
+            .zip(&trace.columns[bus.selector])
             .for_each(|(num, selector)| {
                 *num = EF::from(match bus.direction {
                     BusDirection::Pull => -*selector,
@@ -143,7 +143,7 @@ pub fn prove_generic_logup(
                     let mut bus_data = [F::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
                     for (j, entry) in bus.data.iter().enumerate() {
                         bus_data[j] = match entry {
-                            BusData::Column(col) => trace.base[*col][i],
+                            BusData::Column(col) => trace.columns[*col][i],
                             BusData::Constant(val) => F::from_usize(*val),
                         };
                     }
@@ -240,8 +240,8 @@ pub fn prove_generic_logup(
 
         if table == &Table::execution() {
             // 0] bytecode lookup
-            let pc_column = &trace.base[COL_PC];
-            let bytecode_columns = trace.base[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
+            let pc_column = &trace.columns[COL_PC];
+            let bytecode_columns = trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
                 .iter()
                 .collect::<Vec<_>>();
 
@@ -266,7 +266,7 @@ pub fn prove_generic_logup(
 
         // I] Bus (data flow between tables)
         let eval_on_selector =
-            trace.base[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
+            trace.columns[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
         let eval_on_data = (&denominators[offset..][..1 << log_n_rows]).evaluate(&inner_point);
@@ -277,13 +277,13 @@ pub fn prove_generic_logup(
 
         // II] Lookup into memory
         for lookup in table.lookups() {
-            let index_eval = trace.base[lookup.index].evaluate(&inner_point);
+            let index_eval = trace.columns[lookup.index].evaluate(&inner_point);
             prover_state.add_extension_scalar(index_eval);
             assert!(!table_values.contains_key(&lookup.index));
             table_values.insert(lookup.index, index_eval);
 
             for col_index in &lookup.values {
-                let value_eval = trace.base[*col_index].evaluate(&inner_point);
+                let value_eval = trace.columns[*col_index].evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
                 assert!(!table_values.contains_key(col_index));
                 table_values.insert(*col_index, value_eval);

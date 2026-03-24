@@ -156,14 +156,14 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
     }
 
     #[inline(always)]
-    fn execute(
+    fn execute<M: MemoryAccess>(
         &self,
         index_input_left: F,
         index_input_right: F,
         index_res: F,
         mode: usize,
         _: usize,
-        ctx: &mut InstructionContext<'_>,
+        ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         assert!(mode <= POSEIDON_24_MODE_PERMUTE_9_18, "invalid poseidon24 mode={mode}");
         let is_compress_0_9 = mode == POSEIDON_24_MODE_COMPRESS_0_9;
@@ -192,16 +192,16 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
 
         ctx.memory.set_slice(index_res.to_usize(), &res_a)?;
 
-        trace.base[POSEIDON_24_COL_FLAG].push(F::ONE);
-        trace.base[POSEIDON_24_COL_IS_COMPRESS_0_9].push(F::from_bool(is_compress_0_9));
-        trace.base[POSEIDON_24_COL_IS_PERMUTE_0_9].push(F::from_bool(is_permute_0_9));
-        trace.base[POSEIDON_24_COL_INDEX_INPUT_LEFT].push(index_input_left);
-        trace.base[POSEIDON_24_COL_INDEX_INPUT_RIGHT].push(index_input_right);
-        trace.base[POSEIDON_24_COL_INDEX_RES].push(index_res);
+        trace.columns[POSEIDON_24_COL_FLAG].push(F::ONE);
+        trace.columns[POSEIDON_24_COL_IS_COMPRESS_0_9].push(F::from_bool(is_compress_0_9));
+        trace.columns[POSEIDON_24_COL_IS_PERMUTE_0_9].push(F::from_bool(is_permute_0_9));
+        trace.columns[POSEIDON_24_COL_INDEX_INPUT_LEFT].push(index_input_left);
+        trace.columns[POSEIDON_24_COL_INDEX_INPUT_RIGHT].push(index_input_right);
+        trace.columns[POSEIDON_24_COL_INDEX_RES].push(index_res);
         for (i, value) in input.iter().enumerate() {
-            trace.base[POSEIDON_24_COL_INPUT_START + i].push(*value);
+            trace.columns[POSEIDON_24_COL_INPUT_START + i].push(*value);
         }
-        trace.base[POSEIDON_24_COL_PRECOMPILE_DATA].push(F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode));
+        trace.columns[POSEIDON_24_COL_PRECOMPILE_DATA].push(F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode));
 
         // the rest of the trace is filled at the end of the execution (for parallelism + SIMD)
 

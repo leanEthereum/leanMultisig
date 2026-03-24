@@ -1,4 +1,5 @@
 use crate::{
+    execution::memory::MemoryAccess,
     tables::extension_op::exec::{
         exec_add_be, exec_add_ee, exec_dot_product_be, exec_dot_product_ee, exec_poly_eq_be, exec_poly_eq_ee,
     },
@@ -92,14 +93,14 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
     }
 
     #[inline(always)]
-    fn execute(
+    fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
         aux_1: usize, // size (length N)
         aux_2: usize, // mode: is_be + 2*flag_mul + 4*flag_poly_eq
-        ctx: &mut InstructionContext<'_>,
+        ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
         match aux_2 {

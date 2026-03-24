@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use backend::BasedVectorSpace;
 use lean_compiler::*;
 use lean_vm::*;
@@ -205,6 +207,49 @@ def func(a, b):
     let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
     let n_cycles = execute_bytecode(&bytecode, &[], &ExecutionWitness::empty(), false).n_cycles();
     assert!(n_cycles < 1100);
+}
+
+#[test]
+fn test_parallel_loop() {
+    let program = r#"
+def main():
+    n = 16
+    res = Array(n)
+    for i in loop(0, n):
+        res[i] = factorial(10000)
+    sum: Mut = 0
+    for i in range(0, n):
+        sum = sum + res[i]
+    print(sum)
+    return
+
+def factorial(n):
+    if n == 0:
+        return 1
+    else:
+        return n * factorial(n - 1)
+   "#;
+
+    let compiled_sequencial = compile_program(&ProgramSource::Raw(program.replace("loop", "range")));
+    let compiled_parallel = compile_program(&ProgramSource::Raw(program.replace("loop", "parallel_range")));
+
+    let time_sequential = Instant::now();
+    let exec_seq = execute_bytecode(&compiled_sequencial, &[], &ExecutionWitness::empty(), false);
+    let duration_sequential = time_sequential.elapsed();
+    let time_parallel = Instant::now();
+    let exec_par = execute_bytecode(&compiled_parallel, &[], &ExecutionWitness::empty(), false);
+    let duration_parallel = time_parallel.elapsed();
+
+    assert_eq!(exec_seq.metadata.stdout, exec_par.metadata.stdout);
+    assert_eq!(exec_seq.n_cycles(), exec_par.n_cycles());
+    assert_eq!(exec_seq.runtime_memory_size, exec_par.runtime_memory_size);
+
+    println!("Sequential duration: {:.4}s", duration_sequential.as_secs_f64());
+    println!("Parallel duration: {:.4}s", duration_parallel.as_secs_f64());
+    println!(
+        "Speedup: {:.2}x",
+        duration_sequential.as_secs_f64() / duration_parallel.as_secs_f64()
+    );
 }
 
 #[test]

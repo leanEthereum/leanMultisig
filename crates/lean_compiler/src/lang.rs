@@ -560,6 +560,7 @@ impl VecLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoopKind {
     Range,
+    ParallelRange,
     Unroll,
     /// `for i in dynamic_unroll(0, a, n_bits): body` — unrolls over runtime-bounded range
     /// using bit decomposition. `n_bits` must be compile-time known.
@@ -571,6 +572,10 @@ pub enum LoopKind {
 impl LoopKind {
     pub fn is_unroll(&self) -> bool {
         matches!(self, Self::Unroll | Self::DynamicUnroll { .. })
+    }
+
+    pub fn is_parallel(&self) -> bool {
+        matches!(self, Self::ParallelRange)
     }
 }
 
@@ -803,7 +808,13 @@ impl Line {
                         iterator, start, end, n_bits, body_str, spaces
                     ),
                     _ => {
-                        let range_fn = if loop_kind.is_unroll() { "unroll" } else { "range" };
+                        let range_fn = if loop_kind.is_unroll() {
+                            "unroll"
+                        } else if loop_kind.is_parallel() {
+                            "parallel_range"
+                        } else {
+                            "range"
+                        };
                         format!(
                             "for {} in {}({}, {}) {{\n{}\n{}}}",
                             iterator, range_fn, start, end, body_str, spaces

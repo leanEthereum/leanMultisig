@@ -149,16 +149,28 @@ fn compile_function(
     compiler.const_malloc_vars.clear();
     (compiler.dead_fp_relative_vars, compiler.dead_store_vars) = compute_dead_vars(&function.instructions);
 
-    compile_lines(
-        &Label::function(function.name.clone()),
-        &function.instructions,
-        compiler,
-        None,
-    )
+    let mut instructions = Vec::new();
+
+    // Emit ParallelBatchStart for parallel loop functions.
+    // The first instruction is always `diff = iterator - end`. The end value is either
+    // a function argument (runtime) or a compile-time constant.
+    if function.name.starts_with("@parallel_loop_") {
+        let SimpleLine::Assignment { arg1, .. } = &function.instructions[0] else {
+            panic!("parallel loop: expected first instruction to be `diff = i - end`");
+        };
+        let end_value = IntermediateValue::from_simple_expr(arg1, compiler);
+        instructions.push(IntermediateInstruction::ParallelBatchStart {
+            n_args: function.arguments.len(),
+            end_value,
+        });
+    }
+
+    instructions.extend(compile_lines(&function.instructions, compiler, None)?);
+
+    Ok(instructions)
 }
 
 fn compile_lines(
-    function_name: &Label,
     lines: &[SimpleLine],
     compiler: &mut Compiler,
     final_jump: Option<Label>,
@@ -263,14 +275,13 @@ fn compile_lines(
                 for arm in arms.iter() {
                     compiler.stack_pos = saved_stack_pos;
                     compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-                    let arm_instructions = compile_lines(function_name, arm, compiler, Some(end_label.clone()))?;
+                    let arm_instructions = compile_lines(arm, compiler, Some(end_label.clone()))?;
                     compiled_arms.push(arm_instructions);
                     compiler.stack_frame_layout.scopes.pop();
                     new_stack_pos = new_stack_pos.max(compiler.stack_pos);
                 }
                 compiler.stack_pos = new_stack_pos;
                 compiler.match_blocks.push(MatchBlock {
-                    function_name: function_name.clone(),
                     match_cases: compiled_arms,
                 });
                 // Get the actual index AFTER pushing (nested matches may have pushed their blocks first)
@@ -317,7 +328,7 @@ fn compile_lines(
                     updated_fp: None,
                 });
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
+                let remaining = compile_lines(&lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
 
                 compiler.stack_frame_layout.scopes.pop();
@@ -409,14 +420,14 @@ fn compile_lines(
                 let saved_stack_pos = compiler.stack_pos;
 
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
-                let then_instructions = compile_lines(function_name, then_branch, compiler, Some(end_label.clone()))?;
+                let then_instructions = compile_lines(then_branch, compiler, Some(end_label.clone()))?;
 
                 let then_stack_pos = compiler.stack_pos;
                 compiler.stack_pos = saved_stack_pos;
                 compiler.stack_frame_layout.scopes.pop();
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
-                let else_instructions = compile_lines(function_name, else_branch, compiler, Some(end_label.clone()))?;
+                let else_instructions = compile_lines(else_branch, compiler, Some(end_label.clone()))?;
 
                 compiler.bytecode.insert(if_label, then_instructions);
                 compiler.bytecode.insert(else_label, else_instructions);
@@ -424,7 +435,7 @@ fn compile_lines(
                 compiler.stack_frame_layout.scopes.pop();
                 compiler.stack_pos = compiler.stack_pos.max(then_stack_pos);
 
-                let remaining = compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?;
+                let remaining = compile_lines(&lines[i + 1..], compiler, final_jump)?;
                 compiler.bytecode.insert(end_label, remaining);
                 // It is not necessary to update compiler.stack_size here because the preceding call to
                 // compile_lines should have done so.
@@ -485,7 +496,7 @@ fn compile_lines(
                         });
                     }
 
-                    instructions.extend(compile_lines(function_name, &lines[i + 1..], compiler, final_jump)?);
+                    instructions.extend(compile_lines(&lines[i + 1..], compiler, final_jump)?);
 
                     instructions
                 };
