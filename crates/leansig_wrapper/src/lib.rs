@@ -87,6 +87,7 @@ pub fn xmmss_revealed_chain_tips(sig: &XmssSignature) -> &Vec<[F; DIGEST_SIZE_FE
     unsafe { std::mem::transmute(sig.hashes()) }
 }
 
+#[allow(clippy::result_unit_err)]
 pub fn xmss_verify(
     pk: &XmssPublicKey,
     slot: u32,
@@ -111,10 +112,12 @@ pub fn xmss_keygen_fast<R: CryptoRng>(
     num_active_epochs: u32,
 ) -> (FastKeyGenSecretKey, XmssPublicKey) {
     let (pk, sk) = FastKeyGenScheme::key_gen(rng, activation_epoch as usize, num_active_epochs as usize);
+    #[allow(clippy::missing_transmute_annotations)]
     let pk = unsafe { std::mem::transmute(pk) };
     (sk, pk)
 }
 
+#[allow(clippy::result_unit_err)]
 pub fn xmss_sign_fast(
     sk: &FastKeyGenSecretKey,
     message: &[u8; MESSAGE_LENGTH],

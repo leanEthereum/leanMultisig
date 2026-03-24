@@ -128,10 +128,9 @@ fn benchmark_prove_poseidons(
         whir_config.prove(&mut prover_state, statements, witness, &committed_pol.by_ref());
     }
 
-    println!(
-        "{} Poseidon-{width} / s",
-        (n_rows as f64 / time.elapsed().as_secs_f64()) as usize
-    );
+    println!("{} Poseidon-{width} / s", {
+        (f64::from(n_rows) / time.elapsed().as_secs_f64()) as usize
+    });
 
     {
         let mut verifier_state = build_verifier_state(prover_state).unwrap();

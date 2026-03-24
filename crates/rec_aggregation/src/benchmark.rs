@@ -299,7 +299,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
-    let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].to_vec().into_iter().unzip();
+    let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].iter().cloned().unzip();
 
     init_aggregation_bytecode();
     println!(

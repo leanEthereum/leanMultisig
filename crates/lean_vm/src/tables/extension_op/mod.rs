@@ -14,7 +14,6 @@ pub use exec::fill_trace_extension_op;
 // domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
 /// Extension op PRECOMPILE_DATA bit-field encoding:
 /// aux = 4*is_be + 8*flag_add + 16*flag_mul + 32*flag_poly_eq + 64*len
-
 pub(crate) const EXT_OP_FLAG_IS_BE: usize = 4;
 pub(crate) const EXT_OP_FLAG_ADD: usize = 8;
 pub(crate) const EXT_OP_FLAG_MUL: usize = 16;

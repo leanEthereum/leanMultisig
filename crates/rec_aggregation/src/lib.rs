@@ -21,7 +21,7 @@ pub mod signatures_cache;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const _: () = {
-    assert!(LOG_LIFETIME % MERKLE_LEVELS_PER_CHUNK_FOR_SLOT == 0);
+    assert!(LOG_LIFETIME.is_multiple_of(MERKLE_LEVELS_PER_CHUNK_FOR_SLOT));
 };
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
@@ -91,7 +91,7 @@ fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
     for level in 0..LOG_LIFETIME {
         let parent_level = level + 1;
         let parent_index = if parent_level < 32 { slot >> parent_level } else { 0 };
-        let [t0, t1] = merkle_tweak(parent_level, parent_index as u32);
+        let [t0, t1] = merkle_tweak(parent_level, parent_index);
         tweaks.extend([t0, t1]);
     }
     assert_eq!(tweaks.len(), n);

@@ -129,6 +129,6 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
 fn test_signature_cache() {
     let signatures = get_benchmark_signatures();
     signatures.par_iter().enumerate().for_each(|(i, (pk, sig))| {
-        xmss_verify(pk, BENCHMARK_SLOT, &BENCHMARK_MESSAGE, sig).expect(&format!("Signature {} failed to verify", i));
+        xmss_verify(pk, BENCHMARK_SLOT, &BENCHMARK_MESSAGE, sig).unwrap_or_else(|_| panic!("Signature {} failed to verify", i));
     });
 }
