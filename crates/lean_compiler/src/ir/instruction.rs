@@ -65,6 +65,11 @@ pub enum IntermediateInstruction {
     PanicHint {
         message: Option<String>,
     },
+    /// Marks the start of a parallelizable loop
+    ParallelBatchStart {
+        n_args: usize,
+        end_value: IntermediateValue,
+    },
 }
 
 impl IntermediateInstruction {
@@ -196,6 +201,9 @@ impl Display for IntermediateInstruction {
                 Some(msg) => write!(f, "panic hint: \"{msg}\""),
                 None => write!(f, "panic hint"),
             },
+            Self::ParallelBatchStart { n_args, end_value } => {
+                write!(f, "parallel_batch_start(n_args={n_args}, end={end_value})")
+            }
         }
     }
 }

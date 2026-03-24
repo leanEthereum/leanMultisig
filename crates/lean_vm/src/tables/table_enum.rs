@@ -1,5 +1,6 @@
 use backend::*;
 
+use crate::execution::memory::MemoryAccess;
 use crate::*;
 
 pub const N_TABLES: usize = 3;
@@ -71,14 +72,14 @@ impl TableT for Table {
     fn padding_row(&self) -> Vec<PF<EF>> {
         delegate_to_inner!(self, padding_row)
     }
-    fn execute(
+    fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
         aux_1: usize,
         aux_2: usize,
-        ctx: &mut InstructionContext<'_>,
+        ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_1, aux_2, ctx)
     }

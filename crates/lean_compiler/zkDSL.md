@@ -326,12 +326,21 @@ result = match_range(n, range(1, 10), lambda i: compute(i))
 ```
 for i in range(0, 10):                  # standard loop
     ...
+for i in parallel_range(0, n):          # iterations executed in parallel (see below)
+    ...
 for i in unroll(0, 4):                  # unrolled at compile time
     ...
 for i in dynamic_unroll(5, a, n_bits):  # a must be compile-time known, and a < 2^n_bits
     ...
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
+
+**`parallel_range`** executes iterations concurrently using rayon. The produced bytecode is identical to `range`. Constraints:
+- The loop body must be **iteration-independent**: no `Mut` variables carried
+  across iterations. Each iteration may only write to its own frame and to
+  external addresses that do not affect other iterations .
+- The memory footprint (i.e. total memory usage) must be the same across iterations
+- XMSS / Merkle hint consumption must be the same across iterations
 
 **`dynamic_unroll`** enables iterating from `start` to a runtime value `a` (where `a - start` is known to be < 2^n_bits) in an unrolled fashion. The compiler automatically generates bit decomposition of `a - start`, verification constraints, and conditional execution for each index. Both `start` and `n_bits` must be compile-time known.
 

@@ -1,3 +1,4 @@
+use crate::execution::memory::MemoryAccess;
 use crate::*;
 use backend::*;
 
@@ -67,7 +68,15 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
     }
 
     #[inline(always)]
-    fn execute(&self, _: F, _: F, _: F, _: usize, _: usize, _: &mut InstructionContext<'_>) -> Result<(), RunnerError> {
+    fn execute<M: MemoryAccess>(
+        &self,
+        _: F,
+        _: F,
+        _: F,
+        _: usize,
+        _: usize,
+        _: &mut InstructionContext<'_, M>,
+    ) -> Result<(), RunnerError> {
         unreachable!()
     }
 }

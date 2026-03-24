@@ -14,7 +14,8 @@ impl IntermediateInstruction {
             | Self::LocationReport { .. }
             | Self::DebugAssert { .. }
             | Self::DerefHint { .. }
-            | Self::PanicHint { .. } => true,
+            | Self::PanicHint { .. }
+            | Self::ParallelBatchStart { .. } => true,
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
@@ -66,42 +67,19 @@ pub fn compile_to_low_level_bytecode(
         .bytecode
         .remove(&Label::function("main"))
         .ok_or("No main function found in the compiled program")?;
-    hints.insert(
-        STARTING_PC,
-        vec![Hint::StackFrame {
-            label: Label::function("main"),
-            size: starting_frame_memory,
-        }],
-    );
 
     let mut pc = count_real_instructions(&exit_point) + count_real_instructions(&entrypoint);
-    let mut code_blocks = vec![
-        (Label::EndProgram, ENDING_PC, exit_point),
-        (Label::function("main"), STARTING_PC, entrypoint),
-    ];
+    let mut code_blocks = vec![(ENDING_PC, exit_point), (STARTING_PC, entrypoint)];
 
     for (label, instructions) in &intermediate_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
-        if let Label::Function(function_name) = label {
-            hints.entry(pc).or_insert_with(Vec::new).push(Hint::StackFrame {
-                label: label.clone(),
-                size: *intermediate_bytecode
-                    .memory_size_per_function
-                    .get(function_name)
-                    .unwrap(),
-            });
-        }
-        code_blocks.push((label.clone(), pc, instructions.clone()));
+        code_blocks.push((pc, instructions.clone()));
         pc += count_real_instructions(instructions);
     }
 
     let mut match_block_sizes = Vec::new();
     let mut match_first_block_starts = Vec::new();
-    for MatchBlock {
-        function_name,
-        match_cases,
-    } in intermediate_bytecode.match_blocks
-    {
+    for MatchBlock { match_cases } in intermediate_bytecode.match_blocks {
         let max_block_size = match_cases
             .iter()
             .map(|block| count_real_instructions(block))
@@ -116,7 +94,7 @@ pub fn compile_to_low_level_bytecode(
                 IntermediateInstruction::Panic;
                 max_block_size - count_real_instructions(&block)
             ]);
-            code_blocks.push((function_name.clone(), pc, block));
+            code_blocks.push((pc, block));
             pc += max_block_size;
         }
     }
@@ -134,15 +112,8 @@ pub fn compile_to_low_level_bytecode(
 
     let mut instructions = Vec::new();
 
-    for (function_name, pc_start, block) in code_blocks {
-        compile_block(
-            &compiler,
-            &function_name,
-            &block,
-            pc_start,
-            &mut instructions,
-            &mut hints,
-        );
+    for (pc_start, block) in code_blocks {
+        compile_block(&compiler, &block, pc_start, &mut instructions, &mut hints);
     }
     let instructions_encoded = instructions.par_iter().map(field_representation).collect::<Vec<_>>();
 
@@ -195,7 +166,6 @@ pub fn compile_to_low_level_bytecode(
 
 fn compile_block(
     compiler: &Compiler,
-    function_name: &Label,
     block: &[IntermediateInstruction],
     pc_start: CodeAddress,
     low_level_bytecode: &mut Vec<Instruction>,
@@ -341,7 +311,6 @@ fn compile_block(
             IntermediateInstruction::RequestMemory { offset, size } => {
                 let size = try_as_mem_or_constant(&size).unwrap();
                 let hint = Hint::RequestMemory {
-                    function_name: function_name.clone(),
                     offset: eval_const_expression_usize(&offset, compiler),
                     size,
                 };
@@ -385,6 +354,13 @@ fn compile_block(
             IntermediateInstruction::PanicHint { message } => {
                 let hint = Hint::Panic { message };
                 hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::ParallelBatchStart { n_args, end_value } => {
+                let end_value = try_as_mem_or_constant(&end_value).expect("parallel loop end value");
+                hints
+                    .entry(pc)
+                    .or_default()
+                    .push(Hint::ParallelBatchStart { n_args, end_value });
             }
         }
 

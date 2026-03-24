@@ -1,5 +1,6 @@
 use std::any::TypeId;
 
+use crate::execution::memory::MemoryAccess;
 use crate::*;
 use backend::*;
 use utils::{ToUsize, poseidon16_compress};
@@ -70,14 +71,14 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     }
 
     #[inline(always)]
-    fn execute(
+    fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         index_res_a: F,
         _: usize,
         _: usize,
-        ctx: &mut InstructionContext<'_>,
+        ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
@@ -94,12 +95,12 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 
         ctx.memory.set_slice(index_res_a.to_usize(), &res_a)?;
 
-        trace.base[POSEIDON_16_COL_FLAG].push(F::ONE);
-        trace.base[POSEIDON_16_COL_A].push(arg_a);
-        trace.base[POSEIDON_16_COL_B].push(arg_b);
-        trace.base[POSEIDON_16_COL_RES].push(index_res_a);
+        trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
+        trace.columns[POSEIDON_16_COL_A].push(arg_a);
+        trace.columns[POSEIDON_16_COL_B].push(arg_b);
+        trace.columns[POSEIDON_16_COL_RES].push(index_res_a);
         for (i, value) in input.iter().enumerate() {
-            trace.base[POSEIDON_16_COL_INPUT_START + i].push(*value);
+            trace.columns[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
 
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)

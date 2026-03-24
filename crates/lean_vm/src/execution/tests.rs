@@ -3,7 +3,7 @@ use backend::*;
 
 #[test]
 fn test_basic_memory_operations() {
-    let mut memory = Memory::empty();
+    let mut memory = Memory::default();
 
     // Test setting and getting values
     memory.set(0, F::ONE).unwrap();
@@ -18,7 +18,7 @@ fn test_basic_memory_operations() {
 
 #[test]
 fn test_memory_already_set_error() {
-    let mut memory = Memory::empty();
+    let mut memory = Memory::default();
 
     memory.set(0, F::ONE).unwrap();
     // Setting same value should work
@@ -37,7 +37,7 @@ fn test_memory_already_set_error() {
 
 #[test]
 fn test_extension_field_operations() {
-    let mut memory = Memory::empty();
+    let mut memory = Memory::default();
 
     // Create a simple extension field element with proper dimension
     let mut coeffs = [F::ZERO; DIMENSION];

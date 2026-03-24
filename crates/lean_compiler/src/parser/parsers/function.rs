@@ -24,6 +24,7 @@ pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
     "next_multiple_of",
     "saturating_sub",
     "range",
+    "parallel_range",
     "match_range",
 ];
 

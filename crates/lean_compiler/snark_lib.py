@@ -14,10 +14,11 @@ def inline(fn):
     return fn
 
 
-# unroll(a, b) returns range(a, b) for Python execution
 def unroll(a: int, b: int):
     return range(a, b)
 
+def parallel_range(a: int, b: int):
+    return range(a, b)
 
 # dynamic_unroll(start, end, n_bits) returns range(start, end) for Python execution
 def dynamic_unroll(start: int, end: int, n_bits: int):

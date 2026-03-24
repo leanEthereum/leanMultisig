@@ -1,3 +1,4 @@
+use crate::execution::memory::MemoryAccess;
 use crate::{EF, F, InstructionContext, RunnerError, Table};
 use backend::*;
 
@@ -45,7 +46,7 @@ pub struct Bus {
 
 #[derive(Debug, Default)]
 pub struct TableTrace {
-    pub base: Vec<Vec<F>>,
+    pub columns: Vec<Vec<F>>,
     pub non_padded_n_rows: usize,
     pub log_n_rows: VarCount,
 }
@@ -53,7 +54,7 @@ pub struct TableTrace {
 impl TableTrace {
     pub fn new<A: TableT>(air: &A) -> Self {
         Self {
-            base: vec![Vec::new(); air.n_columns_total()],
+            columns: vec![Vec::new(); air.n_columns_total()],
             non_padded_n_rows: 0, // filled later
             log_n_rows: 0,        // filled later
         }
@@ -112,14 +113,14 @@ pub trait TableT: Air {
     fn lookups(&self) -> Vec<LookupIntoMemory>;
     fn bus(&self) -> Bus;
     fn padding_row(&self) -> Vec<F>;
-    fn execute(
+    fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
         aux_1: usize,
         aux_2: usize,
-        ctx: &mut InstructionContext<'_>,
+        ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError>;
 
     // number of columns committed + potentially some virtual columns (useful to keep in memory for logup)
@@ -138,13 +139,13 @@ pub trait TableT: Air {
     fn lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         self.lookups()
             .iter()
-            .map(|lookup| &trace.base[lookup.index][..])
+            .map(|lookup| &trace.columns[lookup.index][..])
             .collect()
     }
     fn lookup_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
         let mut cols = Vec::new();
         for lookup in self.lookups() {
-            cols.push(lookup.values.iter().map(|&c| &trace.base[c][..]).collect());
+            cols.push(lookup.values.iter().map(|&c| &trace.columns[c][..]).collect());
         }
         cols
     }

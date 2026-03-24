@@ -104,7 +104,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let ExecutionResult { mut traces, .. } = execution_result;
 
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.base);
+    fill_trace_poseidon_16(&mut poseidon_trace.columns);
 
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
@@ -112,7 +112,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     traces.insert(
         Table::execution(),
         TableTrace {
-            base: Vec::from(main_trace),
+            columns: Vec::from(main_trace),
             non_padded_n_rows: n_cycles,
             log_n_rows: log2_ceil_usize(n_cycles),
         },
@@ -131,9 +131,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
 fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_ptr: usize) {
     let trace = traces.get_mut(table).unwrap();
-    let h = trace.base[0].len();
+    let h = trace.columns[0].len();
     trace
-        .base
+        .columns
         .iter()
         .enumerate()
         .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
@@ -146,7 +146,7 @@ fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_
     } else {
         table.padding_row()
     };
-    trace.base.par_iter_mut().enumerate().for_each(|(i, col)| {
+    trace.columns.par_iter_mut().enumerate().for_each(|(i, col)| {
         col.extend(repeat_n(padding_row[i], padding_len));
     });
 }

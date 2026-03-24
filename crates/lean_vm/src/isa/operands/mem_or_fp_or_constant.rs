@@ -1,7 +1,7 @@
 use super::MemOrConstant;
 use crate::core::F;
 use crate::diagnostics::RunnerError;
-use crate::execution::Memory;
+use crate::execution::memory::MemoryAccess;
 use backend::*;
 use std::fmt::{Display, Formatter};
 
@@ -18,7 +18,7 @@ pub enum MemOrFpOrConstant {
 
 impl MemOrFpOrConstant {
     /// Read the value from memory, return fp, or return the constant
-    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+    pub fn read_value(&self, memory: &impl MemoryAccess, fp: usize) -> Result<F, RunnerError> {
         match self {
             Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
             Self::FpRelative { offset } => Ok(F::from_usize(fp + *offset)),
@@ -27,7 +27,7 @@ impl MemOrFpOrConstant {
     }
 
     /// Check if the value is unknown (would error when read)
-    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+    pub fn is_value_unknown(&self, memory: &impl MemoryAccess, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
