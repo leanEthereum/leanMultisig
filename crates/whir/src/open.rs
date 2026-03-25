@@ -5,7 +5,6 @@ use fiat_shamir::{FSProver, MerklePath, ProofResult};
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, Field, TwoAdicField};
 use poly::*;
-use rayon::prelude::*;
 use sumcheck::{ProductComputation, run_product_sumcheck, sumcheck_prove_many_rounds};
 use tracing::{info_span, instrument};
 
@@ -20,14 +19,6 @@ where
         self.num_variables == self.folding_factor.total_number(self.n_rounds()) + self.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &[SparseStatement<EF>]) {
-        statement.iter().for_each(|e| {
-            assert_eq!(e.total_num_variables, self.num_variables);
-            assert!(!e.values.is_empty());
-            assert!(e.values.iter().all(|v| v.selector < 1 << e.selector_num_variables()));
-        });
-    }
-
     fn validate_witness(&self, witness: &Witness<EF>, polynomial: &MleRef<'_, EF>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         polynomial.n_vars() == self.num_variables
@@ -37,13 +28,13 @@ where
     pub fn prove(
         &self,
         prover_state: &mut impl FSProver<EF>,
-        statement: Vec<SparseStatement<EF>>,
+        statement: Evaluation<EF>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
     ) -> MultilinearPoint<EF> {
         assert!(self.validate_parameters());
         assert!(self.validate_witness(&witness, polynomial));
-        self.validate_statement(&statement);
+        assert_eq!(statement.point.len(), self.num_variables);
 
         let mut round_state =
             RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial).unwrap();
@@ -412,7 +403,7 @@ where
 
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
-        statement: &[SparseStatement<EF>],
+        claims: &[Evaluation<EF>],
         combination_randomness: EF,
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
@@ -420,7 +411,7 @@ where
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
-        let (weights, sum) = combine_statement::<EF>(statement, combination_randomness);
+        let (weights, sum) = combine_claims(claims, combination_randomness);
 
         let mut evals = evals.pack();
         let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
@@ -468,29 +459,29 @@ where
     pub(crate) fn initialize_first_round_state(
         prover: &WhirConfig<EF>,
         prover_state: &mut impl FSProver<EF>,
-        mut statement: Vec<SparseStatement<EF>>,
+        dense_claim: Evaluation<EF>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
     ) -> ProofResult<Self> {
-        let ood_statements = witness
+        let mut claims: Vec<Evaluation<EF>> = witness
             .ood_points
             .into_iter()
             .zip(witness.ood_answers)
-            .map(|(point, evaluation)| {
-                SparseStatement::dense(
+            .map(|(point, value)| {
+                Evaluation::new(
                     MultilinearPoint::expand_from_univariate(point, prover.num_variables),
-                    evaluation,
+                    value,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        statement.splice(0..0, ood_statements);
+        claims.push(dense_claim);
 
         let combination_randomness_gen: EF = prover_state.sample();
 
         let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds(
             polynomial,
-            &statement,
+            &claims,
             combination_randomness_gen,
             prover_state,
             prover.folding_factor.at_round(0),
@@ -514,65 +505,23 @@ where
     }
 }
 
-#[instrument(skip_all, fields(num_constraints = statements.len(), n_vars = statements[0].total_num_variables))]
-fn combine_statement<EF>(statements: &[SparseStatement<EF>], gamma: EF) -> (Vec<EFPacking<EF>>, EF)
+#[instrument(skip_all, fields(n_claims = claims.len(), n_vars = claims[0].point.len()))]
+fn combine_claims<EF>(claims: &[Evaluation<EF>], gamma: EF) -> (Vec<EFPacking<EF>>, EF)
 where
     EF: ExtensionField<PF<EF>>,
 {
-    let num_variables = statements[0].total_num_variables;
-    assert!(statements.iter().all(|e| e.total_num_variables == num_variables));
+    let num_variables = claims[0].point.len();
+    assert!(claims.iter().all(|c| c.point.len() == num_variables));
 
     let mut combined_weights = EFPacking::<EF>::zero_vec(1 << (num_variables - packing_log_width::<EF>()));
 
     let mut combined_sum = EF::ZERO;
     let mut gamma_pow = EF::ONE;
 
-    for smt in statements {
-        if smt.values.len() == 1 || smt.inner_num_variables() < packing_log_width::<EF>() {
-            for evaluation in &smt.values {
-                compute_sparse_eval_eq_packed::<EF>(evaluation.selector, &smt.point, &mut combined_weights, gamma_pow);
-                combined_sum += evaluation.value * gamma_pow;
-                gamma_pow *= gamma;
-            }
-        } else {
-            let poly_eq = eval_eq_packed(&smt.point);
-            let shift = smt.inner_num_variables() - packing_log_width::<EF>();
-            let mut indexed_smt_values = smt.values.iter().enumerate().collect::<Vec<_>>();
-            indexed_smt_values.sort_by_key(|(_, e)| e.selector);
-            indexed_smt_values.dedup_by_key(|(_, e)| e.selector);
-            assert_eq!(
-                indexed_smt_values.len(),
-                smt.values.len(),
-                "Duplicate selectors in sparse statement"
-            );
-            let mut chunks_mut = split_at_mut_many(
-                &mut combined_weights,
-                &indexed_smt_values
-                    .iter()
-                    .map(|(_, e)| e.selector << shift)
-                    .collect::<Vec<_>>(),
-            );
-            chunks_mut.remove(0);
-            let mut next_gamma_powers = vec![gamma_pow];
-            for _ in 1..indexed_smt_values.len() {
-                next_gamma_powers.push(*next_gamma_powers.last().unwrap() * gamma);
-            }
-            for (e, &scalar) in smt.values.iter().zip(&next_gamma_powers) {
-                combined_sum += e.value * scalar;
-            }
-            chunks_mut
-                .into_par_iter()
-                .zip(&indexed_smt_values)
-                .for_each(|(out_buff, &(origin_index, _))| {
-                    out_buff[..1 << shift]
-                        .par_iter_mut()
-                        .zip(&poly_eq)
-                        .for_each(|(out_elem, &poly_eq_elem)| {
-                            *out_elem += poly_eq_elem * next_gamma_powers[origin_index];
-                        });
-                });
-            gamma_pow = *next_gamma_powers.last().unwrap() * gamma;
-        }
+    for claim in claims {
+        compute_sparse_eval_eq_packed::<EF>(0, &claim.point, &mut combined_weights, gamma_pow);
+        combined_sum += claim.value * gamma_pow;
+        gamma_pow *= gamma;
     }
 
     (combined_weights, combined_sum)

@@ -149,12 +149,15 @@ pub fn verify_execution(
 
     // sanity check (not necessary for soundness)
     let num_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum::<usize>();
-    assert_eq!(num_whir_statements, total_whir_statements());
+    assert_eq!(num_whir_statements, total_sparse_statements());
+
+    let dense_claim =
+        verify_reduction_many_sparse_claims_to_single_dense(&mut verifier_state, &global_statements_base)?;
 
     WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment,
-        global_statements_base,
+        dense_claim,
     )?;
 
     Ok((

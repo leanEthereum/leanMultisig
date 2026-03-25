@@ -56,44 +56,9 @@ fn test_run_whir() {
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = (0..num_coeffs).map(|_| rng.random::<F>()).collect::<Vec<F>>();
 
-    let random_sparse_point = |rng: &mut StdRng, num_variables: usize| {
-        let selector_len = rng.random_range(0..num_variables / 2);
-        let point = (0..num_variables - selector_len)
-            .map(|_| rng.random())
-            .collect::<Vec<EF>>();
-        (selector_len, MultilinearPoint(point))
-    };
-
-    // Sample `num_points` random multilinear points in the Boolean hypercube
-    let mut points = (0..7)
-        .map(|_| random_sparse_point(&mut rng, num_variables))
-        .collect::<Vec<_>>();
-    points.push((num_variables, MultilinearPoint(vec![])));
-
-    let mut statement = Vec::new();
-
-    // Add constraints for each sampled point (equality constraints)
-    for (selector_len, point) in &points {
-        let num_selectors = rng.random_range(1..5);
-        let mut selectors = vec![];
-        for _ in 0..num_selectors {
-            let selector = rng.random_range(0..(1 << selector_len));
-            if !selectors.contains(&selector) {
-                selectors.push(selector);
-            }
-        }
-        statement.push(SparseStatement::new(
-            num_variables,
-            point.clone(),
-            selectors
-                .iter()
-                .map(|selector| SparseValue {
-                    selector: *selector,
-                    value: polynomial.evaluate_sparse(*selector, point),
-                })
-                .collect(),
-        ));
-    }
+    let eval_point = MultilinearPoint((0..num_variables).map(|_| rng.random::<EF>()).collect());
+    let eval_value = polynomial.evaluate(&eval_point);
+    let statement = Evaluation::new(eval_point, eval_value);
 
     let mut prover_state = ProverState::new(poseidon16.clone());
 

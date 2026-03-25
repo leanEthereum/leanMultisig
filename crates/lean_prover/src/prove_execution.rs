@@ -183,9 +183,15 @@ pub fn prove_execution(
         &committed_statements,
     );
 
+    let dense_claim = prove_reduction_many_sparse_claims_to_single_dense(
+        &mut prover_state,
+        &global_statements_base,
+        &stacked_pcs_witness.global_polynomial,
+    );
+
     WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove(
         &mut prover_state,
-        global_statements_base,
+        dense_claim,
         stacked_pcs_witness.inner_witness,
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );

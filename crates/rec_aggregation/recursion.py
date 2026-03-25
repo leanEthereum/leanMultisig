@@ -30,7 +30,7 @@ N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER
 
 LOG_GUEST_BYTECODE_LEN = LOG_GUEST_BYTECODE_LEN_PLACEHOLDER
 COL_PC = COL_PC_PLACEHOLDER
-TOTAL_WHIR_STATEMENTS = TOTAL_WHIR_STATEMENTS_PLACEHOLDER
+TOTAL_SPARSE_STATEMENTS = TOTAL_SPARSE_STATEMENTS_PLACEHOLDER
 STARTING_PC = STARTING_PC_PLACEHOLDER
 ENDING_PC = ENDING_PC_PLACEHOLDER
 BYTECODE_POINT_N_VARS = LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS)
@@ -447,26 +447,23 @@ def continue_recursion_ordered(
     public_memory_eval = Array(DIM)
     dot_product_be_const(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
-    # WHIR BASE
-    combination_randomness_gen: Mut
-    fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS)
-    whir_sum: Mut = Array(DIM)
-    dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
-    curr_randomness: Mut = combination_randomness_powers + num_ood_at_commitment * DIM
+    # reduce all sparse claims to a single dense claim
+    fs, gamma = fs_sample_ef(fs)
+    gamma_powers: Mut = powers_const(gamma, TOTAL_SPARSE_STATEMENTS)
+    pre_whir_claimed_sum: Mut = Array(DIM)
+    curr_randomness: Mut = gamma_powers
 
-    whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum)
+    pre_whir_claimed_sum = mul_extension_ret(value_memory, curr_randomness)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(value_acc, curr_randomness), whir_sum)
+    pre_whir_claimed_sum = add_extension_ret(mul_extension_ret(value_acc, curr_randomness), pre_whir_claimed_sum)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(public_memory_eval, curr_randomness), whir_sum)
+    pre_whir_claimed_sum = add_extension_ret(mul_extension_ret(public_memory_eval, curr_randomness), pre_whir_claimed_sum)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(value_bytecode_acc, curr_randomness), whir_sum)
+    pre_whir_claimed_sum = add_extension_ret(mul_extension_ret(value_bytecode_acc, curr_randomness), pre_whir_claimed_sum)
     curr_randomness += DIM
-
-    whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(STARTING_PC), curr_randomness), whir_sum)
+    pre_whir_claimed_sum = add_extension_ret(mul_extension_ret(embed_in_ef(STARTING_PC), curr_randomness), pre_whir_claimed_sum)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(ENDING_PC), curr_randomness), whir_sum)
+    pre_whir_claimed_sum = add_extension_ret(mul_extension_ret(embed_in_ef(ENDING_PC), curr_randomness), pre_whir_claimed_sum)
     curr_randomness += DIM
 
     for sorted_pos in unroll(0, N_TABLES):
@@ -482,55 +479,42 @@ def continue_recursion_ordered(
             for j in unroll(0, len(pcs_values[table_index][i])):
                 debug_assert(len(pcs_values[table_index][i][j]) < 2)
                 if len(pcs_values[table_index][i][j]) == 1:
-                    whir_sum = add_extension_ret(
+                    pre_whir_claimed_sum = add_extension_ret(
                         mul_extension_ret(pcs_values[table_index][i][j][0], curr_randomness),
-                        whir_sum,
+                        pre_whir_claimed_sum,
                     )
                     curr_randomness += DIM
 
-    folding_randomness_global: Mut
-    s: Mut
-    final_value: Mut
-    end_sum: Mut
-    fs, folding_randomness_global, s, final_value, end_sum = whir_open(
-        fs,
-        stacked_n_vars,
-        whir_log_inv_rate,
-        whir_base_root,
-        whir_base_ood_points,
-        combination_randomness_powers,
-        whir_sum,
-    )
+    fs, pre_whir_point, pre_whir_final_sum = sumcheck_verify(fs, stacked_n_vars, pre_whir_claimed_sum, 2)
 
-    curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
+    # Compute W(r) at pre_whir_point
+    curr_randomness = gamma_powers
+    w_eval: Mut = Array(DIM)
 
     eq_memory_and_acc_point = eq_mle_extension(
-        folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
+        pre_whir_point + (stacked_n_vars - log_memory) * DIM,
         memory_and_acc_point,
         log_memory,
     )
-    prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, folding_randomness_global)
-    s = add_extension_ret(
-        s,
-        mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point),
-    )
+    prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, pre_whir_point)
+    w_eval = mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point)
     curr_randomness += DIM
 
-    prefix_acc_memory = multilinear_location_prefix(1, stacked_n_vars - log_memory, folding_randomness_global)
-    s = add_extension_ret(
-        s,
+    prefix_acc_memory = multilinear_location_prefix(1, stacked_n_vars - log_memory, pre_whir_point)
+    w_eval = add_extension_ret(
+        w_eval,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
     eq_pub_mem = eq_mle_extension(
-        folding_randomness_global + (stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE) * DIM,
+        pre_whir_point + (stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE) * DIM,
         public_memory_random_point,
         INNER_PUBLIC_MEMORY_LOG_SIZE,
     )
-    prefix_pub_mem = multilinear_location_prefix(0, stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
-    s = add_extension_ret(
-        s,
+    prefix_pub_mem = multilinear_location_prefix(0, stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE, pre_whir_point)
+    w_eval = add_extension_ret(
+        w_eval,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem),
     )
     curr_randomness += DIM
@@ -538,17 +522,17 @@ def continue_recursion_ordered(
     offset = two_exp(log_memory) * 2  # memory and acc_memory
 
     eq_bytecode_acc = eq_mle_extension(
-        folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
+        pre_whir_point + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
         bytecode_and_acc_point,
         LOG_GUEST_BYTECODE_LEN,
     )
     prefix_bytecode_acc = multilinear_location_prefix(
         offset / 2**LOG_GUEST_BYTECODE_LEN,
         stacked_n_vars - LOG_GUEST_BYTECODE_LEN,
-        folding_randomness_global,
+        pre_whir_point,
     )
-    s = add_extension_ret(
-        s,
+    w_eval = add_extension_ret(
+        w_eval,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
     )
     curr_randomness += DIM
@@ -557,17 +541,17 @@ def continue_recursion_ordered(
     prefix_pc_start = multilinear_location_prefix(
         offset + COL_PC * two_exp(log_n_cycles),
         stacked_n_vars,
-        folding_randomness_global,
+        pre_whir_point,
     )
-    s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start))
+    w_eval = add_extension_ret(w_eval, mul_extension_ret(curr_randomness, prefix_pc_start))
     curr_randomness += DIM
 
     prefix_pc_end = multilinear_location_prefix(
         offset + (COL_PC + 1) * two_exp(log_n_cycles) - 1,
         stacked_n_vars,
-        folding_randomness_global,
+        pre_whir_point,
     )
-    s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
+    w_eval = add_extension_ret(w_eval, mul_extension_ret(curr_randomness, prefix_pc_end))
     curr_randomness += DIM
 
     for sorted_pos in unroll(0, N_TABLES):
@@ -585,7 +569,7 @@ def continue_recursion_ordered(
             point = pcs_points[table_index][i]
             eq_factor = eq_mle_extension(
                 point,
-                folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM,
+                pre_whir_point + (stacked_n_vars - log_n_rows) * DIM,
                 log_n_rows,
             )
             for j in unroll(0, total_num_cols):
@@ -593,14 +577,47 @@ def continue_recursion_ordered(
                     prefix = multilinear_location_prefix(
                         offset / n_rows + j,
                         stacked_n_vars - log_n_rows,
-                        folding_randomness_global,
+                        pre_whir_point,
                     )
-                    s = add_extension_ret(
-                        s,
+                    w_eval = add_extension_ret(
+                        w_eval,
                         mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor),
                     )
                     curr_randomness += DIM
         offset += n_rows * total_num_cols
+
+    p_eval = div_extension_ret(pre_whir_final_sum, w_eval)
+
+    # WHIR with single dense claim
+    combination_randomness_gen: Mut
+    fs, combination_randomness_gen = fs_sample_ef(fs)
+    combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + 1)
+    whir_sum: Mut = Array(DIM)
+    dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
+    whir_sum = add_extension_ret(
+        mul_extension_ret(p_eval, combination_randomness_powers + num_ood_at_commitment * DIM),
+        whir_sum,
+    )
+
+    folding_randomness_global: Imu
+    s: Mut
+    final_value: Imu
+    end_sum: Imu
+    fs, folding_randomness_global, s, final_value, end_sum = whir_open(
+        fs,
+        stacked_n_vars,
+        whir_log_inv_rate,
+        whir_base_root,
+        whir_base_ood_points,
+        combination_randomness_powers,
+        whir_sum,
+    )
+
+    eq_dense = eq_mle_extension(pre_whir_point, folding_randomness_global, stacked_n_vars)
+    s = add_extension_ret(
+        s,
+        mul_extension_ret(combination_randomness_powers + num_ood_at_commitment * DIM, eq_dense),
+    )
 
     copy_5(mul_extension_ret(s, final_value), end_sum)
     return
