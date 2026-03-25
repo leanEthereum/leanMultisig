@@ -88,11 +88,8 @@ fn generate_trace_rows_for_perm_24<F: Algebra<KoalaBear> + Copy>(perm: &mut Pose
     let m_i = poseidon1_24_sparse_m_i();
     let input_for_mi = state;
     for i in 0..WIDTH_24 {
-        let mut acc = F::ZERO;
-        for j in 0..WIDTH_24 {
-            acc += input_for_mi[j] * m_i[i][j];
-        }
-        state[i] = acc;
+        let row: [F; WIDTH_24] = m_i[i].map(F::from);
+        state[i] = F::dot_product(&input_for_mi, &row);
     }
 
     let first_rows = poseidon1_24_sparse_first_row();
@@ -109,10 +106,8 @@ fn generate_trace_rows_for_perm_24<F: Algebra<KoalaBear> + Copy>(perm: &mut Pose
         }
         // Sparse matrix
         let old_s0 = state[0];
-        let mut new_s0 = F::ZERO;
-        for j in 0..WIDTH_24 {
-            new_s0 += state[j] * first_rows[round][j];
-        }
+        let row: [F; WIDTH_24] = first_rows[round].map(F::from);
+        let new_s0 = F::dot_product(&state, &row);
         state[0] = new_s0;
         for i in 1..WIDTH_24 {
             state[i] += old_s0 * v_vecs[round][i - 1];
