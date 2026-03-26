@@ -106,6 +106,7 @@ pub fn prove_reduction_many_sparse_claims_to_single_dense(
 /// Precomputes eq_svo tables, accumulators, and weight metadata for all claims.
 /// Returns parallel arrays: one entry per "merged claim group" (= per SparseStatement
 /// when all selector bits fit in the lo-half, otherwise per SparseValue).
+#[allow(clippy::type_complexity)]
 fn precompute(
     statements: &[SparseStatement<EF>],
     gamma: EF,
@@ -128,6 +129,7 @@ fn precompute(
     let gamma_pows: Vec<EF> = gamma.powers().collect_n(offset);
 
     // Each statement produces one or more (eq_svo, accumulator, weight_info) entries.
+    #[allow(clippy::type_complexity)]
     let groups: Vec<Vec<(Vec<EF>, Vec<EF>, (Vec<EF>, Vec<(EF, usize)>))>> = statements
         .par_iter()
         .enumerate()
