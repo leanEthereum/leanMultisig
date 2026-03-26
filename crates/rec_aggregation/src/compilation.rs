@@ -1,9 +1,6 @@
 use backend::*;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
-use lean_prover::{
-    MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
-    WHIR_SUBSEQUENT_FOLDING_FACTOR,
-};
+use lean_prover::WHIR_INITIAL_FOLDING_FACTOR;
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -80,11 +77,6 @@ fn build_replacements(
     let mut replacements = BTreeMap::new();
     let log_inner_bytecode = inner_program_log_size;
 
-    replacements.insert(
-        "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
-        RS_DOMAIN_INITIAL_REDUCTION_FACTOR.to_string(),
-    );
-
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
     replacements.insert(
@@ -104,16 +96,8 @@ fn build_replacements(
         MAX_WHIR_LOG_INV_RATE.to_string(),
     );
     replacements.insert(
-        "MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
-        MAX_NUM_VARIABLES_TO_SEND_COEFFS.to_string(),
-    );
-    replacements.insert(
         "WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER".to_string(),
         WHIR_INITIAL_FOLDING_FACTOR.to_string(),
-    );
-    replacements.insert(
-        "WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER".to_string(),
-        WHIR_SUBSEQUENT_FOLDING_FACTOR.to_string(),
     );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
