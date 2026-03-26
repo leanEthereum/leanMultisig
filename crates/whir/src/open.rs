@@ -2,10 +2,11 @@
 
 use ::utils::log2_strict_usize;
 use fiat_shamir::{FSProver, MerklePath, ProofResult};
-use field::PrimeCharacteristicRing;
-use field::{ExtensionField, Field, TwoAdicField};
+use field::{ExtensionField, Field, PackedFieldExtension, PackedValue, TwoAdicField};
+use field::{PrimeCharacteristicRing, dot_product};
 use poly::*;
-use sumcheck::{ProductComputation, run_product_sumcheck, sumcheck_prove_many_rounds};
+use rayon::prelude::*;
+use sumcheck::{ProductComputation, sumcheck_prove_many_rounds};
 use tracing::{info_span, instrument};
 
 use crate::{config::WhirConfig, *};
@@ -55,17 +56,13 @@ where
         let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
 
-        // Base case: final round reached
         if round_index == self.n_rounds() {
             return self.final_round(round_index, prover_state, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
-
-        // Compute the folding factors for later use
         let folding_factor_next = self.folding_factor.at_round(round_index + 1);
 
-        // Compute polynomial evaluations and build Merkle tree
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
         let new_domain_size = round_state.domain_size / domain_reduction;
         let inv_rate = new_domain_size >> num_variables;
@@ -80,10 +77,8 @@ where
 
         let full = 1 << folding_factor_next;
         let (prover_data, root) = MerkleData::build(folded_matrix, full, full);
-
         prover_state.add_base_scalars(&root);
 
-        // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) =
             sample_ood_points::<EF, _>(prover_state, round_params.ood_samples, num_variables, |point| {
                 info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point))
@@ -123,7 +118,6 @@ where
                     .product::<EF>();
                 stir_evaluations.push(eval_a * last_fold_rand_a + eval_b * last_fold_rand_b);
             }
-
             stir_evaluations
         } else {
             open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes)
@@ -132,7 +126,6 @@ where
                 .collect()
         };
 
-        // Randomness for combination
         let combination_randomness_gen: EF = prover_state.sample();
         let ood_combination_randomness: Vec<_> = combination_randomness_gen.powers().collect_n(ood_challenges.len());
         round_state
@@ -159,7 +152,6 @@ where
 
         round_state.randomness_vec.extend_from_slice(&next_folding_randomness.0);
 
-        // Update round state
         round_state.domain_size = new_domain_size;
         round_state.next_domain_gen =
             PF::<EF>::two_adic_generator(log2_strict_usize(new_domain_size) - folding_factor_next);
@@ -175,7 +167,6 @@ where
         prover_state: &mut impl FSProver<EF>,
         round_state: &mut RoundState<EF>,
     ) -> ProofResult<()> {
-        // Convert evaluations to coefficient form and send to the verifier.
         let mut coeffs = match &round_state.sumcheck_prover.evals {
             MleOwned::Extension(evals) => evals.clone(),
             MleOwned::ExtensionPacked(evals) => unpack_extension::<EF>(evals),
@@ -186,9 +177,7 @@ where
 
         prover_state.pow_grinding(self.final_query_pow_bits);
 
-        // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
-            // The size of the original domain before folding
             round_state.domain_size >> self.folding_factor.at_round(round_index),
             self.final_queries,
             prover_state,
@@ -198,7 +187,6 @@ where
         let mut ext_paths = Vec::new();
         for challenge in final_challenge_indexes {
             let (answer, sibling_hashes) = round_state.merkle_prover_data.open(challenge);
-
             match answer {
                 MleOwned::Base(leaf) => {
                     base_paths.push(MerklePath {
@@ -224,13 +212,11 @@ where
             prover_state.hint_merkle_paths_extension(ext_paths);
         }
 
-        // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
             let final_folding_randomness =
                 round_state
                     .sumcheck_prover
                     .run_sumcheck_many_rounds(None, prover_state, self.final_sumcheck_rounds, 0);
-
             round_state.randomness_vec.extend(final_folding_randomness.0);
         }
 
@@ -252,7 +238,6 @@ where
             round_params.num_queries,
             prover_state,
         );
-
         let domain_scaled_gen = round_state.next_domain_gen;
         let ood_challenges = ood_points
             .iter()
@@ -262,7 +247,6 @@ where
             .iter()
             .map(|i| MultilinearPoint::expand_from_univariate(domain_scaled_gen.exp_u64(*i as u64), num_variables))
             .collect();
-
         Ok((ood_challenges, stir_challenges, stir_challenges_indexes))
     }
 }
@@ -278,7 +262,6 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
 
     for &challenge in stir_challenges_indexes {
         let (answer, sibling_hashes) = merkle_tree.open(challenge);
-
         match &answer {
             MleOwned::Base(leaf) => {
                 base_paths.push(MerklePath {
@@ -311,11 +294,8 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
 
 #[derive(Debug, Clone)]
 pub struct SumcheckSingle<EF: ExtensionField<PF<EF>>> {
-    /// Evaluations of the polynomial `p(X)`.
     pub(crate) evals: MleOwned<EF>,
-    /// Evaluations of the equality polynomial used for enforcing constraints.
     pub(crate) weights: MleOwned<EF>,
-    /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
 }
 
@@ -332,14 +312,12 @@ where
     ) {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
-
         points
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
                 compute_eval_eq_packed::<_, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
             });
-
         self.sum += combination_randomness
             .iter()
             .zip(evaluations.iter())
@@ -356,17 +334,12 @@ where
     ) {
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
-
-        // Parallel update of weight buffer
-
         points
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
                 compute_eval_eq_base_packed::<_, _, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
             });
-
-        // Accumulate the weighted sum (cheap, done sequentially)
         self.sum += combination_randomness
             .iter()
             .zip(evaluations.iter())
@@ -394,13 +367,13 @@ where
             false,
             pow_bits,
         );
-
         self.sum = new_sum;
         [self.evals, self.weights] = folds.split().try_into().unwrap();
-
         challenges
     }
 
+    /// SVO + split-eq optimized initial sumcheck with SIMD packing.
+    #[instrument(name = "svo_initial_sumcheck", skip_all)]
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
         claims: &[Evaluation<EF>],
@@ -411,29 +384,115 @@ where
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
-        let (weights, sum) = combine_claims(claims, combination_randomness);
+        let n_vars = claims[0].point.len();
+        let n_claims = claims.len();
+        let half = n_vars / 2;
+        let n_svo = 1usize << half;
+        let n_hi = 1usize << (n_vars - half);
 
-        let mut evals = evals.pack();
-        let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
-        let (challengess, new_sum, new_evals, new_weights) = run_product_sumcheck(
-            &evals.by_ref(),
-            &weights.by_ref(),
-            prover_state,
-            sum,
-            folding_factor,
-            pow_bits,
-        );
+        let mut gamma_pows = vec![EF::ONE; n_claims];
+        for i in 1..n_claims {
+            gamma_pows[i] = gamma_pows[i - 1] * combination_randomness;
+        }
+        let sum: EF = claims.iter().zip(&gamma_pows).map(|(c, &gp)| gp * c.value).sum();
 
-        evals = new_evals.into();
-        weights = new_weights.into();
+        // Packed eq_hi for SIMD accumulator and weight combination
+        let eq_his_packed: Vec<Vec<EFPacking<EF>>> = claims.iter().map(|c| eval_eq_packed(&c.point[half..])).collect();
+        let mut eq_svos: Vec<Vec<EF>> = claims
+            .iter()
+            .enumerate()
+            .map(|(i, c)| eval_eq_scaled(&c.point[..half], gamma_pows[i]))
+            .collect();
+
+        // SIMD-packed accumulator precomputation: A_i[u] = sum_{b_hi} eq_hi_i[b_hi] * f[u * n_hi + b_hi]
+        // Parallelize over u (reads f only once), process all claims per u.
+        let f = evals.as_base().unwrap();
+        let per_u: Vec<Vec<EF>> = (0..n_svo)
+            .into_par_iter()
+            .map(|u| {
+                let f_packed = PFPacking::<EF>::pack_slice(&f[u * n_hi..][..n_hi]);
+                (0..n_claims)
+                    .map(|ci| {
+                        let s: EFPacking<EF> = dot_product(eq_his_packed[ci].iter().copied(), f_packed.iter().copied());
+                        EFPacking::<EF>::to_ext_iter([s]).sum()
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut accumulators: Vec<Vec<EF>> = (0..n_claims)
+            .map(|ci| per_u.iter().map(|row| row[ci]).collect())
+            .collect();
+
+        // SVO rounds (folding MSB first)
+        let mut challenges = Vec::with_capacity(folding_factor);
+        let mut current_sum = sum;
+        let mut current_n_u = n_svo;
+
+        for _round in 0..folding_factor {
+            let half_n_u = current_n_u / 2;
+            let mut c0 = EF::ZERO;
+            let mut c2 = EF::ZERO;
+
+            for i in 0..n_claims {
+                let acc = &accumulators[i];
+                let eq = &eq_svos[i];
+                for u in 0..half_n_u {
+                    c0 += eq[u] * acc[u];
+                    c2 += (eq[u + half_n_u] - eq[u]) * (acc[u + half_n_u] - acc[u]);
+                }
+            }
+
+            let c1 = current_sum - c0 - c0 - c2;
+            let poly = DensePolynomial::new(vec![c0, c1, c2]);
+            prover_state.add_sumcheck_polynomial(&poly.coeffs, None);
+            prover_state.pow_grinding(pow_bits);
+            let challenge: EF = prover_state.sample();
+            challenges.push(challenge);
+            current_sum = poly.evaluate(challenge);
+
+            current_n_u = half_n_u;
+            for i in 0..n_claims {
+                fold_msb_in_place(&mut accumulators[i], current_n_u, challenge);
+                fold_msb_in_place(&mut eq_svos[i], current_n_u, challenge);
+            }
+        }
+
+        // SIMD-packed multi-fold: iterate eq outer, packed saxpy inner.
+        let eq_at_challenges = eval_eq(&challenges);
+        let n_svo_orig = 1usize << folding_factor;
+        let n_rest = 1usize << (n_vars - folding_factor);
+        let n_rest_packed = n_rest >> packing_log_width::<EF>();
+        let mut out_packed = EFPacking::<EF>::zero_vec(n_rest_packed);
+        for u in 0..n_svo_orig {
+            let coeff = EFPacking::<EF>::from(eq_at_challenges[u]);
+            let f_row_packed = PFPacking::<EF>::pack_slice(&f[u * n_rest..][..n_rest]);
+            out_packed
+                .par_iter_mut()
+                .zip(f_row_packed.par_iter())
+                .for_each(|(dest, &fv)| *dest += coeff * fv);
+        }
+
+        // SIMD-packed weight combination
+        let n_u_rem = 1usize << (half - folding_factor);
+        let n_hi_packed = n_hi >> packing_log_width::<EF>();
+        let mut w_packed = EFPacking::<EF>::zero_vec(n_rest_packed);
+        for i in 0..n_claims {
+            for u_rem in 0..n_u_rem {
+                let scale = eq_svos[i][u_rem]; // already includes gamma
+                let dst = &mut w_packed[u_rem * n_hi_packed..][..n_hi_packed];
+                for (d, &eq_v) in dst.iter_mut().zip(&eq_his_packed[i]) {
+                    *d += eq_v * scale;
+                }
+            }
+        }
 
         let sumcheck = Self {
-            evals: evals.as_owned().unwrap(),
-            weights: weights.as_owned().unwrap(),
-            sum: new_sum,
+            evals: MleOwned::ExtensionPacked(out_packed),
+            weights: MleOwned::ExtensionPacked(w_packed),
+            sum: current_sum,
         };
 
-        (sumcheck, challengess)
+        (sumcheck, MultilinearPoint(challenges))
     }
 }
 
@@ -474,7 +533,6 @@ where
                 )
             })
             .collect();
-
         claims.push(dense_claim);
 
         let combination_randomness_gen: EF = prover_state.sample();
@@ -505,24 +563,9 @@ where
     }
 }
 
-#[instrument(skip_all, fields(n_claims = claims.len(), n_vars = claims[0].point.len()))]
-fn combine_claims<EF>(claims: &[Evaluation<EF>], gamma: EF) -> (Vec<EFPacking<EF>>, EF)
-where
-    EF: ExtensionField<PF<EF>>,
-{
-    let num_variables = claims[0].point.len();
-    assert!(claims.iter().all(|c| c.point.len() == num_variables));
-
-    let mut combined_weights = EFPacking::<EF>::zero_vec(1 << (num_variables - packing_log_width::<EF>()));
-
-    let mut combined_sum = EF::ZERO;
-    let mut gamma_pow = EF::ONE;
-
-    for claim in claims {
-        compute_sparse_eval_eq_packed::<EF>(0, &claim.point, &mut combined_weights, gamma_pow);
-        combined_sum += claim.value * gamma_pow;
-        gamma_pow *= gamma;
+fn fold_msb_in_place<EF: Field>(v: &mut Vec<EF>, half: usize, r: EF) {
+    for i in 0..half {
+        v[i] = v[i] + r * (v[i + half] - v[i]);
     }
-
-    (combined_weights, combined_sum)
+    v.truncate(half);
 }

@@ -485,7 +485,12 @@ def continue_recursion_ordered(
                     )
                     curr_randomness += DIM
 
-    fs, pre_whir_point, pre_whir_final_sum = sumcheck_verify(fs, stacked_n_vars, pre_whir_claimed_sum, 2)
+    fs, pre_whir_challenges, pre_whir_final_sum = sumcheck_verify(fs, stacked_n_vars, pre_whir_claimed_sum, 2)
+
+    # Reverse challenges: sumcheck folded variables right-to-left
+    pre_whir_point = Array(stacked_n_vars * DIM)
+    for i in range(0, stacked_n_vars):
+        copy_5(pre_whir_challenges + i * DIM, pre_whir_point + (stacked_n_vars - 1 - i) * DIM)
 
     # Compute W(r) at pre_whir_point
     curr_randomness = gamma_powers
