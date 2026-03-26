@@ -12,6 +12,7 @@ leansig_fast_keygen.workspace = true
 backend.workspace = true
 rand.workspace = true
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b4dcde46" }
+ssz = { package = "ethereum_ssz", version = "0.10.0" }
 
 [features]
 test-config = []

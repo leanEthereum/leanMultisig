@@ -19,10 +19,16 @@ use leansig::{
 use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
 use p3_field::PrimeField32;
 
+#[cfg(feature = "test-config")]
+pub const V: usize = 4;
+#[cfg(not(feature = "test-config"))]
 pub const V: usize = 46;
 pub const BASE: usize = 1 << W;
 const Z: usize = 8;
 const Q: usize = 127;
+#[cfg(feature = "test-config")]
+pub const TARGET_SUM: usize = 6;
+#[cfg(not(feature = "test-config"))]
 pub const TARGET_SUM: usize = 200;
 pub const RAND_LEN_FE: usize = 7;
 pub const HASH_LEN_FE: usize = 8;
@@ -44,6 +50,11 @@ pub const SIG_SIZE_FE: usize = RAND_LEN_FE + (V + LOG_LIFETIME) * HASH_LEN_FE;
 
 pub(crate) type F = KoalaBear;
 
+#[cfg(feature = "test-config")]
+pub const WOTS_PUBKET_SPONGE_DOMAIN_SEP: [F; POSEIDON24_CAPACITY] = F::new_array([
+    627826400, 1244476188, 370678638, 978729783, 1996000804, 1380088873, 1753334201, 433326939, 1294775677,
+]);
+#[cfg(not(feature = "test-config"))]
 pub const WOTS_PUBKET_SPONGE_DOMAIN_SEP: [F; POSEIDON24_CAPACITY] = F::new_array([
     2060061975, 916902315, 229801915, 83751504, 2093549181, 1743125625, 721042244, 1252069948, 1192880636,
 ]);
@@ -109,6 +120,28 @@ pub fn xmss_randomness(sig: &XmssSignature) -> &[F; RAND_LEN_FE] {
 
 pub fn xmmss_revealed_chain_tips(sig: &XmssSignature) -> &Vec<[F; HASH_LEN_FE]> {
     unsafe { std::mem::transmute(sig.hashes()) }
+}
+
+#[allow(clippy::result_unit_err)]
+pub fn xmss_public_key_from_ssz(bytes: &[u8]) -> Result<XmssPublicKey, ()> {
+    use ssz::Decode;
+    XmssPublicKey::from_ssz_bytes(bytes).map_err(|_| ())
+}
+
+pub fn xmss_public_key_to_ssz(pk: &XmssPublicKey) -> Vec<u8> {
+    use ssz::Encode;
+    pk.as_ssz_bytes()
+}
+
+#[allow(clippy::result_unit_err)]
+pub fn xmss_signature_from_ssz(bytes: &[u8]) -> Result<XmssSignature, ()> {
+    use ssz::Decode;
+    XmssSignature::from_ssz_bytes(bytes).map_err(|_| ())
+}
+
+pub fn xmss_signature_to_ssz(sig: &XmssSignature) -> Vec<u8> {
+    use ssz::Encode;
+    sig.as_ssz_bytes()
 }
 
 #[allow(clippy::result_unit_err)]

@@ -130,8 +130,7 @@ def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_twea
 
 @inline
 def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
-    # Sponge input: parameter(5) | leaf_tweak(2) | chain_ends(V*8) = 375 elements
-    # 375 / 15 = 25 exact chunks, no remainder
+    # Sponge input: parameter(5) | leaf_tweak(2) | chain_ends(V*8)
     PREFIX_LEN = PUBLIC_PARAM_LEN + TWEAK_LEN  # 7
     capacity: Mut = Array(POSEIDON24_CAP)
     for i in unroll(0, POSEIDON24_CAP):
@@ -163,14 +162,14 @@ def wots_pk_hash_p24(wots_pk, public_param, leaf_tweak):
         capacity = new_capacity
     if REMAINDER != 0:
         src = wots_pk + WOTS_PK_OFFSET + N_FULL_STEPS * POSEIDON24_RATE
-        rate = Array(POSEIDON24_RATE)
+        remainder_rate = Array(POSEIDON24_RATE)
         for i in unroll(0, REMAINDER):
-            rate[i] = src[i]
+            remainder_rate[i] = src[i]
         for i in unroll(REMAINDER, POSEIDON24_RATE):
-            rate[i] = 0
-        new_capacity = Array(POSEIDON24_CAP)
-        poseidon24_permute_9_18(capacity, rate, new_capacity)
-        capacity = new_capacity
+            remainder_rate[i] = 0
+        remainder_capacity = Array(POSEIDON24_CAP)
+        poseidon24_permute_9_18(capacity, remainder_rate, remainder_capacity)
+        capacity = remainder_capacity
     return capacity
 
 

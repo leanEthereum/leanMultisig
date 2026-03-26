@@ -1183,6 +1183,7 @@ dependencies = [
  "leansig_wrapper",
  "rand 0.10.0",
  "rec_aggregation",
+ "serde_json",
  "sub_protocols",
  "utils",
 ]
@@ -1238,7 +1239,7 @@ dependencies = [
 [[package]]
 name = "leansig"
 version = "0.1.0"
-source = "git+https://github.com/leanEthereum/leanSig?branch=devnet4#76e38811e2e8665bb1a7b7e8858e78ed22c5d5e8"
+source = "git+https://github.com/leanEthereum/leanSig?branch=devnet4#a3ed05f0d6b9be61338cda967074f73c29ed168d"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
@@ -1258,7 +1259,7 @@ dependencies = [
 [[package]]
 name = "leansig_fast_keygen"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#2d7fa1d883ec8094803961c1933413d6b405126f"
+source = "git+https://github.com/TomWambsgans/leanSig?branch=devnet4-fast-keygen#a782c7fc608b7894fa8b2f79b45353bd942868d7"
 dependencies = [
  "dashmap",
  "ethereum_ssz",
@@ -1280,6 +1281,7 @@ name = "leansig_wrapper"
 version = "0.1.0"
 dependencies = [
  "backend",
+ "ethereum_ssz",
  "leansig",
  "leansig_fast_keygen",
  "p3-field",

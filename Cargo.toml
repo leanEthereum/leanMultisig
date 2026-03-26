@@ -90,9 +90,11 @@ rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true
 leansig_wrapper.workspace = true
-
 lean_vm.workspace = true
 backend.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 
 [profile.release]
