@@ -82,7 +82,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
 
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
-    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_commitment(fs, num_ood_at_commitment)
+    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, 2)
 
     fs, logup_c = fs_sample_ef(fs)
 

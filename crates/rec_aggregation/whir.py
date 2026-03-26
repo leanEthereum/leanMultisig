@@ -270,47 +270,12 @@ def polynomial_sum_at_0_and_1(coeffs, degree):
     return add_extension_ret(sum_continuous_ef(coeffs, degree + 1), coeffs)
 
 
-def parse_commitment(fs: Mut, num_ood):
-    root: Imu
-    ood_points: Imu
-    ood_evals: Imu
-    debug_assert(num_ood < 5)
-    debug_assert(num_ood != 0)
-    fs, root, ood_points, ood_evals = match_range(num_ood, range(1, 5), lambda n: parse_whir_commitment_const(fs, n))
-    return fs, root, ood_points, ood_evals
-
 
 def parse_whir_commitment_const(fs: Mut, num_ood: Const):
     fs, root = fs_receive_chunks(fs, 1)
     fs, ood_points = fs_sample_many_ef(fs, num_ood)
     fs, ood_evals = fs_receive_ef_inlined(fs, num_ood)
     return fs, root, ood_points, ood_evals
-
-
-@inline
-def get_whir_params(n_vars, log_inv_rate):
-    # Hardcoded for n_vars=25, log_inv_rate=2 (recursion --n 2 benchmark)
-    assert n_vars == 25
-    assert log_inv_rate == 2
-    n_rounds = 2
-    final_vars = 8
-    num_queries = Array(3)
-    num_queries[0] = 113
-    num_queries[1] = 55
-    num_queries[2] = 27
-    query_grinding_bits = Array(3)
-    query_grinding_bits[0] = 17
-    query_grinding_bits[1] = 16
-    query_grinding_bits[2] = 16
-    num_oods = Array(3)
-    num_oods[0] = 2
-    num_oods[1] = 1
-    num_oods[2] = 2
-    folding_grinding = Array(3)
-    folding_grinding[0] = 0
-    folding_grinding[1] = 0
-    folding_grinding[2] = 0
-    return n_rounds, final_vars, num_queries, num_oods, query_grinding_bits, folding_grinding
 
 
 def get_num_oods(log_inv_rate, n_vars):
