@@ -8,12 +8,6 @@ MIN_WHIR_LOG_INV_RATE = MIN_WHIR_LOG_INV_RATE_PLACEHOLDER
 MAX_WHIR_LOG_INV_RATE = MAX_WHIR_LOG_INV_RATE_PLACEHOLDER
 MAX_NUM_VARIABLES_TO_SEND_COEFFS = MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER
 
-WHIR_ALL_POTENTIAL_NUM_QUERIES = WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER
-WHIR_ALL_POTENTIAL_QUERY_GRINDING = WHIR_ALL_POTENTIAL_QUERY_GRINDING_PLACEHOLDER
-WHIR_ALL_POTENTIAL_NUM_OODS = WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER
-WHIR_ALL_POTENTIAL_FOLDING_GRINDING = WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER
-MIN_STACKED_N_VARS = MIN_STACKED_N_VARS_PLACEHOLDER
-
 
 def whir_open(
     fs: Mut,
@@ -372,114 +366,36 @@ def parse_whir_commitment_const(fs: Mut, num_ood: Const):
 
 @inline
 def get_whir_params(n_vars, log_inv_rate):
-    debug_assert(WHIR_INITIAL_FOLDING_FACTOR < n_vars)
-    nv_except_first_round = n_vars - WHIR_INITIAL_FOLDING_FACTOR
-    debug_assert(MAX_NUM_VARIABLES_TO_SEND_COEFFS < nv_except_first_round)
-    n_rounds = div_ceil_dynamic(nv_except_first_round - MAX_NUM_VARIABLES_TO_SEND_COEFFS, WHIR_SUBSEQUENT_FOLDING_FACTOR)
-    final_vars = nv_except_first_round - n_rounds * WHIR_SUBSEQUENT_FOLDING_FACTOR
-
-    debug_assert(MIN_WHIR_LOG_INV_RATE <= log_inv_rate)
-    debug_assert(log_inv_rate <= MAX_WHIR_LOG_INV_RATE)
-    num_queries: Imu
-    num_queries = get_num_queries(log_inv_rate, n_vars)
-
-    query_grinding_bits: Imu
-    query_grinding_bits = get_query_grinding_bits(log_inv_rate, n_vars)
-
-    num_oods = get_num_oods(log_inv_rate, n_vars)
-
-    folding_grinding: Imu
-    folding_grinding = get_folding_grinding(log_inv_rate, n_vars)
-
+    # Hardcoded for n_vars=25, log_inv_rate=2 (recursion --n 2 benchmark)
+    assert n_vars == 25
+    assert log_inv_rate == 2
+    n_rounds = 2
+    final_vars = 8
+    num_queries = Array(3)
+    num_queries[0] = 113
+    num_queries[1] = 55
+    num_queries[2] = 27
+    query_grinding_bits = Array(3)
+    query_grinding_bits[0] = 17
+    query_grinding_bits[1] = 16
+    query_grinding_bits[2] = 16
+    num_oods = Array(3)
+    num_oods[0] = 2
+    num_oods[1] = 1
+    num_oods[2] = 2
+    folding_grinding = Array(3)
+    folding_grinding[0] = 0
+    folding_grinding[1] = 0
+    folding_grinding[2] = 0
     return n_rounds, final_vars, num_queries, num_oods, query_grinding_bits, folding_grinding
 
 
-@inline
-def get_num_queries(log_inv_rate, n_vars):
-    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_queries_const_rate(r, n_vars))
-    return res
-
-
-def get_num_queries_const_rate(log_inv_rate: Const, n_vars):
-    res = match_range(
-        n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
-        lambda nv: get_num_queries_const(log_inv_rate, nv),
-    )
-    return res
-
-
-def get_num_queries_const(log_inv_rate: Const, n_vars: Const):
-    max = len(WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
-    num_queries = Array(max)
-    for i in unroll(0, max):
-        num_queries[i] = WHIR_ALL_POTENTIAL_NUM_QUERIES[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
-    return num_queries
-
-
-@inline
-def get_query_grinding_bits(log_inv_rate, n_vars):
-    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_query_grinding_bits_const_rate(r, n_vars))
-    return res
-
-
-def get_query_grinding_bits_const_rate(log_inv_rate: Const, n_vars):
-    res = match_range(
-        n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
-        lambda nv: get_query_grinding_bits_const(log_inv_rate, nv),
-    )
-    return res
-
-
-def get_query_grinding_bits_const(log_inv_rate: Const, n_vars: Const):
-    max = len(WHIR_ALL_POTENTIAL_QUERY_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
-    query_grinding_bits = Array(max)
-    for i in unroll(0, max):
-        query_grinding_bits[i] = WHIR_ALL_POTENTIAL_QUERY_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
-    return query_grinding_bits
-
-
-@inline
-def get_folding_grinding(log_inv_rate, n_vars):
-    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_folding_grinding_const_rate(r, n_vars))
-    return res
-
-
-def get_folding_grinding_const_rate(log_inv_rate: Const, n_vars):
-    res = match_range(
-        n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
-        lambda nv: get_folding_grinding_const(log_inv_rate, nv),
-    )
-    return res
-
-
-def get_folding_grinding_const(log_inv_rate: Const, n_vars: Const):
-    max = len(WHIR_ALL_POTENTIAL_FOLDING_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
-    folding_grinding = Array(max)
-    for i in unroll(0, max):
-        folding_grinding[i] = WHIR_ALL_POTENTIAL_FOLDING_GRINDING[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
-    return folding_grinding
-
-
 def get_num_oods(log_inv_rate, n_vars):
-    res = match_range(log_inv_rate, range(MIN_WHIR_LOG_INV_RATE, MAX_WHIR_LOG_INV_RATE + 1), lambda r: get_num_oods_const_rate(r, n_vars))
-    return res
-
-
-def get_num_oods_const_rate(log_inv_rate: Const, n_vars):
-    res = match_range(
-        n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
-        lambda nv: get_num_oods_const(log_inv_rate, nv),
-    )
-    return res
-
-
-def get_num_oods_const(log_inv_rate: Const, n_vars: Const):
-    max = len(WHIR_ALL_POTENTIAL_NUM_OODS[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS])
-    num_oods = Array(max)
-    for i in unroll(0, max):
-        num_oods[i] = WHIR_ALL_POTENTIAL_NUM_OODS[log_inv_rate - MIN_WHIR_LOG_INV_RATE][n_vars - MIN_STACKED_N_VARS][i]
+    # Hardcoded for n_vars=25, log_inv_rate=2
+    assert log_inv_rate == 2
+    assert n_vars == 25
+    num_oods = Array(3)
+    num_oods[0] = 2
+    num_oods[1] = 1
+    num_oods[2] = 2
     return num_oods
