@@ -158,8 +158,23 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     # Will fail if dimensions change — update GKR and AIR constants below
     assert n_vars_logup_gkr == 24
 
-    fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, n_vars_logup_gkr)
+    # verify_gkr_quotient inlined (n_vars=24)
+    fs, gkr_nums = fs_receive_ef_inlined(fs, 2)
+    fs, gkr_denoms = fs_receive_ef_inlined(fs, 2)
+    quotient_gkr = add_extension_ret(div_extension_ret(gkr_nums, gkr_denoms), div_extension_ret(gkr_nums + DIM, gkr_denoms + DIM))
     set_to_5_zeros(quotient_gkr)
+    gkr_points = Array(24)
+    gkr_claims_num = Array(24)
+    gkr_claims_den = Array(24)
+    fs, gkr_points[0] = fs_sample_ef(fs)
+    gkr_point_poly_eq = poly_eq_extension_inlined(gkr_points[0], 1)
+    gkr_claims_num[0] = dot_product_ee_ret(gkr_nums, gkr_point_poly_eq, 2)
+    gkr_claims_den[0] = dot_product_ee_ret(gkr_denoms, gkr_point_poly_eq, 2)
+    for i in unroll(1, 24):
+        fs, gkr_points[i], gkr_claims_num[i], gkr_claims_den[i] = verify_gkr_quotient_step(fs, i, gkr_points[i - 1], gkr_claims_num[i - 1], gkr_claims_den[i - 1])
+    point_gkr = gkr_points[23]
+    numerators_value = gkr_claims_num[23]
+    denominators_value = gkr_claims_den[23]
 
     memory_and_acc_prefix = multilinear_location_prefix(0, n_vars_logup_gkr - log_memory, point_gkr)
 
@@ -759,7 +774,9 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     )
 
 
-def verify_gkr_quotient_step(fs: Mut, n_vars: Const, point, claim_num, claim_den):
+@inline
+def verify_gkr_quotient_step(start_fs, n_vars, point, claim_num, claim_den):
+    fs: Mut = start_fs
     fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
@@ -778,7 +795,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars: Const, point, claim_num, claim_den
 
     fs, beta = fs_sample_ef(fs)
 
-    point_poly_eq = poly_eq_extension(beta, 1)
+    point_poly_eq = poly_eq_extension_inlined(beta, 1)
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
