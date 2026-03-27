@@ -49,8 +49,8 @@ def whir_open(
         claimed_sum,
     ) = whir_round_1(fs, root, claimed_sum)
 
-    # Final folding sumcheck: fold=5, grinding=0 -> use sumcheck_verify
-    fs, all_folding_randomness[2], claimed_sum = sumcheck_verify(fs, 5, claimed_sum, 2)
+    # Final folding sumcheck: fold=5, grinding=0
+    fs, all_folding_randomness[2], claimed_sum = sumcheck_verify_unrolled(fs, 5, claimed_sum, 2)
 
     # Receive final coefficients: n_final_vars=8, 2^8=256
     fs, final_coefficients = fs_receive_ef(fs, 256)
@@ -58,15 +58,18 @@ def whir_open(
     # Final STIR queries: 27 queries, fold=5, 2^5=32, domain=21, qgrind=16
     fs, all_circle_values[2], final_folds = sample_stir_indexes_and_fold_final(fs, root, all_folding_randomness[2])
 
-    # Evaluate final polynomial on circle: n_final_vars=8
+    # Evaluate final polynomial on circle: n_final_vars=8, 2^8=256
     final_circle_values = all_circle_values[2]
     for i in range(0, 27):
         alpha = final_circle_values[i]
-        final_pol_evaluated_on_circle = univariate_eval_on_base(final_coefficients, alpha, 8)
-        copy_5(final_pol_evaluated_on_circle, final_folds + i * DIM)
+        alpha_powers = Array(256)
+        alpha_powers[0] = 1
+        for k in unroll(0, 255):
+            alpha_powers[k + 1] = alpha_powers[k] * alpha
+        dot_product_be(alpha_powers, final_coefficients, final_folds + i * DIM, 256)
 
     # Final sumcheck: n_final_vars=8
-    fs, all_folding_randomness[3], end_sum = sumcheck_verify(fs, 8, claimed_sum, 2)
+    fs, all_folding_randomness[3], end_sum = sumcheck_verify_unrolled(fs, 8, claimed_sum, 2)
 
     # Assemble folding_randomness_global: 25 * DIM = 125
     folding_randomness_global = Array(125)
@@ -154,6 +157,18 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
     return fs, claimed_sum
 
 
+def sumcheck_verify_unrolled(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const):
+    challenges = Array(n_steps * DIM)
+    for sc_round in unroll(0, n_steps):
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
+        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs, rand = fs_sample_ef(fs)
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
+        copy_5(rand, challenges + sc_round * DIM)
+    return fs, challenges, claimed_sum
+
+
 
 
 def decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height: Const, num_chunks: Const, circle_values, merkle_leaves):
@@ -167,7 +182,8 @@ def sample_stir_indexes_and_fold_r0(fs: Mut, prev_root, folding_randomness):
     # Round 0: 113 queries, basefield, fold=7, 2^7=128, domain=27, qgrind=17
     # folded_domain=20, chunks=128/8=16
     fs = fs_grinding(fs, 17)
-    sampled, fs = fs_sample_queries(fs, 113)
+    sampled = fs_sample_data_with_offset(fs, 15, 0)
+    fs = fs_finalize_sample(fs, 15)
     merkle_leaves = Array(113)
     circle_values = Array(113)
     decompose_and_verify_merkle_batch_const(113, sampled, prev_root, 20, 16, circle_values, merkle_leaves)
@@ -182,7 +198,8 @@ def sample_stir_indexes_and_fold_r1(fs: Mut, prev_root, folding_randomness):
     # Round 1: 55 queries, ext field, fold=5, 2^5=32, domain=22, qgrind=16
     # folded_domain=17, chunks=32*5/8=20
     fs = fs_grinding(fs, 16)
-    sampled, fs = fs_sample_queries(fs, 55)
+    sampled = fs_sample_data_with_offset(fs, 7, 0)
+    fs = fs_finalize_sample(fs, 7)
     merkle_leaves = Array(55)
     circle_values = Array(55)
     decompose_and_verify_merkle_batch_const(55, sampled, prev_root, 17, 20, circle_values, merkle_leaves)
@@ -197,7 +214,8 @@ def sample_stir_indexes_and_fold_final(fs: Mut, prev_root, folding_randomness):
     # Final: 27 queries, ext field, fold=5, 2^5=32, domain=21, qgrind=16
     # folded_domain=16, chunks=32*5/8=20
     fs = fs_grinding(fs, 16)
-    sampled, fs = fs_sample_queries(fs, 27)
+    sampled = fs_sample_data_with_offset(fs, 4, 0)
+    fs = fs_finalize_sample(fs, 4)
     merkle_leaves = Array(27)
     circle_values = Array(27)
     decompose_and_verify_merkle_batch_const(27, sampled, prev_root, 16, 20, circle_values, merkle_leaves)
@@ -210,14 +228,14 @@ def sample_stir_indexes_and_fold_final(fs: Mut, prev_root, folding_randomness):
 
 def whir_round_0(fs: Mut, prev_root, claimed_sum):
     # Round 0: fold=7, 2^7=128, first_round=1, queries=113, domain=27, qgrind=17, oods=1, fgrind=0
-    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs, 7, claimed_sum, 2)
+    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify_unrolled(fs, 7, claimed_sum, 2)
 
     fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 1)
 
     fs, circle_values, folds = sample_stir_indexes_and_fold_r0(fs, prev_root, folding_randomness)
 
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers = powers_const(combination_randomness_gen, 128)
+    combination_randomness_powers = powers_const(combination_randomness_gen, 114)
 
     # dot_product_ee(ood_evals, powers, res, 1) = ood_evals[0] * powers[0] = ood_evals (powers[0]=1)
     claimed_sum_1 = Array(DIM)
@@ -231,14 +249,14 @@ def whir_round_0(fs: Mut, prev_root, claimed_sum):
 
 def whir_round_1(fs: Mut, prev_root, claimed_sum):
     # Round 1: fold=5, 2^5=32, first_round=0, queries=55, domain=22, qgrind=16, oods=2, fgrind=0
-    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify(fs, 5, claimed_sum, 2)
+    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify_unrolled(fs, 5, claimed_sum, 2)
 
     fs, root, ood_points, ood_evals = parse_whir_commitment_const(fs, 2)
 
     fs, circle_values, folds = sample_stir_indexes_and_fold_r1(fs, prev_root, folding_randomness)
 
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers = powers_const(combination_randomness_gen, 64)
+    combination_randomness_powers = powers_const(combination_randomness_gen, 57)
 
     claimed_sum_0 = Array(DIM)
     dot_product_ee(ood_evals, combination_randomness_powers, claimed_sum_0, 2)
