@@ -58,7 +58,10 @@ def sumcheck_verify_unrolled(start_fs, n_steps, start_claimed_sum, degree):
     return fs, challenges, claimed_sum
 
 
-def sumcheck_verify_helper_unrolled(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const, challenges):
+@inline
+def sumcheck_verify_helper_unrolled(starting_fs, n_steps, start_claimed_sum, degree, challenges):
+    fs: Mut = starting_fs
+    claimed_sum: Mut = start_claimed_sum
     for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
