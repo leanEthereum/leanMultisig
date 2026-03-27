@@ -113,6 +113,14 @@ def expand_from_univariate_ext(alpha, n):
     return res
 
 
+def expand_from_univariate_ext_const(alpha, n: Const):
+    res = Array(n * DIM)
+    copy_5(alpha, res)
+    for i in unroll(0, n - 1):
+        mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
+    return res
+
+
 def univariate_eval_on_base(coeffs, alpha, n: Const):
     # coeffs= univariate poly of degree 2^n
     # alpha: base field element

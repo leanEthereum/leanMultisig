@@ -86,30 +86,24 @@ def whir_open(
     # OOD recovery at commitment: oods[0]=2, n_vars=25
     all_ood_recovered_evals = Array(2 * DIM)
     for i in unroll(0, 2):
-        expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, 25)
-        ood_rec_buf = Array(DIM)
-        poly_eq_ee(expanded_from_univariate, folding_randomness_global, ood_rec_buf, 25)
-        copy_5(ood_rec_buf, all_ood_recovered_evals + i * DIM)
+        expanded_from_univariate = expand_from_univariate_ext_const(ood_points_commit + i * DIM, 25)
+        poly_eq_ee(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, 25)
     s: Mut = Array(DIM)
     dot_product_ee(all_ood_recovered_evals, combination_randomness_powers_0, s, 2)
 
     # Round 0 consistency: n_vars_remaining=18, oods[1]=1, queries=113
     my_folding_randomness_0 = folding_randomness_global + 7 * DIM
     combination_randomness_powers_r0 = all_combination_randomness_powers[0]
-    # Single OOD point
-    expanded_ood_0 = expand_from_univariate_ext(all_ood_points[0], 18)
-    ood_rec_0 = Array(DIM)
-    poly_eq_ee(expanded_ood_0, my_folding_randomness_0, ood_rec_0, 18)
+    # Single OOD point (dot_product_ee with n=1 and powers[0]=1 is identity)
+    expanded_ood_0 = expand_from_univariate_ext_const(all_ood_points[0], 18)
     summed_ood_0 = Array(DIM)
-    dot_product_ee(ood_rec_0, combination_randomness_powers_r0, summed_ood_0, 1)
+    poly_eq_ee(expanded_ood_0, my_folding_randomness_0, summed_ood_0, 18)
     # 113 query checks
     s6s_0 = Array(113 * DIM)
     circle_value_0 = all_circle_values[0]
     for j in range(0, 113):
         expanded_q = expand_from_univariate_base_const(circle_value_0[j], 18)
-        temp = Array(DIM)
-        poly_eq_be(expanded_q, my_folding_randomness_0, temp, 18)
-        copy_5(temp, s6s_0 + j * DIM)
+        poly_eq_be(expanded_q, my_folding_randomness_0, s6s_0 + j * DIM, 18)
     s7_0 = Array(DIM)
     dot_product_ee(s6s_0, combination_randomness_powers_r0 + 1 * DIM, s7_0, 113)
     s = add_extension_ret(s, s7_0)
@@ -121,10 +115,8 @@ def whir_open(
     # Two OOD points
     my_ood_recovered_evals_1 = Array(2 * DIM)
     for j in unroll(0, 2):
-        expanded_ood_1 = expand_from_univariate_ext(all_ood_points[1] + j * DIM, 13)
-        ood_rec_1 = Array(DIM)
-        poly_eq_ee(expanded_ood_1, my_folding_randomness_1, ood_rec_1, 13)
-        copy_5(ood_rec_1, my_ood_recovered_evals_1 + j * DIM)
+        expanded_ood_1 = expand_from_univariate_ext_const(all_ood_points[1] + j * DIM, 13)
+        poly_eq_ee(expanded_ood_1, my_folding_randomness_1, my_ood_recovered_evals_1 + j * DIM, 13)
     summed_ood_1 = Array(DIM)
     dot_product_ee(my_ood_recovered_evals_1, combination_randomness_powers_r1, summed_ood_1, 2)
     # 55 query checks
@@ -132,9 +124,7 @@ def whir_open(
     circle_value_1 = all_circle_values[1]
     for j in range(0, 55):
         expanded_q = expand_from_univariate_base_const(circle_value_1[j], 13)
-        temp = Array(DIM)
-        poly_eq_be(expanded_q, my_folding_randomness_1, temp, 13)
-        copy_5(temp, s6s_1 + j * DIM)
+        poly_eq_be(expanded_q, my_folding_randomness_1, s6s_1 + j * DIM, 13)
     s7_1 = Array(DIM)
     dot_product_ee(s6s_1, combination_randomness_powers_r1 + 2 * DIM, s7_1, 55)
     s = add_extension_ret(s, s7_1)
@@ -227,15 +217,13 @@ def whir_round_0(fs: Mut, prev_root, claimed_sum):
     fs, circle_values, folds = sample_stir_indexes_and_fold_r0(fs, prev_root, folding_randomness)
 
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers = powers(combination_randomness_gen, 114)
+    combination_randomness_powers = powers_const(combination_randomness_gen, 128)
 
-    claimed_sum_0 = Array(DIM)
-    dot_product_ee(ood_evals, combination_randomness_powers, claimed_sum_0, 1)
-
+    # dot_product_ee(ood_evals, powers, res, 1) = ood_evals[0] * powers[0] = ood_evals (powers[0]=1)
     claimed_sum_1 = Array(DIM)
     dot_product_ee(folds, combination_randomness_powers + 1 * DIM, claimed_sum_1, 113)
 
-    new_claimed_sum_b = add_extension_ret(claimed_sum_0, claimed_sum_1)
+    new_claimed_sum_b = add_extension_ret(ood_evals, claimed_sum_1)
     final_sum = add_extension_ret(new_claimed_sum_a, new_claimed_sum_b)
 
     return (fs, folding_randomness, ood_points, root, circle_values, combination_randomness_powers, final_sum)
@@ -250,7 +238,7 @@ def whir_round_1(fs: Mut, prev_root, claimed_sum):
     fs, circle_values, folds = sample_stir_indexes_and_fold_r1(fs, prev_root, folding_randomness)
 
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers = powers(combination_randomness_gen, 57)
+    combination_randomness_powers = powers_const(combination_randomness_gen, 64)
 
     claimed_sum_0 = Array(DIM)
     dot_product_ee(ood_evals, combination_randomness_powers, claimed_sum_0, 2)
@@ -267,7 +255,10 @@ def whir_round_1(fs: Mut, prev_root, claimed_sum):
 @inline
 def polynomial_sum_at_0_and_1(coeffs, degree):
     debug_assert(1 < degree)
-    return add_extension_ret(sum_continuous_ef(coeffs, degree + 1), coeffs)
+    debug_assert(degree + 1 <= NUM_REPEATED_ONES_IN_RESERVED_MEMORY)
+    res = Array(DIM)
+    dot_product_be(REPEATED_ONES_PTR, coeffs, res, degree + 1)
+    return add_extension_ret(res, coeffs)
 
 
 

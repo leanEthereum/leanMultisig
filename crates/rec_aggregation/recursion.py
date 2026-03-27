@@ -450,10 +450,10 @@ def continue_recursion_ordered(
     # WHIR BASE
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS)
+    combination_randomness_powers: Mut = powers_const(combination_randomness_gen, 2 ** log2_ceil(2 + TOTAL_WHIR_STATEMENTS))
     whir_sum: Mut = Array(DIM)
-    dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
-    curr_randomness: Mut = combination_randomness_powers + num_ood_at_commitment * DIM
+    dot_product_ee(whir_base_ood_evals, combination_randomness_powers, whir_sum, 2)
+    curr_randomness: Mut = combination_randomness_powers + 2 * DIM
 
     whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum)
     curr_randomness += DIM
@@ -502,7 +502,7 @@ def continue_recursion_ordered(
         whir_sum,
     )
 
-    curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
+    curr_randomness = combination_randomness_powers + 2 * DIM
 
     eq_memory_and_acc_point = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
