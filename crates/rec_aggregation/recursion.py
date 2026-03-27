@@ -43,7 +43,10 @@ BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
 
-def sumcheck_verify_unrolled(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const):
+@inline
+def sumcheck_verify_unrolled(start_fs, n_steps, start_claimed_sum, degree):
+    fs: Mut = start_fs
+    claimed_sum: Mut = start_claimed_sum
     challenges = Array(n_steps * DIM)
     for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
@@ -114,7 +117,6 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
 
     # Hardcoded assertions for recursion --n 2 (700 xmss, log_inv_rate=2)
     debug_assert(stacked_n_vars == 25)
-
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, 2)
@@ -206,6 +208,9 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     offset += two_exp(log_bytecode_padded)
 
     # Dispatch based on table height ordering (sorted by descending height)
+    # Hardcoded: poseidon(17) > extop(14), so second_table=2, third_table=1
+    assert table_log_heights[2] != table_log_heights[1]
+    assert maximum(table_log_heights[1], table_log_heights[2]) != table_log_heights[1]
     if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
         continue_recursion_ordered(
             1,
@@ -432,13 +437,18 @@ def continue_recursion_ordered(
 
         zerocheck_challenges = pcs_points[table_index][0]
 
+        # Hardcoded AIR sumcheck: sorted_pos 0=exec(19,6), 1=poseidon(17,10), 2=extop(14,7)
         outer_point: Imu
         outer_eval: Imu
-        fs, outer_point, outer_eval = match_range(
-            log_n_rows,
-            range(MIN_LOG_N_ROWS_PER_TABLE, MAX_LOG_MEMORY_SIZE + 1),
-            lambda ns: sumcheck_verify_unrolled(fs, ns, bus_final_value, AIR_DEGREES[table_index] + 1),
-        )
+        if sorted_pos == 0:
+            assert log_n_rows == 19
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 19, bus_final_value, 6)
+        if sorted_pos == 1:
+            assert log_n_rows == 17
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 17, bus_final_value, 10)
+        if sorted_pos == 2:
+            assert log_n_rows == 14
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 14, bus_final_value, 7)
 
         n_up_columns = N_AIR_COLUMNS[table_index]
         n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
@@ -459,11 +469,12 @@ def continue_recursion_ordered(
 
             inner_point: Imu
             inner_value: Imu
-            fs, inner_point, inner_value = match_range(
-                log_n_rows,
-                range(MIN_LOG_N_ROWS_PER_TABLE, MAX_LOG_MEMORY_SIZE + 1),
-                lambda ns: sumcheck_verify_unrolled(fs, ns, inner_sum, 2),
-            )
+            if sorted_pos == 0:
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 19, inner_sum, 2)
+            if sorted_pos == 1:
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 17, inner_sum, 2)
+            if sorted_pos == 2:
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 14, inner_sum, 2)
 
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
 
