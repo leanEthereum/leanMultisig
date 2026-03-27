@@ -41,6 +41,11 @@ INNER_PUBLIC_MEMORY_LOG_SIZE = INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER
 PUB_INPUT_SIZE = PUB_INPUT_SIZE_PLACEHOLDER
 BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
+# Hardcoded inner proof dims — assertions verify at runtime
+INNER_LOG_MEMORY = 22
+INNER_LOG_BYTECODE_PADDED = 19
+INNER_LOG_N_CYCLES = 19
+
 
 
 @inline
@@ -250,40 +255,9 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     # Dispatch based on table height ordering (sorted by descending height)
     # Hardcoded: poseidon(17) > extop(14), so second_table=2, third_table=1
     assert table_log_heights[2] != table_log_heights[1]
+    # Hardcoded ordering: poseidon > extop
     assert maximum(table_log_heights[1], table_log_heights[2]) != table_log_heights[1]
-    if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
-        continue_recursion_ordered(
-            1,
-            2,
-            fs,
-            offset,
-            retrieved_numerators_value,
-            retrieved_denominators_value,
-            table_heights,
-            table_log_heights,
-            point_gkr,
-            n_vars_logup_gkr,
-            logup_alphas_eq_poly,
-            logup_c,
-            numerators_value,
-            denominators_value,
-            log_memory,
-            inner_public_memory,
-            stacked_n_vars,
-            whir_log_inv_rate,
-            whir_base_root,
-            whir_base_ood_points,
-            whir_base_ood_evals,
-            num_ood_at_commitment,
-            log_n_cycles,
-            log_bytecode_padded,
-            bytecode_and_acc_point,
-            value_memory,
-            value_acc,
-            value_bytecode_acc,
-        )
-    else:
-        continue_recursion_ordered(
+    continue_recursion_ordered(
             2,
             1,
             fs,
