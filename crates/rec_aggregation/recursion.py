@@ -42,6 +42,31 @@ PUB_INPUT_SIZE = PUB_INPUT_SIZE_PLACEHOLDER
 BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
+def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
+    challenges = Array(n_steps * DIM)
+    fs, new_claimed_sum = sumcheck_verify_helper(fs, n_steps, claimed_sum, degree, challenges)
+    return fs, challenges, new_claimed_sum
+
+
+def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in range(0, n_steps):
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
+        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs, rand = fs_sample_ef(fs)
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
+        copy_5(rand, challenges + sc_round * DIM)
+
+    return fs, claimed_sum
+
+
+def parse_whir_commitment_const(fs: Mut, num_ood: Const):
+    fs, root = fs_receive_chunks(fs, 1)
+    fs, ood_points = fs_sample_many_ef(fs, num_ood)
+    fs, ood_evals = fs_receive_ef_inlined(fs, num_ood)
+    return fs, root, ood_points, ood_evals
+
+
 def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     fs: Mut = fs_new(proof_transcript)
 
