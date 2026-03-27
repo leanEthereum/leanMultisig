@@ -42,14 +42,21 @@ PUB_INPUT_SIZE = PUB_INPUT_SIZE_PLACEHOLDER
 BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
-def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
+
+def sumcheck_verify_unrolled(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const):
     challenges = Array(n_steps * DIM)
-    fs, new_claimed_sum = sumcheck_verify_helper(fs, n_steps, claimed_sum, degree, challenges)
-    return fs, challenges, new_claimed_sum
+    for sc_round in unroll(0, n_steps):
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
+        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs, rand = fs_sample_ef(fs)
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
+        copy_5(rand, challenges + sc_round * DIM)
+    return fs, challenges, claimed_sum
 
 
-def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
-    for sc_round in range(0, n_steps):
+def sumcheck_verify_helper_unrolled(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
         copy_5(sum_over_boolean_hypercube, claimed_sum)
@@ -105,6 +112,9 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
+    # Hardcoded assertions for recursion --n 2 (700 xmss, log_inv_rate=2)
+    debug_assert(stacked_n_vars == 25)
+
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
     fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, 2)
@@ -118,6 +128,8 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     # GENERIC LOGUP
 
     n_vars_logup_gkr = compute_total_gkr_n_vars(log_memory, log_bytecode_padded, table_heights)
+    # Will fail if dimensions change — update GKR and AIR constants below
+    assert n_vars_logup_gkr == 24
 
     fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, n_vars_logup_gkr)
     set_to_5_zeros(quotient_gkr)
@@ -420,7 +432,13 @@ def continue_recursion_ordered(
 
         zerocheck_challenges = pcs_points[table_index][0]
 
-        fs, outer_point, outer_eval = sumcheck_verify(fs, log_n_rows, bus_final_value, AIR_DEGREES[table_index] + 1)
+        outer_point: Imu
+        outer_eval: Imu
+        fs, outer_point, outer_eval = match_range(
+            log_n_rows,
+            range(MIN_LOG_N_ROWS_PER_TABLE, MAX_LOG_MEMORY_SIZE + 1),
+            lambda ns: sumcheck_verify_unrolled(fs, ns, bus_final_value, AIR_DEGREES[table_index] + 1),
+        )
 
         n_up_columns = N_AIR_COLUMNS[table_index]
         n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
@@ -439,7 +457,13 @@ def continue_recursion_ordered(
             evals_down = inner_evals + n_up_columns * DIM
             inner_sum: Mut = dot_product_ee_ret(evals_down, batching_scalar_powers, n_down_columns)
 
-            fs, inner_point, inner_value = sumcheck_verify(fs, log_n_rows, inner_sum, 2)
+            inner_point: Imu
+            inner_value: Imu
+            fs, inner_point, inner_value = match_range(
+                log_n_rows,
+                range(MIN_LOG_N_ROWS_PER_TABLE, MAX_LOG_MEMORY_SIZE + 1),
+                lambda ns: sumcheck_verify_unrolled(fs, ns, inner_sum, 2),
+            )
 
             matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
 
@@ -657,6 +681,8 @@ def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):
+    # Hardcoded for n_vars_logup_gkr=24
+    assert n_vars == 24
     fs, nums = fs_receive_ef_inlined(fs, 2)
     fs, denoms = fs_receive_ef_inlined(fs, 2)
 
@@ -664,9 +690,9 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     q2 = div_extension_ret(nums + DIM, denoms + DIM)
     quotient = add_extension_ret(q1, q2)
 
-    points = Array(n_vars)
-    claims_num = Array(n_vars)
-    claims_den = Array(n_vars)
+    points = Array(24)
+    claims_num = Array(24)
+    claims_den = Array(24)
 
     fs, points[0] = fs_sample_ef(fs)
 
@@ -677,24 +703,24 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     claims_num[0] = first_claim_num
     claims_den[0] = first_claim_den
 
-    for i in range(1, n_vars):
+    for i in unroll(1, 24):
         fs, points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(fs, i, points[i - 1], claims_num[i - 1], claims_den[i - 1])
 
     return (
         fs,
         quotient,
-        points[n_vars - 1],
-        claims_num[n_vars - 1],
-        claims_den[n_vars - 1],
+        points[23],
+        claims_num[23],
+        claims_den[23],
     )
 
 
-def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
+def verify_gkr_quotient_step(fs: Mut, n_vars: Const, point, claim_num, claim_den):
     fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
-    fs, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
+    fs, postponed_value = sumcheck_verify_helper_unrolled(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
     fs, inner_evals = fs_receive_ef_inlined(fs, 4)
     a_num = inner_evals
     b_num = inner_evals + DIM
