@@ -103,7 +103,7 @@ mod tests {
     fn ensure_not_too_big_commitment_surface() {
         let mut max_surface: u64 = 2 * (1 << MAX_LOG_MEMORY_SIZE) as u64; // memory and acc_memory
         for (table, max_log_n_rows) in MAX_LOG_N_ROWS_PER_TABLE {
-            max_surface += (table.n_committed_columns() as u64) << (max_log_n_rows as u64);
+            max_surface += (table.n_columns() as u64) << (max_log_n_rows as u64);
         }
         assert!(max_surface <= 1 << 30); // Maximum data we can commit via WHIR using an initial folding factor of 7, and rate = 1/2
     }

@@ -79,7 +79,7 @@ pub fn stacked_pcs_global_statements(
                     .collect(),
             ));
         }
-        offset += table.n_committed_columns() << n_vars;
+        offset += table.n_columns() << n_vars;
     }
     global_statements
 }
@@ -116,7 +116,7 @@ pub fn stack_polynomials_and_commit(
 
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
-        for col_index in 0..table.n_committed_columns() {
+        for col_index in 0..table.n_columns() {
             let col = &traces[table].columns[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
@@ -179,7 +179,7 @@ fn compute_stacked_n_vars(
         + (1 << log_bytecode.max(max_table_log_n_rows))
         + tables_log_heights
             .iter()
-            .map(|(table, log_n_rows)| table.n_committed_columns() << log_n_rows)
+            .map(|(table, log_n_rows)| table.n_columns() << log_n_rows)
             .sum::<usize>();
     log2_ceil_usize(total_len)
 }
@@ -197,7 +197,7 @@ pub fn total_whir_statements() -> usize {
      + ALL_TABLES
         .iter()
         .map(|table| {
-            // AIR (evaluates n_columns() AIR columns)
+            // AIR 
             table.n_columns()
             + table.n_down_columns()
             // Lookups into memory

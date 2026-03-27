@@ -146,10 +146,6 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         self.n_columns() + 1 // +1 for POSEIDON_24_POSEIDON_24_COL_PRECOMPILE_DATA
     }
 
-    fn n_committed_columns(&self) -> usize {
-        self.n_columns()
-    }
-
     fn padding_row(&self) -> Vec<F> {
         // depends on null_poseidon_24_hash_ptr (cf lean_prover/trace_gen.rs)
         unreachable!()
