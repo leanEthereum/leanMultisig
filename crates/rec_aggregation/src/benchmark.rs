@@ -214,18 +214,19 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
-) -> (AggregatedXMSS, f64) {
+) -> (Vec<XmssPublicKey>, AggregatedXMSS, f64) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
         .collect();
 
-    let mut child_results = vec![];
+    let mut child_pub_keys_list: Vec<Vec<XmssPublicKey>> = vec![];
+    let mut child_aggs: Vec<AggregatedXMSS> = vec![];
     let mut child_start = raw_count;
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
-        let (child_agg, _) = build_aggregation(
+        let (child_pks, child_agg, _) = build_aggregation(
             child,
             child_display_index,
             display,
@@ -234,7 +235,8 @@ fn build_aggregation(
             overlap,
             tracing,
         );
-        child_results.push(child_agg);
+        child_pub_keys_list.push(child_pks);
+        child_aggs.push(child_agg);
         child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
@@ -242,9 +244,15 @@ fn build_aggregation(
         }
     }
 
+    let children: Vec<(&[XmssPublicKey], AggregatedXMSS)> = child_pub_keys_list
+        .iter()
+        .zip(child_aggs)
+        .map(|(pks, agg)| (pks.as_slice(), agg))
+        .collect();
+
     let time = Instant::now();
-    let result = xmss_aggregate(
-        &child_results,
+    let (global_pub_keys, result) = xmss_aggregate(
+        &children,
         raw_xmss,
         &BENCHMARK_MESSAGE,
         BENCHMARK_SLOT,
@@ -286,7 +294,7 @@ fn build_aggregation(
         );
     }
 
-    (result, elapsed.as_secs_f64())
+    (global_pub_keys, result, elapsed.as_secs_f64())
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
@@ -317,11 +325,11 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         display.print_initial();
     }
 
-    let (aggregated_sigs, time) =
+    let (global_pub_keys, aggregated_sigs, time) =
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
-    crate::xmss_verify_aggregation(&aggregated_sigs, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
+    crate::xmss_verify_aggregation(global_pub_keys, &aggregated_sigs, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
     time
 }
 
