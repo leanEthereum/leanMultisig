@@ -410,6 +410,7 @@ def polynomial_sum_at_0_and_1(coeffs, degree):
 
 
 
+@inline
 def get_num_oods(log_inv_rate, n_vars):
     # Hardcoded for n_vars=25, log_inv_rate=2
     assert log_inv_rate == 2

@@ -44,6 +44,26 @@ BYTECODE_HASH_OFFSET = PUB_INPUT_SIZE - DIGEST_LEN
 
 
 @inline
+def eq_mle_extension_inlined(a, b, n):
+    res = Array(DIM)
+    poly_eq_ee(a, b, res, n)
+    return res
+
+
+@inline
+def eq_mle_base_extension_inlined(a, b, n):
+    res = Array(DIM)
+    poly_eq_be(a, b, res, n)
+    return res
+
+
+@inline
+def multilinear_location_prefix_inlined(offset, n_vars, point):
+    bits = checked_decompose_bits_small_value_const(offset, n_vars)
+    return eq_mle_base_extension_inlined(bits, point, n_vars)
+
+
+@inline
 def sumcheck_verify_unrolled(start_fs, n_steps, start_claimed_sum, degree):
     fs: Mut = start_fs
     claimed_sum: Mut = start_claimed_sum
@@ -73,7 +93,9 @@ def sumcheck_verify_helper_unrolled(starting_fs, n_steps, start_claimed_sum, deg
     return fs, claimed_sum
 
 
-def parse_whir_commitment_const(fs: Mut, num_ood: Const):
+@inline
+def parse_whir_commitment_const(old_fs, num_ood):
+    fs: Mut = old_fs
     fs, root = fs_receive_chunks(fs, 1)
     fs, ood_points = fs_sample_many_ef(fs, num_ood)
     fs, ood_evals = fs_receive_ef_inlined(fs, num_ood)
@@ -458,10 +480,14 @@ def continue_recursion_ordered(
         fs, inner_evals = fs_receive_ef_inlined(fs, n_up_columns + n_down_columns)
 
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
-        expected_outer_eval = mul_extension_ret(
-            air_constraints_eval,
-            eq_mle_extension(zerocheck_challenges, outer_point, log_n_rows),
-        )
+        zerocheck_eq: Imu
+        if sorted_pos == 0:
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 19)
+        if sorted_pos == 1:
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 17)
+        if sorted_pos == 2:
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 14)
+        expected_outer_eval = mul_extension_ret(air_constraints_eval, zerocheck_eq)
         copy_5(expected_outer_eval, outer_eval)
 
         if len(AIR_DOWN_COLUMNS[table_index]) != 0:
@@ -586,12 +612,12 @@ def continue_recursion_ordered(
     )
     curr_randomness += DIM
 
-    eq_pub_mem = eq_mle_extension(
+    eq_pub_mem = eq_mle_extension_inlined(
         folding_randomness_global + (stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE) * DIM,
         public_memory_random_point,
         INNER_PUBLIC_MEMORY_LOG_SIZE,
     )
-    prefix_pub_mem = multilinear_location_prefix(0, stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
+    prefix_pub_mem = multilinear_location_prefix_inlined(0, 25 - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem),
@@ -600,14 +626,14 @@ def continue_recursion_ordered(
 
     offset = two_exp(log_memory) * 2  # memory and acc_memory
 
-    eq_bytecode_acc = eq_mle_extension(
+    eq_bytecode_acc = eq_mle_extension_inlined(
         folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
         bytecode_and_acc_point,
         LOG_GUEST_BYTECODE_LEN,
     )
-    prefix_bytecode_acc = multilinear_location_prefix(
+    prefix_bytecode_acc = multilinear_location_prefix_inlined(
         offset / 2**LOG_GUEST_BYTECODE_LEN,
-        stacked_n_vars - LOG_GUEST_BYTECODE_LEN,
+        25 - LOG_GUEST_BYTECODE_LEN,
         folding_randomness_global,
     )
     s = add_extension_ret(
@@ -617,17 +643,17 @@ def continue_recursion_ordered(
     curr_randomness += DIM
     offset += two_exp(log_bytecode_padded)
 
-    prefix_pc_start = multilinear_location_prefix(
+    prefix_pc_start = multilinear_location_prefix_inlined(
         offset + COL_PC * two_exp(log_n_cycles),
-        stacked_n_vars,
+        25,
         folding_randomness_global,
     )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start))
     curr_randomness += DIM
 
-    prefix_pc_end = multilinear_location_prefix(
+    prefix_pc_end = multilinear_location_prefix_inlined(
         offset + (COL_PC + 1) * two_exp(log_n_cycles) - 1,
-        stacked_n_vars,
+        25,
         folding_randomness_global,
     )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
@@ -646,18 +672,22 @@ def continue_recursion_ordered(
         total_num_cols = NUM_COLS_AIR[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
-            eq_factor = eq_mle_extension(
-                point,
-                folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM,
-                log_n_rows,
-            )
+            eq_factor: Imu
+            if sorted_pos == 0:
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 19) * DIM, 19)
+            if sorted_pos == 1:
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 17) * DIM, 17)
+            if sorted_pos == 2:
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 14) * DIM, 14)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
-                    prefix = multilinear_location_prefix(
-                        offset / n_rows + j,
-                        stacked_n_vars - log_n_rows,
-                        folding_randomness_global,
-                    )
+                    prefix: Imu
+                    if sorted_pos == 0:
+                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 19, folding_randomness_global)
+                    if sorted_pos == 1:
+                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 17, folding_randomness_global)
+                    if sorted_pos == 2:
+                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 14, folding_randomness_global)
                     s = add_extension_ret(
                         s,
                         mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor),
@@ -743,7 +773,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars: Const, point, claim_num, claim_den
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars)
+    eq_factor = eq_mle_extension_inlined(point, postponed_point + DIM, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
