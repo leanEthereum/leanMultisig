@@ -1,6 +1,6 @@
 use backend::*;
 use lean_vm::*;
-use std::{array, collections::BTreeMap, iter::repeat_n};
+use std::{array, collections::BTreeMap};
 use utils::{ToUsize, get_poseidon_16_of_zero, transposed_par_iter_mut};
 
 #[derive(Debug)]
@@ -129,7 +129,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
-fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_ptr: usize) {
+fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_poseidon_16_hash_ptr: usize) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.columns[0].len();
     trace
@@ -140,13 +140,14 @@ fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, null_hash_
 
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
-    let padding_len = (1 << trace.log_n_rows) - h;
+    let n_rows = 1 << trace.log_n_rows;
     let padding_row = if *table == Table::poseidon16() {
-        default_poseidon_row(null_hash_ptr)
+        default_poseidon_16_row(null_poseidon_16_hash_ptr)
     } else {
         table.padding_row()
     };
     trace.columns.par_iter_mut().enumerate().for_each(|(i, col)| {
-        col.extend(repeat_n(padding_row[i], padding_len));
+        assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon -> we fill it later with SIMD + parallelism), but the first one should always be representative
+        col.resize(n_rows, padding_row[i]);
     });
 }

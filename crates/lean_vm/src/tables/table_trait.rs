@@ -132,10 +132,6 @@ pub trait TableT: Air {
         false
     }
 
-    fn n_committed_columns(&self) -> usize {
-        self.n_columns()
-    }
-
     fn lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
         self.lookups()
             .iter()

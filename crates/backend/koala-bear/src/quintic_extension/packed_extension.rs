@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use utils::{flatten_to_base, reconstitute_from_base};
 
 use super::extension::QuinticExtensionField;
-use crate::QuinticExtendable;
+use crate::{KoalaBear, QuinticExtendable};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(transparent)] // Needed to make various casts safe.
@@ -77,6 +77,70 @@ impl<F: QuinticExtendable, PF: PackedField<Scalar = F>> Algebra<QuinticExtension
 }
 
 impl<F: QuinticExtendable, PF: PackedField<Scalar = F>> Algebra<PF> for PackedQuinticExtensionField<F, PF> {}
+
+macro_rules! impl_packed_ext_scalar_ops {
+    ($pf:ty) => {
+        impl Add<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            type Output = Self;
+            #[inline]
+            fn add(mut self, rhs: KoalaBear) -> Self {
+                self.value[0] += rhs;
+                self
+            }
+        }
+
+        impl AddAssign<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            #[inline]
+            fn add_assign(&mut self, rhs: KoalaBear) {
+                self.value[0] += rhs;
+            }
+        }
+
+        impl Sub<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            type Output = Self;
+            #[inline]
+            fn sub(mut self, rhs: KoalaBear) -> Self {
+                self.value[0] -= rhs;
+                self
+            }
+        }
+
+        impl SubAssign<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            #[inline]
+            fn sub_assign(&mut self, rhs: KoalaBear) {
+                self.value[0] -= rhs;
+            }
+        }
+
+        impl Mul<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            type Output = Self;
+            #[inline]
+            fn mul(self, rhs: KoalaBear) -> Self {
+                Self {
+                    value: self.value.map(|x| x * rhs),
+                }
+            }
+        }
+
+        impl MulAssign<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
+            #[inline]
+            fn mul_assign(&mut self, rhs: KoalaBear) {
+                for v in &mut self.value {
+                    *v *= rhs;
+                }
+            }
+        }
+    };
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+impl_packed_ext_scalar_ops!(crate::PackedKoalaBearNeon);
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+impl_packed_ext_scalar_ops!(crate::PackedKoalaBearAVX2);
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+impl_packed_ext_scalar_ops!(crate::PackedKoalaBearAVX512);
 
 impl<F, PF> PrimeCharacteristicRing for PackedQuinticExtensionField<F, PF>
 where

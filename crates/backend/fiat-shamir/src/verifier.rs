@@ -9,7 +9,7 @@ use crate::{
 };
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, PrimeField64};
-use koala_bear::{KoalaBear, default_koalabear_poseidon2_16};
+use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
 use symetric::Compression;
 
 pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
@@ -71,7 +71,7 @@ where
         assert_eq!(TypeId::of::<PF<EF>>(), TypeId::of::<KoalaBear>());
         // SAFETY: We've confirmed PF<EF> == KoalaBear
         let paths: PrunedMerklePaths<KoalaBear, KoalaBear> = unsafe { std::mem::transmute(paths) };
-        let perm = default_koalabear_poseidon2_16();
+        let perm = default_koalabear_poseidon1_16();
         let hash_fn = |data: &[KoalaBear]| symetric::hash_slice::<_, _, 16, 8, DIGEST_LEN_FE>(&perm, data);
         let combine_fn = |left: &[KoalaBear; DIGEST_LEN_FE], right: &[KoalaBear; DIGEST_LEN_FE]| {
             symetric::compress(&perm, [*left, *right])

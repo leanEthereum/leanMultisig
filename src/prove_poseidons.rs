@@ -1,8 +1,9 @@
 use air::{check_air_validity, prove_air, verify_air};
 use backend::*;
 use lean_vm::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_A, POSEIDON_16_COL_B, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START,
-    POSEIDON_16_COL_RES, Poseidon16Precompile, ZERO_VEC_PTR, fill_trace_poseidon_16, num_cols_poseidon_16,
+    EF, ExtraDataForBuses, F, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_INDEX_INPUT_RES,
+    POSEIDON_16_COL_INDEX_INPUT_RIGHT, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, ZERO_VEC_PTR,
+    fill_trace_poseidon_16, num_cols_poseidon_16,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{
@@ -28,9 +29,9 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
     trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
-    trace[POSEIDON_16_COL_RES] = (0..n_rows).map(|_| F::ZERO).collect(); // useless
-    trace[POSEIDON_16_COL_A] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
-    trace[POSEIDON_16_COL_B] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_16_COL_INDEX_INPUT_RES] = (0..n_rows).map(|_| F::ZERO).collect(); // useless
+    trace[POSEIDON_16_COL_INDEX_INPUT_LEFT] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_16_COL_INDEX_INPUT_RIGHT] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
     fill_trace_poseidon_16(&mut trace);
 
     let whir_config = WhirConfigBuilder {

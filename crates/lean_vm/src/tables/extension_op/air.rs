@@ -1,5 +1,6 @@
 use crate::{
-    EF, ExtraDataForBuses, eval_virtual_bus_column,
+    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses,
+    eval_virtual_bus_column,
     tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile},
 };
 use backend::*;
@@ -99,10 +100,10 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let active = flag_add + flag_mul + flag_poly_eq;
         let activation_flag = start * active;
 
-        let aux = is_be.double()
-            + flag_add * AB::F::from_usize(4)
-            + flag_mul * AB::F::from_usize(8)
-            + flag_poly_eq * AB::F::from_usize(16)
+        let aux = is_be * AB::F::from_usize(EXT_OP_FLAG_IS_BE)
+            + flag_add * AB::F::from_usize(EXT_OP_FLAG_ADD)
+            + flag_mul * AB::F::from_usize(EXT_OP_FLAG_MUL)
+            + flag_poly_eq * AB::F::from_usize(EXT_OP_FLAG_POLY_EQ)
             + len * AB::F::from_usize(EXT_OP_LEN_MULTIPLIER);
 
         let idx_r = up[COL_IDX_RES];
