@@ -60,7 +60,7 @@ def whir_open(
 
     # Evaluate final polynomial on circle: n_final_vars=8, 2^8=256
     final_circle_values = all_circle_values[2]
-    for i in range(0, 27):
+    for i in unroll(0, 27):
         alpha = final_circle_values[i]
         alpha_powers = Array(256)
         alpha_powers[0] = 1
@@ -104,7 +104,7 @@ def whir_open(
     # 113 query checks
     s6s_0 = Array(113 * DIM)
     circle_value_0 = all_circle_values[0]
-    for j in range(0, 113):
+    for j in unroll(0, 113):
         expanded_q = expand_from_univariate_base_const(circle_value_0[j], 18)
         poly_eq_be(expanded_q, my_folding_randomness_0, s6s_0 + j * DIM, 18)
     s7_0 = Array(DIM)
@@ -125,7 +125,7 @@ def whir_open(
     # 55 query checks
     s6s_1 = Array(55 * DIM)
     circle_value_1 = all_circle_values[1]
-    for j in range(0, 55):
+    for j in unroll(0, 55):
         expanded_q = expand_from_univariate_base_const(circle_value_1[j], 13)
         poly_eq_be(expanded_q, my_folding_randomness_1, s6s_1 + j * DIM, 13)
     s7_1 = Array(DIM)
@@ -186,10 +186,12 @@ def sample_stir_indexes_and_fold_r0(fs: Mut, prev_root, folding_randomness):
     fs = fs_finalize_sample(fs, 15)
     merkle_leaves = Array(113)
     circle_values = Array(113)
-    decompose_and_verify_merkle_batch_const(113, sampled, prev_root, 20, 16, circle_values, merkle_leaves)
+    for i in unroll(0, 113):
+        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], 20)
+        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, 20, 16)
     folds = Array(113 * DIM)
     poly_eq = poly_eq_extension(folding_randomness, 7)
-    for i in range(0, 113):
+    for i in unroll(0, 113):
         dot_product_be(merkle_leaves[i], poly_eq, folds + i * DIM, 128)
     return fs, circle_values, folds
 
@@ -202,10 +204,12 @@ def sample_stir_indexes_and_fold_r1(fs: Mut, prev_root, folding_randomness):
     fs = fs_finalize_sample(fs, 7)
     merkle_leaves = Array(55)
     circle_values = Array(55)
-    decompose_and_verify_merkle_batch_const(55, sampled, prev_root, 17, 20, circle_values, merkle_leaves)
+    for i in unroll(0, 55):
+        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], 17)
+        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, 17, 20)
     folds = Array(55 * DIM)
     poly_eq = poly_eq_extension(folding_randomness, 5)
-    for i in range(0, 55):
+    for i in unroll(0, 55):
         dot_product_ee(merkle_leaves[i], poly_eq, folds + i * DIM, 32)
     return fs, circle_values, folds
 
@@ -218,10 +222,12 @@ def sample_stir_indexes_and_fold_final(fs: Mut, prev_root, folding_randomness):
     fs = fs_finalize_sample(fs, 4)
     merkle_leaves = Array(27)
     circle_values = Array(27)
-    decompose_and_verify_merkle_batch_const(27, sampled, prev_root, 16, 20, circle_values, merkle_leaves)
+    for i in unroll(0, 27):
+        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], 16)
+        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, 16, 20)
     folds = Array(27 * DIM)
     poly_eq = poly_eq_extension(folding_randomness, 5)
-    for i in range(0, 27):
+    for i in unroll(0, 27):
         dot_product_ee(merkle_leaves[i], poly_eq, folds + i * DIM, 32)
     return fs, circle_values, folds
 
