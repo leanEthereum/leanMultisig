@@ -44,7 +44,11 @@ pub fn prove_execution(
     prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     prover_state.add_base_scalars(
         &[
-            vec![whir_config.starting_log_inv_rate, log2_strict_usize(memory.len())],
+            vec![
+                whir_config.starting_log_inv_rate,
+                log2_strict_usize(memory.len()),
+                public_input.len(),
+            ],
             traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
         ]
         .concat()
