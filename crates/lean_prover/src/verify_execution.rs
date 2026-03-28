@@ -21,13 +21,17 @@ pub fn verify_execution(
     verifier_state.observe_scalars(public_input);
     verifier_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     let dims = verifier_state
-        .next_base_scalars_vec(2 + N_TABLES)?
+        .next_base_scalars_vec(3 + N_TABLES)?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>();
     let log_inv_rate = dims[0];
     let log_memory = dims[1];
-    let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 2])).collect();
+    let public_input_len = dims[2]; // enforce the exact length of the public input to pass through Fiat Shamir (otherwise we could have 2 public inputs, only differing by a few (<8) zeros in the end, leading to the same fiat shamir state: tipically giving the advseary 2 or 3 bits of advantage in the subsequent part where the public input is evaluated as a multilinear polynomial)
+    if public_input_len != public_input.len() {
+        return Err(ProofError::InvalidProof);
+    }
+    let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 3])).collect();
     if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
         return Err(ProofError::InvalidProof);
     }

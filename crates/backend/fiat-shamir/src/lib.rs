@@ -20,3 +20,5 @@ pub(crate) use merkle_pruning::*;
 
 mod verifier;
 pub use verifier::*;
+
+const _: () = assert!(usize::BITS >= 32); // PoW grinding / Whir merkle index never exceeds 24 bits < 32
