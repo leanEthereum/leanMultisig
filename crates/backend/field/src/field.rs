@@ -71,7 +71,7 @@ pub trait PrimeCharacteristicRing:
     + PartialEq
 {
     /// The field `ℤ/p` where the characteristic of this ring is p.
-    type PrimeSubfield: PrimeField;
+    type PrimeSubfield: PrimeField32;
 
     /// The additive identity of the ring.
     ///
@@ -897,6 +897,19 @@ pub trait PrimeField32: PrimeField64 {
         // A simple default which is optimal for some fields.
         self.as_canonical_u32()
     }
+
+    /// Reduce a u128 that is the sum of products `Σ to_unique_u32(a_i) * to_unique_u32(b_i)`
+    /// back to a field element equal to `Σ (a_i * b_i)`.
+    ///
+    /// This enables delaying modular reduction across many multiply-accumulate steps:
+    /// compute raw u32×u32→u64 products, sum into u128, then reduce once at the end.
+    #[must_use]
+    fn reduce_product_sum(sum: u128) -> Self;
+
+    /// Signed variant: reduce a sum of signed products of raw values.
+    /// Input is `Σ (a_i as i64 - b_i as i64) * (c_i as i64 - d_i as i64)` accumulated into i128.
+    #[must_use]
+    fn reduce_signed_product_sum(sum: i128) -> Self;
 }
 
 /// A field `EF` which is also an algebra over a field `F`.

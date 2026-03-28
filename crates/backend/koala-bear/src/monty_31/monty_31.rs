@@ -623,6 +623,23 @@ impl<FP: FieldParameters> PrimeField32 for MontyField31<FP> {
         // It's fine to hash things in monty form.
         self.value
     }
+
+    #[inline]
+    fn reduce_product_sum(sum: u128) -> Self {
+        Self::new_monty(monty_reduce_u128::<FP>(sum))
+    }
+
+    #[inline]
+    fn reduce_signed_product_sum(sum: i128) -> Self {
+        // Convert to unsigned: sum mod P. Since P is small, add a large multiple of P.
+        // max |sum| < n * P^2 < 2^25 * 2^62 = 2^87. We need to add k*P where k*P > 2^87.
+        // Use (2^96 / P + 1) * P which is precomputed as a constant > 2^96 > 2^87.
+        // Simpler: just use i128 remainder.
+        let p = FP::PRIME as i128;
+        let r = sum % p;
+        let r = if r < 0 { (r + p) as u128 } else { r as u128 };
+        Self::new_monty(monty_reduce_u128::<FP>(r))
+    }
 }
 
 impl<FP: FieldParameters + TwoAdicData> TwoAdicField for MontyField31<FP> {
