@@ -626,19 +626,18 @@ impl<FP: FieldParameters> PrimeField32 for MontyField31<FP> {
 
     #[inline]
     fn reduce_product_sum(sum: u128) -> Self {
-        Self::new_monty(monty_reduce_u128::<FP>(sum))
+        // Reduce mod P first (removes any bias multiples of P), then monty_reduce.
+        // This avoids overflow in monty_reduce_u128 when sum is large from the bias trick.
+        let r = (sum % FP::PRIME as u128) as u64;
+        Self::new_monty(monty_reduce::<FP>(r))
     }
 
     #[inline]
     fn reduce_signed_product_sum(sum: i128) -> Self {
-        // Convert to unsigned: sum mod P. Since P is small, add a large multiple of P.
-        // max |sum| < n * P^2 < 2^25 * 2^62 = 2^87. We need to add k*P where k*P > 2^87.
-        // Use (2^96 / P + 1) * P which is precomputed as a constant > 2^96 > 2^87.
-        // Simpler: just use i128 remainder.
         let p = FP::PRIME as i128;
         let r = sum % p;
-        let r = if r < 0 { (r + p) as u128 } else { r as u128 };
-        Self::new_monty(monty_reduce_u128::<FP>(r))
+        let r = if r < 0 { (r + p) as u64 } else { r as u64 };
+        Self::new_monty(monty_reduce::<FP>(r))
     }
 }
 
