@@ -95,6 +95,9 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
         let n = self.paths.len();
         let h = self.merkle_height;
 
+        if h >= 32 {
+            return None; // prevent DoS with huge tree height
+        }
         if self.n_trailing_zeros > 1024 {
             return None; // prevent DoS with huge leaf data
         }
