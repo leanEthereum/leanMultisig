@@ -8,7 +8,7 @@ use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
-use sub_protocols::{min_stacked_n_vars, total_whir_statements};
+use sub_protocols::{min_stacked_n_vars, total_sparse_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
@@ -336,8 +336,8 @@ fn build_replacements(
         N_RUNTIME_COLUMNS.to_string(),
     );
     replacements.insert(
-        "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
-        total_whir_statements().to_string(),
+        "TOTAL_SPARSE_STATEMENTS_PLACEHOLDER".to_string(),
+        total_sparse_statements().to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
