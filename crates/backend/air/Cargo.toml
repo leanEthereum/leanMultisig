@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 field = { path = "../field", package = "mt-field" }
 poly = { path = "../poly", package = "mt-poly" }
+
+[dev-dependencies]
+koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }

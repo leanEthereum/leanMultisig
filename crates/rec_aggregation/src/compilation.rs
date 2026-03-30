@@ -380,7 +380,7 @@ where
 {
     let (constraints, bus_flag, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
     let mut vars_counter = Counter::new();
-    let mut cache: HashMap<u32, String> = HashMap::new();
+    let mut cache: HashMap<SymbolicNodeRef<F>, String> = HashMap::new();
 
     let mut res = format!(
         "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, logup_alphas_eq_poly):\n",
@@ -434,7 +434,7 @@ where
 fn eval_air_constraint(
     expr: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    cache: &mut HashMap<SymbolicNodeRef<F>, String>,
     res: &mut String,
     ctr: &mut Counter,
 ) -> String {
@@ -445,14 +445,14 @@ fn eval_air_constraint(
             v
         }
         SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
-        SymbolicExpression::Operation(idx) => {
-            if let Some(v) = cache.get(&idx) {
+        SymbolicExpression::Operation(handle) => {
+            if let Some(v) = cache.get(&handle) {
                 if let Some(d) = dest {
                     res.push_str(&format!("\n    copy_5({}, {})", v, d));
                 }
                 return v.clone();
             }
-            let node = get_node::<F>(idx);
+            let node = get_node::<F>(handle);
             let v = match node.op {
                 SymbolicOperation::Neg => {
                     let a = eval_air_constraint(node.lhs, None, cache, res, ctr);
@@ -462,13 +462,12 @@ fn eval_air_constraint(
                 }
                 _ => eval_air_binop(node.op, node.lhs, node.rhs, dest, cache, res, ctr),
             };
-            // If dest was requested but the result landed elsewhere, copy it
             if let Some(d) = dest
                 && v != d
             {
                 res.push_str(&format!("\n    copy_5({}, {})", v, d));
             }
-            cache.insert(idx, v.clone());
+            cache.insert(handle, v.clone());
             v
         }
     }
@@ -481,7 +480,7 @@ fn eval_air_binop(
     lhs: SymbolicExpression<F>,
     rhs: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    cache: &mut HashMap<SymbolicNodeRef<F>, String>,
     res: &mut String,
     ctr: &mut Counter,
 ) -> String {
