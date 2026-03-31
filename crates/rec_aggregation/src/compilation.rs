@@ -364,14 +364,16 @@ fn build_replacements(
 }
 
 fn all_air_evals_in_zk_dsl() -> String {
-    use crate::air_constraints_optimizer::{expr_graph_from_symbolic, rate_solution, solution_to_zkdsl, solve_trivial};
+    use crate::air_constraints_optimizer::{
+        expr_graph_from_symbolic, rate_solution, solution_to_zkdsl, solve_optimized,
+    };
 
     fn gen_table<T: TableT>(table: T, idx: usize) -> String
     where
         T::ExtraData: Default,
     {
         let graph = expr_graph_from_symbolic(&table);
-        let solution = solve_trivial(&graph);
+        let solution = solve_optimized(&graph);
         let cost = rate_solution(&solution);
         tracing::info!(
             "Table {} AIR codegen: {} instructions, {} exec rows, {} ext op rows",

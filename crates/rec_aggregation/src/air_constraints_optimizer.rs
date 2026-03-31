@@ -86,6 +86,24 @@ pub enum Instruction {
     AddExt { a: Operand, b: Operand, result: ResultSlot },
     /// `result = a * b` (extension × extension). 1 exec + 1 ext op.
     MulExt { a: Operand, b: Operand, result: ResultSlot },
+    /// `result = a + c` (extension + base constant). 1 exec + 1 ext op.
+    AddBaseExt {
+        base_const: u32,
+        ext_operand: Operand,
+        result: ResultSlot,
+    },
+    /// `result = c - a` (base constant - extension). 5 exec + 0 ext op.
+    SubBaseExt {
+        base_const: u32,
+        ext_operand: Operand,
+        result: ResultSlot,
+    },
+    /// `result = a - c` (extension - base constant). 5 exec + 0 ext op.
+    SubExtBase {
+        ext_operand: Operand,
+        base_const: u32,
+        result: ResultSlot,
+    },
     /// `result = a - b`. 5 exec + 0 ext op.
     SubExt { a: Operand, b: Operand, result: ResultSlot },
     /// `result = -a`. 5 exec + 0 ext op.
@@ -202,6 +220,9 @@ impl Instruction {
             Instruction::MulBaseExt { .. } => Cost::new(1, 1),
             Instruction::AddExt { .. } => Cost::new(1, 1),
             Instruction::MulExt { .. } => Cost::new(1, 1),
+            Instruction::AddBaseExt { .. } => Cost::new(1, 1),
+            Instruction::SubBaseExt { .. } => Cost::new(5, 0),
+            Instruction::SubExtBase { .. } => Cost::new(5, 0),
             Instruction::SubExt { .. } => Cost::new(5, 0),
             Instruction::NegExt { .. } => Cost::new(5, 0),
             Instruction::CopyExt { .. } => Cost::new(5, 0),
@@ -381,6 +402,601 @@ fn operand_for(instr_idx: usize, expr: ExprId, graph: &ExprGraph, _solution: &So
             _ => unreachable!("sentinel used for non-variable"),
         }
     } else {
+        Operand::InstructionResult(instr_idx)
+    }
+}
+
+// ============================================================================
+// Smart solver: uses dot_product_be, add_ee, inline base-field constants
+// ============================================================================
+
+/// Optimized solver that:
+/// 1. Inlines base-field constants into add/sub (no embed_in_ef for const+ext or ext-const)
+/// 2. Detects sums of `Const*Var` products → dot_product_be when Variables are consecutive
+/// 3. Detects sums of `Ext*Ext` products → dot_product_ee when non-shared
+/// 4. Reuses constant arrays across calls (via const_arrays map)
+pub fn solve_optimized(graph: &ExprGraph) -> Solution {
+    let mut ctx = OptCtx {
+        graph,
+        solution: Solution {
+            buffers: Vec::new(),
+            const_arrays: BTreeMap::new(),
+            instructions: Vec::new(),
+            expr_to_instruction: HashMap::new(),
+        },
+    };
+
+    let mut all_roots: Vec<ExprId> = graph.constraints.clone();
+    all_roots.push(graph.bus_flag);
+    all_roots.extend(graph.bus_data.iter());
+
+    for &root in &all_roots {
+        ctx.eval(root);
+    }
+
+    ctx.solution
+}
+
+struct OptCtx<'a> {
+    graph: &'a ExprGraph,
+    solution: Solution,
+}
+
+/// A term in a flattened sum: coefficient (sign) × expression.
+#[derive(Clone)]
+struct SumTerm {
+    expr: ExprId,
+    negated: bool,
+}
+
+/// A classified product in a sum.
+enum ProductKind {
+    /// base_const * ext_expr (ext_expr is NOT a constant)
+    BE { base_const: u32, ext_expr: ExprId },
+    /// ext_a * ext_b (neither is a constant)
+    EE { a: ExprId, b: ExprId },
+}
+
+impl<'a> OptCtx<'a> {
+    fn eval(&mut self, expr: ExprId) -> usize {
+        if let Some(&idx) = self.solution.expr_to_instruction.get(&expr) {
+            return idx;
+        }
+
+        let idx = match self.graph.nodes[expr].clone() {
+            ExprNode::Variable(_) => return self.record_variable(expr),
+            ExprNode::Constant(c) => self.push(Instruction::EmbedConst {
+                value: c,
+                result: ResultSlot::Fresh(0), // placeholder
+            }),
+            ExprNode::Neg(inner) => {
+                let inner_idx = self.eval(inner);
+                let op = self.operand(inner_idx, inner);
+                self.push(Instruction::NegExt {
+                    a: op,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            ExprNode::BinOp { op, lhs, rhs } => self.eval_binop(op, lhs, rhs, expr),
+        };
+
+        self.solution.expr_to_instruction.insert(expr, idx);
+        idx
+    }
+
+    fn eval_binop(&mut self, op: BinOpKind, lhs: ExprId, rhs: ExprId, self_expr: ExprId) -> usize {
+        let c_lhs = self.get_const(lhs);
+        let c_rhs = self.get_const(rhs);
+
+        match (c_lhs, c_rhs, op) {
+            // Const * Ext → MulBaseExt (no embed)
+            (Some(c), None, BinOpKind::Mul) => {
+                let ri = self.eval(rhs);
+                let ro = self.operand(ri, rhs);
+                self.push(Instruction::MulBaseExt {
+                    base_const: c,
+                    ext_operand: ro,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            (None, Some(c), BinOpKind::Mul) => {
+                let li = self.eval(lhs);
+                let lo = self.operand(li, lhs);
+                self.push(Instruction::MulBaseExt {
+                    base_const: c,
+                    ext_operand: lo,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            // Const + Ext → AddBaseExt (no embed)
+            (Some(c), None, BinOpKind::Add) => {
+                let ri = self.eval(rhs);
+                let ro = self.operand(ri, rhs);
+                self.push(Instruction::AddBaseExt {
+                    base_const: c,
+                    ext_operand: ro,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            (None, Some(c), BinOpKind::Add) => {
+                let li = self.eval(lhs);
+                let lo = self.operand(li, lhs);
+                self.push(Instruction::AddBaseExt {
+                    base_const: c,
+                    ext_operand: lo,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            // Const - Ext → SubBaseExt
+            (Some(c), None, BinOpKind::Sub) => {
+                let ri = self.eval(rhs);
+                let ro = self.operand(ri, rhs);
+                self.push(Instruction::SubBaseExt {
+                    base_const: c,
+                    ext_operand: ro,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            // Ext - Const → SubExtBase
+            (None, Some(c), BinOpKind::Sub) => {
+                let li = self.eval(lhs);
+                let lo = self.operand(li, lhs);
+                self.push(Instruction::SubExtBase {
+                    ext_operand: lo,
+                    base_const: c,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            // Ext + Ext or Ext - Ext: try to batch sums of products
+            (None, None, BinOpKind::Add | BinOpKind::Sub) => {
+                if let Some(idx) = self.try_dot_product(self_expr) {
+                    return idx;
+                }
+                // Fallback: scalar
+                let li = self.eval(lhs);
+                let ri = self.eval(rhs);
+                let lo = self.operand(li, lhs);
+                let ro = self.operand(ri, rhs);
+                let instr = if op == BinOpKind::Add {
+                    Instruction::AddExt {
+                        a: lo,
+                        b: ro,
+                        result: ResultSlot::Fresh(0),
+                    }
+                } else {
+                    Instruction::SubExt {
+                        a: lo,
+                        b: ro,
+                        result: ResultSlot::Fresh(0),
+                    }
+                };
+                self.push(instr)
+            }
+            // Ext * Ext
+            (None, None, BinOpKind::Mul) => {
+                let li = self.eval(lhs);
+                let ri = self.eval(rhs);
+                let lo = self.operand(li, lhs);
+                let ro = self.operand(ri, rhs);
+                self.push(Instruction::MulExt {
+                    a: lo,
+                    b: ro,
+                    result: ResultSlot::Fresh(0),
+                })
+            }
+            // Both constants (rare — symbolic already folds)
+            (Some(_), Some(_), _) => {
+                let li = self.eval(lhs);
+                let ri = self.eval(rhs);
+                let lo = self.operand(li, lhs);
+                let ro = self.operand(ri, rhs);
+                let instr = match op {
+                    BinOpKind::Add => Instruction::AddExt {
+                        a: lo,
+                        b: ro,
+                        result: ResultSlot::Fresh(0),
+                    },
+                    BinOpKind::Sub => Instruction::SubExt {
+                        a: lo,
+                        b: ro,
+                        result: ResultSlot::Fresh(0),
+                    },
+                    BinOpKind::Mul => Instruction::MulExt {
+                        a: lo,
+                        b: ro,
+                        result: ResultSlot::Fresh(0),
+                    },
+                };
+                self.push(instr)
+            }
+        }
+    }
+
+    /// Try to batch a sum of products into dot_product_be or dot_product_ee.
+    fn try_dot_product(&mut self, expr: ExprId) -> Option<usize> {
+        // Flatten the addition chain, stopping at shared/cached nodes.
+        let mut terms = Vec::new();
+        self.flatten_sum(expr, false, &mut terms);
+        if terms.len() < 3 {
+            return None;
+        }
+
+        // Classify each term.
+        let mut be_pos: Vec<(u32, ExprId)> = Vec::new(); // (const, ext_expr)
+        let mut be_neg: Vec<(u32, ExprId)> = Vec::new();
+        let mut ee_pos: Vec<(ExprId, ExprId)> = Vec::new();
+        let mut ee_neg: Vec<(ExprId, ExprId)> = Vec::new();
+        let mut remainders: Vec<SumTerm> = Vec::new();
+
+        for term in &terms {
+            if let Some(pk) = self.classify_as_product(term.expr) {
+                match pk {
+                    ProductKind::BE { base_const, ext_expr } => {
+                        if term.negated { &mut be_neg } else { &mut be_pos }.push((base_const, ext_expr));
+                    }
+                    ProductKind::EE { a, b } => {
+                        if term.negated { &mut ee_neg } else { &mut ee_pos }.push((a, b));
+                    }
+                }
+            } else {
+                remainders.push(term.clone());
+            }
+        }
+
+        let n_be = be_pos.len() + be_neg.len();
+        let n_ee = ee_pos.len() + ee_neg.len();
+
+        // Check if batching is cost-effective.
+        // dot_product(N) costs 1 exec + N ext_op vs N*(1 exec + 1 ext_op) + (N-1)*(1 exec + 1 ext_op) = 2N-1 each.
+        // So savings = (2N-2) exec + (N-1) ext_op minus any copy cost.
+        // Copies: 5 exec each. Break-even: 1 + 5*copies < 2N-1 → copies < (2N-2)/5.
+        // For consecutive Variables: 0 copies. Always worth it for N >= 2.
+        let be_worth = n_be >= 3 && {
+            let copies = self.count_be_copies(&be_pos) + self.count_be_copies(&be_neg);
+            5 * copies + 1 < 2 * n_be // conservative: must save exec rows
+        };
+        let ee_worth = n_ee >= 3 && {
+            let copies = self.count_ee_copies(&ee_pos) + self.count_ee_copies(&ee_neg);
+            5 * copies + 1 < 2 * n_ee
+        };
+
+        if !be_worth && !ee_worth {
+            return None;
+        }
+
+        // Emit batched operations. Store (Operand, negated) pairs.
+        let mut parts: Vec<(Operand, bool)> = Vec::new();
+
+        if be_worth {
+            if !be_pos.is_empty() {
+                let idx = self.emit_dot_product_be(&be_pos);
+                parts.push((Operand::InstructionResult(idx), false));
+            }
+            if !be_neg.is_empty() {
+                let idx = self.emit_dot_product_be(&be_neg);
+                parts.push((Operand::InstructionResult(idx), true));
+            }
+        } else {
+            for (c, ext) in be_pos {
+                let ei = self.eval(ext);
+                let eo = self.operand(ei, ext);
+                let idx = self.push(Instruction::MulBaseExt {
+                    base_const: c,
+                    ext_operand: eo,
+                    result: ResultSlot::Fresh(0),
+                });
+                parts.push((Operand::InstructionResult(idx), false));
+            }
+            for (c, ext) in be_neg {
+                let ei = self.eval(ext);
+                let eo = self.operand(ei, ext);
+                let idx = self.push(Instruction::MulBaseExt {
+                    base_const: c,
+                    ext_operand: eo,
+                    result: ResultSlot::Fresh(0),
+                });
+                parts.push((Operand::InstructionResult(idx), true));
+            }
+        }
+
+        if ee_worth {
+            if !ee_pos.is_empty() {
+                let idx = self.emit_dot_product_ee(&ee_pos);
+                parts.push((Operand::InstructionResult(idx), false));
+            }
+            if !ee_neg.is_empty() {
+                let idx = self.emit_dot_product_ee(&ee_neg);
+                parts.push((Operand::InstructionResult(idx), true));
+            }
+        } else {
+            for (a, b) in ee_pos {
+                let ai = self.eval(a);
+                let bi = self.eval(b);
+                let ao = self.operand(ai, a);
+                let bo = self.operand(bi, b);
+                let idx = self.push(Instruction::MulExt {
+                    a: ao,
+                    b: bo,
+                    result: ResultSlot::Fresh(0),
+                });
+                parts.push((Operand::InstructionResult(idx), false));
+            }
+            for (a, b) in ee_neg {
+                let ai = self.eval(a);
+                let bi = self.eval(b);
+                let ao = self.operand(ai, a);
+                let bo = self.operand(bi, b);
+                let idx = self.push(Instruction::MulExt {
+                    a: ao,
+                    b: bo,
+                    result: ResultSlot::Fresh(0),
+                });
+                parts.push((Operand::InstructionResult(idx), true));
+            }
+        }
+
+        // Evaluate remainders.
+        for term in &remainders {
+            let idx = self.eval(term.expr);
+            let op = self.operand(idx, term.expr);
+            parts.push((op, term.negated));
+        }
+
+        // Combine all parts.
+        Some(self.combine_parts(&parts))
+    }
+
+    fn emit_dot_product_be(&mut self, products: &[(u32, ExprId)]) -> usize {
+        let consts: Vec<u32> = products.iter().map(|(c, _)| *c).collect();
+        let mut operands = Vec::new();
+        for &(_, ext) in products {
+            let ei = self.eval(ext);
+            operands.push(self.operand(ei, ext));
+        }
+
+        // Check for consecutive Variables (zero-copy fast path).
+        let consecutive_start = self.check_consecutive_vars(&operands);
+        if let Some(start) = consecutive_start {
+            // Use inner_evals pointer directly.
+            let op_list = (0..products.len()).map(|i| Operand::Variable(start + i)).collect();
+            self.push(Instruction::DotProductBE {
+                base_consts: consts,
+                ext_operands: op_list,
+                result: ResultSlot::Fresh(0),
+            })
+        } else {
+            self.push(Instruction::DotProductBE {
+                base_consts: consts,
+                ext_operands: operands,
+                result: ResultSlot::Fresh(0),
+            })
+        }
+    }
+
+    fn emit_dot_product_ee(&mut self, products: &[(ExprId, ExprId)]) -> usize {
+        let mut a_ops = Vec::new();
+        let mut b_ops = Vec::new();
+        for &(a, b) in products {
+            let ai = self.eval(a);
+            let bi = self.eval(b);
+            a_ops.push(self.operand(ai, a));
+            b_ops.push(self.operand(bi, b));
+        }
+        self.push(Instruction::DotProductEE {
+            a_operands: a_ops,
+            b_operands: b_ops,
+            result: ResultSlot::Fresh(0),
+        })
+    }
+
+    fn combine_parts(&mut self, parts: &[(Operand, bool)]) -> usize {
+        assert!(!parts.is_empty());
+        let (ref first_op, first_neg) = parts[0];
+        let mut acc_op = if first_neg {
+            let idx = self.push(Instruction::NegExt {
+                a: first_op.clone(),
+                result: ResultSlot::Fresh(0),
+            });
+            Operand::InstructionResult(idx)
+        } else {
+            first_op.clone()
+        };
+
+        for (cur_op, negated) in &parts[1..] {
+            let idx = if *negated {
+                self.push(Instruction::SubExt {
+                    a: acc_op,
+                    b: cur_op.clone(),
+                    result: ResultSlot::Fresh(0),
+                })
+            } else {
+                self.push(Instruction::AddExt {
+                    a: acc_op,
+                    b: cur_op.clone(),
+                    result: ResultSlot::Fresh(0),
+                })
+            };
+            acc_op = Operand::InstructionResult(idx);
+        }
+        match acc_op {
+            Operand::InstructionResult(idx) => idx,
+            _ => self.push(Instruction::CopyExt {
+                src: acc_op,
+                dest: ResultSlot::Fresh(0),
+            }),
+        }
+    }
+
+    // --- Helpers ---
+
+    fn flatten_sum(&self, expr: ExprId, negated: bool, terms: &mut Vec<SumTerm>) {
+        // Don't expand shared (ref_count > 1) or already-evaluated nodes.
+        if self.graph.ref_counts[expr] > 1 || self.solution.expr_to_instruction.contains_key(&expr) {
+            terms.push(SumTerm { expr, negated });
+            return;
+        }
+        match &self.graph.nodes[expr] {
+            ExprNode::BinOp {
+                op: BinOpKind::Add,
+                lhs,
+                rhs,
+            } => {
+                self.flatten_sum(*lhs, negated, terms);
+                self.flatten_sum(*rhs, negated, terms);
+            }
+            ExprNode::BinOp {
+                op: BinOpKind::Sub,
+                lhs,
+                rhs,
+            } => {
+                self.flatten_sum(*lhs, negated, terms);
+                self.flatten_sum(*rhs, !negated, terms);
+            }
+            ExprNode::Neg(inner) => {
+                self.flatten_sum(*inner, !negated, terms);
+            }
+            _ => terms.push(SumTerm { expr, negated }),
+        }
+    }
+
+    fn classify_as_product(&self, expr: ExprId) -> Option<ProductKind> {
+        // Only classify non-shared, non-evaluated Mul nodes.
+        if self.graph.ref_counts[expr] > 1 || self.solution.expr_to_instruction.contains_key(&expr) {
+            return None;
+        }
+        match &self.graph.nodes[expr] {
+            ExprNode::BinOp {
+                op: BinOpKind::Mul,
+                lhs,
+                rhs,
+            } => {
+                let cl = self.get_const(*lhs);
+                let cr = self.get_const(*rhs);
+                match (cl, cr) {
+                    (Some(c), None) => Some(ProductKind::BE {
+                        base_const: c,
+                        ext_expr: *rhs,
+                    }),
+                    (None, Some(c)) => Some(ProductKind::BE {
+                        base_const: c,
+                        ext_expr: *lhs,
+                    }),
+                    (None, None) => Some(ProductKind::EE { a: *lhs, b: *rhs }),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn count_be_copies(&self, products: &[(u32, ExprId)]) -> usize {
+        // If all ext operands are consecutive Variables → 0 copies.
+        if self.are_consecutive_vars(products.iter().map(|(_, e)| *e)) {
+            return 0;
+        }
+        products.iter().filter(|(_, e)| self.needs_copy(*e)).count()
+    }
+
+    fn count_ee_copies(&self, products: &[(ExprId, ExprId)]) -> usize {
+        products
+            .iter()
+            .map(|(a, b)| (if self.needs_copy(*a) { 1 } else { 0 }) + (if self.needs_copy(*b) { 1 } else { 0 }))
+            .sum()
+    }
+
+    fn needs_copy(&self, expr: ExprId) -> bool {
+        matches!(self.graph.nodes[expr], ExprNode::Variable(_) | ExprNode::Constant(_))
+            || self.solution.expr_to_instruction.contains_key(&expr)
+    }
+
+    fn are_consecutive_vars(&self, exprs: impl Iterator<Item = ExprId>) -> bool {
+        let mut prev: Option<usize> = None;
+        for e in exprs {
+            match self.graph.nodes[e] {
+                ExprNode::Variable(idx) => {
+                    if let Some(p) = prev {
+                        if idx != p + 1 {
+                            return false;
+                        }
+                    }
+                    prev = Some(idx);
+                }
+                _ => return false,
+            }
+        }
+        prev.is_some()
+    }
+
+    fn check_consecutive_vars(&self, operands: &[Operand]) -> Option<usize> {
+        let mut prev: Option<usize> = None;
+        for op in operands {
+            match op {
+                Operand::Variable(idx) => {
+                    if let Some(p) = prev {
+                        if *idx != p + 1 {
+                            return None;
+                        }
+                    }
+                    prev = Some(*idx);
+                }
+                _ => return None,
+            }
+        }
+        operands.first().and_then(|op| match op {
+            Operand::Variable(idx) => Some(*idx),
+            _ => None,
+        })
+    }
+
+    fn get_const(&self, expr: ExprId) -> Option<u32> {
+        match self.graph.nodes[expr] {
+            ExprNode::Constant(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    fn push(&mut self, mut instr: Instruction) -> usize {
+        let idx = self.solution.instructions.len();
+        // Fix up the placeholder ResultSlot.
+        match &mut instr {
+            Instruction::MulBaseExt { result, .. }
+            | Instruction::AddBaseExt { result, .. }
+            | Instruction::SubBaseExt { result, .. }
+            | Instruction::SubExtBase { result, .. }
+            | Instruction::AddExt { result, .. }
+            | Instruction::MulExt { result, .. }
+            | Instruction::SubExt { result, .. }
+            | Instruction::NegExt { result, .. }
+            | Instruction::CopyExt { dest: result, .. }
+            | Instruction::EmbedConst { result, .. }
+            | Instruction::DotProductBE { result, .. }
+            | Instruction::DotProductEE { result, .. }
+            | Instruction::AddEE { result, .. } => {
+                *result = ResultSlot::Fresh(idx);
+            }
+        }
+        self.solution.instructions.push(instr);
+        idx
+    }
+
+    fn record_variable(&mut self, expr: ExprId) -> usize {
+        let sentinel = usize::MAX;
+        self.solution.expr_to_instruction.insert(expr, sentinel);
+        sentinel
+    }
+
+    fn operand(&self, instr_idx: usize, expr: ExprId) -> Operand {
+        if instr_idx == usize::MAX {
+            match self.graph.nodes[expr] {
+                ExprNode::Variable(idx) => Operand::Variable(idx),
+                _ => unreachable!(),
+            }
+        } else {
+            Operand::InstructionResult(instr_idx)
+        }
+    }
+
+    fn operand_from_instr(&self, instr_idx: usize) -> Operand {
         Operand::InstructionResult(instr_idx)
     }
 }
@@ -638,6 +1254,45 @@ fn emit_instruction(
             let bn = resolve_operand_name(b, var_names);
             let v = next_var();
             res.push_str(&format!("\n    {} = mul_extension_ret({}, {})", v, an, bn));
+            v
+        }
+        Instruction::AddBaseExt {
+            base_const,
+            ext_operand,
+            ..
+        } => {
+            let ext = resolve_operand_name(ext_operand, var_names);
+            let v = next_var();
+            res.push_str(&format!(
+                "\n    {} = add_base_extension_ret({}, {})",
+                v, base_const, ext
+            ));
+            v
+        }
+        Instruction::SubBaseExt {
+            base_const,
+            ext_operand,
+            ..
+        } => {
+            let ext = resolve_operand_name(ext_operand, var_names);
+            let v = next_var();
+            res.push_str(&format!(
+                "\n    {} = sub_base_extension_ret({}, {})",
+                v, base_const, ext
+            ));
+            v
+        }
+        Instruction::SubExtBase {
+            ext_operand,
+            base_const,
+            ..
+        } => {
+            let ext = resolve_operand_name(ext_operand, var_names);
+            let v = next_var();
+            res.push_str(&format!(
+                "\n    {} = sub_extension_base_ret({}, {})",
+                v, ext, base_const
+            ));
             v
         }
         Instruction::SubExt { a, b, .. } => {
