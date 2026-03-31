@@ -14,6 +14,7 @@ use std::collections::HashSet;
 
 pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 
+mod air_constraints_optimizer;
 pub mod benchmark;
 mod compilation;
 

@@ -110,6 +110,12 @@ pub trait PrimeCharacteristicRing:
     /// If the field has characteristic 2 this is equal to ONE.
     const NEG_ONE: Self;
 
+    /// When true, operations like matrix multiplications should use explicit
+    /// `Const * Var` multiplications instead of optimized addition trees.
+    /// This allows the recursive verifier code generator to detect dot product patterns.
+    /// Default is false (use optimized trees). Overridden to true for SymbolicExpression.
+    const PREFER_EXPLICIT_MUL: bool = false;
+
     /// Embed an element of the prime field `ℤ/p` into the ring `R`.
     ///
     /// Given any element `[r] ∈ ℤ/p`, represented by an integer `r` between `0` and `p - 1`

@@ -62,16 +62,26 @@ fn apply_mat4<R>(x: &mut [R; 4])
 where
     R: PrimeCharacteristicRing,
 {
-    let t01 = x[0] + x[1];
-    let t23 = x[2] + x[3];
-    let t0123 = t01 + t23;
-    let t01123 = t0123 + x[1];
-    let t01233 = t0123 + x[3];
-    // The order here is important. Need to overwrite x[0] and x[2] after x[1] and x[3].
-    x[3] = t01233 + x[0].double(); // 3*x[0] + x[1] + x[2] + 2*x[3]
-    x[1] = t01123 + x[2].double(); // x[0] + 2*x[1] + 3*x[2] + x[3]
-    x[0] = t01123 + t01; // 2*x[0] + 3*x[1] + x[2] + x[3]
-    x[2] = t01233 + t23; // x[0] + x[1] + 2*x[2] + 3*x[3]
+    if R::PREFER_EXPLICIT_MUL {
+        // Use explicit Const*Var multiplications so the recursive verifier code generator
+        // can detect dot_product_be patterns with reusable constant arrays.
+        const M: [[u32; 4]; 4] = [[2, 3, 1, 1], [1, 2, 3, 1], [1, 1, 2, 3], [3, 1, 1, 2]];
+        let orig = *x;
+        for (r, row) in M.iter().enumerate() {
+            x[r] = row.iter().zip(orig.iter()).map(|(&c, &v)| R::from_u32(c) * v).sum();
+        }
+    } else {
+        // Optimized addition tree (7 adds + 2 doubles) for the actual prover.
+        let t01 = x[0] + x[1];
+        let t23 = x[2] + x[3];
+        let t0123 = t01 + t23;
+        let t01123 = t0123 + x[1];
+        let t01233 = t0123 + x[3];
+        x[3] = t01233 + x[0].double();
+        x[1] = t01123 + x[2].double();
+        x[0] = t01123 + t01;
+        x[2] = t01233 + t23;
+    }
 }
 
 /// The 4x4 MDS matrix used by the Horizon Labs implementation of Poseidon2.
