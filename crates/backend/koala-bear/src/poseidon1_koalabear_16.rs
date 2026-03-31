@@ -267,7 +267,7 @@ fn negacyclic_conv8<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
 
 /// Circulant MDS multiply via Karatsuba convolution: state = C * state.
 #[inline(always)]
-fn mds_karatsuba_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
+pub fn mds_circ_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
     let input = *state;
     conv_n_recursive(
         input,
@@ -276,12 +276,6 @@ fn mds_karatsuba_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(sta
         conv8::<R>,
         negacyclic_conv8::<R>,
     );
-}
-
-/// Public circulant MDS multiply.
-#[inline(always)]
-pub fn mds_circ_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
-    mds_karatsuba_16(state);
 }
 
 // =========================================================================
@@ -861,7 +855,7 @@ impl Poseidon1KoalaBear16 {
         for s in state.iter_mut() {
             *s = s.injective_exp_n();
         }
-        mds_karatsuba_16(state);
+        mds_circ_16(state);
     }
 
     /// NEON-specific fast path using:
