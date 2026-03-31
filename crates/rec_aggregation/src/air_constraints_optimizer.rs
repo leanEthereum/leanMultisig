@@ -304,108 +304,59 @@ fn eval_trivial(expr: ExprId, graph: &ExprGraph, solution: &mut Solution) -> usi
                 _ => None,
             };
 
-            let instr_idx = solution.instructions.len();
-
+            // Helper: evaluate both children, then push one instruction.
+            // Always compute instr_idx RIGHT BEFORE push (children may grow the vec).
             match (c_lhs, c_rhs) {
-                // Both constants — fold. (Should be rare; symbolic already folds these.)
-                (Some(a), Some(b)) => {
-                    // Just embed the constant result. The actual fold depends on the field
-                    // and op, but for the trivial solver we just evaluate both and operate.
+                // Const * Ext or Ext * Const — inline constant, no embed_in_ef.
+                (Some(c), None) if op_val == BinOpKind::Mul => {
+                    let ri = eval_trivial(rhs_val, graph, solution);
+                    let ro = operand_for(ri, rhs_val, graph, solution);
+                    let ii = solution.instructions.len();
+                    solution.instructions.push(Instruction::MulBaseExt {
+                        base_const: c,
+                        ext_operand: ro,
+                        result: ResultSlot::Fresh(ii),
+                    });
+                    ii
+                }
+                (None, Some(c)) if op_val == BinOpKind::Mul => {
+                    let li = eval_trivial(lhs_val, graph, solution);
+                    let lo = operand_for(li, lhs_val, graph, solution);
+                    let ii = solution.instructions.len();
+                    solution.instructions.push(Instruction::MulBaseExt {
+                        base_const: c,
+                        ext_operand: lo,
+                        result: ResultSlot::Fresh(ii),
+                    });
+                    ii
+                }
+                // All other cases: evaluate both children, then emit the operation.
+                _ => {
                     let li = eval_trivial(lhs_val, graph, solution);
                     let ri = eval_trivial(rhs_val, graph, solution);
                     let lo = operand_for(li, lhs_val, graph, solution);
                     let ro = operand_for(ri, rhs_val, graph, solution);
+                    let ii = solution.instructions.len();
                     match op_val {
-                        BinOpKind::Add => solution.instructions.push(Instruction::AddExt {
-                            a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
-                        }),
-                        BinOpKind::Sub => solution.instructions.push(Instruction::SubExt {
-                            a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
-                        }),
-                        BinOpKind::Mul => {
-                            // const * const → use MulBaseExt with one side embedded
-                            let _ = (a, b);
-                            solution.instructions.push(Instruction::MulExt {
-                                a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
-                            });
-                        }
-                    }
-                }
-                // Const op Ext — inline the constant (no embed_in_ef).
-                (Some(c), None) => {
-                    let ri = eval_trivial(rhs_val, graph, solution);
-                    let ro = operand_for(ri, rhs_val, graph, solution);
-                    match op_val {
-                        BinOpKind::Mul => solution.instructions.push(Instruction::MulBaseExt {
-                            base_const: c, ext_operand: ro, result: ResultSlot::Fresh(instr_idx),
-                        }),
-                        BinOpKind::Add => solution.instructions.push(Instruction::AddExt {
-                            a: ro,
-                            b: {
-                                // Need to embed constant for Add — can't inline base+ext without embed.
-                                // Actually, add_base_extension_ret(c, ext) exists! Add a new instruction?
-                                // For now, embed then add. TODO: add AddBaseExt instruction.
-                                let ei = eval_trivial(lhs_val, graph, solution);
-                                operand_for(ei, lhs_val, graph, solution)
-                            },
-                            result: ResultSlot::Fresh(instr_idx),
-                        }),
-                        BinOpKind::Sub => {
-                            // c - ext: need embed
-                            let li = eval_trivial(lhs_val, graph, solution);
-                            let lo = operand_for(li, lhs_val, graph, solution);
-                            solution.instructions.push(Instruction::SubExt {
-                                a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
-                            });
-                        }
-                    }
-                }
-                // Ext op Const — inline the constant.
-                (None, Some(c)) => {
-                    let li = eval_trivial(lhs_val, graph, solution);
-                    let lo = operand_for(li, lhs_val, graph, solution);
-                    match op_val {
-                        BinOpKind::Mul => solution.instructions.push(Instruction::MulBaseExt {
-                            base_const: c, ext_operand: lo, result: ResultSlot::Fresh(instr_idx),
-                        }),
                         BinOpKind::Add => solution.instructions.push(Instruction::AddExt {
                             a: lo,
-                            b: {
-                                let ei = eval_trivial(rhs_val, graph, solution);
-                                operand_for(ei, rhs_val, graph, solution)
-                            },
-                            result: ResultSlot::Fresh(instr_idx),
-                        }),
-                        BinOpKind::Sub => {
-                            // ext - c: need embed
-                            let ri = eval_trivial(rhs_val, graph, solution);
-                            let ro = operand_for(ri, rhs_val, graph, solution);
-                            solution.instructions.push(Instruction::SubExt {
-                                a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
-                            });
-                        }
-                    }
-                }
-                // Both extension.
-                (None, None) => {
-                    let li = eval_trivial(lhs_val, graph, solution);
-                    let ri = eval_trivial(rhs_val, graph, solution);
-                    let lo = operand_for(li, lhs_val, graph, solution);
-                    let ro = operand_for(ri, rhs_val, graph, solution);
-                    match op_val {
-                        BinOpKind::Add => solution.instructions.push(Instruction::AddExt {
-                            a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
+                            b: ro,
+                            result: ResultSlot::Fresh(ii),
                         }),
                         BinOpKind::Sub => solution.instructions.push(Instruction::SubExt {
-                            a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
+                            a: lo,
+                            b: ro,
+                            result: ResultSlot::Fresh(ii),
                         }),
                         BinOpKind::Mul => solution.instructions.push(Instruction::MulExt {
-                            a: lo, b: ro, result: ResultSlot::Fresh(instr_idx),
+                            a: lo,
+                            b: ro,
+                            result: ResultSlot::Fresh(ii),
                         }),
                     }
+                    ii
                 }
             }
-            instr_idx
         }
     };
 
@@ -883,11 +834,10 @@ mod tests {
         let cost = rate_solution(&solution);
 
         // Expected trivial cost for 2*x0 + 3*x1 + 1*x2 + 1*x3:
-        // 4 EmbedConst (4 * 5 = 20 exec + 0 ext op)
-        // 4 MulBaseExt (4 exec + 4 ext op)
+        // 4 MulBaseExt (4 exec + 4 ext op) — constants inlined, no embed_in_ef
         // 3 AddExt (3 exec + 3 ext op)
-        // Total: 27 exec + 7 ext op
-        assert_eq!(cost.exec_rows, 27, "exec rows");
+        // Total: 7 exec + 7 ext op
+        assert_eq!(cost.exec_rows, 7, "exec rows");
         assert_eq!(cost.ext_op_rows, 7, "ext op rows");
 
         println!("Trivial solution cost: {cost:?}");
