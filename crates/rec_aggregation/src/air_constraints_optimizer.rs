@@ -867,17 +867,37 @@ impl<'a> OptCtx<'a> {
             return None;
         }
 
-        // Convert i64 coefficients to u32 field elements (mod p).
-        // p = 2^31 - 2^24 + 1 = 2130706433
+        let n = coeffs.len();
+        let coeff_vals: Vec<i64> = coeffs.values().copied().collect();
+        let all_ones = coeff_vals.iter().all(|&c| c == 1);
+
+        if all_ones && n >= 4 {
+            // Pure sum of consecutive Variables → use add_ee (half the ext_op rows).
+            // add_ee(a, b, result, N/2) sums N elements via N/2 pairwise additions.
+            let half = n / 2;
+            let a_start = first;
+            let b_start = first + half;
+            let sum_idx = self.push(Instruction::AddEE {
+                a_operands: (0..half).map(|i| Operand::Variable(a_start + i)).collect(),
+                b_operands: (0..half).map(|i| Operand::Variable(b_start + i)).collect(),
+                result: ResultSlot::Fresh(0),
+            });
+            // If odd, add the last element.
+            if n % 2 == 1 {
+                let last = Operand::Variable(first + n - 1);
+                let acc = Operand::InstructionResult(sum_idx);
+                return Some(self.push(Instruction::AddExt {
+                    a: acc,
+                    b: last,
+                    result: ResultSlot::Fresh(0),
+                }));
+            }
+            return Some(sum_idx);
+        }
+
+        // Weighted sum → use dot_product_be (1 exec + N ext_op, zero copies).
         const P: i64 = 2_130_706_433;
-        let field_coeffs: Vec<u32> = coeffs.values().map(|&c| ((c % P + P) % P) as u32).collect();
-
-        // Cost check: dot_product_be(N) = 1 exec + N ext_op.
-        // Individual scalar ops would cost ~2N-1 exec + 2N-1 ext_op.
-        // dot_product_be always wins for N >= 2 when operands are consecutive Variables (0 copies).
-        let n = field_coeffs.len();
-
-        // Emit the dot_product_be. Operands are consecutive Variables → zero copies.
+        let field_coeffs: Vec<u32> = coeff_vals.iter().map(|&c| ((c % P + P) % P) as u32).collect();
         let operands: Vec<Operand> = (0..n).map(|i| Operand::Variable(first + i)).collect();
         Some(self.push(Instruction::DotProductBE {
             base_consts: field_coeffs,
@@ -1059,10 +1079,10 @@ impl<'a> OptCtx<'a> {
         for e in exprs {
             match self.graph.nodes[e] {
                 ExprNode::Variable(idx) => {
-                    if let Some(p) = prev {
-                        if idx != p + 1 {
-                            return false;
-                        }
+                    if let Some(p) = prev
+                        && idx != p + 1
+                    {
+                        return false;
                     }
                     prev = Some(idx);
                 }
@@ -1077,10 +1097,10 @@ impl<'a> OptCtx<'a> {
         for op in operands {
             match op {
                 Operand::Variable(idx) => {
-                    if let Some(p) = prev {
-                        if *idx != p + 1 {
-                            return None;
-                        }
+                    if let Some(p) = prev
+                        && *idx != p + 1
+                    {
+                        return None;
                     }
                     prev = Some(*idx);
                 }
@@ -1293,12 +1313,12 @@ pub fn solution_to_zkdsl(solution: &Solution, graph: &ExprGraph, table_index: us
 
     // Assign dests for constraint expressions whose producing instruction is not used elsewhere.
     for (ci, &expr_id) in graph.constraints.iter().enumerate() {
-        if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id) {
-            if instr_idx != usize::MAX && *instr_use_count.get(&instr_idx).unwrap_or(&0) == 0 {
-                if instruction_supports_dest(&solution.instructions[instr_idx]) {
-                    instr_dest.insert(instr_idx, format!("constraints_buf + {} * DIM", ci));
-                }
-            }
+        if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id)
+            && instr_idx != usize::MAX
+            && *instr_use_count.get(&instr_idx).unwrap_or(&0) == 0
+            && instruction_supports_dest(&solution.instructions[instr_idx])
+        {
+            instr_dest.insert(instr_idx, format!("constraints_buf + {} * DIM", ci));
         }
     }
 
@@ -1314,11 +1334,11 @@ pub fn solution_to_zkdsl(solution: &Solution, graph: &ExprGraph, table_index: us
 
     // Write constraint results that couldn't use dest (shared expressions).
     for (ci, &expr_id) in graph.constraints.iter().enumerate() {
-        if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id) {
-            if !instr_dest.contains_key(&instr_idx) {
-                let src = resolve_operand_name(&operand_for_result(instr_idx, expr_id, graph), &var_names);
-                res += &format!("\n    copy_5({}, constraints_buf + {} * DIM)", src, ci);
-            }
+        if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id)
+            && !instr_dest.contains_key(&instr_idx)
+        {
+            let src = resolve_operand_name(&operand_for_result(instr_idx, expr_id, graph), &var_names);
+            res += &format!("\n    copy_5({}, constraints_buf + {} * DIM)", src, ci);
         }
     }
 
@@ -1380,6 +1400,31 @@ fn resolve_operand_name(op: &Operand, var_names: &HashMap<usize, String>) -> Str
             .cloned()
             .unwrap_or_else(|| format!("MISSING_{}", idx)),
         Operand::BufferSlot { buffer, slot } => format!("buf_{} + DIM * {}", buffer, slot),
+    }
+}
+
+/// Check if operands are consecutive Variables, returning the start index if so.
+fn check_consecutive_var_operands(ops: &[Operand]) -> Option<usize> {
+    if ops.is_empty() {
+        return None;
+    }
+    let mut prev = None;
+    for op in ops {
+        match op {
+            Operand::Variable(idx) => {
+                if let Some(p) = prev
+                    && *idx != p + 1
+                {
+                    return None;
+                }
+                prev = Some(*idx);
+            }
+            _ => return None,
+        }
+    }
+    match ops[0] {
+        Operand::Variable(idx) => Some(idx),
+        _ => None,
     }
 }
 
@@ -1679,18 +1724,32 @@ fn emit_instruction(
             a_operands, b_operands, ..
         } => {
             let n = a_operands.len();
-            let ab = next_var();
-            res.push_str(&format!("\n    {} = Array(DIM * {})", ab, n));
-            for (i, op) in a_operands.iter().enumerate() {
-                let s = resolve_operand_name(op, var_names);
-                res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", s, ab, i));
-            }
-            let bb = next_var();
-            res.push_str(&format!("\n    {} = Array(DIM * {})", bb, n));
-            for (i, op) in b_operands.iter().enumerate() {
-                let s = resolve_operand_name(op, var_names);
-                res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", s, bb, i));
-            }
+            // Check for consecutive Variables → point directly, zero copies.
+            let a_consec = check_consecutive_var_operands(a_operands);
+            let b_consec = check_consecutive_var_operands(b_operands);
+
+            let ab = if let Some(start) = a_consec {
+                format!("{} + DIM * {}", INNER_VALUES_VAR, start)
+            } else {
+                let ab = next_var();
+                res.push_str(&format!("\n    {} = Array(DIM * {})", ab, n));
+                for (i, op) in a_operands.iter().enumerate() {
+                    let s = resolve_operand_name(op, var_names);
+                    res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", s, ab, i));
+                }
+                ab
+            };
+            let bb = if let Some(start) = b_consec {
+                format!("{} + DIM * {}", INNER_VALUES_VAR, start)
+            } else {
+                let bb = next_var();
+                res.push_str(&format!("\n    {} = Array(DIM * {})", bb, n));
+                for (i, op) in b_operands.iter().enumerate() {
+                    let s = resolve_operand_name(op, var_names);
+                    res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", s, bb, i));
+                }
+                bb
+            };
             let v = next_var();
             res.push_str(&format!("\n    {} = Array(DIM)", v));
             res.push_str(&format!("\n    add_ee({}, {}, {}, {})", ab, bb, v, n));
