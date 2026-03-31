@@ -1129,23 +1129,51 @@ pub fn solution_to_zkdsl(solution: &Solution, graph: &ExprGraph, table_index: us
         table_index, INNER_VALUES_VAR
     );
 
-    // Emit constraints_buf.
     res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
 
+    // Build dest map: instruction_idx → dest string.
+    // If an instruction ONLY produces a constraint/bus_data result (not used by other instructions),
+    // we can write directly to the target buffer slot (no copy needed).
+    let mut instr_dest: HashMap<usize, String> = HashMap::new();
+    let mut instr_use_count: HashMap<usize, usize> = HashMap::new();
+
+    // Count how many times each instruction result is used as an operand by other instructions.
+    for instr in &solution.instructions {
+        for op in instr_operands(instr) {
+            if let Operand::InstructionResult(idx) = op {
+                *instr_use_count.entry(*idx).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Assign dests for constraint expressions whose producing instruction is not used elsewhere.
+    for (ci, &expr_id) in graph.constraints.iter().enumerate() {
+        if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id) {
+            if instr_idx != usize::MAX && *instr_use_count.get(&instr_idx).unwrap_or(&0) == 0 {
+                if instruction_supports_dest(&solution.instructions[instr_idx]) {
+                    instr_dest.insert(instr_idx, format!("constraints_buf + {} * DIM", ci));
+                }
+            }
+        }
+    }
+
     // Emit all instructions.
-    let mut var_names: HashMap<usize, String> = HashMap::new(); // instruction idx → var name
+    let mut var_names: HashMap<usize, String> = HashMap::new();
     let mut ctr = 0usize;
 
     for (i, instr) in solution.instructions.iter().enumerate() {
-        let name = emit_instruction(instr, i, &var_names, &mut res, &mut ctr);
+        let dest = instr_dest.get(&i).map(|s| s.as_str());
+        let name = emit_instruction_with_dest(instr, dest, &var_names, &mut res, &mut ctr);
         var_names.insert(i, name);
     }
 
-    // Write constraint results into constraints_buf.
+    // Write constraint results that couldn't use dest (shared expressions).
     for (ci, &expr_id) in graph.constraints.iter().enumerate() {
         if let Some(&instr_idx) = solution.expr_to_instruction.get(&expr_id) {
-            let src = resolve_operand_name(&operand_for_result(instr_idx, expr_id, graph), &var_names);
-            res += &format!("\n    copy_5({}, constraints_buf + {} * DIM)", src, ci);
+            if !instr_dest.contains_key(&instr_idx) {
+                let src = resolve_operand_name(&operand_for_result(instr_idx, expr_id, graph), &var_names);
+                res += &format!("\n    copy_5({}, constraints_buf + {} * DIM)", src, ci);
+            }
         }
     }
 
@@ -1154,7 +1182,7 @@ pub fn solution_to_zkdsl(solution: &Solution, graph: &ExprGraph, table_index: us
     let flag_name = if let Some(&instr_idx) = solution.expr_to_instruction.get(&flag_expr) {
         resolve_operand_name(&operand_for_result(instr_idx, flag_expr, graph), &var_names)
     } else {
-        format!("{} + DIM * 0", INNER_VALUES_VAR) // fallback
+        format!("{} + DIM * 0", INNER_VALUES_VAR)
     };
 
     res += &format!("\n    buff = Array(DIM * {})", n_bus_data);
@@ -1210,9 +1238,119 @@ fn resolve_operand_name(op: &Operand, var_names: &HashMap<usize, String>) -> Str
     }
 }
 
+/// Check if an instruction can write directly to a dest buffer.
+fn instruction_supports_dest(instr: &Instruction) -> bool {
+    matches!(
+        instr,
+        Instruction::AddExt { .. }
+            | Instruction::MulExt { .. }
+            | Instruction::SubExt { .. }
+            | Instruction::MulBaseExt { .. }
+            | Instruction::AddBaseExt { .. }
+            | Instruction::DotProductBE { .. }
+            | Instruction::DotProductEE { .. }
+            | Instruction::AddEE { .. }
+    )
+}
+
+/// Extract all operands from an instruction (for use-count analysis).
+fn instr_operands(instr: &Instruction) -> Vec<&Operand> {
+    match instr {
+        Instruction::MulBaseExt { ext_operand, .. }
+        | Instruction::AddBaseExt { ext_operand, .. }
+        | Instruction::SubBaseExt { ext_operand, .. }
+        | Instruction::SubExtBase { ext_operand, .. } => vec![ext_operand],
+        Instruction::AddExt { a, b, .. } | Instruction::MulExt { a, b, .. } | Instruction::SubExt { a, b, .. } => {
+            vec![a, b]
+        }
+        Instruction::NegExt { a, .. } => vec![a],
+        Instruction::CopyExt { src, .. } => vec![src],
+        Instruction::EmbedConst { .. } => vec![],
+        Instruction::DotProductBE { ext_operands, .. } => ext_operands.iter().collect(),
+        Instruction::DotProductEE {
+            a_operands, b_operands, ..
+        } => a_operands.iter().chain(b_operands.iter()).collect(),
+        Instruction::AddEE {
+            a_operands, b_operands, ..
+        } => a_operands.iter().chain(b_operands.iter()).collect(),
+    }
+}
+
+/// Emit an instruction, optionally writing to a dest buffer instead of a fresh var.
+fn emit_instruction_with_dest(
+    instr: &Instruction,
+    dest: Option<&str>,
+    var_names: &HashMap<usize, String>,
+    res: &mut String,
+    ctr: &mut usize,
+) -> String {
+    // If dest is provided and the instruction supports it, use the dest variant.
+    if let Some(d) = dest {
+        match instr {
+            Instruction::AddExt { a, b, .. } => {
+                let an = resolve_operand_name(a, var_names);
+                let bn = resolve_operand_name(b, var_names);
+                res.push_str(&format!("\n    add_ee({}, {}, {})", an, bn, d));
+                return d.to_string();
+            }
+            Instruction::MulExt { a, b, .. } => {
+                let an = resolve_operand_name(a, var_names);
+                let bn = resolve_operand_name(b, var_names);
+                res.push_str(&format!("\n    mul_extension({}, {}, {})", an, bn, d));
+                return d.to_string();
+            }
+            Instruction::SubExt { a, b, .. } => {
+                let an = resolve_operand_name(a, var_names);
+                let bn = resolve_operand_name(b, var_names);
+                res.push_str(&format!("\n    sub_extension({}, {}, {})", an, bn, d));
+                return d.to_string();
+            }
+            Instruction::MulBaseExt {
+                base_const,
+                ext_operand,
+                ..
+            } => {
+                let ext = resolve_operand_name(ext_operand, var_names);
+                let tmp = format!("aux_{}", *ctr);
+                *ctr += 1;
+                res.push_str(&format!(
+                    "\n    {} = Array(1)\n    {}[0] = {}\n    dot_product_be({}, {}, {})",
+                    tmp, tmp, base_const, tmp, ext, d
+                ));
+                return d.to_string();
+            }
+            Instruction::AddBaseExt {
+                base_const,
+                ext_operand,
+                ..
+            } => {
+                let ext = resolve_operand_name(ext_operand, var_names);
+                let tmp = format!("aux_{}", *ctr);
+                *ctr += 1;
+                res.push_str(&format!(
+                    "\n    {} = Array(1)\n    {}[0] = {}\n    add_be({}, {}, {})",
+                    tmp, tmp, base_const, tmp, ext, d
+                ));
+                return d.to_string();
+            }
+            _ => {} // Fall through to normal emission + copy
+        }
+    }
+
+    // Normal emission (no dest or unsupported).
+    let name = emit_instruction(instr, var_names, res, ctr);
+
+    // If dest was requested but the instruction didn't support it, copy.
+    if let Some(d) = dest {
+        res.push_str(&format!("\n    copy_5({}, {})", name, d));
+        return d.to_string();
+    }
+
+    name
+}
+
 fn emit_instruction(
     instr: &Instruction,
-    _instr_idx: usize,
     var_names: &HashMap<usize, String>,
     res: &mut String,
     ctr: &mut usize,

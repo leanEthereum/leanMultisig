@@ -127,8 +127,6 @@ impl<F: Field> From<F> for SymbolicExpression<F> {
 impl<F: Field> PrimeCharacteristicRing for SymbolicExpression<F> {
     type PrimeSubfield = F::PrimeSubfield;
 
-    const PREFER_EXPLICIT_MUL: bool = true;
-
     const ZERO: Self = Self::Constant(F::ZERO);
     const ONE: Self = Self::Constant(F::ONE);
     const TWO: Self = Self::Constant(F::TWO);
