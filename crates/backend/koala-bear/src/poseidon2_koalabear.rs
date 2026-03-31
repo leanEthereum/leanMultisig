@@ -215,58 +215,28 @@ impl InternalLayerBaseParameters<KoalaBearParameters, 16> for KoalaBearInternalL
     fn internal_layer_mat_mul<R: PrimeCharacteristicRing>(state: &mut [R; 16], sum: R) {
         // The diagonal matrix is defined by the vector:
         // V = [-2, 1, 2, 1/2, 3, 4, -1/2, -3, -4, 1/2^8, 1/8, 1/2^24, -1/2^8, -1/8, -1/16, -1/2^24]
-        // new_state[i] = V[i]*state[i] + sum  (for i >= 1; state[0] handled by caller)
-        if R::PREFER_EXPLICIT_MUL {
-            // Use explicit Const*Var so the code generator can detect dot_product patterns.
-            // V[i] values computed from PrimeSubfield.
-            let half: R::PrimeSubfield = R::PrimeSubfield::ONE.halve();
-            let three: R::PrimeSubfield = R::PrimeSubfield::TWO + R::PrimeSubfield::ONE;
-            let four: R::PrimeSubfield = R::PrimeSubfield::TWO + R::PrimeSubfield::TWO;
-            let v: [R::PrimeSubfield; 15] = [
-                R::PrimeSubfield::ONE,                   // V[1] = 1
-                R::PrimeSubfield::TWO,                   // V[2] = 2
-                half,                                    // V[3] = 1/2
-                three,                                   // V[4] = 3
-                four,                                    // V[5] = 4
-                -half,                                   // V[6] = -1/2
-                -three,                                  // V[7] = -3
-                -four,                                   // V[8] = -4
-                R::PrimeSubfield::ONE.div_2exp_u64(8),   // V[9] = 1/256
-                R::PrimeSubfield::ONE.div_2exp_u64(3),   // V[10] = 1/8
-                R::PrimeSubfield::ONE.div_2exp_u64(24),  // V[11] = 1/2^24
-                -R::PrimeSubfield::ONE.div_2exp_u64(8),  // V[12] = -1/256
-                -R::PrimeSubfield::ONE.div_2exp_u64(3),  // V[13] = -1/8
-                -R::PrimeSubfield::ONE.div_2exp_u64(4),  // V[14] = -1/16
-                -R::PrimeSubfield::ONE.div_2exp_u64(24), // V[15] = -1/2^24
-            ];
-            for i in 1..16 {
-                state[i] = R::from_prime_subfield(v[i - 1]) * state[i] + sum;
-            }
-        } else {
-            // Optimized addition tree for the actual prover.
-            state[1] += sum;
-            state[2] = state[2].double() + sum;
-            state[3] = state[3].halve() + sum;
-            state[4] = sum + state[4].double() + state[4];
-            state[5] = sum + state[5].double().double();
-            state[6] = sum - state[6].halve();
-            state[7] = sum - (state[7].double() + state[7]);
-            state[8] = sum - state[8].double().double();
-            state[9] = state[9].div_2exp_u64(8);
-            state[9] += sum;
-            state[10] = state[10].div_2exp_u64(3);
-            state[10] += sum;
-            state[11] = state[11].div_2exp_u64(24);
-            state[11] += sum;
-            state[12] = state[12].div_2exp_u64(8);
-            state[12] = sum - state[12];
-            state[13] = state[13].div_2exp_u64(3);
-            state[13] = sum - state[13];
-            state[14] = state[14].div_2exp_u64(4);
-            state[14] = sum - state[14];
-            state[15] = state[15].div_2exp_u64(24);
-            state[15] = sum - state[15];
-        }
+        state[1] += sum;
+        state[2] = state[2].double() + sum;
+        state[3] = state[3].halve() + sum;
+        state[4] = sum + state[4].double() + state[4];
+        state[5] = sum + state[5].double().double();
+        state[6] = sum - state[6].halve();
+        state[7] = sum - (state[7].double() + state[7]);
+        state[8] = sum - state[8].double().double();
+        state[9] = state[9].div_2exp_u64(8);
+        state[9] += sum;
+        state[10] = state[10].div_2exp_u64(3);
+        state[10] += sum;
+        state[11] = state[11].div_2exp_u64(24);
+        state[11] += sum;
+        state[12] = state[12].div_2exp_u64(8);
+        state[12] = sum - state[12];
+        state[13] = state[13].div_2exp_u64(3);
+        state[13] = sum - state[13];
+        state[14] = state[14].div_2exp_u64(4);
+        state[14] = sum - state[14];
+        state[15] = state[15].div_2exp_u64(24);
+        state[15] = sum - state[15];
     }
 }
 

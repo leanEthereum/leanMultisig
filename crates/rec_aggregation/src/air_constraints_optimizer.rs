@@ -547,8 +547,14 @@ impl<'a> OptCtx<'a> {
                     result: ResultSlot::Fresh(0),
                 })
             }
-            // Ext + Ext or Ext - Ext: try to batch sums of products
+            // Ext + Ext or Ext - Ext: try advanced batching
             (None, None, BinOpKind::Add | BinOpKind::Sub) => {
+                // Try linear combination extraction (detects e.g. 2*x0 + 3*x1 + x2 + x3
+                // from addition trees, even without explicit Mul nodes)
+                if let Some(idx) = self.try_linear_combination(self_expr) {
+                    return idx;
+                }
+                // Try sum-of-products batching
                 if let Some(idx) = self.try_dot_product(self_expr) {
                     return idx;
                 }
@@ -825,6 +831,145 @@ impl<'a> OptCtx<'a> {
                 dest: ResultSlot::Fresh(0),
             }),
         }
+    }
+
+    /// Try to extract a linear combination of Variables by traversing through the full
+    /// expression tree (including shared sub-expressions). Detects patterns like
+    /// `x0 + x1 + x0 + x2 + x3 + x1 + x1 = 2*x0 + 3*x1 + x2 + x3`.
+    /// Emits `dot_product_be([2,3,1,1], inner_evals+start, result, 4)` when the Variables
+    /// are at consecutive column indices (zero copies).
+    fn try_linear_combination(&mut self, expr: ExprId) -> Option<usize> {
+        // Don't expand already-evaluated expressions (avoid recomputing cached work).
+        if self.solution.expr_to_instruction.contains_key(&expr) {
+            return None;
+        }
+
+        let mut coeffs: BTreeMap<usize, i64> = BTreeMap::new();
+        let mut memo: HashMap<ExprId, Option<BTreeMap<usize, i64>>> = HashMap::new();
+        let lc = self.extract_linear_combination(expr, &mut memo)?;
+
+        // Filter to non-zero coefficients.
+        for (var_idx, coeff) in &lc {
+            if *coeff != 0 {
+                coeffs.insert(*var_idx, *coeff);
+            }
+        }
+
+        // Need at least 4 terms.
+        if coeffs.len() < 4 {
+            return None;
+        }
+
+        // Check if variable indices are consecutive.
+        let indices: Vec<usize> = coeffs.keys().copied().collect();
+        let first = indices[0];
+        if !indices.iter().enumerate().all(|(i, &idx)| idx == first + i) {
+            return None;
+        }
+
+        // Convert i64 coefficients to u32 field elements (mod p).
+        // p = 2^31 - 2^24 + 1 = 2130706433
+        const P: i64 = 2_130_706_433;
+        let field_coeffs: Vec<u32> = coeffs.values().map(|&c| ((c % P + P) % P) as u32).collect();
+
+        // Cost check: dot_product_be(N) = 1 exec + N ext_op.
+        // Individual scalar ops would cost ~2N-1 exec + 2N-1 ext_op.
+        // dot_product_be always wins for N >= 2 when operands are consecutive Variables (0 copies).
+        let n = field_coeffs.len();
+
+        // Emit the dot_product_be. Operands are consecutive Variables → zero copies.
+        let operands: Vec<Operand> = (0..n).map(|i| Operand::Variable(first + i)).collect();
+        Some(self.push(Instruction::DotProductBE {
+            base_consts: field_coeffs,
+            ext_operands: operands,
+            result: ResultSlot::Fresh(0),
+        }))
+    }
+
+    /// Recursively extract linear combination coefficients from an expression.
+    /// Returns None if the expression is non-linear (contains Var*Var) or
+    /// contains shared sub-expressions (which should be computed once and reused,
+    /// not duplicated by independent dot products).
+    fn extract_linear_combination(
+        &self,
+        expr: ExprId,
+        memo: &mut HashMap<ExprId, Option<BTreeMap<usize, i64>>>,
+    ) -> Option<BTreeMap<usize, i64>> {
+        if let Some(cached) = memo.get(&expr) {
+            return cached.clone();
+        }
+        // Stop at shared Operation nodes — they benefit from being computed once and reused.
+        // Variables and Constants are always expanded (they're leaf data, not computations).
+        if self.graph.ref_counts[expr] > 1
+            && !matches!(self.graph.nodes[expr], ExprNode::Variable(_) | ExprNode::Constant(_))
+        {
+            memo.insert(expr, None);
+            return None;
+        }
+
+        // Don't expand already-evaluated expressions (they're opaque cached results).
+        if self.solution.expr_to_instruction.contains_key(&expr) {
+            memo.insert(expr, None);
+            return None;
+        }
+
+        let result = match &self.graph.nodes[expr] {
+            ExprNode::Variable(idx) => {
+                let mut m = BTreeMap::new();
+                m.insert(*idx, 1i64);
+                Some(m)
+            }
+            ExprNode::Constant(_) => Some(BTreeMap::new()), // constant offset, ignored
+            ExprNode::Neg(inner) => {
+                let inner_lc = self.extract_linear_combination(*inner, memo)?;
+                Some(inner_lc.into_iter().map(|(k, v)| (k, -v)).collect())
+            }
+            ExprNode::BinOp { op, lhs, rhs } => match op {
+                BinOpKind::Add => {
+                    let l = self.extract_linear_combination(*lhs, memo)?;
+                    let r = self.extract_linear_combination(*rhs, memo)?;
+                    let mut merged = l;
+                    for (k, v) in r {
+                        *merged.entry(k).or_insert(0) += v;
+                    }
+                    if merged.len() > 16 {
+                        return None; // Cap size to avoid huge dot products
+                    }
+                    Some(merged)
+                }
+                BinOpKind::Sub => {
+                    let l = self.extract_linear_combination(*lhs, memo)?;
+                    let r = self.extract_linear_combination(*rhs, memo)?;
+                    let mut merged = l;
+                    for (k, v) in r {
+                        *merged.entry(k).or_insert(0) -= v;
+                    }
+                    if merged.len() > 16 {
+                        return None;
+                    }
+                    Some(merged)
+                }
+                BinOpKind::Mul => {
+                    // One side must be a constant for linearity.
+                    let cl = self.get_const(*lhs);
+                    let cr = self.get_const(*rhs);
+                    match (cl, cr) {
+                        (Some(c), None) => {
+                            let r = self.extract_linear_combination(*rhs, memo)?;
+                            Some(r.into_iter().map(|(k, v)| (k, v * c as i64)).collect())
+                        }
+                        (None, Some(c)) => {
+                            let l = self.extract_linear_combination(*lhs, memo)?;
+                            Some(l.into_iter().map(|(k, v)| (k, v * c as i64)).collect())
+                        }
+                        _ => None, // Non-linear
+                    }
+                }
+            },
+        };
+
+        memo.insert(expr, result.clone());
+        result
     }
 
     // --- Helpers ---
@@ -1470,14 +1615,40 @@ fn emit_instruction(
             for (i, c) in base_consts.iter().enumerate() {
                 res.push_str(&format!("\n    {}[{}] = {}", cb, i, c));
             }
-            // Emit ext buffer.
-            let eb = next_var();
+            // Check for consecutive Variables → point directly, zero copies.
             let n = ext_operands.len();
-            res.push_str(&format!("\n    {} = Array(DIM * {})", eb, n));
-            for (i, op) in ext_operands.iter().enumerate() {
-                let src = resolve_operand_name(op, var_names);
-                res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", src, eb, i));
-            }
+            let consecutive_start = {
+                let mut start = None;
+                let mut ok = true;
+                for (i, op) in ext_operands.iter().enumerate() {
+                    match op {
+                        Operand::Variable(idx) => {
+                            if i == 0 {
+                                start = Some(*idx);
+                            } else if Some(start.unwrap() + i) != Some(*idx) {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if ok { start } else { None }
+            };
+            let eb = if let Some(start) = consecutive_start {
+                format!("{} + DIM * {}", INNER_VALUES_VAR, start)
+            } else {
+                let eb = next_var();
+                res.push_str(&format!("\n    {} = Array(DIM * {})", eb, n));
+                for (i, op) in ext_operands.iter().enumerate() {
+                    let src = resolve_operand_name(op, var_names);
+                    res.push_str(&format!("\n    copy_5({}, {} + DIM * {})", src, eb, i));
+                }
+                eb
+            };
             let v = next_var();
             res.push_str(&format!("\n    {} = Array(DIM)", v));
             res.push_str(&format!("\n    dot_product_be({}, {}, {}, {})", cb, eb, v, n));
