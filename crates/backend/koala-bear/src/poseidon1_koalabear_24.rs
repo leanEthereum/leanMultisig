@@ -168,7 +168,7 @@ fn negacyclic_conv12<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
 
 /// Circulant MDS multiply via Karatsuba convolution: state = C * state.
 #[inline(always)]
-fn mds_karatsuba_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 24]) {
+pub fn mds_circ_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 24]) {
     let input = *state;
     conv_n_recursive(
         input,
@@ -177,12 +177,6 @@ fn mds_karatsuba_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(sta
         conv12::<R>,
         negacyclic_conv12::<R>,
     );
-}
-
-/// Public circulant MDS multiply.
-#[inline(always)]
-pub fn mds_circ_24<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 24]) {
-    mds_karatsuba_24(state);
 }
 
 // =========================================================================
@@ -307,7 +301,7 @@ mod neon_karatsuba {
     }
 
     #[inline(always)]
-    pub(super) fn mds_karatsuba_24_neon(state: &mut [P; 24], col: &[F; 24]) {
+    pub(super) fn mds_circ_24_neon(state: &mut [P; 24], col: &[F; 24]) {
         let input = *state;
         conv_n(input, *col, state.as_mut_slice(), conv12, negacyclic_conv12);
     }
@@ -897,7 +891,7 @@ impl Poseidon1KoalaBear24 {
         for s in state.iter_mut() {
             *s = s.injective_exp_n();
         }
-        mds_karatsuba_24(state);
+        mds_circ_24(state);
     }
 
     /// NEON-specific fast path with pre-packed constants and latency hiding.
@@ -916,7 +910,7 @@ impl Poseidon1KoalaBear24 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.mds_col);
+            neon_karatsuba::mds_circ_24_neon(state, &neon.mds_col);
         }
 
         // --- Last initial full round: AddRC + S-box, then fused (m_i * MDS) ---
@@ -974,7 +968,7 @@ impl Poseidon1KoalaBear24 {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            neon_karatsuba::mds_karatsuba_24_neon(state, &neon.mds_col);
+            neon_karatsuba::mds_circ_24_neon(state, &neon.mds_col);
         }
     }
 
