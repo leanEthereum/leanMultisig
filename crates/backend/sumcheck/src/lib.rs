@@ -1,5 +1,8 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+mod split_eq;
+pub use split_eq::*;
+
 mod prove;
 pub use prove::*;
 
