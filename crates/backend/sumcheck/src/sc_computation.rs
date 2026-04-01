@@ -241,6 +241,25 @@ fn handle_gkr_quotient_with_fold<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers
             );
             (poly, MleGroupOwned::Extension(folded))
         }
+        MleGroupRef::ExtensionPacked(m) if split_eq.is_remainder_mode() => {
+            let unpack = |s: &[EFPacking<EF>]| -> Vec<EF> { EFPacking::<EF>::to_ext_iter(s.iter().copied()).collect() };
+            let (m0, m1, m2, m3) = (unpack(m[0]), unpack(m[1]), unpack(m[2]), unpack(m[3]));
+            let eq_vals: Vec<EF> = (0..m0.len() / 4).map(|i| split_eq.get_unpacked(i)).collect();
+            let (poly, folded) = fold_and_compute_gkr_quotient_sumcheck_polynomial(
+                prev_folding_factor,
+                &m0,
+                &m1,
+                &m2,
+                &m3,
+                alpha,
+                first_eq_factor,
+                &eq_vals,
+                mul_factor,
+                sum,
+                identity_decompose,
+            );
+            (poly, MleGroupOwned::Extension(folded))
+        }
         MleGroupRef::ExtensionPacked(m) => {
             let r = prev_folding_factor;
             let fold_ext = |u: &[EFPacking<EF>], i: usize, half: usize, quarter: usize| {
