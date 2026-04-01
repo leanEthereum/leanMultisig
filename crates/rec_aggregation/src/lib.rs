@@ -247,7 +247,7 @@ pub fn xmss_aggregate(
     let mut child_bytecode_evals = vec![];
     let mut child_raw_proofs = vec![];
     for (child_pubkeys, child) in &children {
-        let child_pub_input = child.public_input(&child_pubkeys, message, slot);
+        let child_pub_input = child.public_input(child_pubkeys, message, slot);
         let (verif, raw_proof) = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_pub_inputs.push(child_pub_input);
@@ -368,7 +368,7 @@ pub fn xmss_aggregate(
         let mut block = vec![F::from_usize(child_pubkeys.len())];
         for pubkeykey in child_pubkeys {
             if claimed.insert(pubkeykey.clone()) {
-                let pos = global_pub_keys.binary_search(&pubkeykey).unwrap();
+                let pos = global_pub_keys.binary_search(pubkeykey).unwrap();
                 block.push(F::from_usize(pos));
             } else {
                 block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
