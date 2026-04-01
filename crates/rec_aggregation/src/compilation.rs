@@ -53,7 +53,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 19;
+    let mut log_size_guess = 18;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -374,13 +374,117 @@ fn all_air_evals_in_zk_dsl() -> String {
 
 const AIR_INNER_VALUES_VAR: &str = "inner_evals";
 
+/// Shared mutable state for symbolic → zkDSL lowering.
+struct AirCodegenCtx {
+    /// CSE: Operation arena-index → emitted variable name.
+    expr_cache: HashMap<u32, String>,
+    /// Dedup base-field constant arrays: canonical values → variable name (or pointer expr).
+    consts_cache: HashMap<Vec<u32>, String>,
+    /// Circulant ring arrays: canonical rotation → variable name of the `Array(2n)`.
+    circulant_rings: HashMap<Vec<u32>, String>,
+    /// Dedup extension-field constant embeddings: canonical u32 → variable name.
+    ef_const_cache: HashMap<u32, String>,
+    ctr: Counter,
+}
+
+impl AirCodegenCtx {
+    fn new() -> Self {
+        Self {
+            expr_cache: HashMap::new(),
+            consts_cache: HashMap::new(),
+            circulant_rings: HashMap::new(),
+            ef_const_cache: HashMap::new(),
+            ctr: Counter::new(),
+        }
+    }
+
+    /// Get or create a base-field constant array with the given canonical values.
+    /// For arrays of length ≥ 8, detects circulant rotations and stores them
+    /// as offsets into a single doubled "ring" array.
+    fn base_consts(&mut self, values: &[u32], res: &mut String) -> String {
+        // 1. Exact match
+        if let Some(name) = self.consts_cache.get(values) {
+            return name.clone();
+        }
+
+        let n = values.len();
+
+        // 2. Circulant rotation detection (only worth it for large arrays)
+        if n >= 8 {
+            let (canonical, offset) = canonical_rotation(values);
+
+            // Ring already exists?
+            if let Some(ring) = self.circulant_rings.get(&canonical) {
+                let ptr = if offset == 0 { ring.clone() } else { format!("{} + {}", ring, offset) };
+                self.consts_cache.insert(values.to_vec(), ptr.clone());
+                return ptr;
+            }
+
+            // Canonical rotation was stored as a plain array? → upgrade to ring.
+            if canonical != values && self.consts_cache.contains_key(&canonical) {
+                let ring = format!("bc_ring_{}", self.ctr.get_next());
+                res.push_str(&format!("\n    {} = Array({})", ring, 2 * n));
+                for i in 0..2 * n {
+                    res.push_str(&format!("\n    {}[{}] = {}", ring, i, canonical[i % n]));
+                }
+                self.circulant_rings.insert(canonical.clone(), ring.clone());
+                // Update canonical entry to point at ring+0
+                self.consts_cache.insert(canonical, ring.clone());
+                let ptr = format!("{} + {}", ring, offset);
+                self.consts_cache.insert(values.to_vec(), ptr.clone());
+                return ptr;
+            }
+        }
+
+        // 3. First time — plain array
+        let name = format!("bc_{}", self.ctr.get_next());
+        res.push_str(&format!("\n    {} = Array({})", name, n));
+        for (i, &c) in values.iter().enumerate() {
+            res.push_str(&format!("\n    {}[{}] = {}", name, i, c));
+        }
+        self.consts_cache.insert(values.to_vec(), name.clone());
+        name
+    }
+
+    /// Get or create a scalar base-field constant stored as `Array(1)`.
+    fn base_scalar(&mut self, c: u32, res: &mut String) -> String {
+        self.base_consts(&[c], res)
+    }
+
+    /// Get or create an extension-field constant via `embed_in_ef`.
+    fn ef_const(&mut self, c: u32, res: &mut String) -> String {
+        if let Some(name) = self.ef_const_cache.get(&c) {
+            return name.clone();
+        }
+        let name = format!("aux_{}", self.ctr.get_next());
+        res.push_str(&format!("\n    {} = embed_in_ef({})", name, c));
+        self.ef_const_cache.insert(c, name.clone());
+        name
+    }
+}
+
+/// Find the lexicographically smallest rotation of `values`.
+/// Returns `(canonical, offset)` where `values == rotate_left(canonical, offset)`.
+fn canonical_rotation(values: &[u32]) -> (Vec<u32>, usize) {
+    let n = values.len();
+    let doubled: Vec<u32> = values.iter().chain(values.iter()).copied().collect();
+    let mut best = 0usize;
+    for start in 1..n {
+        if doubled[start..start + n] < doubled[best..best + n] {
+            best = start;
+        }
+    }
+    let canonical = doubled[best..best + n].to_vec();
+    let offset = (n - best) % n;
+    (canonical, offset)
+}
+
 fn air_eval_in_zk_dsl<T: TableT>(table: T) -> String
 where
     T::ExtraData: Default,
 {
     let (constraints, bus_flag, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
-    let mut vars_counter = Counter::new();
-    let mut cache: HashMap<u32, String> = HashMap::new();
+    let mut ctx = AirCodegenCtx::new();
 
     let mut res = format!(
         "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, logup_alphas_eq_poly):\n",
@@ -392,14 +496,14 @@ where
     res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
     for (index, constraint) in constraints.iter().enumerate() {
         let dest = format!("constraints_buf + {} * DIM", index);
-        eval_air_constraint(*constraint, Some(&dest), &mut cache, &mut res, &mut vars_counter);
+        eval_air_constraint(*constraint, Some(&dest), &mut ctx, &mut res);
     }
 
     // first: bus data
-    let flag = eval_air_constraint(bus_flag, None, &mut cache, &mut res, &mut vars_counter);
+    let flag = eval_air_constraint(bus_flag, None, &mut ctx, &mut res);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
-        let data_str = eval_air_constraint(*data, None, &mut cache, &mut res, &mut vars_counter);
+        let data_str = eval_air_constraint(*data, None, &mut ctx, &mut res);
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
@@ -434,42 +538,155 @@ where
 fn eval_air_constraint(
     expr: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    ctx: &mut AirCodegenCtx,
     res: &mut String,
-    ctr: &mut Counter,
 ) -> String {
     match expr {
         SymbolicExpression::Constant(c) => {
-            let v = format!("aux_{}", ctr.get_next());
-            res.push_str(&format!("\n    {} = embed_in_ef({})", v, c.as_canonical_u32()));
+            let v = ctx.ef_const(c.as_canonical_u32(), res);
+            if let Some(d) = dest {
+                res.push_str(&format!("\n    copy_5({}, {})", v, d));
+            }
             v
         }
-        SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
+        SymbolicExpression::Variable(v) => {
+            let name = format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index);
+            if let Some(d) = dest {
+                res.push_str(&format!("\n    copy_5({}, {})", name, d));
+            }
+            name
+        }
         SymbolicExpression::Operation(idx) => {
-            if let Some(v) = cache.get(&idx) {
+            if let Some(v) = ctx.expr_cache.get(&idx) {
                 if let Some(d) = dest {
                     res.push_str(&format!("\n    copy_5({}, {})", v, d));
                 }
                 return v.clone();
             }
+
+            // --- dot-product hint fast path ---
+            if let Some(v) = try_emit_dot_product_hint(idx, dest, ctx, res) {
+                ctx.expr_cache.insert(idx, v.clone());
+                return v;
+            }
+
             let node = get_node::<F>(idx);
             let v = match node.op {
                 SymbolicOperation::Neg => {
-                    let a = eval_air_constraint(node.lhs, None, cache, res, ctr);
-                    let v = format!("aux_{}", ctr.get_next());
+                    let a = eval_air_constraint(node.lhs, None, ctx, res);
+                    let v = format!("aux_{}", ctx.ctr.get_next());
                     res.push_str(&format!("\n    {} = opposite_extension_ret({})", v, a));
                     v
                 }
-                _ => eval_air_binop(node.op, node.lhs, node.rhs, dest, cache, res, ctr),
+                _ => eval_air_binop(node.op, node.lhs, node.rhs, dest, ctx, res),
             };
-            // If dest was requested but the result landed elsewhere, copy it
             if let Some(d) = dest
                 && v != d
             {
                 res.push_str(&format!("\n    copy_5({}, {})", v, d));
             }
-            cache.insert(idx, v.clone());
+            ctx.expr_cache.insert(idx, v.clone());
             v
+        }
+    }
+}
+
+/// Check whether every operand is already cached as consecutive slots in the
+/// same buffer (`buf + DIM * 0`, `buf + DIM * 1`, …).  If so, return the
+/// buffer name — the caller can skip allocation and copy_5.
+fn try_find_contiguous_buffer(operands: &[SymbolicExpression<F>], ctx: &AirCodegenCtx) -> Option<String> {
+    let mut base: Option<&str> = None;
+    for (i, op) in operands.iter().enumerate() {
+        let idx = match op {
+            SymbolicExpression::Operation(idx) => *idx,
+            _ => return None,
+        };
+        let cached = ctx.expr_cache.get(&idx)?;
+        let suffix = format!(" + DIM * {}", i);
+        let this_base = cached.strip_suffix(&suffix)?;
+        match base {
+            None => base = Some(this_base),
+            Some(b) if b == this_base => {}
+            _ => return None,
+        }
+    }
+    base.map(|s| s.to_string())
+}
+
+/// Check if operation `idx` has a dot-product hint and, if so, emit the
+/// corresponding `dot_product_be` / `dot_product_ee` precompile call.
+fn try_emit_dot_product_hint(
+    idx: u32,
+    dest: Option<&str>,
+    ctx: &mut AirCodegenCtx,
+    res: &mut String,
+) -> Option<String> {
+    let hint = get_dot_product_hint::<F>(idx)?;
+    match hint {
+        DotProductHint::BE(h) => {
+            let n = h.constants.len();
+
+            // Base-field constants array — deduplicated.
+            let key: Vec<u32> = h.constants.iter().map(|c| c.as_canonical_u32()).collect();
+            let consts = ctx.base_consts(&key, res);
+
+            // Extension-field values: reuse an existing contiguous buffer if possible,
+            // otherwise allocate a new one and evaluate operands into slots.
+            let vals = try_find_contiguous_buffer(&h.operands, ctx).unwrap_or_else(|| {
+                let buf = format!("dp_v_{}", ctx.ctr.get_next());
+                res.push_str(&format!("\n    {} = Array(DIM * {})", buf, n));
+                for (i, ext) in h.operands.iter().enumerate() {
+                    let slot = format!("{} + DIM * {}", buf, i);
+                    eval_air_constraint(*ext, Some(&slot), ctx, res);
+                }
+                buf
+            });
+
+            let dp_dest = dest.map_or_else(
+                || {
+                    let v = format!("aux_{}", ctx.ctr.get_next());
+                    res.push_str(&format!("\n    {} = Array(DIM)", v));
+                    v
+                },
+                |d| d.to_string(),
+            );
+            res.push_str(&format!(
+                "\n    dot_product_be({}, {}, {}, {})",
+                consts, vals, dp_dest, n
+            ));
+            Some(dp_dest)
+        }
+        DotProductHint::EE(h) => {
+            let n = h.a_operands.len();
+
+            // Allocate both buffers, then evaluate operands directly into slots.
+            let a_arr = format!("dp_a_{}", ctx.ctr.get_next());
+            res.push_str(&format!("\n    {} = Array(DIM * {})", a_arr, n));
+            for (i, a) in h.a_operands.iter().enumerate() {
+                let slot = format!("{} + DIM * {}", a_arr, i);
+                eval_air_constraint(*a, Some(&slot), ctx, res);
+            }
+
+            let b_arr = format!("dp_b_{}", ctx.ctr.get_next());
+            res.push_str(&format!("\n    {} = Array(DIM * {})", b_arr, n));
+            for (i, b) in h.b_operands.iter().enumerate() {
+                let slot = format!("{} + DIM * {}", b_arr, i);
+                eval_air_constraint(*b, Some(&slot), ctx, res);
+            }
+
+            let dp_dest = dest.map_or_else(
+                || {
+                    let v = format!("aux_{}", ctx.ctr.get_next());
+                    res.push_str(&format!("\n    {} = Array(DIM)", v));
+                    v
+                },
+                |d| d.to_string(),
+            );
+            res.push_str(&format!(
+                "\n    dot_product_ee({}, {}, {}, {})",
+                a_arr, b_arr, dp_dest, n
+            ));
+            Some(dp_dest)
         }
     }
 }
@@ -481,9 +698,8 @@ fn eval_air_binop(
     lhs: SymbolicExpression<F>,
     rhs: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    ctx: &mut AirCodegenCtx,
     res: &mut String,
-    ctr: &mut Counter,
 ) -> String {
     let c0 = match lhs {
         SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
@@ -497,8 +713,8 @@ fn eval_air_binop(
     match (c0, c1) {
         // Both extension
         (None, None) => {
-            let a = eval_air_constraint(lhs, None, cache, res, ctr);
-            let b = eval_air_constraint(rhs, None, cache, res, ctr);
+            let a = eval_air_constraint(lhs, None, ctx, res);
+            let b = eval_air_constraint(rhs, None, ctx, res);
             if let Some(d) = dest {
                 let f = match op {
                     SymbolicOperation::Mul => "mul_extension",
@@ -515,7 +731,7 @@ fn eval_air_binop(
                     SymbolicOperation::Sub => "sub_extension_ret",
                     _ => unreachable!(),
                 };
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = {}({}, {})", v, f, a, b));
                 v
             }
@@ -527,14 +743,15 @@ fn eval_air_binop(
                 (_, Some(c)) => (c, lhs),
                 _ => unreachable!(),
             };
-            let ext = eval_air_constraint(ext_expr, None, cache, res, ctr);
+            let ext = eval_air_constraint(ext_expr, None, ctx, res);
             if let Some(d) = dest {
                 let f = if matches!(op, SymbolicOperation::Mul) {
                     "dot_product_be"
                 } else {
                     "add_be"
                 };
-                emit_base_precompile(res, ctr, f, c, &ext, d);
+                let scalar = ctx.base_scalar(c, res);
+                res.push_str(&format!("\n    {}({}, {}, {})", f, scalar, ext, d));
                 d.to_string()
             } else {
                 let f = if matches!(op, SymbolicOperation::Mul) {
@@ -542,27 +759,27 @@ fn eval_air_binop(
                 } else {
                     "add_base_extension_ret"
                 };
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = {}({}, {})", v, f, c, ext));
                 v
             }
         }
         // Sub: base - ext
         (Some(c), _) => {
-            let ext = eval_air_constraint(rhs, None, cache, res, ctr);
-            let v = format!("aux_{}", ctr.get_next());
+            let ext = eval_air_constraint(rhs, None, ctx, res);
+            let v = format!("aux_{}", ctx.ctr.get_next());
             res.push_str(&format!("\n    {} = sub_base_extension_ret({}, {})", v, c, ext));
             v
         }
         // Sub: ext - base
         (_, Some(c)) => {
-            let ext = eval_air_constraint(lhs, None, cache, res, ctr);
+            let ext = eval_air_constraint(lhs, None, ctx, res);
             if let Some(d) = dest {
-                // add_be(tmp, dest, ext) asserts ext = tmp + dest, i.e. dest = ext - tmp
-                emit_base_precompile(res, ctr, "add_be", c, d, &ext);
+                let scalar = ctx.base_scalar(c, res);
+                res.push_str(&format!("\n    add_be({}, {}, {})", scalar, d, ext));
                 d.to_string()
             } else {
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = sub_extension_base_ret({}, {})", v, ext, c));
                 v
             }
@@ -570,16 +787,12 @@ fn eval_air_binop(
     }
 }
 
-/// Emit: `tmp = Array(1); tmp[0] = c; func(tmp, arg2, arg3)`
-fn emit_base_precompile(res: &mut String, ctr: &mut Counter, func: &str, c: u32, arg2: &str, arg3: &str) {
-    let tmp = format!("aux_{}", ctr.get_next());
-    res.push_str(&format!(
-        "\n    {} = Array(1)\n    {}[0] = {}\n    {}({}, {}, {})",
-        tmp, tmp, c, func, tmp, arg2, arg3
-    ));
-}
-
 #[test]
 fn display_all_air_evals_in_zk_dsl() {
     println!("{}", all_air_evals_in_zk_dsl());
+}
+
+#[test]
+fn display_poseidon_air_in_zk_dsl() {
+    println!("{}", air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}));
 }

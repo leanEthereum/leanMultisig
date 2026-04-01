@@ -4,7 +4,9 @@ use core::fmt::Debug;
 use core::iter::{Product, Sum};
 use core::marker::PhantomData;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::any::Any;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
 
@@ -96,6 +98,57 @@ pub fn get_node<F: Field>(idx: u32) -> SymbolicNode<F> {
     ARENA.with(|arena| {
         let bytes = arena.borrow();
         unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(idx as usize) as *const SymbolicNode<F>) }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Dot-product hints: AIR code registers these to tell the zkDSL generator
+// to emit `dot_product_be` / `dot_product_ee` precompile calls.
+// ---------------------------------------------------------------------------
+
+/// Hint attached to the Operation arena-index of a symbolic result.
+#[derive(Clone, Debug)]
+pub enum DotProductHint<F: Copy> {
+    BE(DotProductBEHint<F>),
+    EE(DotProductEEHint<F>),
+}
+
+#[derive(Clone, Debug)]
+pub struct DotProductBEHint<F: Copy> {
+    pub constants: Vec<F>,
+    pub operands: Vec<SymbolicExpression<F>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DotProductEEHint<F: Copy> {
+    pub a_operands: Vec<SymbolicExpression<F>>,
+    pub b_operands: Vec<SymbolicExpression<F>>,
+}
+
+thread_local! {
+    static DOT_PRODUCT_HINTS: RefCell<HashMap<u32, Box<dyn Any>>> = RefCell::new(HashMap::new());
+}
+
+fn clear_dot_product_hints() {
+    DOT_PRODUCT_HINTS.with(|h| h.borrow_mut().clear());
+}
+
+/// Register a dot-product hint on the arena index of `result`.
+pub fn register_dot_product_hint<F: Field>(result: SymbolicExpression<F>, hint: DotProductHint<F>) {
+    if let SymbolicExpression::Operation(idx) = result {
+        DOT_PRODUCT_HINTS.with(|h| {
+            h.borrow_mut().insert(idx, Box::new(hint));
+        });
+    }
+}
+
+/// Query the dot-product hint for an arena index, if any.
+pub fn get_dot_product_hint<F: Field>(idx: u32) -> Option<DotProductHint<F>> {
+    DOT_PRODUCT_HINTS.with(|h| {
+        h.borrow()
+            .get(&idx)
+            .and_then(|b| b.downcast_ref::<DotProductHint<F>>())
+            .cloned()
     })
 }
 
@@ -325,8 +378,9 @@ pub fn get_symbolic_constraints_and_bus_data_values<F: Field, A: Air>(
 where
     A::ExtraData: Default,
 {
-    // Clear the arena before building constraints
+    // Clear the arena and hints before building constraints
     ARENA.with(|arena| arena.borrow_mut().clear());
+    clear_dot_product_hints();
 
     let mut builder = SymbolicAirBuilder::<F>::new(air.n_columns(), air.n_down_columns());
     air.eval(&mut builder, &Default::default());

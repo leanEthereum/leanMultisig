@@ -6,10 +6,16 @@ use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
 /// Dispatch `mds_circ_16` through concrete types.
-/// All five AIR types (`F`, `EF`, `FPacking<F>`, `EFPacking<EF>`, `SymbolicExpression<KoalaBear>`)
-/// satisfy the `PrimeCharacteristicRing + Mul<KoalaBear>` bound required by `mds_circ_16`.
+/// For `SymbolicExpression` we use the dense form so the zkDSL generator can
+/// emit `dot_product_be` precompile calls instead of Karatsuba arithmetic.
 #[inline(always)]
 fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
+    // Symbolic mode → dense multiply (produces dot_product_be hints).
+    if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
+        dense_mat_vec_air_16(mds_dense_16(), state);
+        return;
+    }
+    // Concrete types → optimised Karatsuba.
     macro_rules! dispatch {
         ($t:ty) => {
             if TypeId::of::<A>() == TypeId::of::<$t>() {
@@ -22,8 +28,24 @@ fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
     dispatch!(EF);
     dispatch!(FPacking<F>);
     dispatch!(EFPacking<EF>);
-    dispatch!(SymbolicExpression<KoalaBear>);
     unreachable!()
+}
+
+/// Dense circulant MDS matrix (row-major), lazily materialised from `mds_circ_16`.
+fn mds_dense_16() -> &'static [[F; 16]; 16] {
+    use std::sync::OnceLock;
+    static MAT: OnceLock<[[KoalaBear; 16]; 16]> = OnceLock::new();
+    MAT.get_or_init(|| {
+        // mds_circ_16(e_j) = C * e_j = j-th column of C.
+        let cols: [[F; 16]; 16] = std::array::from_fn(|j| {
+            let mut e = [F::ZERO; 16];
+            e[j] = F::ONE;
+            mds_circ_16(&mut e);
+            e
+        });
+        // Transpose: mat[i][j] = cols[j][i]  (row-major for dense_mat_vec_air_16).
+        std::array::from_fn(|i| std::array::from_fn(|j| cols[j][i]))
+    })
 }
 
 /// Add a `KoalaBear` constant to any AIR type.
@@ -62,6 +84,33 @@ fn mul_kb<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
     dispatch!(EFPacking<EF>);
     dispatch!(SymbolicExpression<KoalaBear>);
     unreachable!()
+}
+
+/// Compute `sum(constants[j] * values[j])` and register a `DotProductBE` hint
+/// when running in symbolic mode so the zkDSL generator emits a single
+/// `dot_product_be` precompile call.
+fn dot_product_be_air<A: PrimeCharacteristicRing + 'static>(constants: &[F], values: &[A]) -> A {
+    debug_assert_eq!(constants.len(), values.len());
+    let mut acc = A::ZERO;
+    for (&c, v) in constants.iter().zip(values.iter()) {
+        acc += mul_kb(*v, c);
+    }
+    if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
+        type S = SymbolicExpression<KoalaBear>;
+        let sym_acc: S = unsafe { std::ptr::read(&acc as *const A as *const S) };
+        let sym_vals: Vec<S> = values
+            .iter()
+            .map(|v| unsafe { std::ptr::read(v as *const A as *const S) })
+            .collect();
+        register_dot_product_hint(
+            sym_acc,
+            DotProductHint::BE(DotProductBEHint {
+                constants: constants.to_vec(),
+                operands: sym_vals,
+            }),
+        );
+    }
+    acc
 }
 
 mod trace_gen;
@@ -355,11 +404,7 @@ fn eval_last_2_full_rounds_16<AB: AirBuilder>(
 fn dense_mat_vec_air_16<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 16]; 16], state: &mut [A; WIDTH]) {
     let input = *state;
     for i in 0..WIDTH {
-        let mut acc = A::ZERO;
-        for j in 0..WIDTH {
-            acc += mul_kb(input[j], mat[i][j]);
-        }
-        state[i] = acc;
+        state[i] = dot_product_be_air(&mat[i], &input);
     }
 }
 
@@ -370,11 +415,7 @@ fn sparse_mat_air_16<A: PrimeCharacteristicRing + 'static>(
     v: &[F; WIDTH],
 ) {
     let old_s0 = state[0];
-    let mut new_s0 = A::ZERO;
-    for j in 0..WIDTH {
-        new_s0 += mul_kb(state[j], first_row[j]);
-    }
-    state[0] = new_s0;
+    state[0] = dot_product_be_air(first_row, state.as_slice());
     for i in 1..WIDTH {
         state[i] += mul_kb(old_s0, v[i - 1]);
     }
