@@ -54,7 +54,7 @@ where
             columns_up_down_group_packed,
             air,
             &extra_data,
-            Some((zerocheck_challenges, None)),
+            Some(zerocheck_challenges),
             prover_state,
             virtual_column_statement
                 .as_ref()
