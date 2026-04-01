@@ -1,5 +1,4 @@
 use std::array;
-
 use backend::{KoalaBear, integers::QuotientMap};
 use leansig::{
     inc_encoding::target_sum::TargetSumEncoding,
