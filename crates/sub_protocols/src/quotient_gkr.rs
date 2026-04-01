@@ -18,7 +18,8 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
         vec![(numerators.soft_clone().into(), denominators.soft_clone().into())];
 
     loop {
-        let (mut prev_numerators, mut prev_denominators) = layers.last().cloned().unwrap();
+        let mut prev_numerators: Mle<'_, _> = layers.last().unwrap().0.by_ref().soft_clone().into();
+        let mut prev_denominators: Mle<'_, _> = layers.last().unwrap().1.by_ref().soft_clone().into();
         if prev_numerators.is_packed() && prev_numerators.n_vars() < MIN_VARS_FOR_PACKING {
             (prev_numerators, prev_denominators) = (
                 prev_numerators.unpack().as_owned_or_clone().into(),
