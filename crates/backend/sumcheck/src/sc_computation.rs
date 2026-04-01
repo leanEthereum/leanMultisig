@@ -193,6 +193,23 @@ fn handle_gkr_quotient<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
                 identity_decompose,
             )
         }
+        MleGroupRef::ExtensionPacked(m) if split_eq.is_remainder_mode() => {
+            let unpack = |s: &[EFPacking<EF>]| -> Vec<EF> { EFPacking::<EF>::to_ext_iter(s.iter().copied()).collect() };
+            let (m0, m1, m2, m3) = (unpack(m[0]), unpack(m[1]), unpack(m[2]), unpack(m[3]));
+            let eq_vals: Vec<EF> = (0..m0.len() / 2).map(|i| split_eq.get_unpacked(i)).collect();
+            compute_gkr_quotient_sumcheck_polynomial(
+                &m0,
+                &m1,
+                &m2,
+                &m3,
+                alpha,
+                first_eq_factor,
+                &eq_vals,
+                mul_factor,
+                sum,
+                identity_decompose,
+            )
+        }
         MleGroupRef::ExtensionPacked(m) => compute_gkr_quotient_sumcheck_polynomial_split_eq(
             m[0],
             m[1],
