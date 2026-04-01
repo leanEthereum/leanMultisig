@@ -147,6 +147,7 @@ impl CustomHint {
                 let n_chunks = 24 / chunk_size;
                 let mut memory_index_decomposed = decomposed_ptr;
                 let mut memory_index_remaining = remaining_ptr;
+                #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
                     let mut d_i = value / q; // floor(a_i / Q)
@@ -170,6 +171,7 @@ impl CustomHint {
                 let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
+                #[allow(clippy::explicit_counter_loop)]
                 for i in 0..24 / chunk_size {
                     let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
                     ctx.memory.set(memory_index_decomposed, value)?;

@@ -1,4 +1,3 @@
-use std::array;
 use backend::{KoalaBear, integers::QuotientMap};
 use leansig::{
     inc_encoding::target_sum::TargetSumEncoding,
@@ -17,6 +16,7 @@ use leansig::{
 };
 use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
 use p3_field::PrimeField32;
+use std::array;
 
 #[cfg(feature = "test-config")]
 pub const V: usize = 4;
