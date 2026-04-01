@@ -234,9 +234,9 @@ where
         .fold(zero, |mut acc, b_lo| {
             let eq_lo_bc = <EP<EF> as From<EF>>::from(eq_lo[b_lo]);
             let base = b_lo * packed_hi;
+            let (mut l0, mut l1, mut l2, mut l3) = (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
             for k in 0..packed_hi {
                 let i = base + k;
-                let eq = eq_lo_bc * eq_hi[k];
                 let t = compute_sumcheck_terms(
                     u0[i],
                     u0[i + half],
@@ -246,13 +246,17 @@ where
                     u2[i + half],
                     u3[i],
                     u3[i + half],
-                    eq,
+                    eq_hi[k],
                 );
-                acc.0 += t.0;
-                acc.1 += t.1;
-                acc.2 += t.2;
-                acc.3 += t.3;
+                l0 += t.0;
+                l1 += t.1;
+                l2 += t.2;
+                l3 += t.3;
             }
+            acc.0 += l0 * eq_lo_bc;
+            acc.1 += l1 * eq_lo_bc;
+            acc.2 += l2 * eq_lo_bc;
+            acc.3 += l3 * eq_lo_bc;
             acc
         })
         .reduce(zero, add);
@@ -446,20 +450,24 @@ where
         .fold(zero, |mut acc, b_lo| {
             let eq_lo_bc = <EP<EF> as From<EF>>::from(eq_lo[b_lo]);
             let base = b_lo * packed_hi;
+            let (mut l0, mut l1, mut l2, mut l3) = (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
             for k in 0..packed_hi {
                 let i = base + k;
-                let eq = eq_lo_bc * eq_hi[k];
 
                 let (u0l, u0r) = fold_store(u0, p0, i);
                 let (u1l, u1r) = fold_store(u1, p1, i);
                 let (u2l, u2r) = fold_store_d(u2, p2, i);
                 let (u3l, u3r) = fold_store_d(u3, p3, i);
-                let t = compute_sumcheck_terms(u0l, u0r, u1l, u1r, u2l, u2r, u3l, u3r, eq);
-                acc.0 += t.0;
-                acc.1 += t.1;
-                acc.2 += t.2;
-                acc.3 += t.3;
+                let t = compute_sumcheck_terms(u0l, u0r, u1l, u1r, u2l, u2r, u3l, u3r, eq_hi[k]);
+                l0 += t.0;
+                l1 += t.1;
+                l2 += t.2;
+                l3 += t.3;
             }
+            acc.0 += l0 * eq_lo_bc;
+            acc.1 += l1 * eq_lo_bc;
+            acc.2 += l2 * eq_lo_bc;
+            acc.3 += l3 * eq_lo_bc;
             acc
         })
         .reduce(zero, add);
