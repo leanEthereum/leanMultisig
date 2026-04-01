@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use utils::{flatten_to_base, reconstitute_from_base};
 
 use super::extension::QuinticExtensionField;
+#[allow(unused_imports)]
 use crate::{KoalaBear, QuinticExtendable};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
@@ -78,6 +79,7 @@ impl<F: QuinticExtendable, PF: PackedField<Scalar = F>> Algebra<QuinticExtension
 
 impl<F: QuinticExtendable, PF: PackedField<Scalar = F>> Algebra<PF> for PackedQuinticExtensionField<F, PF> {}
 
+#[allow(unused_macros)]
 macro_rules! impl_packed_ext_scalar_ops {
     ($pf:ty) => {
         impl Add<KoalaBear> for PackedQuinticExtensionField<KoalaBear, $pf> {
