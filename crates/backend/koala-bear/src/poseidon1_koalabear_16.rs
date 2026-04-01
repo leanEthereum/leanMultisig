@@ -25,18 +25,26 @@ const MDS_CIRC_COL: [KoalaBear; 16] = KoalaBear::new_array([1, 3, 13, 22, 67, 2,
 // Forward twiddles for 16-point FFT: W_k = omega^k
 // =========================================================================
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W1: KoalaBear = KoalaBear::new(0x08dbd69c);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W2: KoalaBear = KoalaBear::new(0x6832fe4a);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W3: KoalaBear = KoalaBear::new(0x27ae21e2);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W4: KoalaBear = KoalaBear::new(0x7e010002);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W5: KoalaBear = KoalaBear::new(0x3a89a025);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W6: KoalaBear = KoalaBear::new(0x174e3650);
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const W7: KoalaBear = KoalaBear::new(0x27dfce22);
 
 // =========================================================================
 // 16-point FFT / IFFT (radix-2, fully unrolled, in-place)
 // =========================================================================
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
     let (a, b) = (v[lo], v[hi]);
@@ -44,6 +52,7 @@ fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
     v[hi] = a - b;
 }
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let a = v[lo];
@@ -52,6 +61,7 @@ fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBea
     v[hi] = a - tb;
 }
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let (a, b) = (v[lo], v[hi]);
@@ -59,6 +69,7 @@ fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: Koal
     v[hi] = (b - a) * t;
 }
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 8);
@@ -95,6 +106,7 @@ fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 14, 15);
 }
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 1);

@@ -83,6 +83,19 @@ pub fn finger_print<F: Field, IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>
         + *alphas_eq_poly.last().unwrap() * table
 }
 
+#[inline(always)]
+pub fn finger_print_packed<EF: ExtensionField<PF<EF>>>(
+    table_contrib: EFPacking<EF>,
+    data: &[PFPacking<EF>],
+    alphas_packed: &[EFPacking<EF>],
+) -> EFPacking<EF> {
+    let mut result = table_contrib;
+    for (alpha, d) in alphas_packed.iter().zip(data) {
+        result += *alpha * *d;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
