@@ -1,6 +1,6 @@
 use backend::*;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
-use lean_prover::WHIR_INITIAL_FOLDING_FACTOR;
+use lean_prover::{WHIR_INITIAL_FOLDING_FACTOR, default_whir_config};
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -241,6 +241,108 @@ fn build_replacements(
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
+
+    // WHIR open parameters for inner proof verification
+    // n_vars=25 and log_inv_rate=2 are hardcoded for the recursion --n 2 scenario
+    let whir_open_n_vars: usize = 25;
+    let whir_open_log_inv_rate: usize = 2;
+    let whir_open_builder = default_whir_config(whir_open_log_inv_rate);
+    let whir_open: WhirConfig<EF> = WhirConfig::new(&whir_open_builder, whir_open_n_vars);
+    assert_eq!(whir_open.n_rounds(), 2, "WHIR open code assumes exactly 2 rounds");
+
+    replacements.insert("WHIR_OPEN_N_VARS_PLACEHOLDER".into(), whir_open_n_vars.to_string());
+    replacements.insert(
+        "WHIR_OPEN_LOG_INV_RATE_PLACEHOLDER".into(),
+        whir_open_log_inv_rate.to_string(),
+    );
+    replacements.insert(
+        "WHIR_OPEN_COMMITMENT_OOD_PLACEHOLDER".into(),
+        whir_open.commitment_ood_samples.to_string(),
+    );
+
+    // Round 0
+    let r0 = &whir_open.round_parameters[0];
+    replacements.insert("WHIR_OPEN_R0_QUERIES_PLACEHOLDER".into(), r0.num_queries.to_string());
+    replacements.insert("WHIR_OPEN_R0_OOD_PLACEHOLDER".into(), r0.ood_samples.to_string());
+    replacements.insert("WHIR_OPEN_R0_QGRIND_PLACEHOLDER".into(), r0.query_pow_bits.to_string());
+    let r0_domain_log = r0.domain_size.ilog2() as usize;
+    replacements.insert("WHIR_OPEN_R0_DOMAIN_LOG_PLACEHOLDER".into(), r0_domain_log.to_string());
+    let r0_folded_domain_log = r0_domain_log - r0.folding_factor;
+    replacements.insert(
+        "WHIR_OPEN_R0_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
+        r0_folded_domain_log.to_string(),
+    );
+    // Round 0 is base field: leaf_chunks = 2^fold / DIGEST_LEN
+    let r0_leaf_chunks = (1usize << r0.folding_factor) / DIGEST_LEN;
+    replacements.insert(
+        "WHIR_OPEN_R0_LEAF_CHUNKS_PLACEHOLDER".into(),
+        r0_leaf_chunks.to_string(),
+    );
+    let r0_sample_chunks = r0.num_queries.div_ceil(DIGEST_LEN);
+    replacements.insert(
+        "WHIR_OPEN_R0_SAMPLE_CHUNKS_PLACEHOLDER".into(),
+        r0_sample_chunks.to_string(),
+    );
+
+    // Round 1
+    let r1 = &whir_open.round_parameters[1];
+    replacements.insert("WHIR_OPEN_R1_FOLD_PLACEHOLDER".into(), r1.folding_factor.to_string());
+    replacements.insert("WHIR_OPEN_R1_QUERIES_PLACEHOLDER".into(), r1.num_queries.to_string());
+    replacements.insert("WHIR_OPEN_R1_OOD_PLACEHOLDER".into(), r1.ood_samples.to_string());
+    replacements.insert("WHIR_OPEN_R1_QGRIND_PLACEHOLDER".into(), r1.query_pow_bits.to_string());
+    let r1_domain_log = r1.domain_size.ilog2() as usize;
+    replacements.insert("WHIR_OPEN_R1_DOMAIN_LOG_PLACEHOLDER".into(), r1_domain_log.to_string());
+    let r1_folded_domain_log = r1_domain_log - r1.folding_factor;
+    replacements.insert(
+        "WHIR_OPEN_R1_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
+        r1_folded_domain_log.to_string(),
+    );
+    // Round 1+ is extension field: leaf_chunks = 2^fold * DIMENSION / DIGEST_LEN
+    let r1_leaf_chunks = (1usize << r1.folding_factor) * DIMENSION / DIGEST_LEN;
+    replacements.insert(
+        "WHIR_OPEN_R1_LEAF_CHUNKS_PLACEHOLDER".into(),
+        r1_leaf_chunks.to_string(),
+    );
+    let r1_sample_chunks = r1.num_queries.div_ceil(DIGEST_LEN);
+    replacements.insert(
+        "WHIR_OPEN_R1_SAMPLE_CHUNKS_PLACEHOLDER".into(),
+        r1_sample_chunks.to_string(),
+    );
+
+    // Final STIR round
+    let final_config = whir_open.final_round_config();
+    replacements.insert(
+        "WHIR_OPEN_FINAL_QUERIES_PLACEHOLDER".into(),
+        whir_open.final_queries.to_string(),
+    );
+    replacements.insert(
+        "WHIR_OPEN_FINAL_QGRIND_PLACEHOLDER".into(),
+        whir_open.final_query_pow_bits.to_string(),
+    );
+    let final_domain_log = final_config.domain_size.ilog2() as usize;
+    replacements.insert(
+        "WHIR_OPEN_FINAL_DOMAIN_LOG_PLACEHOLDER".into(),
+        final_domain_log.to_string(),
+    );
+    let final_folded_domain_log = final_domain_log - final_config.folding_factor;
+    replacements.insert(
+        "WHIR_OPEN_FINAL_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
+        final_folded_domain_log.to_string(),
+    );
+    let final_sample_chunks = whir_open.final_queries.div_ceil(DIGEST_LEN);
+    replacements.insert(
+        "WHIR_OPEN_FINAL_SAMPLE_CHUNKS_PLACEHOLDER".into(),
+        final_sample_chunks.to_string(),
+    );
+
+    // Final polynomial
+    let n_final_vars = whir_open.final_sumcheck_rounds;
+    replacements.insert("WHIR_OPEN_N_FINAL_VARS_PLACEHOLDER".into(), n_final_vars.to_string());
+    let final_coeffs_chunks = (1usize << n_final_vars) * DIMENSION / DIGEST_LEN;
+    replacements.insert(
+        "WHIR_OPEN_FINAL_COEFFS_CHUNKS_PLACEHOLDER".into(),
+        final_coeffs_chunks.to_string(),
+    );
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
