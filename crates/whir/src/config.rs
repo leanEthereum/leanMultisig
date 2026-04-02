@@ -495,7 +495,7 @@ impl SecurityAssumption {
             Self::UniqueDecoding => (log_degree + log_inv_rate) as f64,
 
             Self::JohnsonBound => {
-                // From Theorem 1.5 in [BCSS25] "On Proximity Gaps for Reed-Solomon Codes":
+                // From Theorem 1.5 in [BCSS25](https://eprint.iacr.org/2025/2055.pdf) "On Proximity Gaps for Reed-Solomon Codes":
                 let eta = 2_f64.powf(log_eta);
                 let rho = 1. / f64::from(1 << log_inv_rate);
                 let rho_sqrt = rho.sqrt();
