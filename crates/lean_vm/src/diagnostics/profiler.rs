@@ -1,6 +1,5 @@
+use backend::pretty_integer;
 use std::collections::{BTreeMap, HashMap};
-
-use utils::pretty_integer;
 
 use crate::ExecutionHistory;
 use crate::core::{Label, SourceLocation};

@@ -48,8 +48,15 @@ pub fn prove_generic_logup(
         log_bytecode,
         &tables_log_heights_sorted.iter().cloned().collect(),
     );
-    let mut numerators = EF::zero_vec(1 << total_gkr_n_vars);
-    let mut denominators = EF::zero_vec(1 << total_gkr_n_vars);
+    let mut numerators = F::zero_vec(1 << total_gkr_n_vars);
+    let width = packing_width::<EF>();
+    let mut denominators_packed = EFPacking::<EF>::zero_vec((1 << total_gkr_n_vars) / width);
+    let c_packed = EFPacking::<EF>::from(c);
+    let alphas_packed: Vec<EFPacking<EF>> = alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
+    let alpha_last = *alphas_eq_poly.last().unwrap();
+    let memory_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_MEMORY_DOMAINSEP));
+    let bytecode_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_BYTECODE_DOMAINSEP));
+    let precompile_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP));
 
     let mut offset = 0;
 
@@ -57,17 +64,22 @@ pub fn prove_generic_logup(
     assert_eq!(memory.len(), memory_acc.len());
     numerators[offset..][..memory.len()]
         .par_iter_mut()
-        .zip(memory_acc) // TODO embedding overhead
-        .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here 
-    denominators[offset..][..memory.len()]
+        .zip(memory_acc)
+        .for_each(|(num, a)| *num = -*a); // Note the negative sign here 
+    denominators_packed[offset / width..][..memory.len() / width]
         .par_iter_mut()
-        .zip(memory.par_iter().enumerate())
-        .for_each(|(denom, (i, &mem_value))| {
-            *denom = c - finger_print(
-                F::from_usize(LOGUP_MEMORY_DOMAINSEP),
-                &[mem_value, F::from_usize(i)],
-                alphas_eq_poly,
-            )
+        .enumerate()
+        .for_each(|(chunk_idx, denom_packed)| {
+            let base_i = chunk_idx * width;
+            *denom_packed = c_packed
+                - finger_print_packed::<EF>(
+                    memory_contrib,
+                    &[
+                        PFPacking::<EF>::from_fn(|w| memory[base_i + w]),
+                        PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w)),
+                    ],
+                    &alphas_packed,
+                );
         });
     offset += memory.len();
 
@@ -75,27 +87,29 @@ pub fn prove_generic_logup(
     assert_eq!(1 << log_bytecode, bytecode_acc.len());
     numerators[offset..][..bytecode_acc.len()]
         .par_iter_mut()
-        .zip(bytecode_acc) // TODO embedding overhead
-        .for_each(|(num, a)| *num = EF::from(-*a)); // Note the negative sign here
-    denominators[offset..][..1 << log_bytecode]
-        .par_iter_mut()
-        .zip(
-            bytecode_multilinear
-                .par_chunks_exact(N_INSTRUCTION_COLUMNS.next_power_of_two())
-                .enumerate(),
-        )
-        .for_each(|(denom, (i, instr))| {
-            let mut data = [F::ZERO; N_INSTRUCTION_COLUMNS + 1];
-            data[..N_INSTRUCTION_COLUMNS].copy_from_slice(&instr[..N_INSTRUCTION_COLUMNS]);
-            data[N_INSTRUCTION_COLUMNS] = F::from_usize(i);
-            *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
-        });
+        .zip(bytecode_acc)
+        .for_each(|(num, a)| *num = -*a); // Note the negative sign here
+    {
+        let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
+        denominators_packed[offset / width..][..(1 << log_bytecode) / width]
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(chunk_idx, denom_packed)| {
+                let base_i = chunk_idx * width;
+                let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                for k in 0..N_INSTRUCTION_COLUMNS {
+                    data[k] = PFPacking::<EF>::from_fn(|w| bytecode_multilinear[(base_i + w) * bytecode_stride + k]);
+                }
+                data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w));
+                *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
+            });
+    }
     let max_table_height = 1 << tables_log_heights_sorted[0].1;
     if 1 << log_bytecode < max_table_height {
         // padding
-        denominators[offset + (1 << log_bytecode)..offset + max_table_height]
+        denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
             .par_iter_mut()
-            .for_each(|d| *d = EF::ONE);
+            .for_each(|d| *d = EFPacking::<EF>::ONE);
     }
     offset += max_table_height.max(1 << log_bytecode);
     // ... Rest of the tables:
@@ -108,18 +122,19 @@ pub fn prove_generic_logup(
             let pc_column = &trace.columns[COL_PC];
             let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
             numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
-                *num = EF::ONE;
+                *num = F::ONE;
             }); // TODO embedding overhead
-            denominators[offset..][..1 << log_n_rows]
+            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
                 .par_iter_mut()
                 .enumerate()
-                .for_each(|(i, denom)| {
-                    let mut data = [F::ZERO; N_INSTRUCTION_COLUMNS + 1];
-                    for j in 0..N_INSTRUCTION_COLUMNS {
-                        data[j] = bytecode_columns[j][i];
+                .for_each(|(chunk_idx, denom_packed)| {
+                    let base_i = chunk_idx * width;
+                    let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                    for k in 0..N_INSTRUCTION_COLUMNS {
+                        data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][base_i + w]);
                     }
-                    data[N_INSTRUCTION_COLUMNS] = pc_column[i];
-                    *denom = c - finger_print(F::from_usize(LOGUP_BYTECODE_DOMAINSEP), &data, alphas_eq_poly)
+                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[base_i + w]);
+                    *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
                 });
             offset += 1 << log_n_rows;
         }
@@ -130,30 +145,33 @@ pub fn prove_generic_logup(
             .par_iter_mut()
             .zip(&trace.columns[bus.selector])
             .for_each(|(num, selector)| {
-                *num = EF::from(match bus.direction {
+                *num = F::from(match bus.direction {
                     BusDirection::Pull => -*selector,
                     BusDirection::Push => *selector,
                 })
             }); // TODO embedding overhead
-        denominators[offset..][..1 << log_n_rows]
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, denom)| {
-                *denom = {
-                    let mut bus_data = [F::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
-                    for (j, entry) in bus.data.iter().enumerate() {
+        {
+            let bus_data_entries = &bus.data;
+            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(chunk_idx, denom_packed)| {
+                    let base_i = chunk_idx * width;
+                    let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+                    for (j, entry) in bus_data_entries.iter().enumerate() {
                         bus_data[j] = match entry {
-                            BusData::Column(col) => trace.columns[*col][i],
-                            BusData::Constant(val) => F::from_usize(*val),
+                            BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][base_i + w]),
+                            BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
                         };
                     }
-                    c + finger_print(
-                        F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP),
-                        &bus_data[..bus.data.len()],
-                        alphas_eq_poly,
-                    )
-                }
-            });
+                    *denom_packed = c_packed
+                        + finger_print_packed::<EF>(
+                            precompile_contrib,
+                            &bus_data[..bus_data_entries.len()],
+                            &alphas_packed,
+                        );
+                });
+        }
 
         offset += 1 << log_n_rows;
 
@@ -164,23 +182,32 @@ pub fn prove_generic_logup(
             numerators[offset..][..col_values.len() << log_n_rows]
                 .par_iter_mut()
                 .for_each(|num| {
-                    *num = EF::ONE;
+                    *num = F::ONE;
                 }); // TODO embedding overhead
-            denominators[offset..][..col_values.len() << log_n_rows]
-                .par_chunks_exact_mut(1 << log_n_rows)
-                .enumerate()
-                .for_each(|(i, denom_chunk)| {
-                    let i_field = F::from_usize(i);
-                    denom_chunk.par_iter_mut().enumerate().for_each(|(j, denom)| {
-                        let index = col_index[j] + i_field;
-                        let mem_value = col_values[i][j];
-                        *denom = c - finger_print(
-                            F::from_usize(LOGUP_MEMORY_DOMAINSEP),
-                            &[mem_value, index],
-                            alphas_eq_poly,
-                        )
+            {
+                let packed_chunk_size = (1 << log_n_rows) / width;
+                denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
+                    .par_chunks_exact_mut(packed_chunk_size)
+                    .enumerate()
+                    .for_each(|(i, denom_chunk)| {
+                        let i_field = F::from_usize(i);
+                        denom_chunk
+                            .par_iter_mut()
+                            .enumerate()
+                            .for_each(|(chunk_idx, denom_packed)| {
+                                let base_j = chunk_idx * width;
+                                *denom_packed = c_packed
+                                    - finger_print_packed::<EF>(
+                                        memory_contrib,
+                                        &[
+                                            PFPacking::<EF>::from_fn(|w| col_values[i][base_j + w]),
+                                            PFPacking::<EF>::from_fn(|w| col_index[base_j + w] + i_field),
+                                        ],
+                                        &alphas_packed,
+                                    );
+                            });
                     });
-                });
+            }
             offset += col_values.len() << log_n_rows;
         }
     }
@@ -197,14 +224,15 @@ pub fn prove_generic_logup(
         .blue()
     );
 
-    denominators[offset..].par_iter_mut().for_each(|d| *d = EF::ONE); // padding
+    denominators_packed[offset / width..]
+        .par_iter_mut()
+        .for_each(|d| *d = EFPacking::<EF>::ONE); // padding
 
-    // TODO pack directly
-    let numerators_packed = MleRef::Extension(&numerators).pack();
-    let denominators_packed = MleRef::Extension(&denominators).pack();
+    let numerators_packed = MleRef::Base(&numerators).pack();
+    let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) =
-        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denominators_packed.by_ref());
+        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denom_ref);
 
     let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
 
@@ -269,7 +297,9 @@ pub fn prove_generic_logup(
             trace.columns[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data = (&denominators[offset..][..1 << log_n_rows]).evaluate(&inner_point);
+        let eval_on_data =
+            MleRef::<EF>::ExtensionPacked(&denominators_packed[offset / width..][..(1 << log_n_rows) / width])
+                .evaluate(&inner_point);
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);

@@ -79,7 +79,7 @@ pub fn stacked_pcs_global_statements(
                     .collect(),
             ));
         }
-        offset += table.n_committed_columns() << n_vars;
+        offset += table.n_columns() << n_vars;
     }
     global_statements
 }
@@ -179,7 +179,7 @@ fn compute_stacked_n_vars(
         + (1 << log_bytecode.max(max_table_log_n_rows))
         + tables_log_heights
             .iter()
-            .map(|(table, log_n_rows)| table.n_committed_columns() << log_n_rows)
+            .map(|(table, log_n_rows)| table.n_columns() << log_n_rows)
             .sum::<usize>();
     log2_ceil_usize(total_len)
 }
@@ -198,7 +198,7 @@ pub fn total_whir_statements() -> usize {
         .iter()
         .map(|table| {
             // AIR
-            table.n_committed_columns()
+            table.n_columns()
             + table.n_down_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()

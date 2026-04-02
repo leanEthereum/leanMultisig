@@ -117,11 +117,14 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     # table dims
     debug_assert(N_TABLES + 1 < DIGEST_LEN)
     fs, dims = fs_receive_chunks(fs, 1)
-    for i in unroll(N_TABLES + 2, 8):
+    for i in unroll(N_TABLES + 3, 8):
         assert dims[i] == 0
     whir_log_inv_rate = dims[0]
     log_memory = dims[1]
-    table_log_heights = dims + 2
+    public_input_len = dims[2]
+    table_log_heights = dims + 3
+
+    assert public_input_len == PUB_INPUT_SIZE
 
     assert MIN_WHIR_LOG_INV_RATE <= whir_log_inv_rate
     assert whir_log_inv_rate <= MAX_WHIR_LOG_INV_RATE
@@ -804,7 +807,7 @@ def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
 
 def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly):
     res: Imu
-    debug_assert(table_index < 3)
+    debug_assert(table_index < N_TABLES)
     match table_index:
         case 0:
             res = evaluate_air_constraints_table_0(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)

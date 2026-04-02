@@ -17,16 +17,16 @@ enum Cli {
     },
     #[command(about = "Run n->1 recursion")]
     Recursion {
-        #[arg(long, default_value = "1", help = "Number of recursive proofs to aggregate")]
+        #[arg(long, default_value = "2", help = "Number of recursive proofs to aggregate")]
         n: usize,
         #[arg(long, help = "log(1/rate) in WHIR", default_value = "2", short = 'r')]
         log_inv_rate: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
-    #[command(about = "Prove validity of Poseidon2 permutations over 16 field elements")]
+    #[command(about = "Prove validity of Poseidon permutations")]
     Poseidon {
-        #[arg(long, help = "log2(number of Poseidons)")]
+        #[arg(long, help = "log2(number of Poseidons)", default_value = "20")]
         log_n_perms: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,

@@ -182,21 +182,6 @@ def mle_of_01234567_etc(point, n):
         return res
 
 
-def range_check_power_of_2(a, n_bits: Const):
-    # assert a < 2**n_bits
-    debug_assert(n_bits < 30)
-    if n_bits <= 16:
-        assert a < 2**n_bits
-    else:
-        lo: Imu
-        hi: Imu
-        hint_decompose_16(a, lo, hi)
-        assert lo < 2**16
-        assert hi < 2 ** (n_bits - 16)
-        assert a == lo + hi * 2**16
-    return
-
-
 @inline
 def checked_less_than(a, b):
     res: Imu
@@ -459,24 +444,22 @@ def checked_decompose_bits(a):
 def checked_decompose_bits_and_compute_root_pow_const(a, domain_size):
     # Hint 6 nibbles (4 bits each) + 1 top-7-bit value = 7 hints
     nibbles = Array(6)
-    top7 = Array(1)
-    a_ptr = Array(1)
-    a_ptr[0] = a
-    hint_decompose_bits_xmss(nibbles, top7, a_ptr, 1, 4)
+    top7: Imu
+    hint_decompose_bits_merkle_whir(nibbles, top7, a, 4)
 
     for i in unroll(0, 6):
         assert nibbles[i] < 16
 
-    assert top7[0] < 2**7
+    assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
 
-    if top7[0] == 2**7 - 1:
+    if top7 == 2**7 - 1:
         assert partial_sum == 0
 
-    assert partial_sum + top7[0] * 2**24 == a
+    assert partial_sum + top7 * 2**24 == a
 
     # Compute domain_generator^index
     prod: Mut = 1

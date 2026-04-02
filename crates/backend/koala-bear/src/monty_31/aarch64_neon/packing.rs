@@ -108,7 +108,7 @@ impl<PMP: PackedMontyParameters> PackedMontyField31Neon<PMP> {
     /// Copy `value` to all positions in a packed vector. This is the same as
     /// `From<MontyField31>::from`, but `const`.
     #[inline]
-    const fn broadcast(value: MontyField31<PMP>) -> Self {
+    pub(crate) const fn broadcast(value: MontyField31<PMP>) -> Self {
         Self([value; WIDTH])
     }
 }
@@ -264,6 +264,18 @@ impl_div_methods!(PackedMontyField31Neon, MontyField31, (FieldParameters, FP));
 impl_sum_prod_base_field!(PackedMontyField31Neon, MontyField31, (FieldParameters, FP));
 
 impl<FP: FieldParameters> Algebra<MontyField31<FP>> for PackedMontyField31Neon<FP> {}
+
+impl<FP: FieldParameters> PackedMontyField31Neon<FP> {
+    /// Compute the dot product of a packed vector with a scalar vector.
+    ///
+    /// This is more efficient than broadcasting the scalars first, because the
+    /// Karatsuba recursion can keep the constant (rhs) side as cheap scalar
+    /// operations while only the lhs/output side uses SIMD.
+    #[inline(always)]
+    pub fn mixed_dot_product<const N: usize>(lhs: &[Self; N], rhs: &[MontyField31<FP>; N]) -> Self {
+        general_dot_product::<_, _, _, N>(lhs, rhs)
+    }
+}
 
 impl<FP: FieldParameters + RelativelyPrimePower<D>, const D: u64> InjectiveMonomial<D> for PackedMontyField31Neon<FP> {}
 

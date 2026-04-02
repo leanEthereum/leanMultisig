@@ -17,7 +17,6 @@ pub struct XmssSecretKey {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct XmssSignature {
     pub wots_signature: WotsSignature,
-    pub slot: u32,
     pub merkle_proof: Vec<Digest>,
 }
 
@@ -59,7 +58,7 @@ pub fn xmss_key_gen(
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    let perm = default_koalabear_poseidon2_16();
+    let perm = default_koalabear_poseidon1_16();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start..=slot_end)
         .into_par_iter()
@@ -158,7 +157,6 @@ pub fn xmss_sign_with_randomness(
         .collect();
     Ok(XmssSignature {
         wots_signature,
-        slot,
         merkle_proof,
     })
 }
@@ -181,23 +179,19 @@ pub fn xmss_verify(
     pub_key: &XmssPublicKey,
     message: &[F; MESSAGE_LEN_FE],
     signature: &XmssSignature,
+    slot: u32,
 ) -> Result<(), XmssVerifyError> {
     let truncated_merkle_root = pub_key.merkle_root[0..TRUNCATED_MERKLE_ROOT_LEN_FE].try_into().unwrap();
     let wots_public_key = signature
         .wots_signature
-        .recover_public_key(
-            message,
-            signature.slot,
-            &truncated_merkle_root,
-            &signature.wots_signature,
-        )
+        .recover_public_key(message, slot, &truncated_merkle_root, &signature.wots_signature)
         .ok_or(XmssVerifyError::InvalidWots)?;
     let mut current_hash = wots_public_key.hash();
     if signature.merkle_proof.len() != LOG_LIFETIME {
         return Err(XmssVerifyError::InvalidMerklePath);
     }
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
-        let is_left = ((signature.slot >> level) & 1) == 0;
+        let is_left = ((slot >> level) & 1) == 0;
         if is_left {
             current_hash = poseidon16_compress_pair(&current_hash, neighbour);
         } else {

@@ -70,7 +70,7 @@ impl<PMP: PackedMontyParameters> PackedMontyField31AVX2<PMP> {
     /// Copy `value` to all positions in a packed vector. This is the same as
     /// `From<MontyField31<FP>>::from`, but `const`.
     #[inline]
-    const fn broadcast(value: MontyField31<PMP>) -> Self {
+    pub(crate) const fn broadcast(value: MontyField31<PMP>) -> Self {
         Self([value; WIDTH])
     }
 }

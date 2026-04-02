@@ -1,14 +1,14 @@
 use std::{
     array,
-    ops::{Add, Mul},
+    ops::{Add, Mul, MulAssign},
 };
 
-use field::{Algebra, ExtensionField, Field};
+use field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
 use poly::*;
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 
-use crate::{SumcheckComputation, sumcheck_quadratic};
+use crate::{SplitEq, SumcheckComputation, sumcheck_quadratic};
 
 #[derive(Default, Debug)]
 pub struct GKRQuotientComputation;
@@ -71,17 +71,21 @@ fn my_dot_product<A1: Copy + Algebra<A2>, A2: Copy>(a: &[A1], b: &[A2]) -> A1 {
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn compute_sumcheck_terms<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
-    u0_left: F,
-    u0_right: F,
-    u1_left: F,
-    u1_right: F,
-    u2_left: F,
-    u2_right: F,
-    u3_left: F,
-    u3_right: F,
-    eq_val: F,
-) -> (F, F, F, F) {
+pub fn compute_sumcheck_terms<N, D>(
+    u0_left: N,
+    u0_right: N,
+    u1_left: N,
+    u1_right: N,
+    u2_left: D,
+    u2_right: D,
+    u3_left: D,
+    u3_right: D,
+    eq_val: D,
+) -> (D, D, D, D)
+where
+    N: PrimeCharacteristicRing + Copy,
+    D: Algebra<N> + Copy + MulAssign,
+{
     let (mut c0_term_single, mut c2_term_single) = sumcheck_quadratic(((&u2_left, &u2_right), (&u3_left, &u3_right)));
     c0_term_single *= eq_val;
     c2_term_single *= eq_val;
@@ -97,16 +101,16 @@ fn compute_sumcheck_terms<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finalize_polynomial<F: Algebra<EF> + Copy + Send + Sync, EF: Field>(
-    c0_term_single: F,
-    c2_term_single: F,
-    c0_term_double: F,
-    c2_term_double: F,
+pub fn finalize_polynomial<A: Algebra<EF> + Copy + Send + Sync, EF: Field>(
+    c0_term_single: A,
+    c2_term_single: A,
+    c0_term_double: A,
+    c2_term_double: A,
     alpha: EF,
     first_eq_factor: EF,
     missing_mul_factor: EF,
     sum: EF,
-    decompose: impl Fn(F) -> Vec<EF>,
+    decompose: impl Fn(A) -> Vec<EF>,
 ) -> DensePolynomial<EF> {
     let c0 = c0_term_single * alpha + c0_term_double;
     let c2 = c2_term_single * alpha + c2_term_double;
@@ -183,6 +187,84 @@ pub(crate) fn compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> + Copy + S
         missing_mul_factor,
         sum,
         decompose,
+    )
+}
+
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+pub fn compute_gkr_quotient_sumcheck_polynomial_split_eq<N, EF>(
+    u0: &[N],
+    u1: &[N],
+    u2: &[EFPacking<EF>],
+    u3: &[EFPacking<EF>],
+    alpha: EF,
+    first_eq_factor: EF,
+    split_eq: &SplitEq<EF>,
+    missing_mul_factor: EF,
+    sum: EF,
+) -> DensePolynomial<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+    N: PrimeCharacteristicRing + Copy + Send + Sync,
+    EFPacking<EF>: Algebra<N> + Algebra<EF>,
+{
+    type EP<EF> = EFPacking<EF>;
+
+    let n = u0.len();
+    let half = n / 2;
+
+    let n_lo = split_eq.n_lo();
+    let packed_hi = split_eq.packed_hi();
+    let log_packed_hi = split_eq.log_packed_hi;
+    let eq_lo = &split_eq.eq_lo;
+    let eq_hi = &split_eq.eq_hi_packed;
+
+    let zero = || (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
+    let add = |a: (EP<EF>, EP<EF>, EP<EF>, EP<EF>), b: (EP<EF>, EP<EF>, EP<EF>, EP<EF>)| {
+        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+    };
+
+    let (c0s, c2s, c0d, c2d) = (0..n_lo)
+        .into_par_iter()
+        .fold(zero, |mut acc, b_lo| {
+            let eq_lo_bc = <EP<EF> as From<EF>>::from(eq_lo[b_lo]);
+            let base = b_lo << log_packed_hi;
+            let (mut l0, mut l1, mut l2, mut l3) = (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
+            for k in 0..packed_hi {
+                let i = base + k;
+                let t = compute_sumcheck_terms(
+                    u0[i],
+                    u0[i + half],
+                    u1[i],
+                    u1[i + half],
+                    u2[i],
+                    u2[i + half],
+                    u3[i],
+                    u3[i + half],
+                    eq_hi[k],
+                );
+                l0 += t.0;
+                l1 += t.1;
+                l2 += t.2;
+                l3 += t.3;
+            }
+            acc.0 += l0 * eq_lo_bc;
+            acc.1 += l1 * eq_lo_bc;
+            acc.2 += l2 * eq_lo_bc;
+            acc.3 += l3 * eq_lo_bc;
+            acc
+        })
+        .reduce(zero, add);
+
+    finalize_polynomial(
+        c0s,
+        c2s,
+        c0d,
+        c2d,
+        alpha,
+        first_eq_factor,
+        missing_mul_factor,
+        sum,
+        crate::packing_decompose::<EF>,
     )
 }
 
@@ -275,6 +357,115 @@ pub(crate) fn fold_and_compute_gkr_quotient_sumcheck_polynomial<F: Algebra<EF> +
             missing_mul_factor,
             sum,
             decompose,
+        ),
+        vec![folded_u0, folded_u1, folded_u2, folded_u3],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
+pub fn fold_and_compute_gkr_quotient_split_eq<N, EF>(
+    u0: &[N],
+    u1: &[N],
+    u2: &[EFPacking<EF>],
+    u3: &[EFPacking<EF>],
+    fold_num: impl Fn(&[N], usize, usize, usize) -> (EFPacking<EF>, EFPacking<EF>) + Sync,
+    fold_den: impl Fn(&[EFPacking<EF>], usize, usize, usize) -> (EFPacking<EF>, EFPacking<EF>) + Sync,
+    alpha: EF,
+    first_eq_factor: EF,
+    split_eq: &SplitEq<EF>,
+    missing_mul_factor: EF,
+    sum: EF,
+) -> (DensePolynomial<EF>, Vec<Vec<EFPacking<EF>>>)
+where
+    EF: ExtensionField<PF<EF>>,
+    N: Copy + Send + Sync,
+    EFPacking<EF>: Algebra<N> + Algebra<EF>,
+{
+    type EP<EF> = EFPacking<EF>;
+
+    let n = u0.len();
+    let half = n / 2;
+    let quarter = n / 4;
+
+    let mut folded_u0 = unsafe { uninitialized_vec::<EP<EF>>(half) };
+    let mut folded_u1 = unsafe { uninitialized_vec::<EP<EF>>(half) };
+    let mut folded_u2 = unsafe { uninitialized_vec::<EP<EF>>(half) };
+    let mut folded_u3 = unsafe { uninitialized_vec::<EP<EF>>(half) };
+
+    let zero = || (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
+    let add = |a: (EP<EF>, EP<EF>, EP<EF>, EP<EF>), b: (EP<EF>, EP<EF>, EP<EF>, EP<EF>)| {
+        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+    };
+
+    let packed_hi = split_eq.packed_hi();
+    let log_packed_hi = split_eq.log_packed_hi;
+    let eq_lo = &split_eq.eq_lo;
+    let eq_hi = &split_eq.eq_hi_packed;
+
+    let (c0s, c2s, c0d, c2d) = {
+        let (fl0, fr0) = folded_u0.split_at_mut(quarter);
+        let (fl1, fr1) = folded_u1.split_at_mut(quarter);
+        let (fl2, fr2) = folded_u2.split_at_mut(quarter);
+        let (fl3, fr3) = folded_u3.split_at_mut(quarter);
+
+        fl0.par_chunks_mut(packed_hi)
+            .zip(fr0.par_chunks_mut(packed_hi))
+            .zip(fl1.par_chunks_mut(packed_hi))
+            .zip(fr1.par_chunks_mut(packed_hi))
+            .zip(fl2.par_chunks_mut(packed_hi))
+            .zip(fr2.par_chunks_mut(packed_hi))
+            .zip(fl3.par_chunks_mut(packed_hi))
+            .zip(fr3.par_chunks_mut(packed_hi))
+            .enumerate()
+            .fold(
+                zero,
+                |mut acc, (b_lo, (((((((fl0, fr0), fl1), fr1), fl2), fr2), fl3), fr3))| {
+                    let eq_lo_bc = <EP<EF> as From<EF>>::from(eq_lo[b_lo]);
+                    let base = b_lo << log_packed_hi;
+                    let (mut l0, mut l1, mut l2, mut l3) =
+                        (EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO, EP::<EF>::ZERO);
+                    for k in 0..packed_hi {
+                        let i = base + k;
+                        let (u0l, u0r) = fold_num(u0, i, half, quarter);
+                        fl0[k] = u0l;
+                        fr0[k] = u0r;
+                        let (u1l, u1r) = fold_num(u1, i, half, quarter);
+                        fl1[k] = u1l;
+                        fr1[k] = u1r;
+                        let (u2l, u2r) = fold_den(u2, i, half, quarter);
+                        fl2[k] = u2l;
+                        fr2[k] = u2r;
+                        let (u3l, u3r) = fold_den(u3, i, half, quarter);
+                        fl3[k] = u3l;
+                        fr3[k] = u3r;
+                        let t = compute_sumcheck_terms(u0l, u0r, u1l, u1r, u2l, u2r, u3l, u3r, eq_hi[k]);
+                        l0 += t.0;
+                        l1 += t.1;
+                        l2 += t.2;
+                        l3 += t.3;
+                    }
+                    acc.0 += l0 * eq_lo_bc;
+                    acc.1 += l1 * eq_lo_bc;
+                    acc.2 += l2 * eq_lo_bc;
+                    acc.3 += l3 * eq_lo_bc;
+                    acc
+                },
+            )
+            .reduce(zero, add)
+    };
+
+    (
+        finalize_polynomial(
+            c0s,
+            c2s,
+            c0d,
+            c2d,
+            alpha,
+            first_eq_factor,
+            missing_mul_factor,
+            sum,
+            crate::packing_decompose::<EF>,
         ),
         vec![folded_u0, folded_u1, folded_u2, folded_u3],
     )
