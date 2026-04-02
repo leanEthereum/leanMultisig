@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
 use backend::*;
-use lean_vm::{EF, F};
+use lean_vm::{EF, F, MAX_WHIR_LOG_INV_RATE, MIN_WHIR_LOG_INV_RATE};
 use utils::*;
 
 mod trace_gen;
@@ -41,6 +41,14 @@ pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
         rs_domain_initial_reduction_factor: RS_DOMAIN_INITIAL_REDUCTION_FACTOR,
         security_level: SECURITY_BITS,
         starting_log_inv_rate,
+    }
+}
+
+pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
+    if (MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
+        Ok(())
+    } else {
+        Err(ProofError::InvalidRate)
     }
 }
 

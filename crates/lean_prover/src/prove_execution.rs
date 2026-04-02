@@ -22,6 +22,9 @@ pub fn prove_execution(
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
+    check_rate(whir_config.starting_log_inv_rate)
+        .map_err(|err| panic!("{err}"))
+        .unwrap();
     let ExecutionTrace {
         traces,
         public_memory_size,
