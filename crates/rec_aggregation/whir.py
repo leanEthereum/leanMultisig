@@ -11,12 +11,14 @@ WHIR_OPEN_LOG_INV_RATE = WHIR_OPEN_LOG_INV_RATE_PLACEHOLDER
 
 # Commitment level
 WHIR_OPEN_COMMITMENT_OOD = WHIR_OPEN_COMMITMENT_OOD_PLACEHOLDER
+WHIR_OPEN_STARTING_FGRIND = WHIR_OPEN_STARTING_FGRIND_PLACEHOLDER
 
 # Round 0
 WHIR_OPEN_R0_FOLD = WHIR_INITIAL_FOLDING_FACTOR
 WHIR_OPEN_R0_QUERIES = WHIR_OPEN_R0_QUERIES_PLACEHOLDER
 WHIR_OPEN_R0_OOD = WHIR_OPEN_R0_OOD_PLACEHOLDER
 WHIR_OPEN_R0_QGRIND = WHIR_OPEN_R0_QGRIND_PLACEHOLDER
+WHIR_OPEN_R0_FGRIND = WHIR_OPEN_R0_FGRIND_PLACEHOLDER
 WHIR_OPEN_R0_DOMAIN_LOG = WHIR_OPEN_R0_DOMAIN_LOG_PLACEHOLDER
 WHIR_OPEN_R0_FOLDED_DOMAIN_LOG = WHIR_OPEN_R0_FOLDED_DOMAIN_LOG_PLACEHOLDER
 WHIR_OPEN_R0_LEAF_CHUNKS = WHIR_OPEN_R0_LEAF_CHUNKS_PLACEHOLDER
@@ -27,6 +29,7 @@ WHIR_OPEN_R1_FOLD = WHIR_OPEN_R1_FOLD_PLACEHOLDER
 WHIR_OPEN_R1_QUERIES = WHIR_OPEN_R1_QUERIES_PLACEHOLDER
 WHIR_OPEN_R1_OOD = WHIR_OPEN_R1_OOD_PLACEHOLDER
 WHIR_OPEN_R1_QGRIND = WHIR_OPEN_R1_QGRIND_PLACEHOLDER
+WHIR_OPEN_R1_FGRIND = WHIR_OPEN_R1_FGRIND_PLACEHOLDER
 WHIR_OPEN_R1_DOMAIN_LOG = WHIR_OPEN_R1_DOMAIN_LOG_PLACEHOLDER
 WHIR_OPEN_R1_FOLDED_DOMAIN_LOG = WHIR_OPEN_R1_FOLDED_DOMAIN_LOG_PLACEHOLDER
 WHIR_OPEN_R1_LEAF_CHUNKS = WHIR_OPEN_R1_LEAF_CHUNKS_PLACEHOLDER
@@ -215,6 +218,7 @@ def whir_open(
         fs, poly = fs_receive_ef_deep_inlined(fs, 3)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, 2)
         copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs = fs_grinding(fs, WHIR_OPEN_R1_FGRIND)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, 2)
         copy_5(rand, folding_challenges_2 + sc_round * DIM)
@@ -380,6 +384,7 @@ def whir_round_0(fs: Mut, prev_root, claimed_sum):
         fs, poly = fs_receive_ef_deep_inlined(fs, 3)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, 2)
         copy_5(sum_over_boolean_hypercube, new_claimed_sum_a)
+        fs = fs_grinding(fs, WHIR_OPEN_STARTING_FGRIND)
         fs, rand = fs_sample_ef(fs)
         new_claimed_sum_a = univariate_polynomial_eval(poly, rand, 2)
         copy_5(rand, folding_randomness + sc_round * DIM)
@@ -412,6 +417,7 @@ def whir_round_1(fs: Mut, prev_root, claimed_sum):
         fs, poly = fs_receive_ef_deep_inlined(fs, 3)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, 2)
         copy_5(sum_over_boolean_hypercube, new_claimed_sum_a)
+        fs = fs_grinding(fs, WHIR_OPEN_R0_FGRIND)
         fs, rand = fs_sample_ef(fs)
         new_claimed_sum_a = univariate_polynomial_eval(poly, rand, 2)
         copy_5(rand, folding_randomness + sc_round * DIM)

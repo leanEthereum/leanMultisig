@@ -259,12 +259,20 @@ fn build_replacements(
         "WHIR_OPEN_COMMITMENT_OOD_PLACEHOLDER".into(),
         whir_open.commitment_ood_samples.to_string(),
     );
+    replacements.insert(
+        "WHIR_OPEN_STARTING_FGRIND_PLACEHOLDER".into(),
+        whir_open.starting_folding_pow_bits.to_string(),
+    );
 
     // Round 0
     let r0 = &whir_open.round_parameters[0];
     replacements.insert("WHIR_OPEN_R0_QUERIES_PLACEHOLDER".into(), r0.num_queries.to_string());
     replacements.insert("WHIR_OPEN_R0_OOD_PLACEHOLDER".into(), r0.ood_samples.to_string());
     replacements.insert("WHIR_OPEN_R0_QGRIND_PLACEHOLDER".into(), r0.query_pow_bits.to_string());
+    replacements.insert(
+        "WHIR_OPEN_R0_FGRIND_PLACEHOLDER".into(),
+        r0.folding_pow_bits.to_string(),
+    );
     let r0_domain_log = r0.domain_size.ilog2() as usize;
     replacements.insert("WHIR_OPEN_R0_DOMAIN_LOG_PLACEHOLDER".into(), r0_domain_log.to_string());
     let r0_folded_domain_log = r0_domain_log - r0.folding_factor;
@@ -290,6 +298,10 @@ fn build_replacements(
     replacements.insert("WHIR_OPEN_R1_QUERIES_PLACEHOLDER".into(), r1.num_queries.to_string());
     replacements.insert("WHIR_OPEN_R1_OOD_PLACEHOLDER".into(), r1.ood_samples.to_string());
     replacements.insert("WHIR_OPEN_R1_QGRIND_PLACEHOLDER".into(), r1.query_pow_bits.to_string());
+    replacements.insert(
+        "WHIR_OPEN_R1_FGRIND_PLACEHOLDER".into(),
+        r1.folding_pow_bits.to_string(),
+    );
     let r1_domain_log = r1.domain_size.ilog2() as usize;
     replacements.insert("WHIR_OPEN_R1_DOMAIN_LOG_PLACEHOLDER".into(), r1_domain_log.to_string());
     let r1_folded_domain_log = r1_domain_log - r1.folding_factor;
