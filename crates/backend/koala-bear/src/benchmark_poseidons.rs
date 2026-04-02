@@ -19,7 +19,7 @@ fn bench_poseidon() {
     let poseidon1_16 = default_koalabear_poseidon1_16();
 
     // warming
-    let mut state_16: [crate::PackedMontyField31Neon<crate::KoalaBearParameters>; 16] = [FPacking::ZERO; 16];
+    let mut state_16: [FPacking; 16] = [FPacking::ZERO; 16];
     for _ in 0..1 << 15 {
         poseidon1_16.compress_in_place(&mut state_16);
     }
