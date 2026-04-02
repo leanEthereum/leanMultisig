@@ -2,7 +2,6 @@
 
 use field::{Field, TwoAdicField};
 use poly::*;
-use std::f64::consts::LOG2_10;
 
 /// Defines the folding factor for polynomial commitments.
 #[derive(Debug, Clone, Copy)]
@@ -137,6 +136,42 @@ where
     EF: Field,
     PF<EF>: TwoAdicField,
 {
+    /// TODO can we do better?
+    fn compute_optimal_log_c(whir_parameters: &WhirConfigBuilder, field_size_bits: usize, num_variables: usize) -> f64 {
+        if matches!(whir_parameters.soundness_type, SecurityAssumption::UniqueDecoding) {
+            return 0.0;
+        }
+
+        let (num_rounds, _) = whir_parameters
+            .folding_factor
+            .compute_number_of_rounds(num_variables, whir_parameters.max_num_variables_to_send_coeffs);
+
+        let s_0 = num_variables as f64 + 2.5 * whir_parameters.starting_log_inv_rate as f64;
+        let worst_s = if num_rounds == 0 {
+            s_0
+        } else {
+            let ff_0 = whir_parameters.folding_factor.at_round(0) as f64;
+            let ff_sub = whir_parameters.folding_factor.at_round(1) as f64;
+            let rs_red_0 = whir_parameters.rs_domain_initial_reduction_factor as f64;
+            let delta_0 = 1.5 * ff_0 - 2.5 * rs_red_0;
+            let per_round = 1.5 * ff_sub - 2.5;
+            let s_last = s_0 + delta_0 + (num_rounds as f64 - 1.0) * per_round;
+            s_0.max(s_last)
+        };
+
+        let budget = field_size_bits as f64
+            - (whir_parameters.security_level.saturating_sub(whir_parameters.pow_bits)) as f64
+            + 1.5_f64.log2()
+            - worst_s;
+        let m_opt = if budget > 0.0 {
+            (2.0_f64.powf(budget / 5.0) - 0.5).floor() as usize
+        } else {
+            3
+        }
+        .clamp(3, 100);
+        (2.0 * m_opt as f64).log2()
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn new(whir_parameters: &WhirConfigBuilder, num_variables: usize) -> Self {
         whir_parameters.folding_factor.check_validity(num_variables).unwrap();
@@ -153,11 +188,6 @@ where
         let log_domain_size = num_variables + log_inv_rate;
         let mut domain_size: usize = 1 << log_domain_size;
 
-        // We could theorically tolerate a bigger `log_folded_domain_size` (up to EF::TWO_ADICITY), but this would reduce performance:
-        // 1) Because the FFT twiddle factors would be in the Extension Field
-        // 2) Because all the equality polynomials from WHIR queries would be in the Extension Field
-        //
-        // Note that this does not restrict the amount of data committed, as long as folding_factor_0 > EF::TWO_ADICITY - F::TWO_ADICITY
         let log_folded_domain_size = log_domain_size - whir_parameters.folding_factor.at_round(0);
         assert!(
             log_folded_domain_size <= PF::<EF>::TWO_ADICITY,
@@ -168,11 +198,14 @@ where
             .folding_factor
             .compute_number_of_rounds(num_variables, whir_parameters.max_num_variables_to_send_coeffs);
 
+        let log_c = Self::compute_optimal_log_c(whir_parameters, field_size_bits, num_variables);
+
         let commitment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
             whir_parameters.security_level,
             num_variables,
             log_inv_rate,
             field_size_bits,
+            log_c,
         );
 
         let starting_folding_pow_bits = Self::folding_pow_bits(
@@ -181,6 +214,7 @@ where
             field_size_bits,
             num_variables,
             log_inv_rate,
+            log_c,
         );
 
         let mut round_parameters = Vec::with_capacity(num_rounds);
@@ -198,16 +232,19 @@ where
 
             let num_queries = whir_parameters
                 .soundness_type
-                .queries(query_security_level, log_inv_rate);
+                .queries(query_security_level, log_inv_rate, log_c);
 
             let ood_samples = whir_parameters.soundness_type.determine_ood_samples(
                 whir_parameters.security_level,
                 num_variables_moving,
                 next_rate,
                 field_size_bits,
+                log_c,
             );
 
-            let query_error = whir_parameters.soundness_type.queries_error(log_inv_rate, num_queries);
+            let query_error = whir_parameters
+                .soundness_type
+                .queries_error(log_inv_rate, num_queries, log_c);
             let combination_error = Self::rbr_soundness_queries_combination(
                 whir_parameters.soundness_type,
                 field_size_bits,
@@ -215,6 +252,7 @@ where
                 next_rate,
                 ood_samples,
                 num_queries,
+                log_c,
             );
 
             let query_pow_bits =
@@ -226,6 +264,7 @@ where
                 field_size_bits,
                 num_variables_moving,
                 next_rate,
+                log_c,
             );
             let folding_factor = whir_parameters.folding_factor.at_round(round);
             let next_folding_factor = whir_parameters.folding_factor.at_round(round + 1);
@@ -250,13 +289,13 @@ where
 
         let final_queries = whir_parameters
             .soundness_type
-            .queries(query_security_level, log_inv_rate);
+            .queries(query_security_level, log_inv_rate, log_c);
 
         let final_query_pow_bits = 0_f64.max(
             whir_parameters.security_level as f64
                 - whir_parameters
                     .soundness_type
-                    .queries_error(log_inv_rate, final_queries),
+                    .queries_error(log_inv_rate, final_queries, log_c),
         );
 
         assert!(
@@ -279,23 +318,6 @@ where
         }
     }
 
-    /// Returns the size of the initial evaluation domain.
-    ///
-    /// This is the size of the domain used to evaluate the original multilinear polynomial
-    /// before any folding or reduction steps are applied in the WHIR protocol.
-    ///
-    /// It is computed as:
-    ///
-    /// \begin{equation}
-    /// 2^{\text{num\_variables} + \text{starting\_log\_inv\_rate}}
-    /// \end{equation}
-    ///
-    /// - `num_variables` is the number of variables in the original multivariate polynomial.
-    /// - `starting_log_inv_rate` is the initial inverse rate of the Reed–Solomon code,
-    ///   controlling redundancy relative to the degree.
-    ///
-    /// # Returns
-    /// A power-of-two value representing the number of evaluation points in the starting domain.
     pub const fn starting_domain_size(&self) -> usize {
         1 << (self.num_variables + self.starting_log_inv_rate)
     }
@@ -334,13 +356,14 @@ where
     }
 
     #[must_use]
-    pub const fn rbr_soundness_fold_sumcheck(
+    pub fn rbr_soundness_fold_sumcheck(
         soundness_type: SecurityAssumption,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
+        log_c: f64,
     ) -> f64 {
-        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate, log_c);
 
         field_size_bits as f64 - (list_size + 1.)
     }
@@ -352,10 +375,11 @@ where
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
+        log_c: f64,
     ) -> f64 {
-        let prox_gaps_error = soundness_type.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2);
+        let prox_gaps_error = soundness_type.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2, log_c);
         let sumcheck_error =
-            Self::rbr_soundness_fold_sumcheck(soundness_type, field_size_bits, num_variables, log_inv_rate);
+            Self::rbr_soundness_fold_sumcheck(soundness_type, field_size_bits, num_variables, log_inv_rate, log_c);
 
         let error = prox_gaps_error.min(sumcheck_error);
 
@@ -370,20 +394,15 @@ where
         log_inv_rate: usize,
         ood_samples: usize,
         num_queries: usize,
+        log_c: f64,
     ) -> f64 {
-        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate);
+        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate, log_c);
 
         let log_combination = ((ood_samples + num_queries) as f64).log2();
 
         field_size_bits as f64 - (log_combination + list_size + 1.)
     }
 
-    /// Compute the synthetic or derived `RoundConfig` for the final phase.
-    ///
-    /// Derives the final config by adapting the last round's values for the final folding phase.
-    ///
-    /// This is used by the verifier when verifying the final polynomial,
-    /// ensuring consistent challenge selection and STIR constraint handling.
     pub fn final_round_config(&self) -> RoundConfig<EF> {
         assert!(!self.round_parameters.is_empty());
         let rs_reduction_factor = self.rs_reduction_factor(self.n_rounds() - 1);
@@ -411,43 +430,38 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityAssumption {
     /// Unique decoding assumes that the distance of each oracle is within the UDR of the code.
-    /// We refer to this configuration as UD for short.
-    /// This requires no conjectures.
     UniqueDecoding,
 
     /// Johnson bound assumes that the distance of each oracle is within the Johnson bound (1 - √ρ).
-    /// We refer to this configuration as JB for short.
-    /// This assumes that RS have mutual correlated agreement for proximity parameter up to (1 - √ρ).
     JohnsonBound,
 
     /// Capacity bound assumes that the distance of each oracle is within the capacity bound 1 - ρ.
-    /// We refer to this configuration as CB for short.
-    /// This requires conjecturing that RS codes are decodable up to capacity and have correlated agreement (mutual in WHIR) up to capacity.
     CapacityBound,
 }
 
 impl SecurityAssumption {
-    /// In both JB and CB theorems such as list-size only hold for proximity parameters slighly below the bound.
+    /// In both JB and CB theorems such as list-size only hold for proximity parameters slightly below the bound.
     /// E.g. in JB proximity gaps holds for every δ ∈ (0, 1 - √ρ).
     /// η is the distance between the chosen proximity parameter and the bound.
     /// I.e. in JB δ = 1 - √ρ - η and in CB δ = 1 - ρ - η.
-    // TODO: Maybe it makes more sense to be multiplicative. I think this can be set in a better way.
+    ///
+    /// `log_c` is log2 of the divisor c, where η = √ρ/c (JB) or ρ/c (CB).
+    /// It is computed by `WhirConfig::compute_optimal_log_c` to balance folding PoW vs queries.
     #[must_use]
-    pub const fn log_eta(&self, log_inv_rate: usize) -> f64 {
+    pub fn log_eta(&self, log_inv_rate: usize, log_c: f64) -> f64 {
         match self {
-            // We don't use η in UD
             Self::UniqueDecoding => panic!(),
-            // Set as √ρ/20
-            Self::JohnsonBound => -(0.5 * log_inv_rate as f64 + LOG2_10 + 1.),
-            // Set as ρ/20
-            Self::CapacityBound => -(log_inv_rate as f64 + LOG2_10 + 1.),
+            // η = √ρ/c
+            Self::JohnsonBound => -(0.5 * log_inv_rate as f64 + log_c),
+            // η = ρ/c
+            Self::CapacityBound => -(log_inv_rate as f64 + log_c),
         }
     }
 
     /// Given a RS code (specified by the log of the degree and log inv of the rate), compute the list size at the specified distance δ.
     #[must_use]
-    pub const fn list_size_bits(&self, log_degree: usize, log_inv_rate: usize) -> f64 {
-        let log_eta = self.log_eta(log_inv_rate);
+    pub fn list_size_bits(&self, log_degree: usize, log_inv_rate: usize, log_c: f64) -> f64 {
+        let log_eta = self.log_eta(log_inv_rate, log_c);
         match self {
             // In UD the list size is 1
             Self::UniqueDecoding => 0.,
@@ -471,8 +485,9 @@ impl SecurityAssumption {
         log_inv_rate: usize,
         field_size_bits: usize,
         num_functions: usize,
+        log_c: f64,
     ) -> f64 {
-        let log_eta = self.log_eta(log_inv_rate);
+        let log_eta = self.log_eta(log_inv_rate, log_c);
 
         // Note that this does not include the field_size
         let error = match self {
@@ -480,15 +495,14 @@ impl SecurityAssumption {
             Self::UniqueDecoding => (log_degree + log_inv_rate) as f64,
 
             Self::JohnsonBound => {
-                // see https://eprint.iacr.org/2025/2055.pdf
-                // TODO double check
+                // From Theorem 1.5 in [BCSS25](https://eprint.iacr.org/2025/2055.pdf) "On Proximity Gaps for Reed-Solomon Codes":
                 let eta = 2_f64.powf(log_eta);
                 let rho = 1. / f64::from(1 << log_inv_rate);
                 let rho_sqrt = rho.sqrt();
                 let gamma = 1. - rho_sqrt - eta;
                 let n = (1usize << (log_degree + log_inv_rate)) as f64;
                 let m = (rho_sqrt / (2. * eta)).ceil().max(3.);
-                let num_1 = 2. * (m + 0.5).powi(5) + 3. * (m + 0.5) * gamma * rho * n;
+                let num_1 = (2. * (m + 0.5).powi(5) + 3. * (m + 0.5) * gamma * rho) * n;
                 let den_1 = 3. * rho * rho_sqrt;
                 let num_2 = m + 0.5;
                 let den_2 = rho_sqrt;
@@ -509,9 +523,12 @@ impl SecurityAssumption {
     /// - In JB, δ is (1 - √ρ - η)
     /// - In CB, δ is (1 - ρ - η)
     #[must_use]
-    pub fn log_1_delta(&self, log_inv_rate: usize) -> f64 {
-        let log_eta = self.log_eta(log_inv_rate);
-        let eta = 2_f64.powf(log_eta);
+    pub fn log_1_delta(&self, log_inv_rate: usize, log_c: f64) -> f64 {
+        let eta = if matches!(self, Self::UniqueDecoding) {
+            0.
+        } else {
+            2_f64.powf(self.log_eta(log_inv_rate, log_c))
+        };
         let rate = 1. / f64::from(1 << log_inv_rate);
 
         let delta = match self {
@@ -524,50 +541,42 @@ impl SecurityAssumption {
     }
 
     /// Compute the number of queries to match the security level
-    /// The error to drive down is (1-δ)^t < 2^-λ.
-    /// Where δ is set as in the `log_1_delta` function.
     #[must_use]
-    pub fn queries(&self, protocol_security_level: usize, log_inv_rate: usize) -> usize {
-        let num_queries_f = -(protocol_security_level as f64) / self.log_1_delta(log_inv_rate);
+    pub fn queries(&self, protocol_security_level: usize, log_inv_rate: usize, log_c: f64) -> usize {
+        let num_queries_f = -(protocol_security_level as f64) / self.log_1_delta(log_inv_rate, log_c);
 
         num_queries_f.ceil() as usize
     }
 
     /// Compute the error for the given number of queries
-    /// The error to drive down is (1-δ)^t < 2^-λ.
-    /// Where δ is set as in the `log_1_delta` function.
     #[must_use]
-    pub fn queries_error(&self, log_inv_rate: usize, num_queries: usize) -> f64 {
+    pub fn queries_error(&self, log_inv_rate: usize, num_queries: usize, log_c: f64) -> f64 {
         let num_queries = num_queries as f64;
 
-        -num_queries * self.log_1_delta(log_inv_rate)
+        -num_queries * self.log_1_delta(log_inv_rate, log_c)
     }
 
     /// Compute the error for the OOD samples of the protocol
-    /// See Lemma 4.5 in STIR.
-    /// The error is list_size^2 * (degree/field_size_bits)^reps
-    /// NOTE: Here we are discounting the domain size as we assume it is negligible compared to the size of the field.
     #[must_use]
-    pub const fn ood_error(
+    pub fn ood_error(
         &self,
         log_degree: usize,
         log_inv_rate: usize,
         field_size_bits: usize,
         ood_samples: usize,
+        log_c: f64,
     ) -> f64 {
         if matches!(self, Self::UniqueDecoding) {
             return 0.;
         }
 
-        let list_size_bits = self.list_size_bits(log_degree, log_inv_rate);
+        let list_size_bits = self.list_size_bits(log_degree, log_inv_rate, log_c);
 
         let error = 2. * list_size_bits + (log_degree * ood_samples) as f64;
         (ood_samples * field_size_bits) as f64 + 1. - error
     }
 
     /// Computes the number of OOD samples required to achieve security_level bits of security
-    /// We note that in both STIR and WHIR there are various strategies to set OOD samples.
-    /// In this case, we are just sampling one element from the extension field
     #[must_use]
     pub fn determine_ood_samples(
         &self,
@@ -575,13 +584,14 @@ impl SecurityAssumption {
         log_degree: usize,
         log_inv_rate: usize,
         field_size_bits: usize,
+        log_c: f64,
     ) -> usize {
         if matches!(self, Self::UniqueDecoding) {
             return 0;
         }
 
         for ood_samples in 1..64 {
-            if self.ood_error(log_degree, log_inv_rate, field_size_bits, ood_samples) >= security_level as f64 {
+            if self.ood_error(log_degree, log_inv_rate, field_size_bits, ood_samples, log_c) >= security_level as f64 {
                 return ood_samples;
             }
         }

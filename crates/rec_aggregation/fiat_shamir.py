@@ -179,14 +179,14 @@ def fs_finalize_sample(fs, total_n_chunks):
 
 @inline
 def fs_sample_queries(fs, n_samples):
-    debug_assert(n_samples < 256)
+    debug_assert(n_samples < 512)
     # Compute total_chunks = ceil(n_samples / 8) via bit decomposition.
-    # Big-endian: nb[0]=bit7 (MSB), nb[7]=bit0 (LSB).
-    nb = checked_decompose_bits_small_value_const(n_samples, 8)
-    floor_div = nb[0] * 16 + nb[1] * 8 + nb[2] * 4 + nb[3] * 2 + nb[4]
-    has_remainder = 1 - (1 - nb[5]) * (1 - nb[6]) * (1 - nb[7])
+    # Big-endian: nb[0]=bit8 (MSB), nb[8]=bit0 (LSB).
+    nb = checked_decompose_bits_small_value_const(n_samples, 9)
+    floor_div = nb[0] * 32 + nb[1] * 16 + nb[2] * 8 + nb[3] * 4 + nb[4] * 2 + nb[5]
+    has_remainder = 1 - (1 - nb[6]) * (1 - nb[7]) * (1 - nb[8])
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
-    sampled = match_range(total_chunks, range(0, 33), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
+    sampled = match_range(total_chunks, range(0, 65), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
     new_fs = fs_finalize_sample(fs, total_chunks)
     return sampled, new_fs

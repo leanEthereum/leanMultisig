@@ -1,4 +1,5 @@
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -26,14 +27,22 @@ pub fn message_for_benchmark() -> [F; MESSAGE_LEN_FE] {
 
 #[derive(Serialize, Deserialize)]
 struct SignersCacheFile {
-    slot: u32,
-    message: Vec<F>,
     signatures: Vec<(XmssPublicKey, XmssSignature)>,
 }
 
-fn cache_path() -> PathBuf {
-    let file = "benchmark_signers_cache.bin";
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/{file}"))
+fn cache_footprint(first_pubkey: &XmssPublicKey) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    NUM_BENCHMARK_SIGNERS.hash(&mut hasher);
+    BENCHMARK_SLOT.hash(&mut hasher);
+    message_for_benchmark().hash(&mut hasher);
+    first_pubkey.merkle_root.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn cache_path(first_pubkey: &XmssPublicKey) -> PathBuf {
+    let footprint = cache_footprint(first_pubkey);
+    let file = format!("benchmark_signers_cache_{footprint:016x}.bin");
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/signers-cache/{file}"))
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {
@@ -45,45 +54,19 @@ fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {
     (pk, sig)
 }
 
-fn try_load_cache(path: &PathBuf, first_pubkey: &XmssPublicKey) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
+fn try_load_cache(path: &PathBuf) -> Option<Vec<(XmssPublicKey, XmssSignature)>> {
     let data = fs::read(path).ok()?;
     let decompressed = lz4_flex::decompress_size_prepended(&data).ok()?;
     let cached: SignersCacheFile = postcard::from_bytes(&decompressed).ok()?;
-
-    if cached.slot != BENCHMARK_SLOT {
-        println!(
-            "Cache slot {} does not match benchmark slot {}, recomputing...",
-            cached.slot, BENCHMARK_SLOT
-        );
-        return None;
-    }
-    if cached.message != message_for_benchmark() {
-        println!("Cache message does not match benchmark message, recomputing...");
-        return None;
-    }
-    if cached.signatures.len() != NUM_BENCHMARK_SIGNERS {
-        println!(
-            "Cache contains {} signatures, expected {}, recomputing...",
-            cached.signatures.len(),
-            NUM_BENCHMARK_SIGNERS
-        );
-        return None;
-    }
-    if cached.signatures[0].0 != *first_pubkey {
-        println!("Cache first public key does not match computed first public key, recomputing...");
-        return None;
-    }
-
     Some(cached.signatures)
 }
 
 fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
-    let path = cache_path();
-
-    // Compute first signer; its pubkey is used to validate the cache
+    // Compute first signer; its pubkey feeds into the cache footprint
     let first_signer = compute_signer(0);
+    let path = cache_path(&first_signer.0);
 
-    if let Some(signers) = try_load_cache(&path, &first_signer.0) {
+    if let Some(signers) = try_load_cache(&path) {
         return signers;
     }
 
@@ -112,8 +95,6 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
     signers.extend(rest);
 
     let cache_file = SignersCacheFile {
-        slot: BENCHMARK_SLOT,
-        message: message_for_benchmark().to_vec(),
         signatures: signers.clone(),
     };
     let encoded = postcard::to_allocvec(&cache_file).expect("serialization failed");
