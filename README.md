@@ -52,7 +52,7 @@ cargo run --release -- recursion --n 2
 
 | Proven          | Conjectured     |
 | --------------- | --------------- |
-| 0.75s - 188 KiB | 0.57s - 116 KiB |
+| 0.8s - 188 KiB | 0.57s - 116 KiB |
 
 
 ### Bonus: unbounded recursive aggregation
