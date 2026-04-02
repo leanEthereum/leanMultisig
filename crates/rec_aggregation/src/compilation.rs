@@ -53,7 +53,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 18;
+    let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -145,7 +145,7 @@ fn build_replacements(
         all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
     }
     if too_much_grinding {
-        tracing::warn!("Too much grinding for WHIR folding",);
+        tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),

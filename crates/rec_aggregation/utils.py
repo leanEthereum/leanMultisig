@@ -17,10 +17,10 @@ def div_ceil_dynamic(a, b: Const):
 def powers(alpha, n):
     # alpha: EF
     # n: F
-    assert n < 256
+    assert n < 400
     assert 0 < n
     # 2**log2_ceil(i) is not really necessary but helps reduce byetcode size (traedoff cycles / bytecode size)
-    res = match_range(n, range(1, 256), lambda i: powers_const(alpha, 2**log2_ceil(i)))
+    res = match_range(n, range(1, 400), lambda i: powers_const(alpha, 2**log2_ceil(i)))
     return res
 
 
@@ -139,8 +139,8 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
 
 
 def dot_product_be_dynamic(a, b, res, n):
-    debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product_be(a, b, res, i))
+    debug_assert(n < 400)
+    match_range(n, range(1, 400), lambda i: dot_product_be(a, b, res, i))
     return
 
 
@@ -150,8 +150,8 @@ def dot_product_be_const(a, b, res, n: Const):
 
 
 def dot_product_ee_dynamic(a, b, res, n):
-    debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product_ee(a, b, res, i))
+    debug_assert(n < 400)
+    match_range(n, range(1, 400), lambda i: dot_product_ee(a, b, res, i))
     return
 
 
