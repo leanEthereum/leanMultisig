@@ -23,20 +23,15 @@ mod x86_64_avx2;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 mod x86_64_avx512;
 
-// Re-export everything from monty_31
 pub use monty_31::*;
 
-// Re-export koala bear specific types
 pub use koala_bear::*;
 
-// Re-export koala bear poseidon1 types
 pub use poseidon1_koalabear_16::*;
 pub use poseidon1_koalabear_24::*;
 
-// Re-export quintic extension types
 pub use quintic_extension::*;
 
-// Re-export arch-specific types
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub use aarch64_neon::*;
 

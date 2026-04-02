@@ -5,8 +5,14 @@ use backend::*;
 use utils::{ToUsize, poseidon24_compress_0_9, poseidon24_permute_0_9, poseidon24_permute_9_18};
 
 /// Dispatch `mds_circ_24` through concrete types.
+/// For `SymbolicExpression` we use the dense form so the zkDSL generator can
+/// emit `dot_product_be` precompile calls instead of Karatsuba arithmetic.
 #[inline(always)]
 fn mds_air_24<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_24]) {
+    if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
+        dense_mat_vec_air_24(mds_dense_24(), state);
+        return;
+    }
     macro_rules! dispatch {
         ($t:ty) => {
             if TypeId::of::<A>() == TypeId::of::<$t>() {
@@ -19,8 +25,21 @@ fn mds_air_24<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_24]) {
     dispatch!(EF);
     dispatch!(FPacking<F>);
     dispatch!(EFPacking<EF>);
-    dispatch!(SymbolicExpression<KoalaBear>);
     unreachable!()
+}
+
+fn mds_dense_24() -> &'static [[F; WIDTH_24]; WIDTH_24] {
+    use std::sync::OnceLock;
+    static MAT: OnceLock<[[KoalaBear; WIDTH_24]; WIDTH_24]> = OnceLock::new();
+    MAT.get_or_init(|| {
+        let cols: [[F; WIDTH_24]; WIDTH_24] = std::array::from_fn(|j| {
+            let mut e = [F::ZERO; WIDTH_24];
+            e[j] = F::ONE;
+            mds_circ_24(&mut e);
+            e
+        });
+        std::array::from_fn(|i| std::array::from_fn(|j| cols[j][i]))
+    })
 }
 
 #[inline(always)]

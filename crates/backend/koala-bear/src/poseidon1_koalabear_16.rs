@@ -71,7 +71,6 @@ fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: Koal
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 8);
     neg_dif(f, 1, 9, W7);
@@ -109,7 +108,6 @@ fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 1);
     bt(f, 2, 3);
