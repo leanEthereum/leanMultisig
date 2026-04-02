@@ -32,9 +32,7 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
     let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 3])).collect();
-    if !(MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE).contains(&log_inv_rate) {
-        return Err(ProofError::InvalidProof);
-    }
+    check_rate(log_inv_rate)?;
     let whir_config = default_whir_config(log_inv_rate);
     for (table, &n_vars) in &table_n_vars {
         if n_vars < MIN_LOG_N_ROWS_PER_TABLE {

@@ -23,14 +23,11 @@ use std::{error::Error, fmt::Display};
 /// An error happened when creating or verifying a proof.
 #[derive(Debug, Clone)]
 pub enum ProofError {
-    /// Signals the verification equation has failed.
     InvalidProof,
-    /// Verifier is asking more data than what was provided in the transcript.
     ExceededTranscript,
-    /// Invalid Pow Grinding
     InvalidGrindingWitness,
-    /// Invalid Padding in the transcript
     InvalidPadding,
+    InvalidRate,
 }
 
 /// The result type when trying to prove or verify a proof using Fiat-Shamir.
@@ -43,6 +40,10 @@ impl Display for ProofError {
             Self::ExceededTranscript => write!(f, "Verifier exceeded transcript length"),
             Self::InvalidGrindingWitness => write!(f, "Invalid grinding witness"),
             Self::InvalidPadding => write!(f, "Invalid padding in the transcript"),
+            Self::InvalidRate => write!(
+                f,
+                "LeanVM supports rate 1/2, 1/4, 1/8 and 1/16 (log_inv_rate in {{1, 2, 3, 4}})"
+            ),
         }
     }
 }
