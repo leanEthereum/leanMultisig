@@ -435,16 +435,6 @@ poseidon16_compress(left, right, output)
 - `right`: pointer to 8 field elements
 - `res`: pointer to result (8 elements)
 
-### poseidon24_compress
-Width-24 Poseidon compression: `output = (Poseidon(left || right) + (left || right))` (feedforward).
-```
-poseidon16_compress(leaf_a, leaf_b, parent_hash)
-poseidon16_compress(state, data, new_state)
-```
-- `left`: pointer to 9 field elements (capacity)
-- `right`: pointer to 15 field elements (rate)
-- `res`: pointer to result (9 elements)
-
 ### Extension Operations
 
 Six built-in functions route through a single `extension_op` precompile table. Each combines an element-wise operation with an accumulation over `length` element pairs.
