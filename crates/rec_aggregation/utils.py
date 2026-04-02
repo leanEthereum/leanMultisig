@@ -139,8 +139,8 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
 
 
 def dot_product_be_dynamic(a, b, res, n):
-    debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product_be(a, b, res, i))
+    debug_assert(n < 400)
+    match_range(n, range(1, 400), lambda i: dot_product_be(a, b, res, i))
     return
 
 
@@ -150,8 +150,8 @@ def dot_product_be_const(a, b, res, n: Const):
 
 
 def dot_product_ee_dynamic(a, b, res, n):
-    debug_assert(n <= 256)
-    match_range(n, range(1, 257), lambda i: dot_product_ee(a, b, res, i))
+    debug_assert(n < 400)
+    match_range(n, range(1, 400), lambda i: dot_product_ee(a, b, res, i))
     return
 
 

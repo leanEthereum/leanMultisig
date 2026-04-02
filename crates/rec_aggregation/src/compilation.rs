@@ -147,7 +147,7 @@ fn build_replacements(
         all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
     }
     if too_much_grinding {
-        tracing::warn!("Too much grinding for WHIR folding",);
+        tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
