@@ -108,11 +108,6 @@ def poly_eq_ee(a, b, result, length=None):
 def hint_decompose_bits(value, bits, n_bits, endian):
     _ = value, bits, n_bits, endian
 
-
-def hint_decompose_16(a, lo, hi):
-    _ = a, lo, hi
-
-
 def hint_less_than(a, b, result_ptr):
     _ = a, b, result_ptr
 
@@ -125,6 +120,8 @@ def log2_ceil(x: int) -> int:
 def div_ceil(a: int, b: int) -> int:
     return (a + b - 1) // b
 
+def div_floor(a: int, b: int) -> int:
+    return a // b
 
 def next_multiple_of(x: int, n: int) -> int:
     return x + (n - x % n) % n
@@ -161,6 +158,10 @@ def hint_private_input_start(priv_start):
 
 
 def hint_decompose_bits_xmss(*args):
+    _ = args
+
+
+def hint_decompose_bits_merkle_whir(*args):
     _ = args
 
 

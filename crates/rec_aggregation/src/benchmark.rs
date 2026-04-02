@@ -1,13 +1,10 @@
-use std::io::{self, Write};
-use std::time::Instant;
-
 use backend::*;
 use lean_vm::*;
-use utils::pretty_integer;
-use xmss::signers_cache::*;
-use xmss::{XmssPublicKey, XmssSignature};
-
+use std::io::{self, Write};
+use std::time::Instant;
 use utils::ansi as s;
+use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
+use xmss::{XmssPublicKey, XmssSignature};
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
@@ -217,20 +214,19 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
-) -> (AggregatedXMSS, f64) {
-    let message = message_for_benchmark();
-    let slot = BENCHMARK_SLOT;
+) -> (Vec<XmssPublicKey>, AggregatedXMSS, f64) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
         .collect();
 
-    let mut child_results = vec![];
+    let mut child_pub_keys_list: Vec<Vec<XmssPublicKey>> = vec![];
+    let mut child_aggs: Vec<AggregatedXMSS> = vec![];
     let mut child_start = raw_count;
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
-        let (child_agg, _) = build_aggregation(
+        let (child_pks, child_agg, _) = build_aggregation(
             child,
             child_display_index,
             display,
@@ -239,7 +235,8 @@ fn build_aggregation(
             overlap,
             tracing,
         );
-        child_results.push(child_agg);
+        child_pub_keys_list.push(child_pks);
+        child_aggs.push(child_agg);
         child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
@@ -247,8 +244,20 @@ fn build_aggregation(
         }
     }
 
+    let children: Vec<(&[XmssPublicKey], AggregatedXMSS)> = child_pub_keys_list
+        .iter()
+        .zip(child_aggs)
+        .map(|(pks, agg)| (pks.as_slice(), agg))
+        .collect();
+
     let time = Instant::now();
-    let result = xmss_aggregate(&child_results, raw_xmss, &message, slot, topology.log_inv_rate);
+    let (global_pub_keys, result) = xmss_aggregate(
+        &children,
+        raw_xmss,
+        &message_for_benchmark(),
+        BENCHMARK_SLOT,
+        topology.log_inv_rate,
+    );
     let elapsed = time.elapsed();
 
     if tracing {
@@ -285,7 +294,7 @@ fn build_aggregation(
         );
     }
 
-    (result, elapsed.as_secs_f64())
+    (global_pub_keys, result, elapsed.as_secs_f64())
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
@@ -296,13 +305,9 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     let n_sigs = count_signers(topology, overlap);
 
-    let cache = get_benchmark_signers_cache();
+    let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
-    let paired: Vec<_> = (0..n_sigs)
-        .into_par_iter()
-        .map(|i| reconstruct_signer_for_benchmark(i, cache[i]))
-        .collect();
-    let (pub_keys, signatures): (Vec<_>, Vec<_>) = paired.into_iter().unzip();
+    let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].iter().cloned().unzip();
 
     init_aggregation_bytecode();
     println!(
@@ -320,12 +325,17 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         display.print_initial();
     }
 
-    let (aggregated_sigs, time) =
+    let (global_pub_keys, aggregated_sigs, time) =
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
-    let message = message_for_benchmark();
-    crate::xmss_verify_aggregation(&aggregated_sigs, &message, BENCHMARK_SLOT).unwrap();
+    crate::xmss_verify_aggregation(
+        &global_pub_keys,
+        &aggregated_sigs,
+        &message_for_benchmark(),
+        BENCHMARK_SLOT,
+    )
+    .unwrap();
     time
 }
 

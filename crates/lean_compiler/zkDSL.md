@@ -431,12 +431,9 @@ Always in "compression" mode
 ```
 poseidon16_compress(left, right, output)
 ```
-- `left`, `right`: pointers to 8 field elements each
-- `output`: pointer to result (8 elements)
-```
-poseidon16_compress(leaf_a, leaf_b, parent_hash)
-poseidon16_compress(state, data, new_state)
-```
+- `left`: pointer to 8 field elements
+- `right`: pointer to 8 field elements
+- `res`: pointer to result (8 elements)
 
 ### Extension Operations
 

@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
+use backend::pretty_integer;
+
 use crate::execution::Memory;
 use crate::{Table, TableTrace};
-use utils::pretty_integer;
 
 #[derive(Debug, Default, Clone)]
 pub struct ExecutionMetadata {
@@ -56,7 +57,7 @@ impl ExecutionMetadata {
         out.push('\n');
         if self.n_poseidons > 0 {
             out.push_str(&format!(
-                "Poseidon2_16 calls: {} (1 poseidon per {} instructions)\n",
+                "Poseidon16 calls: {} (1 poseidon per {} instructions)\n",
                 pretty_integer(self.n_poseidons),
                 self.cycles / self.n_poseidons
             ));

@@ -12,16 +12,21 @@ use air::*;
 mod exec;
 pub use exec::fill_trace_extension_op;
 
+// domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
 /// Extension op PRECOMPILE_DATA bit-field encoding:
-/// aux = 2*is_be + 4*flag_add + 8*flag_mul + 16*flag_poly_eq + 32*len
-/// Always even → disjoint from Poseidon (PRECOMPILE_DATA=1).
-pub const EXT_OP_ADD_EE: usize = 4; //       0 + 4
-pub const EXT_OP_ADD_BE: usize = 6; //       2 + 4
-pub const EXT_OP_DOT_PRODUCT_EE: usize = 8; //           8
-pub const EXT_OP_DOT_PRODUCT_BE: usize = 10; //      2 + 8
-pub const EXT_OP_POLY_EQ_EE: usize = 16; //          16
-pub const EXT_OP_POLY_EQ_BE: usize = 18; //  2 +     16
-pub const EXT_OP_LEN_MULTIPLIER: usize = 32;
+/// aux = 4*is_be + 8*flag_add + 16*flag_mul + 32*flag_poly_eq + 64*len
+pub(crate) const EXT_OP_FLAG_IS_BE: usize = 4;
+pub(crate) const EXT_OP_FLAG_ADD: usize = 8;
+pub(crate) const EXT_OP_FLAG_MUL: usize = 16;
+pub(crate) const EXT_OP_FLAG_POLY_EQ: usize = 32;
+
+pub const EXT_OP_ADD_EE: usize = EXT_OP_FLAG_ADD; //       8 + 0 = 8
+pub const EXT_OP_ADD_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_ADD; //       8 + 4 = 12
+pub const EXT_OP_DOT_PRODUCT_EE: usize = EXT_OP_FLAG_MUL; //           16 + 0 = 16
+pub const EXT_OP_DOT_PRODUCT_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_MUL; //      16 + 4 = 20
+pub const EXT_OP_POLY_EQ_EE: usize = EXT_OP_FLAG_POLY_EQ; //          32 + 0 = 32
+pub const EXT_OP_POLY_EQ_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_POLY_EQ; //  32 + 4 = 36
+pub const EXT_OP_LEN_MULTIPLIER: usize = 64;
 
 /// Mapping from zkDSL function names to extension op mode values.
 pub const EXT_OP_FUNCTIONS: [(&str, usize); 6] = [

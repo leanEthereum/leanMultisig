@@ -337,7 +337,7 @@ pub trait PrimeCharacteristicRing:
 
         // For `N <= 8` we implement a tree sum structure and for `N > 8` we break the input into
         // chunks of `8`, perform a tree sum on each chunk and sum the results. The parameter `8`
-        // was determined experimentally by testing the speed of the poseidon2 internal layer computations.
+        // was determined experimentally by testing the speed of the poseidon internal layer computations.
         // This is a useful benchmark as we have a mix of summations of size 15, 23 with other work in between.
         // I only tested this on `AVX2` though so there might be a better value for other architectures.
         match N {
