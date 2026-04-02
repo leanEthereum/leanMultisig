@@ -2,7 +2,7 @@
 
 use field::{Field, TwoAdicField};
 use poly::*;
-use std::f64::consts::LOG2_10;
+const LOG2_3: f64 = 1.58496250072;
 
 /// Defines the folding factor for polynomial commitments.
 #[derive(Debug, Clone, Copy)]
@@ -431,16 +431,15 @@ impl SecurityAssumption {
     /// E.g. in JB proximity gaps holds for every δ ∈ (0, 1 - √ρ).
     /// η is the distance between the chosen proximity parameter and the bound.
     /// I.e. in JB δ = 1 - √ρ - η and in CB δ = 1 - ρ - η.
-    // TODO: Maybe it makes more sense to be multiplicative. I think this can be set in a better way.
     #[must_use]
     pub const fn log_eta(&self, log_inv_rate: usize) -> f64 {
         match self {
             // We don't use η in UD
             Self::UniqueDecoding => panic!(),
-            // Set as √ρ/20
-            Self::JohnsonBound => -(0.5 * log_inv_rate as f64 + LOG2_10 + 1.),
-            // Set as ρ/20
-            Self::CapacityBound => -(log_inv_rate as f64 + LOG2_10 + 1.),
+            // Set as √ρ/6 — gives m = 3 (theorem minimum), reducing folding PoW
+            Self::JohnsonBound => -(0.5 * log_inv_rate as f64 + 1. + LOG2_3),
+            // Set as ρ/6
+            Self::CapacityBound => -(log_inv_rate as f64 + 1. + LOG2_3),
         }
     }
 
@@ -480,15 +479,14 @@ impl SecurityAssumption {
             Self::UniqueDecoding => (log_degree + log_inv_rate) as f64,
 
             Self::JohnsonBound => {
-                // see https://eprint.iacr.org/2025/2055.pdf
-                // TODO double check
+                // From Theorem 1.5 in [BCSS25] "On Proximity Gaps for Reed-Solomon Codes":
                 let eta = 2_f64.powf(log_eta);
                 let rho = 1. / f64::from(1 << log_inv_rate);
                 let rho_sqrt = rho.sqrt();
                 let gamma = 1. - rho_sqrt - eta;
                 let n = (1usize << (log_degree + log_inv_rate)) as f64;
                 let m = (rho_sqrt / (2. * eta)).ceil().max(3.);
-                let num_1 = 2. * (m + 0.5).powi(5) + 3. * (m + 0.5) * gamma * rho * n;
+                let num_1 = (2. * (m + 0.5).powi(5) + 3. * (m + 0.5) * gamma * rho) * n;
                 let den_1 = 3. * rho * rho_sqrt;
                 let num_2 = m + 0.5;
                 let den_2 = rho_sqrt;
