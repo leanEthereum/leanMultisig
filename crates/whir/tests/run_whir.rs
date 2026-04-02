@@ -134,3 +134,35 @@ fn test_run_whir() {
         proof_size_single / 1024.0
     );
 }
+
+#[test]
+fn display_whir_nb_queries() {
+    let first_folding_factor = 7;
+    for n_vars in 20..31 {
+        for log_inv_rate in 1..5 {
+            if n_vars + log_inv_rate - first_folding_factor > F::TWO_ADICITY {
+                continue;
+            }
+            let params = WhirConfigBuilder {
+                security_level: 123,
+                max_num_variables_to_send_coeffs: 9,
+                pow_bits: 18,
+                folding_factor: FoldingFactor::new(first_folding_factor, 4),
+                soundness_type: SecurityAssumption::JohnsonBound,
+                starting_log_inv_rate: log_inv_rate,
+                rs_domain_initial_reduction_factor: 5,
+            };
+            let params = WhirConfig::<EF>::new(&params, n_vars);
+            println!(
+                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}",
+                n_vars,
+                log_inv_rate,
+                params
+                    .round_parameters
+                    .iter()
+                    .map(|r| r.num_queries)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+}
