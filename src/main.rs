@@ -17,7 +17,7 @@ enum Cli {
     },
     #[command(about = "Run n->1 recursion")]
     Recursion {
-        #[arg(long, default_value = "1", help = "Number of recursive proofs to aggregate")]
+        #[arg(long, default_value = "2", help = "Number of recursive proofs to aggregate")]
         n: usize,
         #[arg(long, help = "log(1/rate) in WHIR", default_value = "2", short = 'r')]
         log_inv_rate: usize,

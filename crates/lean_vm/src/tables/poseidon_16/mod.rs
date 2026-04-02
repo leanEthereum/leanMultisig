@@ -6,10 +6,14 @@ use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
 /// Dispatch `mds_circ_16` through concrete types.
-/// All five AIR types (`F`, `EF`, `FPacking<F>`, `EFPacking<EF>`, `SymbolicExpression<KoalaBear>`)
-/// satisfy the `PrimeCharacteristicRing + Mul<KoalaBear>` bound required by `mds_circ_16`.
+/// For `SymbolicExpression` we use the dense form so the zkDSL generator can
+/// emit `dot_product_be` precompile calls instead of Karatsuba arithmetic.
 #[inline(always)]
 fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
+    if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
+        dense_mat_vec_air_16(mds_dense_16(), state);
+        return;
+    }
     macro_rules! dispatch {
         ($t:ty) => {
             if TypeId::of::<A>() == TypeId::of::<$t>() {
@@ -22,8 +26,21 @@ fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
     dispatch!(EF);
     dispatch!(FPacking<F>);
     dispatch!(EFPacking<EF>);
-    dispatch!(SymbolicExpression<KoalaBear>);
     unreachable!()
+}
+
+fn mds_dense_16() -> &'static [[F; 16]; 16] {
+    use std::sync::OnceLock;
+    static MAT: OnceLock<[[KoalaBear; 16]; 16]> = OnceLock::new();
+    MAT.get_or_init(|| {
+        let cols: [[F; 16]; 16] = std::array::from_fn(|j| {
+            let mut e = [F::ZERO; 16];
+            e[j] = F::ONE;
+            mds_circ_16(&mut e);
+            e
+        });
+        std::array::from_fn(|i| std::array::from_fn(|j| cols[j][i]))
+    })
 }
 
 /// Add a `KoalaBear` constant to any AIR type.

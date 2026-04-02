@@ -53,7 +53,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 19;
+    let mut log_size_guess = 18;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -374,13 +374,53 @@ fn all_air_evals_in_zk_dsl() -> String {
 
 const AIR_INNER_VALUES_VAR: &str = "inner_evals";
 
+struct AirCodegenCtx {
+    expr_cache: HashMap<u32, String>,
+    consts_cache: HashMap<Vec<u32>, String>,
+    ef_const_cache: HashMap<u32, String>,
+    ctr: Counter,
+}
+
+impl AirCodegenCtx {
+    fn new() -> Self {
+        Self {
+            expr_cache: HashMap::new(),
+            consts_cache: HashMap::new(),
+            ef_const_cache: HashMap::new(),
+            ctr: Counter::new(),
+        }
+    }
+
+    fn write_base_constants(&mut self, values: &[u32], res: &mut String) -> String {
+        if let Some(name) = self.consts_cache.get(values) {
+            return name.clone();
+        }
+        let name = format!("bc_{}", self.ctr.get_next());
+        res.push_str(&format!("\n    {} = Array({})", name, values.len()));
+        for (i, &c) in values.iter().enumerate() {
+            res.push_str(&format!("\n    {}[{}] = {}", name, i, c));
+        }
+        self.consts_cache.insert(values.to_vec(), name.clone());
+        name
+    }
+
+    fn write_embedded_constant(&mut self, c: u32, res: &mut String) -> String {
+        if let Some(name) = self.ef_const_cache.get(&c) {
+            return name.clone();
+        }
+        let name = format!("aux_{}", self.ctr.get_next());
+        res.push_str(&format!("\n    {} = embed_in_ef({})", name, c));
+        self.ef_const_cache.insert(c, name.clone());
+        name
+    }
+}
+
 fn air_eval_in_zk_dsl<T: TableT>(table: T) -> String
 where
     T::ExtraData: Default,
 {
     let (constraints, bus_flag, bus_data) = get_symbolic_constraints_and_bus_data_values::<F, _>(&table);
-    let mut vars_counter = Counter::new();
-    let mut cache: HashMap<u32, String> = HashMap::new();
+    let mut ctx = AirCodegenCtx::new();
 
     let mut res = format!(
         "def evaluate_air_constraints_table_{}({}, air_alpha_powers, bus_beta, logup_alphas_eq_poly):\n",
@@ -392,14 +432,14 @@ where
     res += &format!("\n    constraints_buf = Array(DIM * {})", n_constraints);
     for (index, constraint) in constraints.iter().enumerate() {
         let dest = format!("constraints_buf + {} * DIM", index);
-        eval_air_constraint(*constraint, Some(&dest), &mut cache, &mut res, &mut vars_counter);
+        eval_air_constraint(*constraint, Some(&dest), &mut ctx, &mut res);
     }
 
     // first: bus data
-    let flag = eval_air_constraint(bus_flag, None, &mut cache, &mut res, &mut vars_counter);
+    let flag = eval_air_constraint(bus_flag, None, &mut ctx, &mut res);
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
-        let data_str = eval_air_constraint(*data, None, &mut cache, &mut res, &mut vars_counter);
+        let data_str = eval_air_constraint(*data, None, &mut ctx, &mut res);
         res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
@@ -428,62 +468,142 @@ where
     res
 }
 
-/// Evaluate a symbolic AIR constraint expression, emitting zkDSL code into `res`.
-/// If `dest` is Some, writes the result directly there (avoids a copy_5).
-/// If `dest` is None, allocates an aux var. Returns the var/pointer where the result lives.
 fn eval_air_constraint(
     expr: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    ctx: &mut AirCodegenCtx,
     res: &mut String,
-    ctr: &mut Counter,
 ) -> String {
-    match expr {
-        SymbolicExpression::Constant(c) => {
-            let v = format!("aux_{}", ctr.get_next());
-            res.push_str(&format!("\n    {} = embed_in_ef({})", v, c.as_canonical_u32()));
-            v
-        }
+    let v = match expr {
+        SymbolicExpression::Constant(c) => ctx.write_embedded_constant(c.as_canonical_u32(), res),
         SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
         SymbolicExpression::Operation(idx) => {
-            if let Some(v) = cache.get(&idx) {
-                if let Some(d) = dest {
-                    res.push_str(&format!("\n    copy_5({}, {})", v, d));
-                }
-                return v.clone();
+            if let Some(v) = ctx.expr_cache.get(&idx) {
+                v.clone()
+            } else if let Some(v) = try_emit_dot_product_be(idx, dest, ctx, res) {
+                ctx.expr_cache.insert(idx, v.clone());
+                return v;
+            } else {
+                let node = get_node::<F>(idx);
+                let v = match node.op {
+                    SymbolicOperation::Neg => {
+                        let a = eval_air_constraint(node.lhs, None, ctx, res);
+                        let v = format!("aux_{}", ctx.ctr.get_next());
+                        res.push_str(&format!("\n    {} = opposite_extension_ret({})", v, a));
+                        v
+                    }
+                    _ => eval_air_binary_op(node.op, node.lhs, node.rhs, dest, ctx, res),
+                };
+                ctx.expr_cache.insert(idx, v.clone());
+                v
             }
-            let node = get_node::<F>(idx);
-            let v = match node.op {
-                SymbolicOperation::Neg => {
-                    let a = eval_air_constraint(node.lhs, None, cache, res, ctr);
-                    let v = format!("aux_{}", ctr.get_next());
-                    res.push_str(&format!("\n    {} = opposite_extension_ret({})", v, a));
-                    v
-                }
-                _ => eval_air_binop(node.op, node.lhs, node.rhs, dest, cache, res, ctr),
-            };
-            // If dest was requested but the result landed elsewhere, copy it
-            if let Some(d) = dest
-                && v != d
-            {
-                res.push_str(&format!("\n    copy_5({}, {})", v, d));
-            }
-            cache.insert(idx, v.clone());
-            v
         }
+    };
+    if let Some(d) = dest
+        && v != d
+    {
+        res.push_str(&format!("\n    copy_5({}, {})", v, d));
     }
+    v
 }
 
-/// Evaluate a binary operation (Add/Sub/Mul). When `dest` is Some and the operation
-/// supports it, writes directly to dest and returns dest; otherwise allocates an aux var.
-fn eval_air_binop(
+/// Detect `0 + c0*x0 + c1*x1 + ... + cn*xn` in the expression tree and emit
+/// a single `dot_product_be` precompile call. Returns None if the pattern doesn't match.
+fn try_emit_dot_product_be(idx: u32, dest: Option<&str>, ctx: &mut AirCodegenCtx, res: &mut String) -> Option<String> {
+    // Walk the left-spine of Add(_, Mul(Const, _)) nodes down to Constant(ZERO).
+    let mut constants = Vec::new();
+    let mut operands = Vec::new();
+    let mut current = SymbolicExpression::<F>::Operation(idx);
+    loop {
+        match current {
+            SymbolicExpression::Constant(c) if c == F::ZERO && constants.len() >= 2 => break,
+            SymbolicExpression::Operation(op_idx) => {
+                if op_idx != idx && ctx.expr_cache.contains_key(&op_idx) {
+                    return None;
+                }
+                let node = get_node::<F>(op_idx);
+                if node.op != SymbolicOperation::Add {
+                    return None;
+                }
+                let mul_idx = match node.rhs {
+                    SymbolicExpression::Operation(i) => i,
+                    _ => return None,
+                };
+                let mul = get_node::<F>(mul_idx);
+                if mul.op != SymbolicOperation::Mul {
+                    return None;
+                }
+                let (c, expr) = match (mul.lhs, mul.rhs) {
+                    (SymbolicExpression::Constant(c), o) | (o, SymbolicExpression::Constant(c)) => {
+                        (c.as_canonical_u32(), o)
+                    }
+                    _ => return None,
+                };
+                constants.push(c);
+                operands.push(expr);
+                current = node.lhs;
+            }
+            _ => return None,
+        }
+    }
+    constants.reverse();
+    operands.reverse();
+    let n = constants.len();
+
+    let consts = ctx.write_base_constants(&constants, res);
+
+    // Reuse an existing contiguous buffer if possible.
+    let vals = try_find_contiguous_buffer(&operands, ctx).unwrap_or_else(|| {
+        let buf = format!("dp_v_{}", ctx.ctr.get_next());
+        res.push_str(&format!("\n    {} = Array(DIM * {})", buf, n));
+        for (i, ext) in operands.iter().enumerate() {
+            eval_air_constraint(*ext, Some(&format!("{} + DIM * {}", buf, i)), ctx, res);
+        }
+        buf
+    });
+
+    let dp_dest = dest.map_or_else(
+        || {
+            let v = format!("aux_{}", ctx.ctr.get_next());
+            res.push_str(&format!("\n    {} = Array(DIM)", v));
+            v
+        },
+        |d| d.to_string(),
+    );
+    res.push_str(&format!(
+        "\n    dot_product_be({}, {}, {}, {})",
+        consts, vals, dp_dest, n
+    ));
+    Some(dp_dest)
+}
+
+/// Check whether every operand is already cached as consecutive slots in the
+/// same buffer (`buf + DIM * 0`, `buf + DIM * 1`, …).
+fn try_find_contiguous_buffer(operands: &[SymbolicExpression<F>], ctx: &AirCodegenCtx) -> Option<String> {
+    let mut base: Option<&str> = None;
+    for (i, op) in operands.iter().enumerate() {
+        let idx = match op {
+            SymbolicExpression::Operation(idx) => *idx,
+            _ => return None,
+        };
+        let suffix = format!(" + DIM * {}", i);
+        let this_base = ctx.expr_cache.get(&idx)?.strip_suffix(&suffix)?;
+        match base {
+            None => base = Some(this_base),
+            Some(b) if b == this_base => {}
+            _ => return None,
+        }
+    }
+    base.map(|s| s.to_string())
+}
+
+fn eval_air_binary_op(
     op: SymbolicOperation,
     lhs: SymbolicExpression<F>,
     rhs: SymbolicExpression<F>,
     dest: Option<&str>,
-    cache: &mut HashMap<u32, String>,
+    ctx: &mut AirCodegenCtx,
     res: &mut String,
-    ctr: &mut Counter,
 ) -> String {
     let c0 = match lhs {
         SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
@@ -497,8 +617,8 @@ fn eval_air_binop(
     match (c0, c1) {
         // Both extension
         (None, None) => {
-            let a = eval_air_constraint(lhs, None, cache, res, ctr);
-            let b = eval_air_constraint(rhs, None, cache, res, ctr);
+            let a = eval_air_constraint(lhs, None, ctx, res);
+            let b = eval_air_constraint(rhs, None, ctx, res);
             if let Some(d) = dest {
                 let f = match op {
                     SymbolicOperation::Mul => "mul_extension",
@@ -515,26 +635,27 @@ fn eval_air_binop(
                     SymbolicOperation::Sub => "sub_extension_ret",
                     _ => unreachable!(),
                 };
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = {}({}, {})", v, f, a, b));
                 v
             }
         }
-        // Mul/Add with a constant (commutative for base-ext)
+        // Mul/Add with a base-field constant
         _ if matches!(op, SymbolicOperation::Mul | SymbolicOperation::Add) => {
             let (c, ext_expr) = match (c0, c1) {
                 (Some(c), _) => (c, rhs),
                 (_, Some(c)) => (c, lhs),
                 _ => unreachable!(),
             };
-            let ext = eval_air_constraint(ext_expr, None, cache, res, ctr);
+            let ext = eval_air_constraint(ext_expr, None, ctx, res);
             if let Some(d) = dest {
                 let f = if matches!(op, SymbolicOperation::Mul) {
                     "dot_product_be"
                 } else {
                     "add_be"
                 };
-                emit_base_precompile(res, ctr, f, c, &ext, d);
+                let scalar = ctx.write_base_constants(&[c], res);
+                res.push_str(&format!("\n    {}({}, {}, {})", f, scalar, ext, d));
                 d.to_string()
             } else {
                 let f = if matches!(op, SymbolicOperation::Mul) {
@@ -542,27 +663,27 @@ fn eval_air_binop(
                 } else {
                     "add_base_extension_ret"
                 };
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = {}({}, {})", v, f, c, ext));
                 v
             }
         }
         // Sub: base - ext
         (Some(c), _) => {
-            let ext = eval_air_constraint(rhs, None, cache, res, ctr);
-            let v = format!("aux_{}", ctr.get_next());
+            let ext = eval_air_constraint(rhs, None, ctx, res);
+            let v = format!("aux_{}", ctx.ctr.get_next());
             res.push_str(&format!("\n    {} = sub_base_extension_ret({}, {})", v, c, ext));
             v
         }
         // Sub: ext - base
         (_, Some(c)) => {
-            let ext = eval_air_constraint(lhs, None, cache, res, ctr);
+            let ext = eval_air_constraint(lhs, None, ctx, res);
             if let Some(d) = dest {
-                // add_be(tmp, dest, ext) asserts ext = tmp + dest, i.e. dest = ext - tmp
-                emit_base_precompile(res, ctr, "add_be", c, d, &ext);
+                let scalar = ctx.write_base_constants(&[c], res);
+                res.push_str(&format!("\n    add_be({}, {}, {})", scalar, d, ext));
                 d.to_string()
             } else {
-                let v = format!("aux_{}", ctr.get_next());
+                let v = format!("aux_{}", ctx.ctr.get_next());
                 res.push_str(&format!("\n    {} = sub_extension_base_ret({}, {})", v, ext, c));
                 v
             }
@@ -570,16 +691,12 @@ fn eval_air_binop(
     }
 }
 
-/// Emit: `tmp = Array(1); tmp[0] = c; func(tmp, arg2, arg3)`
-fn emit_base_precompile(res: &mut String, ctr: &mut Counter, func: &str, c: u32, arg2: &str, arg3: &str) {
-    let tmp = format!("aux_{}", ctr.get_next());
-    res.push_str(&format!(
-        "\n    {} = Array(1)\n    {}[0] = {}\n    {}({}, {}, {})",
-        tmp, tmp, c, func, tmp, arg2, arg3
-    ));
-}
-
 #[test]
 fn display_all_air_evals_in_zk_dsl() {
     println!("{}", all_air_evals_in_zk_dsl());
+}
+
+#[test]
+fn display_poseidon_air_in_zk_dsl() {
+    println!("{}", air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}));
 }
