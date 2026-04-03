@@ -30,25 +30,23 @@ fn uint32x4_to_array(input: uint32x4_t) -> [u32; 4] {
 #[inline]
 #[must_use]
 pub fn uint32x4_mod_add(a: uint32x4_t, b: uint32x4_t, p: uint32x4_t) -> uint32x4_t {
-    // Algorithm: t = a + b (wrapping). u = t - P (wrapping).
-    // If a + b overflowed u32 OR t >= P, use u; otherwise use t.
-    // Overflow detection: t < a (unsigned) means carry occurred.
+    // Uses saturating add to detect "a + b >= P" in one comparison:
+    // sat = min(a+b, 2^32-1). If a+b >= 2^32, sat = 2^32-1 >= P. If a+b < 2^32, sat = a+b.
+    // Either way, sat >= P iff a+b >= P.
     //
-    //      add       t.4s, a.4s, b.4s
-    //      sub       u.4s, t.4s, P.4s
-    //      cmhi      overflow.4s, a.4s, t.4s     // carry: a > t (unsigned)
-    //      cmhs      geq_p.4s, t.4s, P.4s        // t >= P (unsigned)
-    //      orr       mask.4s, overflow.4s, geq_p.4s
-    //      bsl       mask.4s, u.4s, t.4s
-    // throughput: 1.5 cyc/vec (2.67 els/cyc)
+    //      add       t.4s, a.4s, b.4s         // wrapping add
+    //      sub       u.4s, t.4s, P.4s         // wrapping sub P
+    //      uqadd     sat.4s, a.4s, b.4s       // saturating add
+    //      cmhs      mask.4s, sat.4s, P.4s    // sat >= P ?
+    //      bsl       mask.4s, u.4s, t.4s      // select
+    // throughput: 1.25 cyc/vec (3.2 els/cyc)
     // latency: 8 cyc
     unsafe {
         let t = aarch64::vaddq_u32(a, b);
         let u = aarch64::vsubq_u32(t, p);
-        let overflow = aarch64::vcgtq_u32(a, t); // a > t means overflow
-        let geq_p = aarch64::vcgeq_u32(t, p); // t >= P means need reduction
-        let mask = aarch64::vorrq_u32(overflow, geq_p);
-        aarch64::vbslq_u32(mask, u, t) // if mask then u else t
+        let sat = aarch64::vqaddq_u32(a, b); // saturating: min(a+b, 2^32-1)
+        let mask = aarch64::vcgeq_u32(sat, p); // sat >= P iff a+b >= P
+        aarch64::vbslq_u32(mask, u, t)
     }
 }
 

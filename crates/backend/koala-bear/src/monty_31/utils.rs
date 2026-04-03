@@ -60,9 +60,14 @@ pub(crate) const fn from_monty<MP: MontyParameters>(x: u32) -> u32 {
 #[inline]
 #[must_use]
 pub const fn monty_add<MP: MontyParameters>(lhs: u32, rhs: u32) -> u32 {
+    // Branchless: compute both sum and sum-P, select based on comparison.
     let sum = lhs as u64 + rhs as u64;
-    if sum >= MP::PRIME as u64 {
-        (sum - MP::PRIME as u64) as u32
+    let reduced = sum.wrapping_sub(MP::PRIME as u64);
+    // If sum >= P, reduced fits in u32 and is the correct answer.
+    // If sum < P, reduced has bit 32+ set (negative in u64).
+    // Select: if bit 32 of reduced is clear, use reduced; else use sum.
+    if reduced < (1u64 << 32) {
+        reduced as u32
     } else {
         sum as u32
     }

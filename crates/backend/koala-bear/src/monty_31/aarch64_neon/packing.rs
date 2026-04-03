@@ -394,38 +394,40 @@ fn get_qp_hi<MPNeon: MontyParametersNeon>(lhs: int32x4_t, mu_rhs: int32x4_t) -> 
 #[inline]
 #[must_use]
 unsafe fn monty_reduce_neon<MPNeon: MontyParametersNeon>(c_l: uint64x2_t, c_h: uint64x2_t) -> uint32x4_t {
+    // Montgomery reduction: D = (C - Q*P) / 2^32, then canonicalize D ∈ (-P, P) → [0, P).
+    //
+    // Key trick: since C_lo ≡ (qP)_lo (mod 2^32) by construction, the 64-bit subtraction
+    // d = C - qP has zero low 32 bits and the borrow propagation only affects the high word.
+    // So: d_hi = c_hi - qp_hi (u32 wrapping), and borrow ↔ d_hi > c_hi (unsigned).
+    //
+    //      vuzp1     c_lo, c_l, c_h           // extract low 32 bits
+    //      vuzp2     c_hi, c_l, c_h           // extract high 32 bits
+    //      vmul      q, c_lo, MU              // q = c_lo * MU mod 2^32
+    //      vmlsl     d_l, c_l, q_lo, P_lo     // d_l = c_l - q_lo*P_lo (64-bit)
+    //      vmlsl2    d_h, c_h, q, P           // d_h = c_h - q_hi*P_hi (64-bit)
+    //      vuzp2     d_hi, d_l, d_h           // extract D_u32
+    //      cmhi      borrow, d_hi, c_hi       // borrow: d_hi > c_hi (unsigned 32-bit)
+    //      and       corr, borrow, P
+    //      add       result, d_hi, corr
+    //
+    // 9 instructions, throughput ~2.25 cyc/vec.
     unsafe {
-        // Extract low 32 bits of C for each lane
         let c_lo = aarch64::vuzp1q_u32(aarch64::vreinterpretq_u32_u64(c_l), aarch64::vreinterpretq_u32_u64(c_h));
+        let c_hi = aarch64::vuzp2q_u32(aarch64::vreinterpretq_u32_u64(c_l), aarch64::vreinterpretq_u32_u64(c_h));
 
-        // q = c_lo * MU mod 2^32 (low 32-bit multiply)
         let mu = aarch64::vreinterpretq_u32_s32(MPNeon::PACKED_MU);
         let q = aarch64::vmulq_u32(c_lo, mu);
 
-        // Compute qP (64-bit) separately for borrow detection
-        let qp_l = aarch64::vmull_u32(aarch64::vget_low_u32(q), aarch64::vget_low_u32(MPNeon::PACKED_P));
-        let qp_h = aarch64::vmull_high_u32(q, MPNeon::PACKED_P);
+        let d_l = aarch64::vmlsl_u32(c_l, aarch64::vget_low_u32(q), aarch64::vget_low_u32(MPNeon::PACKED_P));
+        let d_h = aarch64::vmlsl_high_u32(c_h, q, MPNeon::PACKED_P);
 
-        // Detect borrow: C < qP (64-bit unsigned comparison)
-        let borrow_l = aarch64::vcltq_u64(c_l, qp_l);
-        let borrow_h = aarch64::vcltq_u64(c_h, qp_h);
+        let d_hi = aarch64::vuzp2q_u32(aarch64::vreinterpretq_u32_u64(d_l), aarch64::vreinterpretq_u32_u64(d_h));
 
-        // Compute diff = C - qP (64-bit wrapping subtraction)
-        let d_l = aarch64::vsubq_u64(c_l, qp_l);
-        let d_h = aarch64::vsubq_u64(c_h, qp_h);
-
-        // Extract high 32 bits (D_u32) from each 64-bit lane
-        let d = aarch64::vuzp2q_u32(aarch64::vreinterpretq_u32_u64(d_l), aarch64::vreinterpretq_u32_u64(d_h));
-
-        // Narrow borrow mask from u64 to u32 (take high 32 bits of each 64-bit mask lane)
-        let borrow = aarch64::vuzp2q_u32(
-            aarch64::vreinterpretq_u32_u64(borrow_l),
-            aarch64::vreinterpretq_u32_u64(borrow_h),
-        );
-
-        // Correction: add P where borrow occurred (D was negative)
+        // Borrow ↔ d_hi > c_hi (unsigned 32-bit): the low 32 bits cancel in C - qP,
+        // so the u64 borrow equals the u32 high-word borrow.
+        let borrow = aarch64::vcgtq_u32(d_hi, c_hi);
         let corr = aarch64::vandq_u32(borrow, MPNeon::PACKED_P);
-        aarch64::vaddq_u32(d, corr)
+        aarch64::vaddq_u32(d_hi, corr)
     }
 }
 
@@ -544,56 +546,60 @@ where
     RHS: IntoVec<P>,
 {
     unsafe {
-        // Accumulate the full 64-bit sum C = l0*r0 + l1*r1.
+        // Accumulate C = l0*r0 + l1*r1 in u64 (may overflow for P > 2^31).
+        //
+        // For P > 2^31: each product < P^2 ≈ 2^63.9, so 2 products can exceed 2^64.
+        // We detect the u64 overflow and correct the Montgomery result afterwards.
+        // Overflow correction: true_sum = u64_sum + 2^64, so D_true = D_naive + 2^32.
+        // In the field: D_true ≡ D_naive + (2^32 mod P) = D_naive + (2^32 - P).
+        // Since D_naive ∈ [0, P) and (2^32 - P) < P, the sum is in [0, 2P).
+        // One conditional subtraction of P yields [0, P).
 
-        // Low half (Lanes 0 & 1)
-        let mut sum_l = aarch64::vmull_u32(
+        // Low half: accumulate with overflow detection
+        let prod0_l = aarch64::vmull_u32(
             aarch64::vget_low_u32(lhs[0].into_vec()),
             aarch64::vget_low_u32(rhs[0].into_vec()),
         );
-        sum_l = aarch64::vmlal_u32(
-            sum_l,
+        let sum_l = aarch64::vmlal_u32(
+            prod0_l,
             aarch64::vget_low_u32(lhs[1].into_vec()),
             aarch64::vget_low_u32(rhs[1].into_vec()),
         );
+        let over_l = aarch64::vcltq_u64(sum_l, prod0_l); // overflow: sum < prev
 
-        // High half (Lanes 2 & 3)
-        let mut sum_h = aarch64::vmull_high_u32(lhs[0].into_vec(), rhs[0].into_vec());
-        sum_h = aarch64::vmlal_high_u32(sum_h, lhs[1].into_vec(), rhs[1].into_vec());
+        // High half: same
+        let prod0_h = aarch64::vmull_high_u32(lhs[0].into_vec(), rhs[0].into_vec());
+        let sum_h = aarch64::vmlal_high_u32(prod0_h, lhs[1].into_vec(), rhs[1].into_vec());
+        let over_h = aarch64::vcltq_u64(sum_h, prod0_h);
 
-        // Split C into 32-bit low halves per lane: c_lo = C mod 2^{32}
+        // Montgomery reduction using 32-bit high-word borrow trick
         let c_lo = aarch64::vuzp1q_u32(
             aarch64::vreinterpretq_u32_u64(sum_l),
             aarch64::vreinterpretq_u32_u64(sum_h),
         );
-
-        // q ≡ c_lo ⋅ μ (mod 2^{32}), with μ = −P^{-1} (mod 2^{32}).
-        let q = aarch64::vmulq_u32(c_lo, aarch64::vreinterpretq_u32_s32(P::PACKED_MU));
-
-        // Compute qP (64-bit) separately for borrow detection
-        let qp_l = aarch64::vmull_u32(aarch64::vget_low_u32(q), aarch64::vget_low_u32(P::PACKED_P));
-        let qp_h = aarch64::vmull_high_u32(q, P::PACKED_P);
-
-        // Detect borrow: C < qP (64-bit unsigned)
-        let borrow_l = aarch64::vcltq_u64(sum_l, qp_l);
-        let borrow_h = aarch64::vcltq_u64(sum_h, qp_h);
-
-        // Compute diff = C - qP
-        let d_l = aarch64::vsubq_u64(sum_l, qp_l);
-        let d_h = aarch64::vsubq_u64(sum_h, qp_h);
-
-        // Extract high 32 bits (D_u32)
-        let d = aarch64::vuzp2q_u32(aarch64::vreinterpretq_u32_u64(d_l), aarch64::vreinterpretq_u32_u64(d_h));
-
-        // Narrow borrow mask and add P where needed
-        let borrow = aarch64::vuzp2q_u32(
-            aarch64::vreinterpretq_u32_u64(borrow_l),
-            aarch64::vreinterpretq_u32_u64(borrow_h),
+        let c_hi = aarch64::vuzp2q_u32(
+            aarch64::vreinterpretq_u32_u64(sum_l),
+            aarch64::vreinterpretq_u32_u64(sum_h),
         );
-        let corr = aarch64::vandq_u32(borrow, P::PACKED_P);
-        let canonical_res = aarch64::vaddq_u32(d, corr);
+        let q = aarch64::vmulq_u32(c_lo, aarch64::vreinterpretq_u32_s32(P::PACKED_MU));
+        let d_l = aarch64::vmlsl_u32(sum_l, aarch64::vget_low_u32(q), aarch64::vget_low_u32(P::PACKED_P));
+        let d_h = aarch64::vmlsl_high_u32(sum_h, q, P::PACKED_P);
+        let d_hi = aarch64::vuzp2q_u32(aarch64::vreinterpretq_u32_u64(d_l), aarch64::vreinterpretq_u32_u64(d_h));
+        let borrow = aarch64::vcgtq_u32(d_hi, c_hi);
+        let mut d = aarch64::vaddq_u32(d_hi, aarch64::vandq_u32(borrow, P::PACKED_P));
 
-        // Safety: The result is now in canonical form [0, P).
+        // Overflow correction: add (2^32 - P) where u64 overflow occurred
+        let over = aarch64::vuzp2q_u32(
+            aarch64::vreinterpretq_u32_u64(over_l),
+            aarch64::vreinterpretq_u32_u64(over_h),
+        );
+        let neg_p = aarch64::vdupq_n_u32(0u32.wrapping_sub(P::PRIME)); // 2^32 - P
+        d = aarch64::vaddq_u32(d, aarch64::vandq_u32(over, neg_p));
+
+        // Final reduction from [0, 2P) → [0, P)
+        let geq_p = aarch64::vcgeq_u32(d, P::PACKED_P);
+        let canonical_res = aarch64::vsubq_u32(d, aarch64::vandq_u32(geq_p, P::PACKED_P));
+
         PackedMontyField31Neon::from_vector(canonical_res)
     }
 }
@@ -608,15 +614,21 @@ where
 {
     assert_eq!(lhs.len(), N);
     assert_eq!(rhs.len(), N);
-    // For P > 2^31, each product < P^2 ≈ 2^63.9 which already approaches u64 max.
-    // We cannot accumulate even 2 products in u64 without potential overflow.
-    // Use individual multiplications with Montgomery reduction, then field addition.
+    // For P > 2^31, we accumulate at most 2 products per Montgomery reduction (via dot_product_2
+    // with u64 overflow correction), then sum results with field additions.
     match N {
         0 => PackedMontyField31Neon::<P>::ZERO,
         1 => lhs[0].into() * rhs[0].into(),
+        2 => unsafe { dot_product_2(&[lhs[0], lhs[1]], &[rhs[0], rhs[1]]) },
         _ => {
-            let mut acc: PackedMontyField31Neon<P> = lhs[0].into() * rhs[0].into();
-            for i in 1..N {
+            // Process pairs using dot_product_2 (amortizes 1 monty reduction over 2 products)
+            let mut acc: PackedMontyField31Neon<P> = unsafe { dot_product_2(&[lhs[0], lhs[1]], &[rhs[0], rhs[1]]) };
+            let mut i = 2;
+            while i + 1 < N {
+                acc += unsafe { dot_product_2(&[lhs[i], lhs[i + 1]], &[rhs[i], rhs[i + 1]]) };
+                i += 2;
+            }
+            if i < N {
                 acc += lhs[i].into() * rhs[i].into();
             }
             acc
