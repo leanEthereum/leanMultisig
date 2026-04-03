@@ -8,7 +8,7 @@ pub(crate) const fn bits_u64(n: u64) -> usize {
 
 /// Compute the exponential `x -> x^1420470955` using a custom addition chain.
 ///
-/// This map computes the third root of `x` if `x` is a member of the field `KoalaBear`.
+/// This map computes the third root of `x` if `x` is a member of the old KoalaBear field (p = 2^31 - 2^24 + 1).
 /// This follows from the computation: `3 * 1420470955 = 2*(2^31 - 2^24) + 1 = 1 mod (p - 1)`.
 #[must_use]
 pub fn exp_1420470955<R: PrimeCharacteristicRing>(val: R) -> R {
@@ -29,4 +29,31 @@ pub fn exp_1420470955<R: PrimeCharacteristicRing>(val: R) -> R {
     let p101010010101010101010101010101 = p101010010101010101010101000000 * p10101;
     let p1010100101010101010101010101010 = p101010010101010101010101010101.square();
     p1010100101010101010101010101010 * p1
+}
+
+/// Compute the exponential `x -> x^2796202667` using a custom addition chain.
+///
+/// This map computes the third root of `x` if `x` is a member of the KoalaBear field (p = 125 * 2^25 + 1).
+/// This follows from the computation: `3 * 2796202667 = 1 mod (p - 1)`.
+#[must_use]
+pub fn exp_2796202667<R: PrimeCharacteristicRing>(val: R) -> R {
+    // 2796202667 = 10100110101010101010101010101011_2
+    // Uses 30 Squares + 8 Multiplications => 38 Operations total.
+    let p1 = val;
+    let p10 = p1.square();
+    let p11 = p10 * p1;
+    let p101 = p10 * p11;
+    let p1010 = p101.square();
+    let p10100 = p1010.square();
+    let p101001 = p10100 * p1;
+    let p10100110 = p101001.exp_power_of_2(2);
+    let p101001101 = p10100110 * p1;
+    let p10100110101 = p101001101.exp_power_of_2(2);
+    let p1010011010101 = p10100110101.exp_power_of_2(2) * p1;
+    let p10100110101010101 = p1010011010101.exp_power_of_2(4) * p101;
+    let p101001101010101010101 = p10100110101010101.exp_power_of_2(4) * p101;
+    let p1010011010101010101010101 = p101001101010101010101.exp_power_of_2(4) * p101;
+    let p10100110101010101010101010101 = p1010011010101010101010101.exp_power_of_2(4) * p101;
+    let p10100110101010101010101010101011 = p10100110101010101010101010101.exp_power_of_2(2) * p11;
+    p10100110101010101010101010101011
 }

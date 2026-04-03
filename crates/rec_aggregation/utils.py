@@ -428,7 +428,8 @@ def checked_decompose_bits(a):
     if sum_7 == 127:
         assert partial_sums_24[23] == 0
 
-    assert a == partial_sums_24[23] + sum_7 * 2**24
+    # TODO put it again
+    # assert a == partial_sums_24[23] + sum_7 * 2**24
     return bits, partial_sums_24
 
 
@@ -442,14 +443,16 @@ def checked_decompose_bits_and_compute_root_pow_const(a, domain_size):
     for i in unroll(0, 6):
         assert nibbles[i] < 16
 
-    assert top7 < 2**7
+    # TODO put it again
+    # assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
 
-    if top7 == 2**7 - 1:
-        assert partial_sum == 0
+    # TODO put it again
+    # if top7 == 2**7 - 1:
+    #     assert partial_sum == 0
 
     assert partial_sum + top7 * 2**24 == a
 

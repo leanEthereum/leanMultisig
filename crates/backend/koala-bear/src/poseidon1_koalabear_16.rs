@@ -26,19 +26,19 @@ const MDS_CIRC_COL: [KoalaBear; 16] = KoalaBear::new_array([1, 3, 13, 22, 67, 2,
 // =========================================================================
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W1: KoalaBear = KoalaBear::new(0x08dbd69c);
+const W1: KoalaBear = KoalaBear::new(0x6b52061e);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W2: KoalaBear = KoalaBear::new(0x6832fe4a);
+const W2: KoalaBear = KoalaBear::new(0x894b5390);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W3: KoalaBear = KoalaBear::new(0x27ae21e2);
+const W3: KoalaBear = KoalaBear::new(0x39f910ef);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W4: KoalaBear = KoalaBear::new(0x7e010002);
+const W4: KoalaBear = KoalaBear::new(0x304096c9);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W5: KoalaBear = KoalaBear::new(0x3a89a025);
+const W5: KoalaBear = KoalaBear::new(0x33c5a441);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W6: KoalaBear = KoalaBear::new(0x174e3650);
+const W6: KoalaBear = KoalaBear::new(0x2e9b3a27);
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-const W7: KoalaBear = KoalaBear::new(0x27dfce22);
+const W7: KoalaBear = KoalaBear::new(0x9d09df4b);
 
 // =========================================================================
 // 16-point FFT / IFFT (radix-2, fully unrolled, in-place)
@@ -516,9 +516,9 @@ struct Precomputed {
 struct NeonPrecomputed {
     /// Initial full round constants in negative NEON form (only first 3 rounds;
     /// the 4th is fused with the partial round entry).
-    packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1],
-    /// Terminal full round constants in negative NEON form.
-    packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS],
+    packed_initial_rc: [[core::arch::aarch64::uint32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1],
+    /// Terminal full round constants in canonical form.
+    packed_terminal_rc: [[core::arch::aarch64::uint32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS],
     /// Pre-packed sparse first rows as PackedKoalaBearNeon.
     packed_sparse_first_row: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS],
     /// Pre-packed v vectors as PackedKoalaBearNeon.
@@ -530,8 +530,8 @@ struct NeonPrecomputed {
     packed_fused_mi_mds: [[PackedKB; 16]; 16],
     /// Fused bias: m_i * first_round_constants.
     packed_fused_bias: [PackedKB; 16],
-    /// Last initial round constant in negative NEON form (for fused add_rc_and_sbox).
-    packed_last_initial_rc: [core::arch::aarch64::int32x4_t; 16],
+    /// Last initial round constant in canonical form (for add_rc_and_sbox).
+    packed_last_initial_rc: [core::arch::aarch64::uint32x4_t; 16],
     /// Pre-packed eigenvalues * INV16 for FFT MDS (absorbs /16 normalization).
     packed_lambda_over_16: [PackedKB; 16],
 }
@@ -575,23 +575,23 @@ fn precomputed() -> &'static Precomputed {
         #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         let neon = {
             use crate::PackedMontyField31Neon;
-            use crate::convert_to_vec_neg_form_neon;
+            use crate::convert_to_vec_neon;
 
             let pack = |c: KoalaBear| PackedMontyField31Neon::<FP>::from(c);
-            let neg_form = |c: KoalaBear| convert_to_vec_neg_form_neon::<FP>(c.value as i32);
+            let canon_form = |c: KoalaBear| convert_to_vec_neon::<FP>(c.value);
 
             // Initial full round constants (only first 3; 4th is fused).
             let init_rc = poseidon1_initial_constants();
-            let packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1] =
-                core::array::from_fn(|r| init_rc[r].map(neg_form));
+            let packed_initial_rc: [[core::arch::aarch64::uint32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1] =
+                core::array::from_fn(|r| init_rc[r].map(canon_form));
 
-            // Last initial round constant (for fused add_rc_and_sbox before partial rounds).
-            let packed_last_initial_rc = init_rc[POSEIDON1_HALF_FULL_ROUNDS - 1].map(neg_form);
+            // Last initial round constant (for add_rc_and_sbox before partial rounds).
+            let packed_last_initial_rc = init_rc[POSEIDON1_HALF_FULL_ROUNDS - 1].map(canon_form);
 
             // Terminal full round constants.
             let term_rc = poseidon1_final_constants();
-            let packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS] =
-                core::array::from_fn(|r| term_rc[r].map(neg_form));
+            let packed_terminal_rc: [[core::arch::aarch64::uint32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS] =
+                core::array::from_fn(|r| term_rc[r].map(canon_form));
 
             // Pre-packed sparse constants (fixed-size arrays).
             let packed_sparse_first_row: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS] =
@@ -612,7 +612,7 @@ fn precomputed() -> &'static Precomputed {
             // Pre-packed eigenvalues * INV16 (absorbs /16 into eigenvalues).
             let mut lambda_br = MDS_CIRC_COL;
             dif_ifft_16_mut(&mut lambda_br);
-            let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
+            let inv16 = KoalaBear::new(3932160001); // 16^{-1} mod p
             let packed_lambda_over_16: [PackedKB; 16] = core::array::from_fn(|i| pack(lambda_br[i] * inv16));
 
             NeonPrecomputed {
@@ -647,118 +647,118 @@ fn precomputed() -> &'static Precomputed {
 const POSEIDON1_RC: [[KoalaBear; 16]; POSEIDON1_N_ROUNDS] = KoalaBear::new_2d_array([
     // Initial full rounds (4)
     [
-        0x7ee56a48, 0x11367045, 0x12e41941, 0x7ebbc12b, 0x1970b7d5, 0x662b60e8, 0x3e4990c6, 0x679f91f5, 0x350813bb,
-        0x00874ad4, 0x28a0081a, 0x18fa5872, 0x5f25b071, 0x5e5d5998, 0x5e6fd3e7, 0x5b2e2660,
+        0x16563297, 0x3e669663, 0xad043724, 0x90ce7116, 0xa078ea37, 0x0626b030, 0xec75cf01, 0x3aab2bf5, 0x591c1f83,
+        0x3c9a00ec, 0x73c17410, 0x0b7b4103, 0x00f0d14d, 0x59c6c3d4, 0x569c4787, 0x29f72a6a,
     ],
     [
-        0x6f1837bf, 0x3fe6182b, 0x1edd7ac5, 0x57470d00, 0x43d486d5, 0x1982c70f, 0x0ea53af9, 0x61d6165b, 0x51639c00,
-        0x2dec352c, 0x2950e531, 0x2d2cb947, 0x08256cef, 0x1a0109f6, 0x1f51faf3, 0x5cef1c62,
+        0xe7e6145a, 0xa62dfa56, 0xa72459c4, 0xc12e3d21, 0xcfbaf427, 0x79471bf4, 0x35ea3fd2, 0x0e871da2, 0xb8142f08,
+        0x3623564d, 0x607e0747, 0x6c2c3f6a, 0xbaa4cd3d, 0x069d6b42, 0xb98024b9, 0x68831d77,
     ],
     [
-        0x3d65e50e, 0x33d91626, 0x133d5a1e, 0x0ff49b0d, 0x38900cd1, 0x2c22cc3f, 0x28852bb2, 0x06c65a02, 0x7b2cf7bc,
-        0x68016e1a, 0x15e16bc0, 0x5248149a, 0x6dd212a0, 0x18d6830a, 0x5001be82, 0x64dac34e,
+        0xbc4cdd4a, 0x872186a1, 0x90c3888e, 0x7e783120, 0xb3575851, 0x334e7976, 0xbaa135c3, 0x3eb628cc, 0x58712a8d,
+        0xd8c18178, 0x602d3f41, 0xcb1b656a, 0x5bd99496, 0xf1f622ca, 0xc363a444, 0x97c4b605,
     ],
     [
-        0x5902b287, 0x426583a0, 0x0c921632, 0x3fe028a5, 0x245f8e49, 0x43bb297e, 0x7873dbd9, 0x3cc987df, 0x286bb4ce,
-        0x640a8dcd, 0x512a8e36, 0x03a4cf55, 0x481837a2, 0x03d6da84, 0x73726ac7, 0x760e7fdf,
+        0x5a07e287, 0xc80962f3, 0x2e37f2d9, 0x26d67c3e, 0xcf96a0a0, 0x1fcde991, 0x641f2cd8, 0x1ef5c127, 0xaddf98c2,
+        0xa5c96cb9, 0xca07faa8, 0x73d4e273, 0x8385bfa3, 0x15b22541, 0xcbfde37c, 0x32475586,
     ],
     // Partial rounds (20)
     [
-        0x54dfeb5d, 0x7d40afd6, 0x722cb316, 0x106a4573, 0x45a7ccdb, 0x44061375, 0x154077a5, 0x45744faa, 0x4eb5e5ee,
-        0x3794e83f, 0x47c7093c, 0x5694903c, 0x69cb6299, 0x373df84c, 0x46a0df58, 0x46b8758a,
+        0xe49f77a8, 0xc751c2d1, 0x76eb1c5a, 0x8b8672cd, 0x1cb44174, 0xf6fb3e5e, 0xdaabb8d4, 0x18e7bd3d, 0x2a560e97,
+        0xe04179a3, 0xe21d103d, 0x58d0e0ab, 0x303d1e0c, 0x3f250c3c, 0xc86d7c1e, 0x3ece5680,
     ],
     [
-        0x3241ebcb, 0x0b09d233, 0x1af42357, 0x1e66cec2, 0x43e7dc24, 0x259a5d61, 0x27e85a3b, 0x1b9133fa, 0x343e5628,
-        0x485cd4c2, 0x16e269f5, 0x165b60c6, 0x25f683d9, 0x124f81f9, 0x174331f9, 0x77344dc5,
+        0x16b1f692, 0xf16b95b7, 0x26701f28, 0x85cf7a29, 0xe40a08a9, 0x9636d8d1, 0xeb72850a, 0x48143205, 0x73afec23,
+        0x7fd31200, 0xd1fc60c6, 0xce74b7f9, 0xe0acb139, 0x59eeab1f, 0x18afb097, 0x42d20438,
     ],
     [
-        0x5a821dba, 0x5fc4177f, 0x54153bf5, 0x5e3f1194, 0x3bdbf191, 0x088c84a3, 0x68256c9b, 0x3c90bbc6, 0x6846166a,
-        0x03f4238d, 0x463335fb, 0x5e3d3551, 0x6e59ae6f, 0x32d06cc0, 0x596293f3, 0x6c87edb2,
+        0xcaf14d2f, 0xf26c3fe2, 0x2adc5737, 0xe1e64e39, 0x735ae3e8, 0xbb1e61db, 0xb7c7035c, 0xae582686, 0xebfaf2bd,
+        0x0e0610a8, 0x8cd868de, 0xc68befce, 0x6cc077e3, 0x73b6bf4f, 0x8e8404bb, 0x056c9356,
     ],
     [
-        0x08fc60b5, 0x34bcca80, 0x24f007f3, 0x62731c6f, 0x1e1db6c6, 0x0ca409bb, 0x585c1e78, 0x56e94edc, 0x16d22734,
-        0x18e11467, 0x7b2c3730, 0x770075e4, 0x35d1b18c, 0x22be3db5, 0x4fb1fbb7, 0x477cb3ed,
+        0xe2458a7a, 0x895a2ec9, 0xe3667424, 0x68d98c49, 0x044ed7f5, 0x8139cd81, 0x32fe0a12, 0xa9f206ee, 0x7ec87d9b,
+        0xa4854877, 0xdd8cec50, 0x4c5d8b26, 0xe00c0ef4, 0x5da03424, 0xceb8fe3d, 0x60d7a6e2,
     ],
     [
-        0x7d5311c6, 0x5b62ae7d, 0x559c5fa8, 0x77f15048, 0x3211570b, 0x490fef6a, 0x77ec311f, 0x2247171b, 0x4e0ac711,
-        0x2edf69c9, 0x3b5a8850, 0x65809421, 0x5619b4aa, 0x362019a7, 0x6bf9d4ed, 0x5b413dff,
+        0x45439320, 0x99febd74, 0xf5913c65, 0x4e96d0aa, 0xc7653152, 0x90cd4ba6, 0x8889cbcd, 0x6638fae2, 0xdcfc4c5e,
+        0x8af12cc1, 0x59307544, 0xe1e6bbb3, 0xf9bfa656, 0x72ae4f2c, 0xd5c9598d, 0x3ad1558f,
     ],
     [
-        0x617e181e, 0x5e7ab57b, 0x33ad7833, 0x3466c7ca, 0x6488dff4, 0x71f068f4, 0x056e891f, 0x04f1eccc, 0x663257d5,
-        0x671e31b9, 0x5871987c, 0x280c109e, 0x2a227761, 0x350a25e9, 0x5b91b1c4, 0x7a073546,
+        0x2a3ca52b, 0x99b09e2f, 0x2f7eecd5, 0x520ae1bb, 0x64587b54, 0xf8562fb2, 0xd7770959, 0x60406484, 0x530479ec,
+        0x12a21d02, 0xac8bad07, 0xf67994c0, 0x0cc0472e, 0x18c6d644, 0x1b664e25, 0xe6e8b908,
     ],
     [
-        0x01826270, 0x53a67720, 0x0ed4b074, 0x34cf0c4e, 0x6e751e88, 0x29bd5f59, 0x49ec32df, 0x7693452b, 0x3cf09e58,
-        0x6ba0e2bf, 0x7ab93acf, 0x3ce597df, 0x536e3d42, 0x147a808d, 0x5e32eb56, 0x5a203323,
+        0xb2983e38, 0x47455654, 0x17526a2f, 0x6a2d789f, 0xe74a8306, 0xe0fb4aad, 0x9cd3cd7b, 0x614971b7, 0xd97aac83,
+        0x3e042505, 0x3125d6a4, 0x562bac89, 0x95736c1d, 0xd58f393b, 0x58cd5712, 0x90841a10,
     ],
     [
-        0x50965766, 0x6d44b7c5, 0x6698636a, 0x57b84f9f, 0x554b61b9, 0x6da0ab28, 0x1585b6ac, 0x6705a2b4, 0x152872f6,
-        0x0f4409fd, 0x23a9dd60, 0x6f2b18d4, 0x65ac9fd4, 0x2f0efbea, 0x591e67fd, 0x217ca19b,
+        0x31eadbdb, 0x2ea63f0b, 0xb7911a51, 0x39001e47, 0x89687d2d, 0x77f8f4db, 0x4077716d, 0xe74357fd, 0x02f591df,
+        0x1b9d1ab6, 0xc10be6ba, 0x9d5ad139, 0x3af0f7c7, 0x5a63730e, 0x606a08dd, 0x8e896d67,
     ],
     [
-        0x469c90ca, 0x03d60ef5, 0x4ea7857e, 0x07c86a4f, 0x288ed461, 0x2fe51b22, 0x7e293614, 0x2c4beb85, 0x5b0b7d11,
-        0x1e17dff6, 0x089beae1, 0x0a5acf1a, 0x2fc33d8f, 0x60422dc6, 0x6e1dc939, 0x635351b9,
+        0x3cafe446, 0x39b28d39, 0xcd38a868, 0x56c4c0ed, 0x692a0c89, 0x662f9fed, 0x8a312370, 0x65998ae3, 0x5ab80205,
+        0xc2b3941d, 0xcf73f6ba, 0x105cd3df, 0x5cd190f4, 0x6f9d0294, 0x7c96a0cd, 0x41c10f0d,
     ],
     [
-        0x55522fc0, 0x3eb94ef7, 0x2a24a65c, 0x2e139c76, 0x51391144, 0x78cc0742, 0x579538f9, 0x44de9aae, 0x3c2f1e2e,
-        0x195747be, 0x2496339c, 0x650b2e39, 0x52899665, 0x6cb35558, 0x0f461c1c, 0x70f6b270,
+        0x672380d2, 0x30215c93, 0xce6489d2, 0xd9759689, 0x92102223, 0x79ff0e1b, 0x8180a72a, 0x1d1d6066, 0x1257b35f,
+        0xb130f5f7, 0x14b2bfe1, 0xc1eb9e61, 0x9a032f74, 0x3922de50, 0x22ac5b30, 0x52152927,
     ],
     [
-        0x3faaa36f, 0x62e3348a, 0x672167cb, 0x394c880b, 0x2a46ba82, 0x63ffb74a, 0x1cf875d6, 0x53d12772, 0x036a4552,
-        0x3bdd9f2b, 0x02f72c24, 0x02b6006c, 0x077fe158, 0x1f9d6ea4, 0x20904d6f, 0x5d6534fa,
+        0xd03de930, 0xd30282b3, 0x96637fce, 0xf5b04144, 0x5c659f82, 0x3f257b92, 0xf471e073, 0x64d033e2, 0x489b2abb,
+        0x25fcf9fd, 0x7e528a59, 0x042f3e11, 0x55a5b0eb, 0x6ceb509d, 0x331c2be5, 0xc59c27ab,
     ],
     [
-        0x066d8974, 0x6198f1f4, 0x26301ab4, 0x41f274c2, 0x00eac15c, 0x28b54b47, 0x2339739d, 0x48c6281c, 0x4ed935fc,
-        0x3f9187fa, 0x4a1930a6, 0x3ad4d736, 0x0f3f1889, 0x635a388f, 0x2862c145, 0x277ed1e8,
+        0x4fe6f17b, 0xd38fd166, 0x807c01b6, 0x81a24eb2, 0xbdc42437, 0x9f81c56c, 0xafeedd34, 0x3bf25434, 0x2bacd3b8,
+        0x53b1e339, 0x39d7e7d9, 0xd79c8cd0, 0x889aa21b, 0x6de4d734, 0x2a3486a9, 0xc6bda81d,
     ],
     [
-        0x4db23cad, 0x1f1b11f5, 0x1f3dba2b, 0x1c26eb4e, 0x0f7f5546, 0x6cd024b0, 0x67c47902, 0x793b8900, 0x0e8a283c,
-        0x4590b7ea, 0x6f567a2b, 0x5dc97300, 0x15247bc6, 0x50567fcb, 0x133eff84, 0x547dc2ef,
+        0x1b7b6b5d, 0x0b3a9554, 0xda9f90a6, 0xbf99a500, 0xa6fdac71, 0xc647ce05, 0x08c13cba, 0x1afb4dba, 0x924e49e0,
+        0xd945c1b8, 0xb27617db, 0x8925b96f, 0x11276cf2, 0x2a04b3ea, 0xe740b35c, 0x8e599926,
     ],
     [
-        0x34eb3dbb, 0x12402317, 0x66c6ae49, 0x174338b6, 0x24251008, 0x1b514927, 0x062d98d6, 0x7af30bbc, 0x26af15e8,
-        0x70d907a3, 0x5dfc5cac, 0x731f27ec, 0x53aa7d3f, 0x63ab0ec6, 0x216053f4, 0x18796b39,
+        0xf2172870, 0x4637c7d7, 0x1f3f2c3b, 0x523dc658, 0x8b9be7a3, 0x5c3edbc1, 0x710f3163, 0x817dcef3, 0x9bb5931d,
+        0xc9fedd06, 0x5452d0ff, 0x3c3fb0bb, 0x46c83153, 0xd782c351, 0x5d16354f, 0x486081bc,
     ],
     [
-        0x19156afd, 0x5eea6973, 0x6704c6a9, 0x0dce002b, 0x331169c0, 0x714d7178, 0x3ddaffaf, 0x7e464957, 0x20ca59ea,
-        0x679820c9, 0x42ef21a1, 0x798ea089, 0x14a74fa3, 0x0c06cf18, 0x6a4c8d52, 0x620f6d81,
+        0x7ef8fd4c, 0x5bd0b96b, 0x507531e5, 0x921f01bf, 0x57aae86e, 0x50f668df, 0x9cd98fa7, 0xb8ef69b5, 0x33f83af2,
+        0xef0e4b26, 0x3f502d46, 0x723a0147, 0x7b2df793, 0x9e0dab32, 0x2108bd31, 0x0e64b870,
     ],
     [
-        0x2220901a, 0x5277bb90, 0x230bf95e, 0x0ad8847a, 0x5e96e8b6, 0x77b4056e, 0x70a50d2c, 0x5f0eed59, 0x3646c4df,
-        0x10eb9a87, 0x21eed6b7, 0x534add36, 0x6e3e7421, 0x2b25810e, 0x1d8f707b, 0x45318a1a,
+        0x2005322b, 0x34b37a14, 0x326a4764, 0xc23709a9, 0xc2877e3f, 0x98d3bc14, 0x071198ef, 0x9dd541db, 0xa47318c5,
+        0xca4336f1, 0xde35cddb, 0x94dd1390, 0xa74cfcc5, 0x71396cbd, 0x08456022, 0x040cbdb3,
     ],
     [
-        0x677f8ff2, 0x0258c9e0, 0x4cd02a00, 0x2e24ff15, 0x634a715d, 0x4ac01e59, 0x601511e1, 0x26e9c01a, 0x4c165c6e,
-        0x57cd1140, 0x3ac6543b, 0x6787d847, 0x037dfbf9, 0x6dd9d079, 0x4d24b281, 0x2a6f407d,
+        0x837945ce, 0x9e49261c, 0x28632ae3, 0xe2ebb5e1, 0x13035665, 0x059623df, 0x97dc3043, 0xa04168fc, 0x2a936478,
+        0x0047f358, 0xf04d99cc, 0x7ea282bc, 0xdb61c7a1, 0x36213a96, 0x967c85a3, 0x7f9822e0,
     ],
     [
-        0x0131df8e, 0x4b8a7896, 0x23700858, 0x2cf5e534, 0x12aafc3f, 0x54568d03, 0x1a250735, 0x5331686d, 0x4ce76d91,
-        0x799c1a8c, 0x2b7a8ac9, 0x60aee672, 0x74f7421c, 0x3c42146d, 0x26d369c5, 0x4ae54a12,
+        0xb6954f09, 0x07292e31, 0x02091a8d, 0xa304c184, 0x70ea38a0, 0xd3053ca7, 0x00b561ee, 0xc70e3fcb, 0xc82103f8,
+        0xdd6355cf, 0x5f0b2b85, 0x6194184e, 0x64fb4fdf, 0x2aaf8ca7, 0x40c2422b, 0x176a2fc8,
     ],
     [
-        0x7eea16d1, 0x5ce3eae8, 0x69f28994, 0x262b8642, 0x610d4cc4, 0x5e1af21c, 0x1a8526d0, 0x316b127b, 0x3576fe5d,
-        0x02d968a0, 0x4ba00f51, 0x40bed993, 0x377fb907, 0x7859216e, 0x1931d9d1, 0x53b0934e,
+        0x7cc97de7, 0x63be86dc, 0x08f0ca90, 0x3071a41e, 0xd56e3a1f, 0xf220dce4, 0x5424c61e, 0xc14b44d7, 0xe4f646df,
+        0x6d7be7ad, 0x4b29772e, 0x07ba3bce, 0x397a901c, 0xd710cf8c, 0x018d1e0b, 0x6829ef3d,
     ],
     [
-        0x71914ff7, 0x4eabae6c, 0x7196468e, 0x164b3cc2, 0x58cb66c0, 0x4c147307, 0x6b3afccd, 0x4236518b, 0x4ad85605,
-        0x291382e1, 0x1e89b6cf, 0x5e16c3a8, 0x2e675921, 0x24300954, 0x05e555c3, 0x78880a24,
+        0x9ba21d4c, 0xed64b8db, 0x4aaec707, 0x6d6ae164, 0x3c0746a4, 0xc15cdc64, 0x36e921d7, 0x30c898cc, 0x7c981c6e,
+        0x871c3b04, 0x7050a49b, 0x819149a2, 0x08bc501d, 0xc26ceeae, 0x3d78eddc, 0xf2884eca,
     ],
     // Terminal full rounds (4)
     [
-        0x763a3125, 0x4f53b240, 0x18b7fa43, 0x2bbe8a73, 0x1c9a12f2, 0x3f6fd40d, 0x0e1d4ec4, 0x1361c64d, 0x09a8f470,
-        0x03d23a40, 0x109ad290, 0x28c2fb88, 0x3b6498f2, 0x74d8be57, 0x6a4277d2, 0x18c2b3d4,
+        0x4602cc03, 0xa906d37f, 0x4f1b5c39, 0xc46d832b, 0x189335a1, 0xaa11ab5e, 0xec647d5a, 0x1cae1926, 0x9e51dd38,
+        0xbf44201e, 0x371adb90, 0x7a544001, 0x58d3f484, 0x195ec3a6, 0x45776d19, 0x09e98d4a,
     ],
     [
-        0x6252c30c, 0x07cc2560, 0x209fe15b, 0x52a55fac, 0x4df19eb7, 0x02521116, 0x5e414ff1, 0x3cd9a1f4, 0x005aad15,
-        0x27a53f00, 0x72bbe9cb, 0x71d8bd7d, 0x4194b79a, 0x48e87a72, 0x3341553c, 0x63d34faa,
+        0x29f2e1d8, 0x2d7f058c, 0xf25f4a33, 0x4352dfef, 0xa74c0aef, 0x52ba24ca, 0x677b305b, 0xf2941d7d, 0xda68d6e0,
+        0x32502a90, 0x0fedb550, 0xf5b7cb9b, 0xcad9d395, 0x793f2d86, 0xa49167fa, 0x8a86b259,
     ],
     [
-        0x132a01e3, 0x3833e2d9, 0x49726e04, 0x054957f8, 0x7b71bce4, 0x73eec57d, 0x556e5533, 0x1fa93fde, 0x346a8ca8,
-        0x1162dfde, 0x5c30d028, 0x094a4294, 0x3052dcda, 0x37988498, 0x51f06b97, 0x65848779,
+        0xabb033c5, 0xe1562215, 0x64e88ed0, 0xb9194068, 0xaf17ebfb, 0xee8377ad, 0xcc7cefea, 0x2522c0b2, 0xa507ae8e,
+        0x6eeb4ced, 0x7980c048, 0x25a6f40d, 0xdd443b41, 0x8412e868, 0xbd05f0f4, 0x8c804a4e,
     ],
     [
-        0x7599b0d4, 0x436fdabc, 0x66c5b77d, 0x40c86a9e, 0x27e7055b, 0x6d0dd9d8, 0x7e5598b5, 0x1a4d04f3, 0x5e3b2bc7,
-        0x533b5b2f, 0x3e33a125, 0x664d71ce, 0x382e6c2a, 0x24c4eb6e, 0x13f246f7, 0x07e2d7ef,
+        0xbaad5dad, 0x2bdbe1f0, 0x8dfe8a3f, 0xa5b6f683, 0x0de5ca68, 0x5af48e3d, 0x5d895c2f, 0xf656679d, 0xa3d98a66,
+        0xb5e70bc2, 0x678a0ba2, 0x05441e51, 0x5785e092, 0x59734838, 0x4118c3c6, 0xe2e29ed7,
     ],
 ]);
 
@@ -927,8 +927,8 @@ impl Poseidon1KoalaBear16 {
             for r in 0..POSEIDON1_PARTIAL_ROUNDS {
                 // PATH A (high latency): S-box on s0 only.
                 unsafe {
-                    let s0_signed = split.s0.to_signed_vector();
-                    let s0_sboxed = exp_small::<FP, 3>(s0_signed);
+                    let s0_vec = split.s0.to_vector();
+                    let s0_sboxed = exp_small::<FP, 3>(s0_vec);
                     split.s0 = PackedMontyField31Neon::from_vector(s0_sboxed);
                 }
 

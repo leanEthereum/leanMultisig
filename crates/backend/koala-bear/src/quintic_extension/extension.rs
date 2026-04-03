@@ -23,7 +23,7 @@ use super::packed_extension::PackedQuinticExtensionField;
 use crate::QuinticExtendable;
 
 /// Quintic Extension Field (degree 5), specifically designed for Koala-Bear
-/// Irreducible polynomial: X^5 + X^2 - 1
+/// Irreducible polynomial: X^5 + 2
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(transparent)] // Needed to make various casts safe.
 #[must_use]
@@ -526,26 +526,33 @@ impl<F: TwoAdicField + QuinticExtendable> TwoAdicField for QuinticExtensionField
     }
 }
 
-/// Quintic extension field multiplication in F[X]/(X^5 + X^2 - 1).
+/// Quintic extension field multiplication in F[X]/(X^5 + 2).
+///
+/// X^5 = -2, so higher-degree terms are reduced by replacing X^5 with -2.
 #[inline]
-pub fn quintic_mul<T: Copy + Sub<Output = T>>(
+pub fn quintic_mul<T: Copy + Add<Output = T> + Neg<Output = T>>(
     a: &[T; 5],
     b: &[T; 5],
     dot_product: impl Fn(&[T; 5], &[T; 5]) -> T,
 ) -> [T; 5] {
-    let b_0_m3 = b[0] - b[3];
-    let b_1_m4 = b[1] - b[4];
-    let b_4_m2 = b[4] - b[2];
+    // Precompute -2*b[i] = -(b[i] + b[i])
+    let n2b1 = -(b[1] + b[1]);
+    let n2b2 = -(b[2] + b[2]);
+    let n2b3 = -(b[3] + b[3]);
+    let n2b4 = -(b[4] + b[4]);
 
     [
-        dot_product(a, &[b[0], b[4], b[3], b[2], b_1_m4]),
-        dot_product(a, &[b[1], b[0], b[4], b[3], b[2]]),
-        dot_product(a, &[b[2], b_1_m4, b_0_m3, b_4_m2, b[3] - b_1_m4]),
-        dot_product(a, &[b[3], b[2], b_1_m4, b_0_m3, b_4_m2]),
-        dot_product(a, &[b[4], b[3], b[2], b_1_m4, b_0_m3]),
+        dot_product(a, &[b[0], n2b4, n2b3, n2b2, n2b1]),
+        dot_product(a, &[b[1], b[0], n2b4, n2b3, n2b2]),
+        dot_product(a, &[b[2], b[1], b[0], n2b4, n2b3]),
+        dot_product(a, &[b[3], b[2], b[1], b[0], n2b4]),
+        dot_product(a, &[b[4], b[3], b[2], b[1], b[0]]),
     ]
 }
 
+/// Squaring in F[X]/(X^5 + 2).
+///
+/// X^5 = -2, so c[i+5] terms get multiplied by -2.
 #[inline]
 pub(crate) fn quintic_square<F, R>(a: &[R; 5], res: &mut [R; 5])
 where
@@ -565,20 +572,25 @@ where
     let a3_square = a[3].square();
     let a4_square = a[4].square();
 
-    // Constant term = a0^2 + 2*a1*a4 + 2*a2*a3 - a4^2
-    res[0] = R::dot_product(&[a[0], two_a1], &[a[0], a[4]]) + two_a2_a3 - a4_square;
+    // For X^5 + 2: c[5] = 2*a1*a4 + 2*a2*a3, reduced by -2
+    // c[6] = 2*a2*a4 + a3^2, reduced by -2
+    // c[7] = 2*a3*a4, reduced by -2
+    // c[8] = a4^2, reduced by -2
 
-    // Linear term = 2*a0*a1 + a3^2 + 2*a2*a4
-    res[1] = two_a0 * a[1] + a3_square + two_a2_a4;
+    // Constant term = a0^2 - 2*(2*a1*a4 + 2*a2*a3) = a0^2 - 4*a1*a4 - 4*a2*a3
+    res[0] = a[0].square() - (two_a1_a4 + two_a2_a3).double();
 
-    // Square term = a1^2 + 2*a0*a2 - 2*a1*a4 - 2*a2*a3 + 2*a3*a4 + a4^2
-    res[2] = a[1].square() + two_a0 * a[2] - two_a1_a4 - two_a2_a3 + two_a3_a4 + a4_square;
+    // Linear term = 2*a0*a1 - 2*(2*a2*a4 + a3^2) = 2*a0*a1 - 4*a2*a4 - 2*a3^2
+    res[1] = two_a0 * a[1] - two_a2_a4.double() - a3_square.double();
 
-    // Cubic term = 2*a0*a3 + 2*a1*a2 - a3^2 - 2*a2*a4 + a4^2
-    res[3] = R::dot_product(&[two_a0, two_a1], &[a[3], a[2]]) - a3_square - two_a2_a4 + a4_square;
+    // Quadratic term = 2*a0*a2 + a1^2 - 2*(2*a3*a4) = 2*a0*a2 + a1^2 - 4*a3*a4
+    res[2] = two_a0 * a[2] + a[1].square() - two_a3_a4.double();
 
-    // Quartic term = a2^2 + 2*a0*a4 + 2*a1*a3 - 2*a3*a4
-    res[4] = R::dot_product(&[two_a0, two_a1], &[a[4], a[3]]) + a[2].square() - two_a3_a4;
+    // Cubic term = 2*a0*a3 + 2*a1*a2 - 2*a4^2
+    res[3] = R::dot_product(&[two_a0, two_a1], &[a[3], a[2]]) - a4_square.double();
+
+    // Quartic term = 2*a0*a4 + 2*a1*a3 + a2^2
+    res[4] = R::dot_product(&[two_a0, two_a1], &[a[4], a[3]]) + a[2].square();
 }
 
 #[inline]
@@ -588,16 +600,17 @@ fn quintic_inv<F: QuinticExtendable>(a: &QuinticExtensionField<F>) -> QuinticExt
     let a_exp_q_plus_q_sq = (*a * a_exp_q).frobenius();
     let prod_conj = a_exp_q_plus_q_sq * a_exp_q_plus_q_sq.repeated_frobenius(2);
 
-    // norm = a * prod_conj is in the base field, so only compute that
-    // coefficient rather than the full product.
+    // norm = a * prod_conj is in the base field, so only compute the
+    // constant coefficient (for X^5 + 2: c[0] = a0*b0 - 2*(a1*b4 + a2*b3 + a3*b2 + a4*b1)).
+    let two = F::TWO;
     let norm = F::dot_product::<5>(
         &a.value,
         &[
             prod_conj.value[0],
-            prod_conj.value[4],
-            prod_conj.value[3],
-            prod_conj.value[2],
-            prod_conj.value[1] - prod_conj.value[4],
+            -(two * prod_conj.value[4]),
+            -(two * prod_conj.value[3]),
+            -(two * prod_conj.value[2]),
+            -(two * prod_conj.value[1]),
         ],
     );
 

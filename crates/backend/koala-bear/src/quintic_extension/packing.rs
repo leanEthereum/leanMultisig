@@ -156,39 +156,31 @@ pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &m
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-/// Multiplication in a quintic binomial extension field.
+/// Multiplication in quintic extension field F[X]/(X^5 + 2).
 #[inline]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
-    // TODO: This could be optimised further with a custom NEON implementation.
-
     use crate::PackedMontyField31Neon;
     use field::PrimeCharacteristicRing;
 
-    let b0_minus_b3 = b[0] - b[3];
-    let b1_minus_b4 = b[1] - b[4];
-    let b4_minus_b2 = b[4] - b[2];
-    let b3_plus_b4_minus_b_1 = b[3] - b1_minus_b4;
+    // For X^5 + 2: X^5 = -2
+    let neg_2b1 = -(b[1] + b[1]);
+    let neg_2b2 = -(b[2] + b[2]);
+    let neg_2b3 = -(b[3] + b[3]);
+    let neg_2b4 = -(b[4] + b[4]);
 
-    // Constant term = a0*b0 + a1*b4 + a2*b3 + a3*b2 + a4*b1 - a4*b4
-    // Linear term = a0*b1 + a1*b0 + a2*b4 + a3*b3 + a4*b2
-    // Square term = a0*b2 + a1*b1 - a1*b4 + a2*b0 - a2*b3 + a3*b4 - a3*b2 + a4*b3 - a4*b1 + a4*b4
-    // Cubic term = a0*b3 + a1*b2 + a2*b1 - a2*b4 + a3*b0 - a3*b3 + a4*b4 - a4*b2
-    // Quartic term = a0*b4 + a1*b3 + a2*b2 + a3*b1 - a3*b4 + a4*b0 - a4*b3
     let lhs: [PackedMontyField31Neon<crate::KoalaBearParameters>; 5] =
         [a[0].into(), a[1].into(), a[2].into(), a[3].into(), a[4].into()];
     let rhs = [
         PackedMontyField31Neon([b[0], b[1], b[2], b[3]]),
-        PackedMontyField31Neon([b[4], b[0], b1_minus_b4, b[2]]),
-        PackedMontyField31Neon([b[3], b[4], b0_minus_b3, b1_minus_b4]),
-        PackedMontyField31Neon([b[2], b[3], b4_minus_b2, b0_minus_b3]),
-        PackedMontyField31Neon([b1_minus_b4, b[2], b3_plus_b4_minus_b_1, b4_minus_b2]),
+        PackedMontyField31Neon([neg_2b4, b[0], b[1], b[2]]),
+        PackedMontyField31Neon([neg_2b3, neg_2b4, b[0], b[1]]),
+        PackedMontyField31Neon([neg_2b2, neg_2b3, neg_2b4, b[0]]),
+        PackedMontyField31Neon([neg_2b1, neg_2b2, neg_2b3, neg_2b4]),
     ];
 
     let dot = PackedMontyField31Neon::dot_product(&lhs, &rhs).0;
-
     res[..4].copy_from_slice(&dot);
-    res[4] = KoalaBear::dot_product::<5>(
-        &[a[0], a[1], a[2], a[3], a[4]],
-        &[b[4], b[3], b[2], b1_minus_b4, b0_minus_b3],
-    );
+
+    // result[4] = dot(a, [b4, b3, b2, b1, b0])  (no -2 terms)
+    res[4] = KoalaBear::dot_product::<5>(&[a[0], a[1], a[2], a[3], a[4]], &[b[4], b[3], b[2], b[1], b[0]]);
 }

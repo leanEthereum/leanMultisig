@@ -55,29 +55,23 @@ pub(crate) const fn from_monty<MP: MontyParameters>(x: u32) -> u32 {
 
 /// Add two integers modulo `P = MP::PRIME`.
 ///
-/// Assumes that `P` is less than `2^31` and `a + b <= 2P` for all array pairs `a, b`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod P`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` are in `[0, P)`. The result will be in `[0, P)`.
+/// Uses a u64 intermediate since `a + b` may exceed u32 when `P > 2^31`.
 #[inline]
 #[must_use]
 pub const fn monty_add<MP: MontyParameters>(lhs: u32, rhs: u32) -> u32 {
-    let mut sum = lhs + rhs;
-    let (corr_sum, over) = sum.overflowing_sub(MP::PRIME);
-    if !over {
-        sum = corr_sum;
+    let sum = lhs as u64 + rhs as u64;
+    if sum >= MP::PRIME as u64 {
+        (sum - MP::PRIME as u64) as u32
+    } else {
+        sum as u32
     }
-    sum
 }
 
 /// Subtract two integers modulo `P = MP::PRIME`.
 ///
-/// Assumes that `P` is less than `2^31` and `|a - b| <= P` for all array pairs `a, b`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod P`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` are in `[0, P)`. The result will be in `[0, P)`.
+/// Works for any P < 2^32: when `lhs < rhs`, `wrapping_add(P)` corrects via mod-2^32 arithmetic.
 #[inline]
 #[must_use]
 pub fn monty_sub<MP: MontyParameters>(lhs: u32, rhs: u32) -> u32 {
@@ -87,7 +81,7 @@ pub fn monty_sub<MP: MontyParameters>(lhs: u32, rhs: u32) -> u32 {
     diff
 }
 
-/// Given an element `x` from a 31 bit field `F` compute `x/2`.
+/// Given an element `x` from a field `F` with `P < 2^32`, compute `x/2`.
 /// The input must be in `[0, P)`.
 /// The output will also be in `[0, P)`.
 #[inline]
@@ -211,12 +205,12 @@ pub(crate) const fn monty_reduce_u128<MP: MontyParameters>(x: u128) -> u32 {
     // the Montgomery reduction helper.
     //
     // Range analysis:
-    //   R*P  = 2^32 * P  <  2^63       (P is a 31-bit prime)
-    //   2*R*P            <  2^64
+    //   R*P  = 2^32 * P  <  2^64       (P is a 32-bit prime)
+    //   2*R*P            <  2^65
     //   lo               <= 2^64 - 1   (arbitrary u64)
     //
     // So the low limb can exceed the accepted range by at most one copy of 2*R*P.
-    // Subtracting it once is always enough because 2^64 < 4*R*P for any 31-bit prime.
+    // Subtracting it once is always enough because 2^64 < 4*R*P for any prime P > 2^30.
     //
     // Correctness: 2*R*P is a multiple of P, so this subtraction
     // does not change the residue modulo P.

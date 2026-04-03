@@ -16,34 +16,37 @@ pub type QuinticExtensionFieldKB = QuinticExtensionField<KoalaBear>;
 pub type PackedQuinticExtensionFieldKB = PackedQuinticExtensionField<KoalaBear, <KoalaBear as Field>::Packing>;
 
 impl QuinticExtendable for KoalaBear {
+    /// Frobenius matrix for X^5 + 2 over F_p where p = 4194304001.
+    /// Since X^5 + 2 is a binomial extension and p ≡ 1 (mod 5), the Frobenius is diagonal:
+    /// X^{ip} = w^i * X^i where w = (-2)^((p-1)/5).
     const FROBENIUS_MATRIX: [[Self; 5]; 4] = [
         [
-            Self::new(1576402667),
-            Self::new(1173144480),
-            Self::new(1567662457),
-            Self::new(1206866823),
-            Self::new(2428146),
+            Self::new(0),
+            Self::new(561393150),
+            Self::new(0),
+            Self::new(0),
+            Self::new(0),
         ],
         [
-            Self::new(1680345488),
-            Self::new(1381986),
-            Self::new(615237464),
-            Self::new(1380104858),
-            Self::new(295431824),
+            Self::new(0),
+            Self::new(0),
+            Self::new(1307621960),
+            Self::new(0),
+            Self::new(0),
         ],
         [
-            Self::new(441230756),
-            Self::new(323126830),
-            Self::new(704986542),
-            Self::new(1445620072),
-            Self::new(503505220),
+            Self::new(0),
+            Self::new(0),
+            Self::new(0),
+            Self::new(1448665303),
+            Self::new(0),
         ],
         [
-            Self::new(1364444097),
-            Self::new(1144738982),
-            Self::new(2008416047),
-            Self::new(143367062),
-            Self::new(1027410849),
+            Self::new(0),
+            Self::new(0),
+            Self::new(0),
+            Self::new(0),
+            Self::new(876623587),
         ],
     ];
 
@@ -92,7 +95,7 @@ impl QuinticExtendableAlgebra<KoalaBear> for KoalaBear {
     }
 }
 
-/// Trait for fields that support binomial extension of the form: `F[X]/(X^5 + X^2 - 1)`
+/// Trait for fields that support quintic extension of the form: `F[X]/(X^5 + 2)`
 pub trait QuinticExtendable: Field + QuinticExtendableAlgebra<Self> {
     const FROBENIUS_MATRIX: [[Self; 5]; 4];
 

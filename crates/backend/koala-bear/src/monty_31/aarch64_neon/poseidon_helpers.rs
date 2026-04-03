@@ -7,6 +7,7 @@ use core::mem::transmute;
 
 use super::exp_small;
 use crate::{FieldParameters, MontyParameters, PackedMontyField31Neon, PackedMontyParameters, RelativelyPrimePower};
+use field::uint32x4_mod_add;
 
 /// A specialized representation of the Poseidon state for a width of 16.
 ///
@@ -32,26 +33,22 @@ impl<PMP: PackedMontyParameters> InternalLayer16<PMP> {
     }
 }
 
-/// Converts a scalar constant into a packed NEON vector in "negative form" (`c - P`).
+/// Converts a scalar constant into a packed NEON vector (canonical unsigned form).
 #[inline(always)]
-pub(crate) fn convert_to_vec_neg_form_neon<MP: MontyParameters>(input: i32) -> int32x4_t {
-    unsafe {
-        let input_sub_p = input - (MP::PRIME as i32);
-        aarch64::vdupq_n_s32(input_sub_p)
-    }
+pub(crate) fn convert_to_vec_neon<MP: MontyParameters>(input: u32) -> uint32x4_t {
+    unsafe { aarch64::vdupq_n_u32(input) }
 }
 
-/// Performs the fused AddRoundConstant and S-Box operation `x -> (x + c)^D`.
+/// Performs the AddRoundConstant and S-Box operation `x -> (x + c)^D`.
 ///
 /// `val` must contain elements in canonical form `[0, P)`.
-/// `rc` must contain round constants in negative form `[-P, 0)`.
-pub(crate) fn add_rc_and_sbox<PMP, const D: u64>(val: &mut PackedMontyField31Neon<PMP>, rc: int32x4_t)
+/// `rc` must contain round constants in canonical form `[0, P)`.
+pub(crate) fn add_rc_and_sbox<PMP, const D: u64>(val: &mut PackedMontyField31Neon<PMP>, rc: uint32x4_t)
 where
     PMP: PackedMontyParameters + FieldParameters + RelativelyPrimePower<D>,
 {
     unsafe {
-        let vec_val_s = val.to_signed_vector();
-        let val_plus_rc = aarch64::vaddq_s32(vec_val_s, rc);
+        let val_plus_rc = uint32x4_mod_add(val.to_vector(), rc, PMP::PACKED_P);
         let output = exp_small::<PMP, D>(val_plus_rc);
         *val = PackedMontyField31Neon::<PMP>::from_vector(output);
     }

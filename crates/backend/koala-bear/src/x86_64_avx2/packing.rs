@@ -11,6 +11,6 @@ pub type PackedKoalaBearAVX2 = PackedMontyField31AVX2<KoalaBearParameters>;
 const WIDTH: usize = 8;
 
 impl MontyParametersAVX2 for KoalaBearParameters {
-    const PACKED_P: __m256i = unsafe { transmute::<[u32; WIDTH], _>([0x7f000001; WIDTH]) };
-    const PACKED_MU: __m256i = unsafe { transmute::<[u32; WIDTH], _>([0x81000001; WIDTH]) };
+    const PACKED_P: __m256i = unsafe { transmute::<[u32; WIDTH], _>([0xfa000001; WIDTH]) };
+    const PACKED_MU: __m256i = unsafe { transmute::<[u32; WIDTH], _>([0x06000001; WIDTH]) };
 }
