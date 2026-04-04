@@ -27,7 +27,7 @@ pub type FunctionName = String;
 pub type FileId = usize;
 
 /// Location in source code
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct SourceLocation {
     pub file_id: FileId,
     pub line_number: SourceLineNumber,

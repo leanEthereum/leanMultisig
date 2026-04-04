@@ -12,7 +12,7 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
 ];
 pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(usize)]
 pub enum Table {
     Execution(ExecutionTable<true>),

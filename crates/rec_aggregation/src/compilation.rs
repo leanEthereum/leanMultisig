@@ -1,4 +1,5 @@
 use backend::*;
+use lean_compiler::instruction_encoder::field_representation;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
     GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
@@ -8,6 +9,7 @@ use lean_vm::*;
 use leansig_wrapper::{
     LOG_LIFETIME, MSG_LEN_FE, PARAMETER_LEN, RAND_LEN_FE, TARGET_SUM, TWEAK_LEN_FE, V, W, WOTS_PUBKET_SPONGE_DOMAIN_SEP,
 };
+use sha3::{Digest, Sha3_256};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
@@ -18,6 +20,19 @@ use utils::Counter;
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
+const BYTECODE_GUESSED_LOG_SIZE: usize = 19;
+
+/// Format: `[32 bytes: SHA3-256 fingerprint][lz4(postcard(bytecode))]`
+#[cfg(not(any(feature = "prox-gaps-conjecture", feature = "test-config")))]
+const CACHED_BYTECODE_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode.bin"));
+#[cfg(feature = "prox-gaps-conjecture")]
+const CACHED_BYTECODE_BYTES: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode_prox_gaps.bin"));
+#[cfg(feature = "test-config")]
+const CACHED_BYTECODE_BYTES: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode_test_config.bin"));
+
+const FINGERPRINT_SIZE: usize = 32; // in bytes
 
 pub fn get_aggregation_bytecode() -> &'static Bytecode {
     BYTECODE
@@ -26,36 +41,122 @@ pub fn get_aggregation_bytecode() -> &'static Bytecode {
 }
 
 pub fn init_aggregation_bytecode() {
-    BYTECODE.get_or_init(compile_main_program_self_referential);
+    BYTECODE.get_or_init(load_or_compile);
 }
 
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
-    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
-    let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
-    let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN_FE; // encoding + chain + leaf + merkle
-    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
-    let pub_input_size =
-        1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
-    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    let replacements = build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
-        bytecode_zero_eval,
-        pub_input_size,
-    );
+fn compute_source_fingerprint() -> [u8; FINGERPRINT_SIZE] {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("main.py")
-        .to_str()
-        .unwrap()
-        .to_string();
-    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
+    // Collect all .py files in the crate root, sorted by name for determinism.
+    let mut py_files: Vec<(String, String)> = Vec::new();
+    for entry in std::fs::read_dir(manifest_dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "py") {
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let content = std::fs::read_to_string(&path).unwrap();
+            py_files.push((name, content));
+        }
+    }
+    py_files.sort();
+
+    let replacements = compute_replacements(BYTECODE_GUESSED_LOG_SIZE, F::ONE);
+
+    let mut hasher = Sha3_256::new();
+    for (name, content) in &py_files {
+        hasher.update(name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(content.as_bytes());
+        hasher.update(b"\0");
+    }
+    for (key, value) in &replacements {
+        hasher.update(key.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(value.as_bytes());
+        hasher.update(b"\0");
+    }
+    hasher.finalize().into()
+}
+
+/// Returns the cache file name for the active feature configuration.
+fn cache_file_name() -> &'static str {
+    #[cfg(feature = "prox-gaps-conjecture")]
+    {
+        assert!(
+            !cfg!(feature = "test-config"),
+            "features `prox-gaps-conjecture` and `test-config` cannot be enabled at the same time"
+        );
+        "cached_bytecode_prox_gaps.bin"
+    }
+    #[cfg(feature = "test-config")]
+    {
+        "cached_bytecode_test_config.bin"
+    }
+    #[cfg(not(any(feature = "prox-gaps-conjecture", feature = "test-config")))]
+    {
+        "cached_bytecode.bin"
+    }
+}
+
+fn cache_file_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(cache_file_name())
+}
+
+fn load_or_compile() -> Bytecode {
+    let current_fp = compute_source_fingerprint();
+
+    if CACHED_BYTECODE_BYTES.len() > FINGERPRINT_SIZE {
+        let stored_fp: [u8; FINGERPRINT_SIZE] = CACHED_BYTECODE_BYTES[..FINGERPRINT_SIZE].try_into().unwrap();
+        if current_fp == stored_fp {
+            let cache_data = &CACHED_BYTECODE_BYTES[FINGERPRINT_SIZE..];
+            return deserialize_cache(cache_data).unwrap();
+        }
+    }
+    let bytecode = compile_from_source();
+    write_cache_file(&bytecode, &current_fp);
+    bytecode
+}
+
+fn deserialize_cache(data: &[u8]) -> Option<Bytecode> {
+    let decompressed = lz4_flex::decompress_size_prepended(data).ok()?;
+    let mut bytecode: Bytecode = postcard::from_bytes(&decompressed).ok()?;
+    rebuild_derived_fields(&mut bytecode);
+    Some(bytecode)
+}
+
+fn write_cache_file(bytecode: &Bytecode, fingerprint: &[u8; FINGERPRINT_SIZE]) {
+    let mut out = Vec::from(fingerprint.as_slice());
+    let encoded = postcard::to_allocvec(bytecode).expect("postcard serialization failed");
+    out.extend_from_slice(&lz4_flex::compress_prepend_size(&encoded));
+    std::fs::write(cache_file_path(), &out).expect("failed to write bytecode cache file");
+}
+
+fn rebuild_derived_fields(bytecode: &mut Bytecode) {
+    let padded_cols = N_INSTRUCTION_COLUMNS.next_power_of_two();
+    let mut instructions_multilinear: Vec<F> = bytecode
+        .instructions
+        .par_iter()
+        .flat_map_iter(|instr| {
+            let encoded = field_representation(instr);
+            encoded
+                .into_iter()
+                .chain(std::iter::repeat_n(F::ZERO, padded_cols - N_INSTRUCTION_COLUMNS))
+        })
+        .collect();
+    instructions_multilinear.resize(instructions_multilinear.len().next_power_of_two(), F::ZERO);
+    let instructions_multilinear_packed = pack_extension(
+        &instructions_multilinear
+            .par_iter()
+            .map(|&pf| EF::from(pf))
+            .collect::<Vec<EF>>(),
+    );
+    bytecode.instructions_multilinear = instructions_multilinear;
+    bytecode.instructions_multilinear_packed = instructions_multilinear_packed;
 }
 
 #[instrument(skip_all)]
-fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 19;
+fn compile_from_source() -> Bytecode {
+    let mut log_size_guess = BYTECODE_GUESSED_LOG_SIZE;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -71,6 +172,33 @@ fn compile_main_program_self_referential() -> Bytecode {
         }
         log_size_guess = actual_log_size;
     }
+}
+
+fn compute_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
+    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+    let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
+    let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
+    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN_FE; // encoding + chain + leaf + merkle
+    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
+    let pub_input_size =
+        1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
+    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
+    build_replacements(
+        inner_program_log_size,
+        inner_public_memory_log_size,
+        bytecode_zero_eval,
+        pub_input_size,
+    )
+}
+
+fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let replacements = compute_replacements(inner_program_log_size, bytecode_zero_eval);
+    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("main.py")
+        .to_str()
+        .unwrap()
+        .to_string();
+    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
 }
 
 fn build_replacements(

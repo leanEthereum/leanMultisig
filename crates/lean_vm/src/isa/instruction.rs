@@ -14,7 +14,7 @@ use std::ops::AddAssign;
 use utils::ToUsize;
 
 /// Complete set of VM instruction types with comprehensive operation support
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Instruction {
     /// Basic arithmetic computation instruction (ADD, MUL)
     Computation {

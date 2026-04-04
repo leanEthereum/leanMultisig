@@ -115,7 +115,7 @@ pub const POSEIDON_24_COL_OUTPUT_START: ColIndex = num_cols_poseidon_24() - POSE
 // virtual columns (not committed)
 pub const POSEIDON_24_COL_PRECOMPILE_DATA: usize = num_cols_poseidon_24();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Poseidon24Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {

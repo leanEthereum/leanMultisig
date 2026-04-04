@@ -5,7 +5,7 @@ use backend::*;
 mod air;
 pub use air::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionTable<const BUS: bool>;
 
 impl<const BUS: bool> TableT for ExecutionTable<BUS> {

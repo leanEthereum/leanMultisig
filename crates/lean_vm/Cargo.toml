@@ -16,3 +16,4 @@ tracing.workspace = true
 air.workspace = true
 backend.workspace = true
 itertools.workspace = true
+serde.workspace = true

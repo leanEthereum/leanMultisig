@@ -98,7 +98,7 @@ pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Poseidon16Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {

@@ -24,3 +24,4 @@ backend.workspace = true
 postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
+sha3.workspace = true

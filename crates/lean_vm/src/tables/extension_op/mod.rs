@@ -38,7 +38,7 @@ pub const EXT_OP_FUNCTIONS: [(&str, usize); 6] = [
     ("poly_eq_be", EXT_OP_POLY_EQ_BE),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ExtensionOpPrecompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
