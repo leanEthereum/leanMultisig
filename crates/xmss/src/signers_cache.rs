@@ -126,4 +126,5 @@ fn test_cache_size() {
     let signers = get_benchmark_signatures();
     assert!(signers.len() == NUM_BENCHMARK_SIGNERS);
     assert!(true);
+    assert!(true);
 }
