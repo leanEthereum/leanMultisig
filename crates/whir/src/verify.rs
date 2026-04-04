@@ -45,14 +45,14 @@ impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
         })
     }
 
-    pub fn oods_constraints(&self) -> Vec<SparseStatement<EF>> {
+    fn ood_evaluations(&self) -> Vec<Evaluation<EF>> {
         self.ood_points
             .iter()
             .zip(&self.ood_answers)
-            .map(|(&point, &eval)| {
-                SparseStatement::dense(
+            .map(|(&point, &value)| {
+                Evaluation::new(
                     MultilinearPoint::expand_from_univariate(point, self.num_variables),
-                    eval,
+                    value,
                 )
             })
             .collect()
@@ -84,29 +84,22 @@ where
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         parsed_commitment: &ParsedCommitment<F, EF>,
-        statement: Vec<SparseStatement<EF>>,
+        dense_claim: Evaluation<EF>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
     {
-        statement
-            .iter()
-            .for_each(|c| assert_eq!(c.total_num_variables, parsed_commitment.num_variables));
+        assert_eq!(dense_claim.point.len(), parsed_commitment.num_variables);
 
-        // During the rounds we collect constraints, combination randomness, folding randomness
-        // and we update the claimed sum of constraint evaluation.
-        let mut round_constraints = Vec::new();
+        let mut round_constraints: Vec<(Vec<EF>, Vec<Evaluation<EF>>)> = Vec::new();
         let mut round_folding_randomness = Vec::new();
         let mut claimed_sum = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        // Combine OODS and statement constraints to claimed_sum
-        let constraints: Vec<_> = prev_commitment
-            .oods_constraints()
-            .into_iter()
-            .chain(statement)
-            .collect();
+        // Combine OODs and dense claim
+        let mut constraints = prev_commitment.ood_evaluations();
+        constraints.push(dense_claim);
         let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
         round_constraints.push((combination_randomness, constraints));
 
@@ -137,14 +130,11 @@ where
             )?;
 
             // Add out-of-domain and in-domain constraints to claimed_sum
-            let constraints: Vec<SparseStatement<EF>> = new_commitment
-                .oods_constraints()
-                .into_iter()
-                .chain(stir_constraints)
-                .collect();
+            let mut constraints = new_commitment.ood_evaluations();
+            constraints.extend(stir_constraints);
 
             let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
-            round_constraints.push((combination_randomness.clone(), constraints));
+            round_constraints.push((combination_randomness, constraints));
 
             let folding_randomness = verify_sumcheck_rounds::<F, EF>(
                 verifier_state,
@@ -204,23 +194,20 @@ where
         Ok(folding_randomness)
     }
 
-    pub(crate) fn combine_constraints(
+    fn combine_constraints(
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         claimed_sum: &mut EF,
-        constraints: &[SparseStatement<EF>],
+        constraints: &[Evaluation<EF>],
     ) -> ProofResult<Vec<EF>> {
         let combination_randomness_gen: EF = verifier_state.sample();
         let mut combination_randomness = vec![EF::ONE];
-        for smt in constraints {
-            for e in &smt.values {
-                let combination_randomness_pow = *combination_randomness.last().unwrap();
-                *claimed_sum += combination_randomness_pow * e.value;
-                combination_randomness.push(combination_randomness_pow * combination_randomness_gen);
-            }
+        for eval in constraints {
+            let combination_randomness_pow = *combination_randomness.last().unwrap();
+            *claimed_sum += combination_randomness_pow * eval.value;
+            combination_randomness.push(combination_randomness_pow * combination_randomness_gen);
         }
         combination_randomness.pop().unwrap();
-
         Ok(combination_randomness)
     }
 
@@ -231,7 +218,7 @@ where
         commitment: &ParsedCommitment<F, EF>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
-    ) -> ProofResult<Vec<SparseStatement<EF>>>
+    ) -> ProofResult<Vec<Evaluation<EF>>>
     where
         F: Field + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
@@ -245,9 +232,6 @@ where
             params.num_queries,
             verifier_state,
         );
-
-        // dbg!(&stir_challenges_indexes);
-        // dbg!(verifier_state.challenger().state());
 
         let dimensions = vec![Dimensions {
             height: params.domain_size >> params.folding_factor,
@@ -274,7 +258,7 @@ where
             .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
             .zip(&folds)
             .map(|(point, &value)| {
-                SparseStatement::dense(
+                Evaluation::new(
                     MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables),
                     value,
                 )
@@ -343,46 +327,27 @@ where
 
     fn eval_constraints_poly(
         &self,
-        constraints: &[(Vec<EF>, Vec<SparseStatement<EF>>)],
+        constraints: &[(Vec<EF>, Vec<Evaluation<EF>>)],
         mut point: MultilinearPoint<EF>,
     ) -> EF {
         let mut value = EF::ZERO;
 
-        for (round, (randomness, constraints)) in constraints.iter().enumerate() {
+        for (round, (randomness, evals)) in constraints.iter().enumerate() {
             if round > 0 {
                 let k = self.folding_factor.at_round(round - 1);
                 point = MultilinearPoint(point[k..].to_vec());
             }
-            let mut i = 0;
-            for smt in constraints {
-                let common_eq = smt.point.eq_poly_outside(&MultilinearPoint(
-                    point[point.len() - smt.inner_num_variables()..].to_vec(),
-                ));
-                for e in &smt.values {
-                    let eval = (0..smt.selector_num_variables())
-                        .map(|j| {
-                            if e.selector & (1 << (smt.selector_num_variables() - 1 - j)) == 0 {
-                                EF::ONE - point[j]
-                            } else {
-                                point[j]
-                            }
-                        })
-                        .product::<EF>()
-                        * common_eq;
-                    value += eval * randomness[i];
-                    i += 1;
-                }
+            for (i, eval) in evals.iter().enumerate() {
+                let eq = eval.point.eq_poly_outside(&point);
+                value += eq * randomness[i];
             }
-            assert_eq!(i, randomness.len());
         }
         value
     }
 }
 
-fn verify_constraint_coeffs<EF: Field>(constraint: &SparseStatement<EF>, coeffs: &[EF]) -> bool {
-    assert_eq!(constraint.selector_num_variables(), 0);
+fn verify_constraint_coeffs<EF: Field>(constraint: &Evaluation<EF>, coeffs: &[EF]) -> bool {
     let alpha = constraint.point[0];
-    // Verify the point is expand_from_univariate(alpha, n): [alpha, alpha^2, alpha^4, ...]
     assert!(
         constraint
             .point
@@ -391,7 +356,7 @@ fn verify_constraint_coeffs<EF: Field>(constraint: &SparseStatement<EF>, coeffs:
             .all(|(&a, &b)| a * a == b)
     );
     let univariate_eval = coeffs.iter().rfold(EF::ZERO, |acc, &c| acc * alpha + c);
-    constraint.values.iter().all(|e| univariate_eval == e.value)
+    univariate_eval == constraint.value
 }
 
 /// The full vector of folding randomness values, in reverse round order.
@@ -407,7 +372,6 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField + ExtensionField<PF<EF>>,
 {
-    // Preallocate vector to hold the randomness values
     let mut randomness = Vec::with_capacity(rounds);
 
     for _ in 0..rounds {

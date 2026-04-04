@@ -88,6 +88,12 @@ where
         acc
     }
 
+    pub fn reversed(&self) -> Self {
+        let mut rev = self.0.clone();
+        rev.reverse();
+        Self(rev)
+    }
+
     /// Embeds the point into an extension field `EF`.
     #[must_use]
     pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPoint<EF> {
