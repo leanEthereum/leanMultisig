@@ -36,6 +36,7 @@ fn cache_footprint(first_pubkey: &XmssPublicKey) -> u64 {
     BENCHMARK_SLOT.hash(&mut hasher);
     message_for_benchmark().hash(&mut hasher);
     first_pubkey.merkle_root.hash(&mut hasher);
+    first_pubkey.public_param.hash(&mut hasher);
     hasher.finish()
 }
 

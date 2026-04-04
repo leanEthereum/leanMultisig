@@ -7,7 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, SIG_SIZE_FE, V, W, XmssPublicKey, XmssSignature};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -19,6 +19,23 @@ mod compilation;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
+const CHAIN_LENGTH: usize = 1 << W;
+
+// Tweak types (must match xmss crate)
+const TWEAK_TYPE_CHAIN: usize = 0;
+const TWEAK_TYPE_WOTS_PK: usize = 1;
+const TWEAK_TYPE_MERKLE: usize = 2;
+const TWEAK_TYPE_ENCODING: usize = 3;
+
+/// Number of 2-FE tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
+const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
+/// Size of the tweak table in field elements (2 FE per tweak)
+const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * 2).next_multiple_of(DIGEST_LEN);
+
+const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
@@ -33,9 +50,51 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
-pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
-    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()).collect();
-    poseidon_compress_slice(&flat, true)
+pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
+    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.flaten().into_iter()).collect();
+    Digest(poseidon_compress_slice(&flat, true))
+}
+
+fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 2] {
+    let index_lo = (index & 0xFFFF) as usize;
+    let index_hi = (index >> 16) as usize;
+    [
+        F::from_usize((tweak_type << 26) + (index_hi << 10) + sub_position),
+        F::from_usize(index_lo),
+    ]
+}
+
+/// Build a flat tweak table for the given slot. Layout:
+///   encoding_tweak(2) | chain_tweaks(V * CHAIN_LENGTH * 2) | wots_pk_tweaks((V-1) * 2) | merkle_tweaks(LOG_LIFETIME * 2)
+fn compute_tweak_table(slot: u32) -> Vec<F> {
+    let mut table = Vec::new();
+
+    // Encoding tweak
+    let tw = make_tweak_values(TWEAK_TYPE_ENCODING, 0, slot);
+    table.extend_from_slice(&tw);
+
+    // Chain tweaks: for chain i, step s → make_tweak(CHAIN, i*CHAIN_LENGTH + s, slot)
+    for i in 0..V {
+        for s in 0..CHAIN_LENGTH {
+            let tw = make_tweak_values(TWEAK_TYPE_CHAIN, i * CHAIN_LENGTH + s, slot);
+            table.extend_from_slice(&tw);
+        }
+    }
+
+    // WOTS_PK tweaks: for sub_pos p = 0..V-2
+    for p in 0..V - 1 {
+        let tw = make_tweak_values(TWEAK_TYPE_WOTS_PK, p, slot);
+        table.extend_from_slice(&tw);
+    }
+
+    // Merkle tweaks: for level 0..LOG_LIFETIME-1
+    for level in 0..LOG_LIFETIME {
+        let parent_index = ((slot as u64) >> (level + 1)) as u32;
+        let tw = make_tweak_values(TWEAK_TYPE_MERKLE, level + 1, parent_index);
+        table.extend_from_slice(&tw);
+    }
+    table.resize(TWEAK_TABLE_SIZE_FE_PADDED, F::ZERO);
+    table
 }
 
 fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
@@ -59,6 +118,7 @@ fn build_non_reserved_public_input(
     slice_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
+    tweaks_hash: &[F; DIGEST_LEN],
     bytecode_claim_output: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
@@ -66,10 +126,10 @@ fn build_non_reserved_public_input(
     pi.push(F::from_usize(n_sigs));
     pi.extend_from_slice(slice_hash);
     pi.extend_from_slice(message);
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
-    pi.push(slot_lo);
-    pi.push(slot_hi);
+    pi.push(F::from_usize((slot & 0xFFFF) as usize));
+    pi.push(F::from_usize(((slot >> 16) & 0xFFFF) as usize));
     pi.extend(compute_merkle_chunks_for_slot(slot));
+    pi.extend_from_slice(tweaks_hash);
     pi.extend_from_slice(bytecode_claim_output);
     pi.extend(std::iter::repeat_n(
         F::ZERO,
@@ -131,12 +191,15 @@ impl AggregatedXMSS {
         assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
 
         let slice_hash = hash_pubkeys(pub_keys);
+        let tweak_table = compute_tweak_table(slot);
+        let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
         build_non_reserved_public_input(
             pub_keys.len(),
-            &slice_hash,
+            &slice_hash.0,
             message,
             slot,
+            &tweaks_hash,
             &bytecode_claim_output,
             &bytecode.hash,
         )
@@ -167,7 +230,7 @@ pub fn xmss_aggregate(
     log_inv_rate: usize,
 ) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
-    raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
+    raw_xmss.dedup_by(|(a, _), (b, _)| a == b);
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
@@ -187,6 +250,10 @@ pub fn xmss_aggregate(
     global_pub_keys.dedup();
     let n_sigs = global_pub_keys.len();
 
+    // Compute tweak table and its hash
+    let tweak_table = compute_tweak_table(slot);
+    let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
+
     // Verify child proofs
     let mut child_pub_inputs = vec![];
     let mut child_bytecode_evals = vec![];
@@ -201,7 +268,7 @@ pub fn xmss_aggregate(
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_public_input(
@@ -274,18 +341,19 @@ pub fn xmss_aggregate(
     let slice_hash = hash_pubkeys(&global_pub_keys);
     let non_reserved_public_input = build_non_reserved_public_input(
         n_sigs,
-        &slice_hash,
+        &slice_hash.0,
         message,
         slot,
+        &tweaks_hash,
         &bytecode_claim_output,
         &bytecode.hash,
     );
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
-    // Layout: [n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
-    //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
-    let header_size = n_recursions + 5;
+    // Layout: [n_recursions, n_dup, ptr_pubkeys, ptr_tweak_table, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
+    //          global_pubkeys, dup_pubkeys, tweak_table, source_blocks..., bytecode_sumcheck_proof]
+    let header_size = n_recursions + 6;
     let pubkeys_start = public_memory.len() + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
@@ -308,15 +376,15 @@ pub fn xmss_aggregate(
     }
 
     // Sources 1..n_recursions: recursive children
-    for (i, (child_pub_keys, _)) in children.iter().enumerate() {
+    for (i, (child_pub_keys, _child)) in children.iter().enumerate() {
         let mut block = vec![F::from_usize(child_pub_keys.len())];
-        for pubkey in *child_pub_keys {
-            if claimed.insert(pubkey.clone()) {
-                let pos = global_pub_keys.binary_search(pubkey).unwrap();
+        for key in *child_pub_keys {
+            if claimed.insert(key.clone()) {
+                let pos = global_pub_keys.binary_search(key).unwrap();
                 block.push(F::from_usize(pos));
             } else {
                 block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
-                dup_pub_keys.push(pubkey.clone());
+                dup_pub_keys.push(key.clone());
             }
         }
 
@@ -332,10 +400,11 @@ pub fn xmss_aggregate(
     }
 
     let n_dup = dup_pub_keys.len();
-    let pubkeys_block_size = n_sigs * DIGEST_LEN + n_dup * DIGEST_LEN;
+    let pubkeys_block_size = n_sigs * PUB_KEY_FLAT_SIZE + n_dup * PUB_KEY_FLAT_SIZE;
+    let tweak_table_ptr = pubkeys_start + pubkeys_block_size;
 
     // Compute absolute memory addresses for each source block
-    let sources_start = pubkeys_start + pubkeys_block_size;
+    let sources_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED;
     let mut offset = sources_start;
     let mut source_ptrs: Vec<usize> = vec![];
     for block in &source_blocks {
@@ -344,10 +413,12 @@ pub fn xmss_aggregate(
     }
     let bytecode_sumcheck_proof_ptr = offset;
 
-    let mut private_input = vec![];
-    private_input.push(F::from_usize(n_recursions));
-    private_input.push(F::from_usize(n_dup));
-    private_input.push(F::from_usize(pubkeys_start));
+    let mut private_input = vec![
+        F::from_usize(n_recursions),
+        F::from_usize(n_dup),
+        F::from_usize(pubkeys_start),
+        F::from_usize(tweak_table_ptr),
+    ];
     for &ptr in &source_ptrs {
         private_input.push(F::from_usize(ptr));
     }
@@ -355,18 +426,18 @@ pub fn xmss_aggregate(
     assert_eq!(private_input.len(), header_size);
 
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
+        private_input.extend_from_slice(&pk.flaten());
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.merkle_root);
+        private_input.extend_from_slice(&pk.flaten());
     }
+    private_input.extend_from_slice(&tweak_table);
     for block in &source_blocks {
         private_input.extend_from_slice(block);
     }
     private_input.extend_from_slice(&final_sumcheck_transcript);
 
     // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
-    // Each opening produces two entries: leaf_data, then the flattened path.
     let merkle_paths: Vec<Vec<F>> = child_raw_proofs
         .iter()
         .flat_map(|p| p.merkle_openings.iter())

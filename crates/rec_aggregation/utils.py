@@ -345,6 +345,13 @@ def copy_8(a, b):
 
 
 @inline
+def copy_9(a, b):
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
+    return
+
+
+@inline
 def copy_16(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + 5, ONE_EF_PTR, b + 5)

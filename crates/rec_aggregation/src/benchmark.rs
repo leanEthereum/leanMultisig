@@ -247,7 +247,7 @@ fn build_aggregation(
     let children: Vec<(&[XmssPublicKey], AggregatedXMSS)> = child_pub_keys_list
         .iter()
         .zip(child_aggs)
-        .map(|(pks, agg)| (pks.as_slice(), agg))
+        .map(|(pks, agg): (&Vec<XmssPublicKey>, AggregatedXMSS)| (pks.as_slice(), agg))
         .collect();
 
     let time = Instant::now();

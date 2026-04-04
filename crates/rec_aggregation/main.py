@@ -8,14 +8,13 @@ MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
-BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS
-
+BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS + DIGEST_LEN
 
 def main():
     debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16)  # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
     n_sigs = pub_mem[0]
-    assert n_sigs != 0
+    assert 1 < n_sigs
     assert n_sigs - 1 < MAX_N_SIGS
     pubkeys_hash_expected = pub_mem + 1
     message = pubkeys_hash_expected + DIGEST_LEN
@@ -23,6 +22,7 @@ def main():
     slot_lo = slot_ptr[0]
     slot_hi = slot_ptr[1]
     merkle_chunks_for_slot = slot_ptr + 2
+    tweaks_hash_expected = merkle_chunks_for_slot + N_MERKLE_CHUNKS
     bytecode_claim_output = pub_mem + BYTECODE_CLAIM_OFFSET
 
     priv_start: Imu
@@ -34,11 +34,16 @@ def main():
     n_dup = priv_start[1]
     assert n_dup < MAX_N_SIGS  # TODO increase
     all_pubkeys = priv_start[2]
-    sub_slice_starts = priv_start + 3
+    tweak_table = priv_start[3]
+    sub_slice_starts = priv_start + 4
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
     source_0 = sub_slice_starts[0]
     n_raw_xmss = source_0[0]
+
+    # Verify tweak table hash
+    computed_tweaks_hash = slice_hash(tweak_table, TWEAK_TABLE_SIZE_FE_PADDED / DIGEST_LEN)
+    copy_8(computed_tweaks_hash, tweaks_hash_expected)
 
     # 1->1 optimization
     if n_recursions == 1:
@@ -53,6 +58,7 @@ def main():
             proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
             non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sigs, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
             copy_8(non_reserved_inner + 1, pubkeys_hash_expected)
+            copy_8(tweaks_hash_expected, non_reserved_inner + 1 + DIGEST_LEN + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
             bytecode_claims = Array(2)
             bytecode_claims[0] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
             bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint)
@@ -60,7 +66,7 @@ def main():
             return
 
     # General path
-    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * DIGEST_LEN, MAX_LOG_MEMORY_SIZE)
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Buffer for partition verification
@@ -76,10 +82,10 @@ def main():
         assert idx < n_total
         buffer[idx] = i
         # Verify raw XMSS signatures
-        pk = all_pubkeys + idx * DIGEST_LEN
+        pk = all_pubkeys + idx * PUB_KEY_SIZE
         sig = Array(SIG_SIZE)
         hint_xmss(sig)
-        xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
+        xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
 
     counter: Mut = n_raw_xmss
 
@@ -101,22 +107,25 @@ def main():
         assert idx0 < n_total
         buffer[idx0] = counter
         counter += 1
-        pk0 = all_pubkeys + idx0 * DIGEST_LEN
-        running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16_compress(ZERO_VEC_PTR, pk0, running_hash)
+
+        # Copy subset pub keys to contiguous buffer for flat hashing
+        sub_pubkeys = Array(n_sub * PUB_KEY_SIZE)
+        copy_9(all_pubkeys + idx0 * PUB_KEY_SIZE, sub_pubkeys)
 
         for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter
             counter += 1
-            pk = all_pubkeys + idx * DIGEST_LEN
-            new_hash = Array(DIGEST_LEN)
-            poseidon16_compress(running_hash, pk, new_hash)
-            running_hash = new_hash
+            copy_9(all_pubkeys + idx * PUB_KEY_SIZE, sub_pubkeys + j * PUB_KEY_SIZE)
+
+        running_hash = slice_hash_with_iv_dynamic_unroll(sub_pubkeys, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
 
         non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
         copy_8(running_hash, non_reserved_inner + 1)
+        # Verify inner tweaks hash matches ours
+        inner_msg = non_reserved_inner + 1 + DIGEST_LEN
+        copy_8(tweaks_hash_expected, inner_msg + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
 
         # Collect inner bytecode claim from inner pub mem
         bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET

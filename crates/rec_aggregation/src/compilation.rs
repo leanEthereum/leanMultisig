@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
@@ -31,10 +31,16 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
-    //                   + message + merkle_chunks_for_slot + bytecode_claim_padded + bytecode_hash(8)
-    let pub_input_size =
-        1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
+    // pub_input layout: n_sigs(1) + slice_hash(8) + message + slot_low(1) + slot_high(1)
+    //                   + merkle_chunks_for_slot + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash(8)
+    let pub_input_size = 1
+        + DIGEST_LEN
+        + 2
+        + MESSAGE_LEN_FE
+        + N_MERKLE_CHUNKS_FOR_SLOT
+        + DIGEST_LEN
+        + claim_data_size_padded
+        + DIGEST_LEN;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let replacements = build_replacements(
         inner_program_log_size,
@@ -350,6 +356,10 @@ fn build_replacements(
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
     replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
     replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());
+    replacements.insert(
+        "PUBLIC_PARAM_LEN_FE_PLACEHOLDER".to_string(),
+        PUBLIC_PARAM_LEN_FE.to_string(),
+    );
     replacements.insert(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
