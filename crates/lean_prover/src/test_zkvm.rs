@@ -3,7 +3,9 @@ use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{
+    init_tracing, poseidon16_compress, poseidon24_compress_0_9, poseidon24_permute_0_9, poseidon24_permute_9_18,
+};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -12,14 +14,26 @@ DIM = 5
 N = 11
 M = 3
 DIGEST_LEN = 8
+P24_INPUT_LEFT = 9
+P24_INPUT_RIGHT = 15
+P24_OUTPUT = 9
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
-    base_ptr = pub_start + 88
-    ext_a_ptr = pub_start + 88 + N
-    ext_b_ptr = pub_start + 88 + N * (DIM + 1)
+    # poseidon24 compress_0_9: left (9 elems at offset 56), right (15 at 65), output (9 at 80)
+    poseidon24_compress_0_9(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT)
+
+    # poseidon24 permute_0_9: same input, output (9 elems at offset 89)
+    poseidon24_permute_0_9(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT + P24_OUTPUT)
+
+    # poseidon24 permute_9_18: same input, output (9 elems at offset 98)
+    poseidon24_permute_9_18(pub_start + 56, pub_start + 56 + P24_INPUT_LEFT, pub_start + 56 + P24_INPUT_LEFT + P24_INPUT_RIGHT + 2 * P24_OUTPUT)
+
+    base_ptr = pub_start + 107
+    ext_a_ptr = pub_start + 107 + N
+    ext_b_ptr = pub_start + 107 + N * (DIM + 1)
 
     # dot_product_be: sum_i base[i] * ext_a[i]
     dot_product_be(base_ptr, ext_a_ptr, pub_start + 1000, N)
@@ -55,14 +69,20 @@ def main():
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
 
-    // Poseidon test data
+    // Poseidon16 test data: input at [32..48], expected output at [48..56]
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
     public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
+
+    // Poseidon24 test data: input at [56..80]
+    // compress_0_9 output at [80..89], permute_0_9 output at [89..98], permute_9_18 output at [98..107]
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
+    public_input[80..89].copy_from_slice(&poseidon24_compress_0_9(poseidon_24_input));
+    public_input[89..98].copy_from_slice(&poseidon24_permute_0_9(poseidon_24_input));
+    public_input[98..107].copy_from_slice(&poseidon24_permute_9_18(poseidon_24_input));
 
-    // Extension op operands: base[N], ext_a[N], ext_b[N]
+    // Extension op operands: base[N], ext_a[N], ext_b[N] starting at offset 107
     let base_slice: [F; N] = rng.random();
     let ext_a_slice: [EF; N] = rng.random();
     let ext_b_slice: [EF; N] = rng.random();
@@ -74,9 +94,9 @@ def main():
             .collect()
     };
 
-    public_input[88..][..N].copy_from_slice(&base_slice);
-    public_input[88 + N..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_a_slice));
-    public_input[88 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_b_slice));
+    public_input[107..][..N].copy_from_slice(&base_slice);
+    public_input[107 + N..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_a_slice));
+    public_input[107 + N + N * DIMENSION..][..N * DIMENSION].copy_from_slice(&ef_to_f(&ext_b_slice));
 
     // dot_product_be result at 1000
     let dot_product_be_result: EF = dot_product(ext_a_slice.into_iter(), base_slice.into_iter());

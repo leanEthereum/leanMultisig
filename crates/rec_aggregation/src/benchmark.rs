@@ -1,12 +1,12 @@
 use backend::*;
 use lean_vm::*;
+use leansig_wrapper::{XmssPublicKey, XmssSignature};
 use std::io::{self, Write};
 use std::time::Instant;
 use utils::ansi as s;
-use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
-use xmss::{XmssPublicKey, XmssSignature};
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
+use crate::signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures};
 use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
@@ -254,7 +254,7 @@ fn build_aggregation(
     let (global_pub_keys, result) = xmss_aggregate(
         &children,
         raw_xmss,
-        &message_for_benchmark(),
+        &BENCHMARK_MESSAGE,
         BENCHMARK_SLOT,
         topology.log_inv_rate,
     );
@@ -329,13 +329,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
 
     // Verify root proof
-    crate::xmss_verify_aggregation(
-        &global_pub_keys,
-        &aggregated_sigs,
-        &message_for_benchmark(),
-        BENCHMARK_SLOT,
-    )
-    .unwrap();
+    crate::xmss_verify_aggregation(global_pub_keys, &aggregated_sigs, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
     time
 }
 

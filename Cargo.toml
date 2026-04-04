@@ -54,11 +54,11 @@ wildcard_imports = "allow"
 air = { path = "crates/air" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
-xmss = { path = "crates/xmss" }
 sub_protocols = { path = "crates/sub_protocols" }
 lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
+leansig_wrapper = { path = "crates/leansig_wrapper" }
 backend = { path = "crates/backend" }
 
 # External
@@ -78,6 +78,7 @@ lz4_flex = "0.13.0"
 
 [features]
 prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
+test-config = ["rec_aggregation/test-config"]
 
 [dependencies]
 clap.workspace = true
@@ -86,8 +87,8 @@ air.workspace = true
 rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true
+leansig_wrapper.workspace = true
 lean_vm.workspace = true
-xmss.workspace = true
 backend.workspace = true
 
 [dev-dependencies]

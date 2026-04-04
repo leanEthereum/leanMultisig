@@ -7,6 +7,7 @@ extern crate alloc;
 mod koala_bear;
 pub mod monty_31;
 mod poseidon1_koalabear_16;
+mod poseidon1_koalabear_24;
 pub mod quintic_extension;
 pub mod symmetric;
 
@@ -22,9 +23,13 @@ mod x86_64_avx2;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 mod x86_64_avx512;
 
-pub use koala_bear::*;
 pub use monty_31::*;
+
+pub use koala_bear::*;
+
 pub use poseidon1_koalabear_16::*;
+pub use poseidon1_koalabear_24::*;
+
 pub use quintic_extension::*;
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]

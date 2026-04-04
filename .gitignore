@@ -2,4 +2,5 @@
 .vscode
 /docs/benchmark_graphs/.venv
 minimal_zkVM.synctex.gz
+crates/rec_aggregation/test_data
 .claude
