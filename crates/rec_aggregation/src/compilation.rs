@@ -690,13 +690,3 @@ fn eval_air_binary_op(
         }
     }
 }
-
-#[test]
-fn display_all_air_evals_in_zk_dsl() {
-    println!("{}", all_air_evals_in_zk_dsl());
-}
-
-#[test]
-fn display_poseidon_air_in_zk_dsl() {
-    println!("{}", air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}));
-}

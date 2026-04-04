@@ -10,6 +10,3 @@ poly = { path = "../poly", package = "mt-poly" }
 fiat-shamir = { path = "../fiat-shamir", package = "mt-fiat-shamir" }
 tracing.workspace = true
 rayon.workspace = true
-
-[dev-dependencies]
-koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }

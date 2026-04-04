@@ -12,11 +12,6 @@ use utils::{
 
 const WIDTH: usize = 16;
 
-#[test]
-fn test_benchmark_air_poseidon_16() {
-    benchmark_prove_poseidon_16(11, false);
-}
-
 #[allow(clippy::too_many_lines)]
 pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     if tracing {

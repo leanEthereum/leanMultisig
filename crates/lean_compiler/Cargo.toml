@@ -18,5 +18,3 @@ air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
 backend.workspace = true
-
-[dev-dependencies]

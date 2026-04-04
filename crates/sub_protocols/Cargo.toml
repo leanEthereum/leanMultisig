@@ -13,7 +13,3 @@ utils.workspace = true
 lean_vm.workspace = true
 backend.workspace = true
 
-[dev-dependencies]
-
-rand.workspace = true
-

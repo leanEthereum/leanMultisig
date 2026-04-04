@@ -11,7 +11,3 @@ tracing.workspace = true
 utils.workspace = true
 
 backend.workspace = true
-
-[dev-dependencies]
-
-rand.workspace = true

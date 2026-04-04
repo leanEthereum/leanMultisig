@@ -16,7 +16,6 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "backend",
- "rand",
  "tracing",
  "utils",
 ]
@@ -433,7 +432,6 @@ dependencies = [
  "lean_vm",
  "rand",
  "rec_aggregation",
- "serde_json",
  "sub_protocols",
  "utils",
  "xmss",
@@ -467,7 +465,6 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
- "rec_aggregation",
  "sub_protocols",
  "tracing",
  "utils",
@@ -595,7 +592,6 @@ version = "0.1.0"
 dependencies = [
  "itertools",
  "mt-field",
- "mt-koala-bear",
  "mt-utils",
  "rand",
  "rayon",
@@ -609,7 +605,6 @@ dependencies = [
  "mt-air",
  "mt-fiat-shamir",
  "mt-field",
- "mt-koala-bear",
  "mt-poly",
  "rayon",
  "tracing",
@@ -646,8 +641,6 @@ dependencies = [
  "rand",
  "rayon",
  "tracing",
- "tracing-forest",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -991,7 +984,6 @@ version = "0.1.0"
 dependencies = [
  "backend",
  "lean_vm",
- "rand",
  "tracing",
  "utils",
 ]
@@ -1151,7 +1143,6 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "backend",
- "rand",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",

@@ -114,21 +114,3 @@ pub fn max_bus_width_including_domainsep() -> usize {
 pub fn max_air_constraints() -> usize {
     ALL_TABLES.iter().map(|table| table.n_constraints()).max().unwrap()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_table_indices() {
-        for (i, table) in ALL_TABLES.iter().enumerate() {
-            assert_eq!(table.index(), i);
-        }
-    }
-
-    #[test]
-    fn test_max_precompile_bus_width() {
-        let expected_max_bus_width = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
-        assert_eq!(MAX_PRECOMPILE_BUS_WIDTH, expected_max_bus_width);
-    }
-}

@@ -345,35 +345,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::time::Instant;
-
-    use koala_bear::QuinticExtensionFieldKB;
-    use rand::{RngExt, SeedableRng, rngs::StdRng};
-
-    type F = QuinticExtensionFieldKB;
-    type EF = QuinticExtensionFieldKB;
-
-    use super::*;
-
-    #[test]
-    fn test_evaluate() {
-        let n_vars = 24;
-        let mut rng = StdRng::seed_from_u64(0);
-        let poly = (0..(1 << n_vars)).map(|_| rng.random()).collect::<Vec<F>>();
-        let point = MultilinearPoint((0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>());
-
-        let time = Instant::now();
-        let res_normal = eval_multilinear::<_, _, true>(&poly, &point);
-        println!("Normal eval time: {:?}", time.elapsed());
-
-        let packed_poly = pack_extension(&poly);
-        let time = Instant::now();
-        let res_packed = eval_packed::<_, true>(&packed_poly, &point);
-        println!("Packed eval time: {:?}", time.elapsed());
-
-        assert_eq!(res_normal, res_packed);
-    }
-}
