@@ -18,7 +18,7 @@ pub fn get_benchmark_signatures() -> &'static Vec<(XmssPublicKey, XmssSignature)
 }
 
 pub const BENCHMARK_SLOT: u32 = 111;
-pub const NUM_BENCHMARK_SIGNERS: usize = 1000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 300;
 
 pub fn message_for_benchmark() -> [F; MESSAGE_LEN_FE] {
     std::array::from_fn(F::from_usize)
