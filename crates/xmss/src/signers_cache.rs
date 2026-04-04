@@ -107,7 +107,6 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
     signers
 }
 
-
 #[test]
 fn test_cache_size() {
     let signers = get_benchmark_signatures();
