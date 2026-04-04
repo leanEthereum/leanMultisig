@@ -19,7 +19,7 @@ pub fn get_benchmark_signatures() -> &'static Vec<(XmssPublicKey, XmssSignature)
 }
 
 pub const BENCHMARK_SLOT: u32 = 111;
-pub const NUM_BENCHMARK_SIGNERS: usize = 10000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 1000;
 
 pub fn message_for_benchmark() -> [F; MESSAGE_LEN_FE] {
     std::array::from_fn(F::from_usize)
@@ -105,4 +105,11 @@ fn gen_benchmark_signers_cache() -> Vec<(XmssPublicKey, XmssSignature)> {
     fs::write(&path, &compressed).expect("Failed to save benchmark cache");
 
     signers
+}
+
+
+#[test]
+fn test_cache_size() {
+    let signers = get_benchmark_signatures();
+    assert!(signers.len() == NUM_BENCHMARK_SIGNERS);
 }
