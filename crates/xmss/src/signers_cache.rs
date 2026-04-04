@@ -1,5 +1,4 @@
 use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -30,19 +29,34 @@ struct SignersCacheFile {
     signatures: Vec<(XmssPublicKey, XmssSignature)>,
 }
 
-fn cache_footprint(first_pubkey: &XmssPublicKey) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    NUM_BENCHMARK_SIGNERS.hash(&mut hasher);
-    BENCHMARK_SLOT.hash(&mut hasher);
-    message_for_benchmark().hash(&mut hasher);
-    first_pubkey.merkle_root.hash(&mut hasher);
-    hasher.finish()
+fn cache_footprint(first_pubkey: &XmssPublicKey) -> u128 {
+    use sha3::{Digest, Sha3_256};
+    let mut hasher = Sha3_256::new();
+    hasher.update(NUM_BENCHMARK_SIGNERS.to_le_bytes());
+    hasher.update(BENCHMARK_SLOT.to_le_bytes());
+    for f in message_for_benchmark() {
+        hasher.update(f.as_canonical_u32().to_le_bytes());
+    }
+    for f in first_pubkey.merkle_root {
+        hasher.update(f.as_canonical_u32().to_le_bytes());
+    }
+    let hash = hasher.finalize();
+    u128::from_le_bytes(hash[..16].try_into().unwrap())
+}
+
+fn cache_dir() -> PathBuf {
+    // In CI, set SIGNERS_CACHE_DIR to a path outside target/
+    if let Ok(dir) = std::env::var("SIGNERS_CACHE_DIR") {
+        PathBuf::from(dir)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/signers-cache")
+    }
 }
 
 fn cache_path(first_pubkey: &XmssPublicKey) -> PathBuf {
     let footprint = cache_footprint(first_pubkey);
-    let file = format!("benchmark_signers_cache_{footprint:016x}.bin");
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/signers-cache/{file}"))
+    let file = format!("benchmark_signers_cache_{footprint:032x}.bin");
+    cache_dir().join(file)
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {
