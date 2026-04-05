@@ -27,10 +27,11 @@ const TWEAK_TYPE_WOTS_PK: usize = 1;
 const TWEAK_TYPE_MERKLE: usize = 2;
 const TWEAK_TYPE_ENCODING: usize = 3;
 
-/// Number of 2-FE tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
+/// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
 const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
-/// Size of the tweak table in field elements (2 FE per tweak)
-const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * 2).next_multiple_of(DIGEST_LEN);
+/// Each tweak is stored as a 5-FE slot [0, tw[0], tw[1], 0, 0] so that we can use copy_5
+const TWEAK_SLOT_SIZE: usize = 5;
+const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
 
 const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
 
@@ -64,34 +65,38 @@ fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 
     ]
 }
 
-/// Build a flat tweak table for the given slot. Layout:
-///   encoding_tweak(2) | chain_tweaks(V * CHAIN_LENGTH * 2) | wots_pk_tweaks((V-1) * 2) | merkle_tweaks(LOG_LIFETIME * 2)
+/// Each tweak is stored as a 5-FE slot: [0, tw[0], tw[1], 0, 0]
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
+    let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
+        let tw = make_tweak_values(tweak_type, sub_position, index);
+        table.push(F::ZERO);
+        table.push(tw[0]);
+        table.push(tw[1]);
+        table.push(F::ZERO);
+        table.push(F::ZERO);
+    };
+
     // Encoding tweak
-    let tw = make_tweak_values(TWEAK_TYPE_ENCODING, 0, slot);
-    table.extend_from_slice(&tw);
+    push_padded(&mut table, TWEAK_TYPE_ENCODING, 0, slot);
 
     // Chain tweaks: for chain i, step s → make_tweak(CHAIN, i*CHAIN_LENGTH + s, slot)
     for i in 0..V {
         for s in 0..CHAIN_LENGTH {
-            let tw = make_tweak_values(TWEAK_TYPE_CHAIN, i * CHAIN_LENGTH + s, slot);
-            table.extend_from_slice(&tw);
+            push_padded(&mut table, TWEAK_TYPE_CHAIN, i * CHAIN_LENGTH + s, slot);
         }
     }
 
     // WOTS_PK tweaks: for sub_pos p = 0..V-2
     for p in 0..V - 1 {
-        let tw = make_tweak_values(TWEAK_TYPE_WOTS_PK, p, slot);
-        table.extend_from_slice(&tw);
+        push_padded(&mut table, TWEAK_TYPE_WOTS_PK, p, slot);
     }
 
     // Merkle tweaks: for level 0..LOG_LIFETIME-1
     for level in 0..LOG_LIFETIME {
         let parent_index = ((slot as u64) >> (level + 1)) as u32;
-        let tw = make_tweak_values(TWEAK_TYPE_MERKLE, level + 1, parent_index);
-        table.extend_from_slice(&tw);
+        push_padded(&mut table, TWEAK_TYPE_MERKLE, level + 1, parent_index);
     }
     table.resize(TWEAK_TABLE_SIZE_FE_PADDED, F::ZERO);
     table
