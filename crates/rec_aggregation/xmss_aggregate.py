@@ -57,10 +57,11 @@ def build_right_fn(tweak, data, out):
 @inline
 def build_right_chain_fn(tweak, out):
     # Chain hash: data is all zeros. [tweak(2) | zeros(6)]
+    # out must be Array(DIGEST_LEN) or more; set_to_5_zeros(out + 3) writes out[3..8].
     out[0] = tweak[0]
     out[1] = tweak[1]
-    for k in unroll(2, DIGEST_LEN):
-        out[k] = 0
+    out[2] = 0
+    set_to_5_zeros(out + 3)
     return
 
 
@@ -85,11 +86,11 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
 
-    pp_input = Array(DIGEST_LEN)
+    # pp_input layout: [public_param(4) | zeros(4)]. Allocate 9 so set_to_5_zeros can write positions 4..8.
+    pp_input = Array(DIGEST_LEN + 1)
     for k in unroll(0, PUBLIC_PARAM_LEN_FE):
         pp_input[k] = public_param[k]
-    for k in unroll(PUBLIC_PARAM_LEN_FE, DIGEST_LEN):
-        pp_input[k] = 0
+    set_to_5_zeros(pp_input + PUBLIC_PARAM_LEN_FE)
     encoding_fe = Array(DIGEST_LEN)
     poseidon16_compress(pre_compressed, pp_input, encoding_fe)
 
