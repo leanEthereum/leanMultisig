@@ -6,7 +6,7 @@ pub use wots::*;
 mod xmss;
 pub use xmss::*;
 
-pub(crate) const DIGEST_SIZE: usize = 5;
+pub const DIGEST_SIZE: usize = 4;
 pub(crate) const TWEAK_LEN: usize = 2;
 
 type F = KoalaBear;
@@ -29,7 +29,8 @@ pub const PP_IN_LEFT: usize = 8 - DIGEST_SIZE; // = 3
 pub const PUB_KEY_FLAT_SIZE: usize = DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 9
 
 const _: () = assert!(PP_IN_LEFT + DIGEST_SIZE == 8);
-const _: () = assert!((PUBLIC_PARAM_LEN_FE - PP_IN_LEFT) + TWEAK_LEN + DIGEST_SIZE == 8);
+// Right layout: [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
+const _: () = assert!(TWEAK_LEN + 2 + DIGEST_SIZE == 8);
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
 
@@ -54,21 +55,20 @@ pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> 
     ]
 }
 
-/// [public_param[0..3](3) | data(5)]
+/// [public_param(4) | data(4)]
 pub(crate) fn build_left(public_param: &PublicParam, data: &Digest) -> [F; 8] {
     let mut left = [F::default(); 8];
-    left[..PP_IN_LEFT].copy_from_slice(&public_param[..PP_IN_LEFT]);
+    left[..PP_IN_LEFT].copy_from_slice(public_param);
     left[PP_IN_LEFT..].copy_from_slice(data);
     left
 }
 
-/// [pp[3](1) | tweak(2) | data(5)]
-pub(crate) fn build_right(public_param: &PublicParam, tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
-    let pp_right = PUBLIC_PARAM_LEN_FE - PP_IN_LEFT;
+/// [tweak(2) | zeros(2) | data(4)]
+pub(crate) fn build_right(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
     let mut right = [F::default(); 8];
-    right[..pp_right].copy_from_slice(&public_param[PP_IN_LEFT..]);
-    right[pp_right..pp_right + TWEAK_LEN].copy_from_slice(&tweak);
-    right[pp_right + TWEAK_LEN..].copy_from_slice(data);
+    right[..TWEAK_LEN].copy_from_slice(&tweak);
+    // right[TWEAK_LEN..TWEAK_LEN+2] = zeros (default)
+    right[8 - DIGEST_SIZE..].copy_from_slice(data);
     right
 }
 

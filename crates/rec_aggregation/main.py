@@ -107,19 +107,19 @@ def main():
         assert idx0 < n_total
         buffer[idx0] = counter
         counter += 1
-
-        # Copy subset pub keys to contiguous buffer for flat hashing
-        sub_pubkeys = Array(n_sub * PUB_KEY_SIZE)
-        copy_9(all_pubkeys + idx0 * PUB_KEY_SIZE, sub_pubkeys)
+        pk0 = all_pubkeys + idx0 * PUB_KEY_SIZE
+        running_hash: Mut = Array(DIGEST_LEN)
+        poseidon16_compress(ZERO_VEC_PTR, pk0, running_hash)
 
         for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices[j]
             assert idx < n_total
             buffer[idx] = counter
             counter += 1
-            copy_9(all_pubkeys + idx * PUB_KEY_SIZE, sub_pubkeys + j * PUB_KEY_SIZE)
-
-        running_hash = slice_hash_with_iv_dynamic_unroll(sub_pubkeys, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
+            pk = all_pubkeys + idx * PUB_KEY_SIZE
+            new_hash = Array(DIGEST_LEN)
+            poseidon16_compress(running_hash, pk, new_hash)
+            running_hash = new_hash
 
         non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
         copy_8(running_hash, non_reserved_inner + 1)
