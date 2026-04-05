@@ -56,13 +56,23 @@ def build_right_fn(tweak, data, out):
 
 
 @inline
-def build_right_chain_fn(tweak, out):
-    # Chain hash: data is all zeros. [tweak(2) | zeros(6)]
-    # out must be Array(DIGEST_LEN) or more; set_to_5_zeros(out + 3) writes out[3..8].
-    out[0] = tweak[0]
-    out[1] = tweak[1]
-    out[2] = 0
-    set_to_5_zeros(out + 3)
+def build_chain_right(public_param, out):
+    # Shared chain-hash right input: [public_param(4) | zeros(4)]
+    # Built once per xmss_verify and reused for every chain hash.
+    # out must be Array(DIGEST_LEN + 1) so set_to_5_zeros can write positions 4..8.
+    for k in unroll(0, PUBLIC_PARAM_LEN_FE):
+        out[k] = public_param[k]
+    set_to_5_zeros(out + PUBLIC_PARAM_LEN_FE)
+    return
+
+
+@inline
+def set_chain_left_prefix(cur_buf, tweak):
+    # Writes [tweak(2) | zeros(2)] to cur_buf[0..4].
+    cur_buf[0] = tweak[0]
+    cur_buf[1] = tweak[1]
+    cur_buf[2] = 0
+    cur_buf[3] = 0
     return
 
 
@@ -127,6 +137,9 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     wots_public_key = Array(V * DIGEST_LEN)
     MAX_CHAIN_HASHES = CHAIN_LENGTH - 1
 
+    chain_right = Array(DIGEST_LEN + 1)
+    build_chain_right(public_param, chain_right)
+
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * XMSS_DIGEST
@@ -134,19 +147,16 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
 
         # Pre-allocate all buffers (constant allocation regardless of num_hashes)
-        ch_left = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_left_fn
-        ch_right = Array(DIGEST_LEN)
+        ch_left_first = Array(DIGEST_LEN + 1)  # L_0 = [tweak_0, zeros, input], +1 for copy_5
         ch_bufs = Array((MAX_CHAIN_HASHES - 1) * BUF_SIZE)
         ch_buf_idx = Array(MAX_CHAIN_HASHES - 1)
-        ch_rights = Array((MAX_CHAIN_HASHES - 1) * DIGEST_LEN)
-        ch_right_last = Array(DIGEST_LEN)
 
         match_range(
             num_hashes,
             range(0, 1),
             lambda _: copy_5(chain_start, chain_end),
             range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, public_param, chain_i_tweaks, ch_left, ch_right, ch_bufs, ch_buf_idx, ch_rights, ch_right_last),
+            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx),
         )
 
     # 3) Hash WOTS public key
@@ -168,35 +178,39 @@ def copy_xmss_digest(src, dst):
 
 
 @inline
-def chain_hash_pa(input, n, output, public_param, chain_i_tweaks, ch_left, ch_right, ch_bufs, ch_buf_idx, ch_rights, ch_right_last):
-    # Uses pre-allocated buffers (zero internal allocation for parallel_range compatibility)
+def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx):
+    # Uses pre-allocated buffers (zero internal allocation for parallel_range compatibility).
+    # Chain hash layout: left = [tweak(2) | zeros(2) | data(4)], right = chain_right (shared).
+    # Buffer of size BUF_SIZE = 12 = [prefix(4) | hash_output(8)] where the hash_output's
+    # first 4 elements (the digest) land at positions 4..8 of the buffer, so buf[0..8] forms
+    # a valid left input for the NEXT hash (prefix = [tweak_next, zeros]).
     starting_step = CHAIN_LENGTH - 1 - n
 
-    # First hash: build left and right from scratch
-    build_left_fn(public_param, input, ch_left)
-    build_right_chain_fn(chain_i_tweaks + starting_step * TWEAK_LEN, ch_right)
+    # Build L_0 = [tweak_0, zeros, input]
+    first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
+    set_chain_left_prefix(ch_left_first, first_tweak)
+    copy_5(input, ch_left_first + 4)
 
     if n == 1:
-        poseidon16_compress(ch_left, ch_right, output)
+        poseidon16_compress(ch_left_first, chain_right, output)
     else:
-        # Buffer trick: hash output goes to buf + PP_IN_LEFT, then pp is prepended.
+        # Hash 0: L_0 → ch_bufs + 4 (writes ch_bufs[4..12], digest at ch_bufs[4..8])
         ch_buf_idx[0] = ch_bufs
-        poseidon16_compress(ch_left, ch_right, ch_bufs + PP_IN_LEFT)
-        for k in unroll(0, PP_IN_LEFT):
-            ch_bufs[k] = public_param[k]
+        poseidon16_compress(ch_left_first, chain_right, ch_bufs + 4)
+        # Write L_1 prefix = [tweak_1, zeros] to ch_bufs[0..4]
+        next_tweak = chain_i_tweaks + (starting_step + 1) * TWEAK_LEN
+        set_chain_left_prefix(ch_bufs, next_tweak)
 
+        # Hashes 1..n-2: buf[j-1] → buf[j] + 4
         for j in unroll(1, n - 1):
             ch_buf_idx[j] = ch_buf_idx[j - 1] + BUF_SIZE
             cur_buf = ch_buf_idx[j]
-            right_j = ch_rights + (j - 1) * DIGEST_LEN
-            build_right_chain_fn(chain_i_tweaks + (starting_step + j) * TWEAK_LEN, right_j)
-            poseidon16_compress(ch_buf_idx[j - 1], right_j, cur_buf + PP_IN_LEFT)
-            for k in unroll(0, PP_IN_LEFT):
-                cur_buf[k] = public_param[k]
+            poseidon16_compress(ch_buf_idx[j - 1], chain_right, cur_buf + 4)
+            cur_tweak = chain_i_tweaks + (starting_step + j + 1) * TWEAK_LEN
+            set_chain_left_prefix(cur_buf, cur_tweak)
 
-        # Final hash
-        build_right_chain_fn(chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN, ch_right_last)
-        poseidon16_compress(ch_buf_idx[n - 2], ch_right_last, output)
+        # Final hash: buf[n-2] → output
+        poseidon16_compress(ch_buf_idx[n - 2], chain_right, output)
     return
 
 

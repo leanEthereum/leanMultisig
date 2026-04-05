@@ -72,6 +72,22 @@ pub(crate) fn build_right(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
     right
 }
 
+/// Chain-hash-specific left layout: [tweak(2) | zeros(2) | data(4)].
+pub(crate) fn build_left_chain(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
+    let mut left = [F::default(); 8];
+    left[..TWEAK_LEN].copy_from_slice(&tweak);
+    // left[TWEAK_LEN..8-DIGEST_SIZE] = zeros (default)
+    left[8 - DIGEST_SIZE..].copy_from_slice(data);
+    left
+}
+
+/// Chain-hash-specific right layout: [public_param(4) | zeros(4)].
+pub(crate) fn build_right_chain_pp(public_param: &PublicParam) -> [F; 8] {
+    let mut right = [F::default(); 8];
+    right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
+    right
+}
+
 fn poseidon16_compress_with_trace(a: [F; 8], b: [F; 8], poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>) -> [F; 8] {
     let input: [F; 16] = [a, b].concat().try_into().unwrap();
     let output = poseidon16_compress(input);

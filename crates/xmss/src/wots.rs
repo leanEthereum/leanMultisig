@@ -117,10 +117,11 @@ pub fn iterate_hash(
     chain_index: usize,
     start_step: usize,
 ) -> Digest {
+    // Chain hash layout: left = [tweak | zeros | data], right = [pp | zeros] (constant).
+    let right = build_right_chain_pp(&public_param);
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
-        let left = build_left(&public_param, &acc);
-        let right = build_right(tweak, &Default::default());
+        let left = build_left_chain(tweak, &acc);
         poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
             .try_into()
             .unwrap()
@@ -136,10 +137,11 @@ pub fn iterate_hash_with_poseidon_trace(
     chain_index: usize,
     start_step: usize,
 ) -> Digest {
+    // Chain hash layout: left = [tweak | zeros | data], right = [pp | zeros] (constant).
+    let right = build_right_chain_pp(&public_param);
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
-        let left = build_left(&public_param, &acc);
-        let right = build_right(tweak, &Default::default());
+        let left = build_left_chain(tweak, &acc);
         poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
             .try_into()
             .unwrap()
