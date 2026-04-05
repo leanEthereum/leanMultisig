@@ -35,22 +35,23 @@ BUF_SIZE = PP_IN_LEFT + DIGEST_LEN
 
 @inline
 def build_left_fn(pp, data, out):
+    # out must be Array(DIGEST_LEN + 1) or more
+    # data must have at least 5 readable elements in memory.
     for k in unroll(0, PP_IN_LEFT):
         out[k] = pp[k]
-    for k in unroll(0, XMSS_DIGEST):
-        out[PP_IN_LEFT + k] = data[k]
+    copy_5(data, out + PP_IN_LEFT)
     return
 
 
 @inline
 def build_right_fn(tweak, data, out):
     # [tweak(2) | zeros(2) | data(XMSS_DIGEST)]
+    # out must be Array(DIGEST_LEN + 1) or more; copy_5(data, out + 4) writes out[4..9].
     out[0] = tweak[0]
     out[1] = tweak[1]
     out[2] = 0
     out[3] = 0
-    for k in unroll(0, XMSS_DIGEST):
-        out[4 + k] = data[k]
+    copy_5(data, out + 4)
     return
 
 
@@ -133,7 +134,7 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
 
         # Pre-allocate all buffers (constant allocation regardless of num_hashes)
-        ch_left = Array(DIGEST_LEN)
+        ch_left = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_left_fn
         ch_right = Array(DIGEST_LEN)
         ch_bufs = Array((MAX_CHAIN_HASHES - 1) * BUF_SIZE)
         ch_buf_idx = Array(MAX_CHAIN_HASHES - 1)
@@ -143,7 +144,7 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
         match_range(
             num_hashes,
             range(0, 1),
-            lambda _: copy_xmss_digest(chain_start, chain_end),
+            lambda _: copy_5(chain_start, chain_end),
             range(1, CHAIN_LENGTH),
             lambda n: chain_hash_pa(chain_start, n, chain_end, public_param, chain_i_tweaks, ch_left, ch_right, ch_bufs, ch_buf_idx, ch_rights, ch_right_last),
         )
@@ -203,9 +204,9 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     # Sequential hash over V elements at DIGEST_LEN stride
 
     # First hash: build from scratch
-    left0 = Array(DIGEST_LEN)
+    left0 = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_left_fn
     build_left_fn(public_param, wots_public_key, left0)
-    right0 = Array(DIGEST_LEN)
+    right0 = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_right_fn
     build_right_fn(wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
 
     # Buffer trick for intermediate states
@@ -220,7 +221,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     for i in unroll(1, V - 2):
         buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
         cur_buf = buf_indexes[i]
-        right_i = Array(DIGEST_LEN)
+        right_i = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_right_fn
         build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
         poseidon16_compress(buf_indexes[i - 1], right_i, cur_buf + PP_IN_LEFT)
         for k in unroll(0, PP_IN_LEFT):
@@ -228,7 +229,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
 
     # Final hash
     result = Array(DIGEST_LEN)
-    right_last = Array(DIGEST_LEN)
+    right_last = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_right_fn
     build_right_fn(wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
     poseidon16_compress(buf_indexes[V - 3], right_last, result)
 
@@ -263,8 +264,8 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     b3 = r3 % 2
 
     # Level 0: build from external state_in and path_chunk (no prior hash to reuse)
-    left0 = Array(DIGEST_LEN)
-    right0 = Array(DIGEST_LEN)
+    left0 = Array(DIGEST_LEN + 1)  # +1 for copy_5 in build_left_fn / build_right_fn
+    right0 = Array(DIGEST_LEN + 1)
     if b0 == 1:
         build_left_fn(public_param, state_in, left0)
         build_right_fn(merkle_tweaks_chunk, path_chunk, right0)
@@ -277,7 +278,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     poseidon16_compress(left0, right0, buf0 + PP_IN_LEFT)
 
     # Level 1
-    other1 = Array(DIGEST_LEN)
+    other1 = Array(DIGEST_LEN + 1)  # +1 for copy_5
     buf1 = Array(BUF_SIZE)
     if b1 == 1:
         set_buf_prefix_left(buf0, public_param)
@@ -289,7 +290,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         poseidon16_compress(other1, buf0, buf1 + PP_IN_LEFT)
 
     # Level 2
-    other2 = Array(DIGEST_LEN)
+    other2 = Array(DIGEST_LEN + 1)  # +1 for copy_5
     buf2 = Array(BUF_SIZE)
     if b2 == 1:
         set_buf_prefix_left(buf1, public_param)
@@ -301,7 +302,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         poseidon16_compress(other2, buf1, buf2 + PP_IN_LEFT)
 
     # Level 3 -> state_out
-    other3 = Array(DIGEST_LEN)
+    other3 = Array(DIGEST_LEN + 1)  # +1 for copy_5
     if b3 == 1:
         set_buf_prefix_left(buf2, public_param)
         build_right_fn(merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * XMSS_DIGEST, other3)
