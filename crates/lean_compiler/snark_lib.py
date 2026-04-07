@@ -77,8 +77,13 @@ EQ_MLE_COEFFS_PTR = 45
 NONRESERVED_PROGRAM_INPUT_START = 50
 
 
-def poseidon16_compress(left, right, output, mode):
-    _ = left, right, output, mode
+def poseidon16_compress(left, right, output):
+    _ = left, right, output
+
+
+def poseidon16_compress_half(left, right, output):
+    """Poseidon16 compression outputting only the first 4 FE (last 4 unconstrained)."""
+    _ = left, right, output
 
 
 def add_be(a, b, result, length=None):

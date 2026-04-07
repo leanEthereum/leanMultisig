@@ -2,7 +2,7 @@ use tracing::instrument;
 
 use crate::{
     F, ZERO_VEC_PTR,
-    tables::{Poseidon1Cols16, WIDTH, num_cols_poseidon_16},
+    tables::{Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16},
 };
 use backend::*;
 
@@ -42,7 +42,9 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
 }
 
 pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
-    let mut row = vec![F::ZERO; num_cols_poseidon_16()];
+    // +1 for non-committed POSEIDON_16_COL_PRECOMPILE_DATA
+    let n_cols_total = num_cols_total_poseidon_16();
+    let mut row = vec![F::ZERO; n_cols_total];
     let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
         .map(|i| unsafe { row.as_mut_ptr().add(i) })
         .collect();
@@ -53,6 +55,9 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
     *perm.index_a = F::from_usize(ZERO_VEC_PTR);
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(null_hash_ptr);
+    *perm.half_output = F::ZERO;
+    // Non-committed column for padding rows
+    row[num_cols_poseidon_16()] = F::from_usize(crate::POSEIDON_PRECOMPILE_DATA);
 
     generate_trace_rows_for_perm(perm);
     row

@@ -63,21 +63,21 @@ pub struct PrecompileArgs<V, S> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrecompileCompTimeArgs<S> {
-    Poseidon16,
+    Poseidon16 { half_output: bool },
     ExtensionOp { size: S, mode: ExtensionOpMode },
 }
 
 impl<S> PrecompileCompTimeArgs<S> {
     pub fn table(&self) -> Table {
         match self {
-            Self::Poseidon16 => Table::poseidon16(),
+            Self::Poseidon16 { .. } => Table::poseidon16(),
             Self::ExtensionOp { .. } => Table::extension_op(),
         }
     }
 
     pub fn map_size<T>(self, f: impl FnOnce(S) -> T) -> PrecompileCompTimeArgs<T> {
         match self {
-            Self::Poseidon16 => PrecompileCompTimeArgs::Poseidon16,
+            Self::Poseidon16 { half_output } => PrecompileCompTimeArgs::Poseidon16 { half_output },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
     }
@@ -233,8 +233,12 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
             data,
         } = self;
         match data {
-            PrecompileCompTimeArgs::Poseidon16 => {
-                write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
+            PrecompileCompTimeArgs::Poseidon16 { half_output } => {
+                if *half_output {
+                    write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)")
+                } else {
+                    write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
+                }
             }
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())

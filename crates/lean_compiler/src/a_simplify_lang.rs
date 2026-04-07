@@ -5,8 +5,8 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
-    SourceLocation, Table, TableT,
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, POSEIDON16_HALF_NAME, PrecompileArgs,
+    PrecompileCompTimeArgs, SourceLocation, Table, TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2152,7 +2152,8 @@ fn simplify_lines(
                         }
 
                         // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        if function_name == Table::poseidon16().name() || function_name == POSEIDON16_HALF_NAME {
+                            let half_output = function_name == POSEIDON16_HALF_NAME;
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2172,7 +2173,7 @@ fn simplify_lines(
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data: PrecompileCompTimeArgs::Poseidon16 { half_output },
                             }));
                             continue;
                         }

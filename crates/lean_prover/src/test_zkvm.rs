@@ -12,10 +12,18 @@ DIM = 5
 N = 11
 M = 3
 DIGEST_LEN = 8
+HALF_DIGEST_LEN = 4
 
 def main():
     pub_start = NONRESERVED_PROGRAM_INPUT_START
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+
+    # poseidon16_compress_half: only first 4 FE constrained
+    full_out = pub_start + 6 * DIGEST_LEN
+    half_out = pub_start + 80
+    poseidon16_compress_half(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, half_out)
+    for i in unroll(0, HALF_DIGEST_LEN):
+        assert full_out[i] == half_out[i]
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -58,9 +66,18 @@ def main():
     // Poseidon test data
     let poseidon_16_compress_input: [F; 16] = rng.random();
     public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
-    public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
+    let poseidon_output = poseidon16_compress(poseidon_16_compress_input);
+    public_input[48..56].copy_from_slice(&poseidon_output[..8]);
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
+    // poseidon16_compress_half output at offset 80: first 4 = hash, last 4 = arbitrary pre-existing data
+    public_input[80..84].copy_from_slice(&poseidon_output[..4]);
+    public_input[84..88].copy_from_slice(&[
+        F::from_usize(111),
+        F::from_usize(222),
+        F::from_usize(333),
+        F::from_usize(444),
+    ]);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();
