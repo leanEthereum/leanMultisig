@@ -171,69 +171,15 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
     )
     offset += two_exp(log_bytecode_padded)
 
-    # Dispatch based on table height ordering (sorted by descending height)
-    if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
-        continue_recursion_ordered(
-            1,
-            2,
-            fs,
-            offset,
-            retrieved_numerators_value,
-            retrieved_denominators_value,
-            table_heights,
-            table_log_heights,
-            point_gkr,
-            n_vars_logup_gkr,
-            logup_alphas_eq_poly,
-            logup_c,
-            numerators_value,
-            denominators_value,
-            log_memory,
-            inner_public_memory,
-            stacked_n_vars,
-            whir_log_inv_rate,
-            whir_base_root,
-            whir_base_ood_points,
-            whir_base_ood_evals,
-            num_ood_at_commitment,
-            log_n_cycles,
-            log_bytecode_padded,
-            bytecode_and_acc_point,
-            value_memory,
-            value_acc,
-            value_bytecode_acc,
-        )
+    # Dispatch based on table height ordering (sorted by descending height).
+    # Assumption: exec is always largest. Poseidon16 (index 2) is always 3rd.
+    # Only the 2nd and 4th positions swap between memcopy4 (3) and ext-ops (1).
+    if maximum(table_log_heights[3], table_log_heights[1]) == table_log_heights[3]:
+        # exec > memcopy4 > poseidon > ext-ops
+        continue_recursion_ordered(3, 2, 1, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
     else:
-        continue_recursion_ordered(
-            2,
-            1,
-            fs,
-            offset,
-            retrieved_numerators_value,
-            retrieved_denominators_value,
-            table_heights,
-            table_log_heights,
-            point_gkr,
-            n_vars_logup_gkr,
-            logup_alphas_eq_poly,
-            logup_c,
-            numerators_value,
-            denominators_value,
-            log_memory,
-            inner_public_memory,
-            stacked_n_vars,
-            whir_log_inv_rate,
-            whir_base_root,
-            whir_base_ood_points,
-            whir_base_ood_evals,
-            num_ood_at_commitment,
-            log_n_cycles,
-            log_bytecode_padded,
-            bytecode_and_acc_point,
-            value_memory,
-            value_acc,
-            value_bytecode_acc,
-        )
+        # exec > ext-ops > poseidon > memcopy4
+        continue_recursion_ordered(1, 2, 3, fs, offset, retrieved_numerators_value, retrieved_denominators_value, table_heights, table_log_heights, point_gkr, n_vars_logup_gkr, logup_alphas_eq_poly, logup_c, numerators_value, denominators_value, log_memory, inner_public_memory, stacked_n_vars, whir_log_inv_rate, whir_base_root, whir_base_ood_points, whir_base_ood_evals, num_ood_at_commitment, log_n_cycles, log_bytecode_padded, bytecode_and_acc_point, value_memory, value_acc, value_bytecode_acc)
 
     return bytecode_claim
 
@@ -242,6 +188,7 @@ def recursion(inner_public_memory, proof_transcript, bytecode_value_hint):
 def continue_recursion_ordered(
     second_table,
     third_table,
+    fourth_table,
     fs,
     offset,
     retrieved_numerators_value,
@@ -290,6 +237,8 @@ def continue_recursion_ordered(
             table_index = second_table
         if sorted_pos == 2:
             table_index = third_table
+        if sorted_pos == 3:
+            table_index = fourth_table
         # I] Bus (data flow between tables)
 
         log_n_rows = table_log_heights[table_index]
@@ -339,8 +288,8 @@ def continue_recursion_ordered(
             for i in unroll(0, len(LOOKUPS_VALUES[table_index][lookup_f_index])):
                 fs, value_eval = fs_receive_ef_inlined(fs, 1)
                 col_index = LOOKUPS_VALUES[table_index][lookup_f_index][i]
-                debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
-                pcs_values[table_index][0][col_index].push(value_eval)
+                if len(pcs_values[table_index][0][col_index]) == 0:
+                    pcs_values[table_index][0][col_index].push(value_eval)
 
                 pref = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)  # TODO there is some duplication here
                 retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref)
@@ -383,6 +332,8 @@ def continue_recursion_ordered(
             table_index = second_table
         if sorted_pos == 2:
             table_index = third_table
+        if sorted_pos == 3:
+            table_index = fourth_table
         log_n_rows = table_log_heights[table_index]
         bus_numerator_value = bus_numerators_values[sorted_pos]
         bus_denominator_value = bus_denominators_values[sorted_pos]
@@ -480,6 +431,8 @@ def continue_recursion_ordered(
             table_index = second_table
         if sorted_pos == 2:
             table_index = third_table
+        if sorted_pos == 3:
+            table_index = fourth_table
         debug_assert(len(pcs_points[table_index]) == len(pcs_values[table_index]))
         for i in unroll(0, len(pcs_values[table_index])):
             for j in unroll(0, len(pcs_values[table_index][i])):
@@ -581,6 +534,8 @@ def continue_recursion_ordered(
             table_index = second_table
         if sorted_pos == 2:
             table_index = third_table
+        if sorted_pos == 3:
+            table_index = fourth_table
         log_n_rows = table_log_heights[table_index]
         n_rows = table_heights[table_index]
         total_num_cols = NUM_COLS_AIR[table_index]
@@ -730,6 +685,8 @@ def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_bet
             res = evaluate_air_constraints_table_1(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
         case 2:
             res = evaluate_air_constraints_table_2(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
+        case 3:
+            res = evaluate_air_constraints_table_3(inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
     return res
 
 

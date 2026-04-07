@@ -315,8 +315,7 @@ pub fn prove_generic_logup(
             for col_index in &lookup.values {
                 let value_eval = trace.columns[*col_index].evaluate(&inner_point);
                 prover_state.add_extension_scalar(value_eval);
-                assert!(!table_values.contains_key(col_index));
-                table_values.insert(*col_index, value_eval);
+                table_values.entry(*col_index).or_insert(value_eval);
             }
         }
 
@@ -483,8 +482,7 @@ pub fn verify_generic_logup(
 
             for (i, col_index) in lookup.values.iter().enumerate() {
                 let value_eval = verifier_state.next_extension_scalar()?;
-                assert!(!table_values.contains_key(col_index));
-                table_values.insert(*col_index, value_eval);
+                table_values.entry(*col_index).or_insert(value_eval);
 
                 let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
                 let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);

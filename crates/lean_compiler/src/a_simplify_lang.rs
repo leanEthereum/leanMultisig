@@ -2156,9 +2156,9 @@ fn simplify_lines(
                             // stride_in_flag: index 0 → flag=1, index 1 → flag=0
                             let flag_val = 1 - stride_in_flag.unwrap();
                             let simplified_args = vec![
-                                addr_in.clone(),
-                                addr_out,
                                 addr_in,
+                                addr_out,
+                                SimpleExpr::Constant(ConstExpression::zero()),
                                 SimpleExpr::Constant(n_reps_u.into()),
                                 SimpleExpr::Constant(flag_val.into()),
                             ];

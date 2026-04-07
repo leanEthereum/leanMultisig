@@ -13,7 +13,7 @@ pub(super) const COL_STRIDE_IN_FLAG: usize = 2;
 pub(super) const COL_LEN: usize = 3;
 pub(super) const COL_ADDR_IN: usize = 4;
 pub(super) const COL_ADDR_OUT: usize = 5;
-/// 4 data columns (the values at addr_in, validated by memory lookup).
+/// 4 data columns shared by both lookups (implicit copy equality via memory Logup).
 pub(super) const COL_DATA: usize = 6;
 
 // Non-AIR column (committed for bus)
@@ -65,11 +65,11 @@ impl<const BUS: bool> Air for Memcopy4Precompile<BUS> {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 activation_flag,
-                &[aux, addr_in, addr_out, addr_in],
+                &[aux, addr_in, addr_out, AB::IF::ZERO],
             ));
         } else {
             builder.declare_values(&[activation_flag]);
-            builder.declare_values(&[aux, addr_in, addr_out, addr_in]);
+            builder.declare_values(&[aux, addr_in, addr_out, AB::IF::ZERO]);
         }
 
         let not_start_down = -(start_down - AB::F::ONE);
@@ -89,8 +89,7 @@ impl<const BUS: bool> Air for Memcopy4Precompile<BUS> {
         // 7. Last row of group: len = 1 when next row is start
         builder.assert_zero(start_down * (len - AB::F::ONE));
 
-        // 8. addr_in stride: flag=1 → STRIDES[0], flag=0 → STRIDES[1]
-        //    Since STRIDES[0]=0: stride = (1 - flag) * STRIDES[1]
+        // 8. addr_in stride
         let stride_in = (-(stride_in_flag - AB::F::ONE)) * AB::F::from_usize(MEMCOPY4_STRIDES[1]);
         builder.assert_zero(not_start_down * (addr_in_down - addr_in - stride_in));
 

@@ -31,13 +31,19 @@ impl<const BUS: bool> TableT for Memcopy4Precompile<BUS> {
     }
 
     fn lookups(&self) -> Vec<LookupIntoMemory> {
-        // Single lookup at addr_in validates data = memory[addr_in].
-        // addr_out correctness is ensured by exec writing memory[addr_out] = data,
-        // verified when the program later reads addr_out via execution table lookups.
-        vec![LookupIntoMemory {
-            index: COL_ADDR_IN,
-            values: (COL_DATA..COL_DATA + 4).collect(),
-        }]
+        // Two lookups sharing the same 4 data columns.
+        // This enforces memory[addr_in][0..4] == memory[addr_out][0..4] (copy equality).
+        let values: Vec<usize> = (COL_DATA..COL_DATA + 4).collect();
+        vec![
+            LookupIntoMemory {
+                index: COL_ADDR_IN,
+                values: values.clone(),
+            },
+            LookupIntoMemory {
+                index: COL_ADDR_OUT,
+                values,
+            },
+        ]
     }
 
     fn bus(&self) -> Bus {
@@ -48,7 +54,7 @@ impl<const BUS: bool> TableT for Memcopy4Precompile<BUS> {
                 BusData::Column(COL_MC4_AUX),
                 BusData::Column(COL_ADDR_IN),
                 BusData::Column(COL_ADDR_OUT),
-                BusData::Column(COL_ADDR_IN), // arg_c mirrors addr_in
+                BusData::Constant(0),
             ],
         }
     }

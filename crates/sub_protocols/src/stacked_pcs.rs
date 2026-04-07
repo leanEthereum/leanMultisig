@@ -200,8 +200,17 @@ pub fn total_whir_statements() -> usize {
             // AIR
             table.n_columns()
             + table.n_down_columns()
-            // Lookups into memory
-            + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
+            // Lookups into memory (deduplicate shared value columns)
+            + {
+                let lookups = table.lookups();
+                let n_indexes = lookups.len();
+                let n_unique_values = {
+                    let mut seen = std::collections::BTreeSet::new();
+                    for l in &lookups { for v in &l.values { seen.insert(*v); } }
+                    seen.len()
+                };
+                n_indexes + n_unique_values
+            }
         })
         .sum::<usize>()
         // bytecode lookup
