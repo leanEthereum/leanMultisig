@@ -178,15 +178,22 @@ fn build_replacements(
     replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 
     // VM recursion parameters (different from WHIR)
-    replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
+    replacements.insert(
+        "N_TABLES_PLACEHOLDER".to_string(),
+        RECURSION_TABLES.len().to_string(),
+    );
     replacements.insert(
         "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
         MIN_LOG_N_ROWS_PER_TABLE.to_string(),
     );
-    let mut max_log_n_rows_per_table = MAX_LOG_N_ROWS_PER_TABLE.to_vec();
+    let mut max_log_n_rows_per_table: Vec<_> = MAX_LOG_N_ROWS_PER_TABLE
+        .iter()
+        .filter(|(t, _)| RECURSION_TABLES.contains(t))
+        .copied()
+        .collect();
     max_log_n_rows_per_table.sort_by_key(|(table, _)| table.index());
     max_log_n_rows_per_table.dedup();
-    assert_eq!(max_log_n_rows_per_table.len(), N_TABLES);
+    assert_eq!(max_log_n_rows_per_table.len(), RECURSION_TABLES.len());
     replacements.insert(
         "MIN_WHIR_LOG_INV_RATE_PLACEHOLDER".to_string(),
         MIN_WHIR_LOG_INV_RATE.to_string(),
@@ -263,7 +270,7 @@ fn build_replacements(
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
     let mut air_down_columns = vec![];
-    for table in ALL_TABLES {
+    for table in RECURSION_TABLES {
         let this_look_f_indexes_str = table
             .lookups()
             .iter()
@@ -315,9 +322,14 @@ fn build_replacements(
         "EXECUTION_TABLE_INDEX_PLACEHOLDER".to_string(),
         Table::execution().index().to_string(),
     );
+    let recursion_max_air_constraints = RECURSION_TABLES
+        .iter()
+        .map(|t| t.n_constraints())
+        .max()
+        .unwrap();
     replacements.insert(
         "MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER".to_string(),
-        max_air_constraints().to_string(),
+        recursion_max_air_constraints.to_string(),
     );
     replacements.insert(
         "AIR_DEGREES_PLACEHOLDER".to_string(),

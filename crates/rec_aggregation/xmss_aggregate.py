@@ -130,29 +130,28 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
 
     # 2) Chain hashes -> recover WOTS public key
     wots_public_key = Array(V * DIGEST_LEN)
-    MAX_CHAIN_HASHES = CHAIN_LENGTH - 1
 
     chain_right = Array(DIGEST_LEN)
     build_chain_right(public_param, chain_right)
+
+    # Shared buffer for ALL chain hash intermediate states.
+    # V chains × CHAIN_LENGTH slots × BUF_SIZE. Tweaks are bulk-copied in one call.
+    # Some slots may be unused (depending on encoding[i]).
+    all_chain_bufs = Array(V * CHAIN_LENGTH * BUF_SIZE)
+    memcopy4(tweak_table + TWEAK_CHAIN_OFFSET, all_chain_bufs, 4, V * CHAIN_LENGTH)
 
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * XMSS_DIGEST
         chain_end = wots_public_key + i * DIGEST_LEN
-        chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
-
-        # Pre-allocate all buffers (constant allocation regardless of num_hashes).
-        # Each slot is BUF_SIZE = 12: [prefix(4) | poseidon_output(8)].
-        ch_left_first = Array(BUF_SIZE)
-        ch_bufs = Array((MAX_CHAIN_HASHES - 1) * BUF_SIZE)
-        ch_buf_idx = Array(MAX_CHAIN_HASHES - 1)
+        chain_bufs_i = all_chain_bufs + i * CHAIN_LENGTH * BUF_SIZE
 
         match_range(
             num_hashes,
             range(0, 1),
             lambda _: copy_xmss_digest(chain_start, chain_end),
             range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx),
+            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_bufs_i, chain_right),
         )
 
     # 3) Hash WOTS public key
@@ -174,42 +173,32 @@ def copy_xmss_digest(src, dst):
 
 
 @inline
-def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx):
-    # Uses pre-allocated buffers (zero internal allocation for parallel_range compatibility).
-    # Chain hash layout: left = [tweak(2) | zeros(2) | data(4)], right = chain_right (shared).
+def chain_hash_pa(input, n, output, chain_bufs_i, chain_right):
+    # Chain hash using the shared buffer. Tweaks are already bulk-copied into
+    # chain_bufs_i[step * BUF_SIZE + 0..4] for each step.
     #
     # Each slot is BUF_SIZE = 12: [prefix(4) | poseidon_output(8)].
-    # Poseidon writes its output at slot + 4, so the digest
-    # lands at slot[4..8]; together with the prefix at slot[0..4],
-    # slot[0..8] forms a valid left input for the NEXT hash.
+    # Hash input = slot[0..8] = [prefix(4) | digest(4)].
     starting_step = CHAIN_LENGTH - 1 - n
+    first_buf = chain_bufs_i + starting_step * BUF_SIZE
 
-    # Build L_0 = [tweak_0, zeros, input]
-    first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
-    memcopy4(first_tweak, ch_left_first, 0, 1)
+    # Write input data into first buffer's data area (positions 4..8).
     for k in unroll(0, XMSS_DIGEST):
-        ch_left_first[4 + k] = input[k]
+        first_buf[4 + k] = input[k]
 
     if n == 1:
-        poseidon16_compress(ch_left_first, chain_right, output)
+        poseidon16_compress(first_buf, chain_right, output)
     else:
-        # Hash 0: L_0 -> ch_bufs[4..12]
-        ch_buf_idx[0] = ch_bufs
-        poseidon16_compress(ch_left_first, chain_right, ch_bufs + 4)
-        # Write L_1 prefix via memcopy4.
-        next_tweak = chain_i_tweaks + (starting_step + 1) * TWEAK_LEN
-        memcopy4(next_tweak, ch_bufs, 0, 1)
+        # Hash 0
+        poseidon16_compress(first_buf, chain_right, first_buf + BUF_SIZE + 4)
 
-        # Hashes 1..n-2: buf[j-1] -> buf[j] + 4
+        # Hashes 1..n-2
         for j in unroll(1, n - 1):
-            ch_buf_idx[j] = ch_buf_idx[j - 1] + BUF_SIZE
-            cur_buf = ch_buf_idx[j]
-            poseidon16_compress(ch_buf_idx[j - 1], chain_right, cur_buf + 4)
-            cur_tweak = chain_i_tweaks + (starting_step + j + 1) * TWEAK_LEN
-            memcopy4(cur_tweak, cur_buf, 0, 1)
+            cur = first_buf + j * BUF_SIZE
+            poseidon16_compress(cur, chain_right, cur + BUF_SIZE + 4)
 
-        # Final hash: buf[n-2] -> output
-        poseidon16_compress(ch_buf_idx[n - 2], chain_right, output)
+        # Final hash
+        poseidon16_compress(first_buf + (n - 1) * BUF_SIZE, chain_right, output)
     return
 
 
@@ -228,8 +217,11 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     buf_indexes = Array(V - 2)
     buf_indexes[0] = bufs
 
+    # Bulk-broadcast pp to all V-2 buffer prefixes in a single precompile call.
+    # stride_in=0 (broadcast), stride_out=12 (buffer stride).
+    memcopy4(public_param, bufs, 0, V - 2)
+
     poseidon16_compress(left0, right0, bufs + PP_IN_LEFT)
-    memcopy4(public_param, bufs, 0, 1)
 
     for i in unroll(1, V - 2):
         buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
@@ -237,7 +229,6 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
         right_i = Array(DIGEST_LEN)
         build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
         poseidon16_compress(buf_indexes[i - 1], right_i, cur_buf + PP_IN_LEFT)
-        memcopy4(public_param, cur_buf, 0, 1)
 
     # Final hash
     result = Array(DIGEST_LEN)

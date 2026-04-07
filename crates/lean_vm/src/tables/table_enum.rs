@@ -10,6 +10,10 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::poseidon16(),
     Table::memcopy4(),
 ];
+/// Tables handled by the recursive aggregation program (recursion.py only supports 3).
+/// TODO: add Memcopy4 once recursion.py is updated.
+pub const RECURSION_TABLES: [Table; 3] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+
 pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
