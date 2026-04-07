@@ -86,9 +86,7 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     a_input_right = Array(1 + RANDOMNESS_LEN + TWEAK_LEN)
     a_input_right[0] = message[DIGEST_LEN]
     copy_5(randomness, a_input_right + 1)
-    # encoding_tweak points to 4-FE slot [tw(2), 0, 0].
-    for k in unroll(0, 2):
-        a_input_right[1 + RANDOMNESS_LEN + k] = encoding_tweak[k]
+    memcopy4(encoding_tweak, a_input_right + 1 + RANDOMNESS_LEN, 0, 1)
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
 
