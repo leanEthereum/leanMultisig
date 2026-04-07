@@ -3,13 +3,13 @@ from snark_lib import *
 # Exercise the memcopy4 precompile:
 #     memcopy4(addr_in, addr_out, stride_in, n_reps)
 # copies 4 field elements n_reps times, advancing source by stride_in
-# (must be 0 or 4) and destination by 8 (hardcoded) per iteration.
+# (must be 0 or 4) and destination by 12 (hardcoded) per iteration.
 
 N_REPS = 3
 STRIDE_IN = 4
-STRIDE_OUT = 8
+STRIDE_OUT = 12
 SRC_LEN = (N_REPS - 1) * STRIDE_IN + 4  # 8 + 4 = 12
-DST_LEN = (N_REPS - 1) * STRIDE_OUT + 4  # 16 + 4 = 20
+DST_LEN = (N_REPS - 1) * STRIDE_OUT + 4  # 24 + 4 = 28
 
 
 def main():
@@ -28,10 +28,10 @@ def main():
     src2 = Array(4)
     for i in unroll(0, 4):
         src2[i] = i + 100
-    dst2 = Array(12)  # (2-1)*8 + 4 = 12
+    dst2 = Array(16)  # (2-1)*12 + 4 = 16
     memcopy4(src2, dst2, 0, 2)
     for k in unroll(0, 4):
         assert dst2[k] == src2[k]
-        assert dst2[8 + k] == src2[k]
+        assert dst2[12 + k] == src2[k]
 
     return

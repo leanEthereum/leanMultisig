@@ -29,8 +29,8 @@ const TWEAK_TYPE_ENCODING: usize = 3;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
 const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
-/// Each tweak is stored as a 5-FE slot [0, tw[0], tw[1], 0, 0] so that we can use copy_5
-const TWEAK_SLOT_SIZE: usize = 5;
+/// Each tweak is stored as a 4-FE slot [tw[0], tw[1], 0, 0] so that memcopy4 can copy it.
+const TWEAK_SLOT_SIZE: usize = 4;
 const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
 
 const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
@@ -65,13 +65,12 @@ fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 
     ]
 }
 
-/// Each tweak is stored as a 5-FE slot: [0, tw[0], tw[1], 0, 0]
+/// Each tweak is stored as a 4-FE slot: [tw[0], tw[1], 0, 0]
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
         let tw = make_tweak_values(tweak_type, sub_position, index);
-        table.push(F::ZERO);
         table.push(tw[0]);
         table.push(tw[1]);
         table.push(F::ZERO);

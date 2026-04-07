@@ -9,7 +9,7 @@ pub use exec::fill_trace_memcopy4;
 /// Supported source strides. Index 0 ↔ stride_in_flag=1, index 1 ↔ stride_in_flag=0.
 pub const MEMCOPY4_STRIDES: [usize; 2] = [0, 4];
 /// Hardcoded destination stride.
-pub const MEMCOPY4_STRIDE_OUT: usize = 8;
+pub const MEMCOPY4_STRIDE_OUT: usize = 12;
 
 /// Domain separator for memcopy4 in PRECOMPILE_DATA.
 pub const MEMCOPY4_DOMAIN_SEP: usize = 5;
