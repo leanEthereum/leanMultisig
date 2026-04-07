@@ -382,6 +382,7 @@ fn all_air_evals_in_zk_dsl() -> String {
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
     res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
     res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
+    // TODO: add Memcopy4Precompile once recursion.py handles 4 tables
     res
 }
 

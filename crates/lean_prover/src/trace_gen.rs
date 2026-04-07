@@ -109,6 +109,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
 
+    let memcopy4_trace = traces.get_mut(&Table::memcopy4()).unwrap();
+    fill_trace_memcopy4(memcopy4_trace, &memory_padded);
+
     traces.insert(
         Table::execution(),
         TableTrace {

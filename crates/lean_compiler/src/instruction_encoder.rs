@@ -66,6 +66,13 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                     assert!(size >= 1, "invalid extension_op size={size}");
                     mode + EXT_OP_LEN_MULTIPLIER * size
                 }
+                Table::Memcopy4(_) => {
+                    let n_reps = *aux_1;
+                    let stride_in_flag = *aux_2;
+                    assert!(n_reps >= 1);
+                    assert!(stride_in_flag <= 1);
+                    MEMCOPY4_DOMAIN_SEP + stride_in_flag + MEMCOPY4_LEN_MULT * n_reps
+                }
                 _ => unreachable!("unknown precompile table"),
             };
             fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(precompile_data);

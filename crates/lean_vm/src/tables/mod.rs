@@ -1,6 +1,9 @@
 mod extension_op;
 pub use extension_op::*;
 
+mod memcopy4;
+pub use memcopy4::*;
+
 mod poseidon_16;
 pub use poseidon_16::*;
 

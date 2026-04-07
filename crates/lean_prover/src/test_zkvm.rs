@@ -41,6 +41,26 @@ def main():
     # poly_eq_ee: prod_i (a[i]*b[i] + (1-a[i])*(1-b[i])) with ext a, ext b
     poly_eq_ee(ext_a_ptr, ext_b_ptr, pub_start + 1300, N)
 
+    # memcopy4 with stride_in=4, n_reps=3 (stride_out=8 hardcoded)
+    mc_src = Array(12)
+    for i in unroll(0, 12):
+        mc_src[i] = i * 3 + 7
+    mc_dst = Array(20)
+    memcopy4(mc_src, mc_dst, 4, 3)
+    for rep in unroll(0, 3):
+        for k in unroll(0, 4):
+            assert mc_dst[rep * 8 + k] == mc_src[rep * 4 + k]
+
+    # memcopy4 broadcast: stride_in=0, n_reps=2
+    mc_src2 = Array(4)
+    for i in unroll(0, 4):
+        mc_src2[i] = i + 100
+    mc_dst2 = Array(12)
+    memcopy4(mc_src2, mc_dst2, 0, 2)
+    for k in unroll(0, 4):
+        assert mc_dst2[k] == mc_src2[k]
+        assert mc_dst2[8 + k] == mc_src2[k]
+
     c: Mut = 0
     for i in range(0,100):
         c += 1

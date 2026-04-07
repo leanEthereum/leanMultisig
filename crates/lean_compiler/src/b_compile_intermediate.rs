@@ -510,7 +510,7 @@ fn compile_lines(
 
             SimpleLine::Precompile { table, args, .. } => {
                 match table {
-                    Table::ExtensionOp(_) => assert_eq!(args.len(), 5),
+                    Table::ExtensionOp(_) | Table::Memcopy4(_) => assert_eq!(args.len(), 5),
                     Table::Poseidon16(_) => assert_eq!(args.len(), 3),
                     Table::Execution(_) => unreachable!(),
                 }

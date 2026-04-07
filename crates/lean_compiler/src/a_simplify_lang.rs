@@ -4,7 +4,9 @@ use crate::{
     parser::{ConstArrayValue, parse_program},
 };
 use backend::PrimeCharacteristicRing;
-use lean_vm::{Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, SourceLocation, Table, TableT};
+use lean_vm::{
+    Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, MEMCOPY4_STRIDES, SourceLocation, Table, TableT,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -2111,6 +2113,58 @@ fn simplify_lines(
                             res.push(SimpleLine::Print {
                                 line_info: format!("line {}", location.line_number),
                                 content: simplified_content,
+                            });
+                            continue;
+                        }
+
+                        // Special handling for memcopy4 precompile
+                        // Signature: memcopy4(addr_in, addr_out, stride_in, n_reps)
+                        if function_name == "memcopy4" {
+                            if !targets.is_empty() {
+                                return Err(format!("Precompile memcopy4 should not return values, at {location}"));
+                            }
+                            if args.len() != 4 {
+                                return Err(format!(
+                                    "memcopy4 expects 4 arguments (addr_in, addr_out, stride_in, n_reps), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let addr_in = simplify_expr(ctx, state, const_malloc, &args[0], &mut res)?;
+                            let addr_out = simplify_expr(ctx, state, const_malloc, &args[1], &mut res)?;
+                            let stride_in_expr = simplify_expr(ctx, state, const_malloc, &args[2], &mut res)?;
+                            let n_reps_expr = simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?;
+                            let stride_in_u = stride_in_expr
+                                .as_constant()
+                                .and_then(|c| c.naive_eval())
+                                .map(|f| f.to_usize())
+                                .ok_or_else(|| {
+                                    format!("memcopy4 stride_in must be a compile-time constant, at {location}")
+                                })?;
+                            let n_reps_u = n_reps_expr
+                                .as_constant()
+                                .and_then(|c| c.naive_eval())
+                                .map(|f| f.to_usize())
+                                .ok_or_else(|| {
+                                    format!("memcopy4 n_reps must be a compile-time constant, at {location}")
+                                })?;
+                            let stride_in_flag = MEMCOPY4_STRIDES.iter().position(|&s| s == stride_in_u);
+                            if stride_in_flag.is_none() {
+                                return Err(format!(
+                                    "memcopy4 stride_in must be one of {MEMCOPY4_STRIDES:?}, got {stride_in_u}, at {location}"
+                                ));
+                            }
+                            // stride_in_flag: index 0 → flag=1, index 1 → flag=0
+                            let flag_val = 1 - stride_in_flag.unwrap();
+                            let simplified_args = vec![
+                                addr_in.clone(),
+                                addr_out,
+                                addr_in,
+                                SimpleExpr::Constant(n_reps_u.into()),
+                                SimpleExpr::Constant(flag_val.into()),
+                            ];
+                            res.push(SimpleLine::Precompile {
+                                table: Table::memcopy4(),
+                                args: simplified_args,
                             });
                             continue;
                         }
