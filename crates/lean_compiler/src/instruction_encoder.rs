@@ -46,46 +46,28 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_b(&mut fields, dest);
             set_nu_c(&mut fields, updated_fp);
         }
-        Instruction::Precompile {
-            table,
-            arg_a,
-            arg_b,
-            arg_c,
-            aux_1,
-            aux_2,
-        } => {
-            let precompile_data = match *table {
-                Table::Poseidon16(_) => POSEIDON_PRECOMPILE_DATA,
-                Table::Poseidon24(_) => {
-                    let mode = *aux_1;
-                    assert!(mode <= POSEIDON_24_MODE_PERMUTE_9_18, "invalid poseidon24 mode={mode}");
-                    POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode
+        Instruction::Precompile(precompile) => {
+            let precompile_data = match &precompile.data {
+                PrecompileCompTimeArgs::Poseidon16 => POSEIDON16_PRECOMPILE_DATA,
+                PrecompileCompTimeArgs::Poseidon24(mode) => POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode.as_usize(),
+                PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
+                    assert!(*size >= 1, "invalid extension_op size={size}");
+                    mode.flag_encoding() + EXT_OP_LEN_MULTIPLIER * size
                 }
-                Table::ExtensionOp(_) => {
-                    let size = *aux_1;
-                    let mode = *aux_2;
-                    assert!(
-                        EXT_OP_FUNCTIONS.iter().any(|(_, m)| *m == mode),
-                        "invalid extension_op mode={mode}"
-                    );
-                    assert!(size >= 1, "invalid extension_op size={size}");
-                    mode + EXT_OP_LEN_MULTIPLIER * size
-                }
-                _ => unreachable!("unknown precompile table"),
             };
             fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(precompile_data);
-            match (arg_a, arg_b) {
+            match (precompile.arg_0, precompile.arg_1) {
                 (MemOrFpOrConstant::FpRelative { offset: off_a }, MemOrFpOrConstant::FpRelative { offset: off_b }) => {
                     fields[instr_idx(COL_FLAG_AB_FP)] = F::ONE;
-                    fields[instr_idx(COL_OPERAND_A)] = F::from_usize(*off_a);
-                    fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*off_b);
+                    fields[instr_idx(COL_OPERAND_A)] = F::from_usize(off_a);
+                    fields[instr_idx(COL_OPERAND_B)] = F::from_usize(off_b);
                 }
                 (a, b) => {
                     set_nu_a(&mut fields, &a.as_mem_or_constant());
                     set_nu_b(&mut fields, &b.as_mem_or_constant());
                 }
             }
-            set_nu_c(&mut fields, arg_c);
+            set_nu_c(&mut fields, &precompile.res);
         }
     }
     fields

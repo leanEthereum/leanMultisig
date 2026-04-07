@@ -73,8 +73,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
         _: F,
         _: F,
         _: F,
-        _: usize,
-        _: usize,
+        _: PrecompileCompTimeArgs<usize>,
         _: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         unreachable!()

@@ -2,11 +2,12 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFpOrConstant};
+use crate::POSEIDON16_NAME;
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
 use crate::tables::TableT;
-use crate::{Table, TableTrace};
+use crate::{ExtensionOpMode, Poseidon24Mode, Table, TableTrace};
 use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -49,15 +50,49 @@ pub enum Instruction {
         updated_fp: MemOrFpOrConstant,
     },
 
-    Precompile {
-        table: Table,
-        arg_a: MemOrFpOrConstant,
-        arg_b: MemOrFpOrConstant,
-        arg_c: MemOrFpOrConstant,
-        aux_1: usize,
-        aux_2: usize,
-    },
+    Precompile(PrecompileInstruction),
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct PrecompileArgs<V, S> {
+    pub arg_0: V,
+    pub arg_1: V,
+    pub res: V,
+    pub data: PrecompileCompTimeArgs<S>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub enum PrecompileCompTimeArgs<S> {
+    Poseidon16,
+    Poseidon24(Poseidon24Mode),
+    ExtensionOp { size: S, mode: ExtensionOpMode },
+}
+
+impl<S> PrecompileCompTimeArgs<S> {
+    pub fn table(&self) -> Table {
+        match self {
+            Self::Poseidon16 => Table::poseidon16(),
+            Self::Poseidon24(_) => Table::poseidon24(),
+            Self::ExtensionOp { .. } => Table::extension_op(),
+        }
+    }
+
+    pub fn map_size<T>(self, f: impl FnOnce(S) -> T) -> PrecompileCompTimeArgs<T> {
+        match self {
+            Self::Poseidon16 => PrecompileCompTimeArgs::Poseidon16,
+            Self::Poseidon24(mode) => PrecompileCompTimeArgs::Poseidon24(mode),
+            Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
+        }
+    }
+}
+
+impl<V, S> PrecompileArgs<V, S> {
+    pub fn operand_exprs(&self) -> [&V; 3] {
+        [&self.arg_0, &self.arg_1, &self.res]
+    }
+}
+
+pub type PrecompileInstruction = PrecompileArgs<MemOrFpOrConstant, usize>;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct InstructionCounts {
@@ -176,25 +211,39 @@ impl Instruction {
                 Ok(())
             }
 
-            Self::Precompile {
-                table,
-                arg_a,
-                arg_b,
-                arg_c,
-                aux_1,
-                aux_2,
-            } => {
-                table.execute(
-                    arg_a.read_value(ctx.memory, *ctx.fp)?,
-                    arg_b.read_value(ctx.memory, *ctx.fp)?,
-                    arg_c.read_value(ctx.memory, *ctx.fp)?,
-                    *aux_1,
-                    *aux_2,
+            Self::Precompile(precompile) => {
+                precompile.data.table().execute(
+                    precompile.arg_0.read_value(ctx.memory, *ctx.fp)?,
+                    precompile.arg_1.read_value(ctx.memory, *ctx.fp)?,
+                    precompile.res.read_value(ctx.memory, *ctx.fp)?,
+                    precompile.data,
                     ctx,
                 )?;
 
                 *ctx.pc += 1;
                 Ok(())
+            }
+        }
+    }
+}
+
+impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            arg_0,
+            arg_1,
+            res,
+            data,
+        } = self;
+        match data {
+            PrecompileCompTimeArgs::Poseidon16 => {
+                write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
+            }
+            PrecompileCompTimeArgs::Poseidon24(mode) => {
+                write!(f, "poseidon24(mode={mode:?}, {arg_0}, {arg_1}, {res})")
+            }
+            PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
+                write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
             }
         }
     }
@@ -225,16 +274,7 @@ impl Display for Instruction {
                     "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
             }
-            Self::Precompile {
-                table,
-                arg_a,
-                arg_b,
-                arg_c,
-                aux_1,
-                aux_2,
-            } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
-            }
+            Self::Precompile(precompile) => write!(f, "{precompile}"),
         }
     }
 }

@@ -90,14 +90,31 @@ const HALF_FINAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
 pub const POSEIDON_24_PRECOMPILE_DATA_OFFSET: usize = 2; // domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
 
 // 3 modes for Poseidon24 precompile:
-//   compress_0_9 (mode=0): feedforward + output[0..9]    -> precompile_data = 2
-//   permute_0_9  (mode=1): permutation + output[0..9] -> precompile_data = 3
-//   permute_9_18 (mode=2): permutation + output[9..18]-> precompile_data = 4
+//   Compress0_9:  feedforward + output[0..9]    -> precompile_data = 2
+//   Permute0_9:   permutation + output[0..9]    -> precompile_data = 3
+//   Permute9_18:  permutation + output[9..18]   -> precompile_data = 4
 // 2 committed boolean columns: is_compress_0_9, is_permute_0_9
 // 3rd mode deduced: is_permute_9_18 = 1 - is_compress_0_9 - is_permute_0_9
-pub const POSEIDON_24_MODE_COMPRESS_0_9: usize = 0;
-pub const POSEIDON_24_MODE_PERMUTE_0_9: usize = 1;
-pub const POSEIDON_24_MODE_PERMUTE_9_18: usize = 2;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Poseidon24Mode {
+    Compress0_9 = 0,
+    Permute0_9 = 1,
+    Permute9_18 = 2,
+}
+
+impl Poseidon24Mode {
+    pub const fn as_usize(self) -> usize {
+        self as usize
+    }
+
+    pub const fn is_compress(self) -> bool {
+        matches!(self, Self::Compress0_9)
+    }
+
+    pub const fn is_permute_0_9(self) -> bool {
+        matches!(self, Self::Permute0_9)
+    }
+}
 
 pub const POSEIDON_24_INPUT_LEFT_SIZE: usize = 9;
 pub const POSEIDON_24_INPUT_RIGHT_SIZE: usize = 15;
@@ -115,12 +132,14 @@ pub const POSEIDON_24_COL_OUTPUT_START: ColIndex = num_cols_poseidon_24() - POSE
 // virtual columns (not committed)
 pub const POSEIDON_24_COL_PRECOMPILE_DATA: usize = num_cols_poseidon_24();
 
+pub const POSEIDON24_NAME: &str = "poseidon24_compress";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Poseidon24Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
     fn name(&self) -> &'static str {
-        "poseidon24_compress"
+        POSEIDON24_NAME
     }
 
     fn table(&self) -> Table {
@@ -176,13 +195,14 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         index_input_left: F,
         index_input_right: F,
         index_res: F,
-        mode: usize,
-        _: usize,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
-        assert!(mode <= POSEIDON_24_MODE_PERMUTE_9_18, "invalid poseidon24 mode={mode}");
-        let is_compress_0_9 = mode == POSEIDON_24_MODE_COMPRESS_0_9;
-        let is_permute_0_9 = mode == POSEIDON_24_MODE_PERMUTE_0_9;
+        let PrecompileCompTimeArgs::Poseidon24(mode) = args else {
+            panic!("expected Poseidon24 precompile args");
+        };
+        let is_compress_0_9 = mode.is_compress();
+        let is_permute_0_9 = mode.is_permute_0_9();
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg0 = ctx
@@ -197,10 +217,9 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         input[POSEIDON_24_INPUT_LEFT_SIZE..].copy_from_slice(&arg1);
 
         let result = match mode {
-            POSEIDON_24_MODE_COMPRESS_0_9 => poseidon24_compress_0_9(input),
-            POSEIDON_24_MODE_PERMUTE_0_9 => poseidon24_permute_0_9(input),
-            POSEIDON_24_MODE_PERMUTE_9_18 => poseidon24_permute_9_18(input),
-            _ => unreachable!(),
+            Poseidon24Mode::Compress0_9 => poseidon24_compress_0_9(input),
+            Poseidon24Mode::Permute0_9 => poseidon24_permute_0_9(input),
+            Poseidon24Mode::Permute9_18 => poseidon24_permute_9_18(input),
         };
 
         let res_a: [F; POSEIDON_24_OUTPUT_SIZE] = result[..POSEIDON_24_OUTPUT_SIZE].try_into().unwrap();
@@ -216,7 +235,8 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         for (i, value) in input.iter().enumerate() {
             trace.columns[POSEIDON_24_COL_INPUT_START + i].push(*value);
         }
-        trace.columns[POSEIDON_24_COL_PRECOMPILE_DATA].push(F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode));
+        trace.columns[POSEIDON_24_COL_PRECOMPILE_DATA]
+            .push(F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + mode.as_usize()));
 
         // the rest of the trace is filled at the end of the execution (for parallelism + SIMD)
 
@@ -249,10 +269,10 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
         };
 
         let precompile_data = AB::IF::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET)
-            + cols.is_compress_0_9 * AB::IF::from_usize(POSEIDON_24_MODE_COMPRESS_0_9)
-            + cols.is_permute_0_9 * AB::IF::from_usize(POSEIDON_24_MODE_PERMUTE_0_9)
+            + cols.is_compress_0_9 * AB::IF::from_usize(Poseidon24Mode::Compress0_9.as_usize())
+            + cols.is_permute_0_9 * AB::IF::from_usize(Poseidon24Mode::Permute0_9.as_usize())
             + (AB::IF::ONE - cols.is_compress_0_9 - cols.is_permute_0_9) // is_permute_9_18
-                * AB::IF::from_usize(POSEIDON_24_MODE_PERMUTE_9_18);
+                * AB::IF::from_usize(Poseidon24Mode::Permute9_18.as_usize());
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(

@@ -1,10 +1,4 @@
-use crate::{
-    execution::memory::MemoryAccess,
-    tables::extension_op::exec::{
-        exec_add_be, exec_add_ee, exec_dot_product_be, exec_dot_product_ee, exec_poly_eq_be, exec_poly_eq_ee,
-    },
-    *,
-};
+use crate::{execution::memory::MemoryAccess, tables::extension_op::exec::exec_multi_row, *};
 use backend::*;
 
 mod air;
@@ -19,24 +13,69 @@ pub(crate) const EXT_OP_FLAG_IS_BE: usize = 4;
 pub(crate) const EXT_OP_FLAG_ADD: usize = 8;
 pub(crate) const EXT_OP_FLAG_MUL: usize = 16;
 pub(crate) const EXT_OP_FLAG_POLY_EQ: usize = 32;
-
-pub const EXT_OP_ADD_EE: usize = EXT_OP_FLAG_ADD; //       8 + 0 = 8
-pub const EXT_OP_ADD_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_ADD; //       8 + 4 = 12
-pub const EXT_OP_DOT_PRODUCT_EE: usize = EXT_OP_FLAG_MUL; //           16 + 0 = 16
-pub const EXT_OP_DOT_PRODUCT_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_MUL; //      16 + 4 = 20
-pub const EXT_OP_POLY_EQ_EE: usize = EXT_OP_FLAG_POLY_EQ; //          32 + 0 = 32
-pub const EXT_OP_POLY_EQ_BE: usize = EXT_OP_FLAG_IS_BE + EXT_OP_FLAG_POLY_EQ; //  32 + 4 = 36
 pub const EXT_OP_LEN_MULTIPLIER: usize = 64;
 
-/// Mapping from zkDSL function names to extension op mode values.
-pub const EXT_OP_FUNCTIONS: [(&str, usize); 6] = [
-    ("add_ee", EXT_OP_ADD_EE),
-    ("add_be", EXT_OP_ADD_BE),
-    ("dot_product_ee", EXT_OP_DOT_PRODUCT_EE),
-    ("dot_product_be", EXT_OP_DOT_PRODUCT_BE),
-    ("poly_eq_ee", EXT_OP_POLY_EQ_EE),
-    ("poly_eq_be", EXT_OP_POLY_EQ_BE),
-];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ExtensionOp {
+    Add,
+    Mul,
+    PolyEq,
+}
+
+impl ExtensionOp {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "add" => Some(Self::Add),
+            "dot_product" => Some(Self::Mul),
+            "poly_eq" => Some(Self::PolyEq),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn flag(self) -> usize {
+        match self {
+            Self::Add => EXT_OP_FLAG_ADD,
+            Self::Mul => EXT_OP_FLAG_MUL,
+            Self::PolyEq => EXT_OP_FLAG_POLY_EQ,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ExtensionOpMode {
+    pub op: ExtensionOp,
+    pub is_be: bool,
+}
+
+impl ExtensionOpMode {
+    pub fn from_name(name: &str) -> Option<Self> {
+        let (prefix, suffix) = name.rsplit_once('_')?;
+        let is_be = match suffix {
+            "ee" => false,
+            "be" => true,
+            _ => return None,
+        };
+        Some(Self {
+            op: ExtensionOp::from_name(prefix)?,
+            is_be,
+        })
+    }
+
+    pub const fn flag_encoding(self) -> usize {
+        self.op.flag() + self.is_be as usize * EXT_OP_FLAG_IS_BE
+    }
+
+    pub const fn name(self) -> &'static str {
+        match (self.op, self.is_be) {
+            (ExtensionOp::Add, false) => "add_ee",
+            (ExtensionOp::Add, true) => "add_be",
+            (ExtensionOp::Mul, false) => "dot_product_ee",
+            (ExtensionOp::Mul, true) => "dot_product_be",
+            (ExtensionOp::PolyEq, false) => "poly_eq_ee",
+            (ExtensionOp::PolyEq, true) => "poly_eq_be",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ExtensionOpPrecompile<const BUS: bool>;
@@ -98,19 +137,13 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize, // size (length N)
-        aux_2: usize, // mode: is_be + 2*flag_mul + 4*flag_poly_eq
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
+        let PrecompileCompTimeArgs::ExtensionOp { size, mode } = args else {
+            unreachable!("ExtensionOp table called with non-ExtensionOp args");
+        };
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
-        match aux_2 {
-            EXT_OP_ADD_EE => exec_add_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_ADD_BE => exec_add_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_DOT_PRODUCT_EE => exec_dot_product_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_DOT_PRODUCT_BE => exec_dot_product_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_POLY_EQ_EE => exec_poly_eq_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_POLY_EQ_BE => exec_poly_eq_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            _ => unreachable!("Invalid extension_op mode={aux_2}"),
-        }
+        exec_multi_row(arg_a, arg_b, arg_c, size, mode.is_be, mode.op, ctx.memory, trace)
     }
 }

@@ -1,14 +1,13 @@
-use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
-
 use backend::*;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use crate::*;
 
@@ -23,27 +22,37 @@ pub const BENCHMARK_MESSAGE: [u8; MESSAGE_LENGTH] = [
     78, 32, 21, 11, 1, 76, 255, 254, 0, 0, 22, 11, 11, 87, 87, 32, 11, 32, 11, 76, 23, 12, 11, 2, 2, 2, 2, 2, 2, 3, 4,
     5,
 ];
-pub const NUM_BENCHMARK_SIGNERS: usize = 10000;
+pub const NUM_BENCHMARK_SIGNERS: usize = 10_000;
 
 #[derive(Serialize, Deserialize)]
 struct SignersCacheFile {
     signatures: Vec<(XmssPublicKey, XmssSignature)>,
 }
 
-fn cache_footprint(first_pubkey: &XmssPublicKey) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    cfg!(feature = "test-config").hash(&mut hasher);
-    NUM_BENCHMARK_SIGNERS.hash(&mut hasher);
-    BENCHMARK_SLOT.hash(&mut hasher);
-    BENCHMARK_MESSAGE.hash(&mut hasher);
-    first_pubkey.hash(&mut hasher);
-    hasher.finish()
+fn cache_footprint(first_pubkey: &XmssPublicKey) -> u128 {
+    let mut hasher = Sha3_256::new();
+    hasher.update(NUM_BENCHMARK_SIGNERS.to_le_bytes());
+    hasher.update(BENCHMARK_SLOT.to_le_bytes());
+    hasher.update(BENCHMARK_MESSAGE);
+    let pk_bytes = postcard::to_allocvec(first_pubkey).expect("pubkey serialization failed");
+    hasher.update(&pk_bytes);
+    let hash = hasher.finalize();
+    u128::from_le_bytes(hash[..16].try_into().unwrap())
+}
+
+fn cache_dir() -> PathBuf {
+    // In CI, set SIGNERS_CACHE_DIR to a path outside target/
+    if let Ok(dir) = std::env::var("SIGNERS_CACHE_DIR") {
+        PathBuf::from(dir)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/signers-cache")
+    }
 }
 
 fn cache_path(first_pubkey: &XmssPublicKey) -> PathBuf {
     let footprint = cache_footprint(first_pubkey);
-    let file = format!("benchmark_signers_cache_{footprint:016x}.bin");
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/signers-cache/{file}"))
+    let file = format!("benchmark_signers_cache_{footprint:032x}.bin");
+    cache_dir().join(file)
 }
 
 fn compute_signer(index: usize) -> (XmssPublicKey, XmssSignature) {

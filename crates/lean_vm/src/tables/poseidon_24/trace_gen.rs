@@ -1,7 +1,7 @@
 use tracing::instrument;
 
 use crate::{
-    F, POSEIDON_24_MODE_COMPRESS_0_9, ZERO_VEC_PTR,
+    F, Poseidon24Mode, ZERO_VEC_PTR,
     tables::{
         POSEIDON_24_COL_PRECOMPILE_DATA, POSEIDON_24_OUTPUT_SIZE, POSEIDON_24_PRECOMPILE_DATA_OFFSET, Poseidon1Cols24,
         WIDTH_24, num_cols_poseidon_24,
@@ -62,7 +62,7 @@ pub fn default_poseidon_24_row(null_hash_ptr: usize) -> Vec<F> {
     generate_trace_rows_for_perm_24(perm);
     // virtual column
     row[POSEIDON_24_COL_PRECOMPILE_DATA] =
-        F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + POSEIDON_24_MODE_COMPRESS_0_9); // ...following the above convention
+        F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + Poseidon24Mode::Compress0_9.as_usize()); // ...following the above convention
     row
 }
 

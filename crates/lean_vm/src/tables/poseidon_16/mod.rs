@@ -89,7 +89,7 @@ const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
 const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3 or 4, ExtensionOp>=8
+pub const POSEIDON16_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3 or 4, ExtensionOp>=8
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = 1;
@@ -98,12 +98,14 @@ pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
+pub const POSEIDON16_NAME: &str = "poseidon16_compress";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Poseidon16Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     fn name(&self) -> &'static str {
-        "poseidon16_compress"
+        POSEIDON16_NAME
     }
 
     fn table(&self) -> Table {
@@ -133,7 +135,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
             data: vec![
-                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
+                BusData::Constant(POSEIDON16_PRECOMPILE_DATA),
                 BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT),
                 BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT),
                 BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES),
@@ -152,8 +154,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        _: usize,
-        _: usize,
+        _: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
@@ -215,7 +216,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 extra_data,
                 cols.flag,
                 &[
-                    AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
+                    AB::IF::from_usize(POSEIDON16_PRECOMPILE_DATA),
                     cols.index_a,
                     cols.index_b,
                     cols.index_res,
@@ -224,7 +225,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
             builder.declare_values(&[
-                AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
+                AB::IF::from_usize(POSEIDON16_PRECOMPILE_DATA),
                 cols.index_a,
                 cols.index_b,
                 cols.index_res,

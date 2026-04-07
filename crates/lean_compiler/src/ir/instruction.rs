@@ -1,6 +1,6 @@
 use super::value::IntermediateValue;
 use crate::lang::{ConstExpression, MathOperation};
-use lean_vm::{BooleanExpr, CustomHint, Operation, SourceLocation, Table, TableT};
+use lean_vm::{BooleanExpr, CustomHint, Operation, PrecompileArgs, SourceLocation};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -27,14 +27,7 @@ pub enum IntermediateInstruction {
         dest: IntermediateValue,
         updated_fp: Option<IntermediateValue>,
     },
-    Precompile {
-        table: Table,
-        arg_a: IntermediateValue,
-        arg_b: IntermediateValue,
-        arg_c: IntermediateValue,
-        aux_1: ConstExpression,
-        aux_2: ConstExpression,
-    },
+    Precompile(PrecompileArgs<IntermediateValue, ConstExpression>),
     // HINTS (does not appears in the final bytecode)
     Inverse {
         // If the value is zero, it will return zero.
@@ -151,16 +144,7 @@ impl Display for IntermediateInstruction {
                     write!(f, "jump_if_not_zero {condition} to {dest}")
                 }
             }
-            Self::Precompile {
-                table,
-                arg_a,
-                arg_b,
-                arg_c,
-                aux_1,
-                aux_2,
-            } => {
-                write!(f, "{}({arg_a}, {arg_b}, {arg_c}, {aux_1}, {aux_2})", table.name())
-            }
+            Self::Precompile(precompile) => write!(f, "{precompile}"),
             Self::Inverse { arg, res_offset } => {
                 write!(f, "m[fp + {res_offset}] = inverse({arg})")
             }

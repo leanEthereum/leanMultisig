@@ -9,7 +9,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{CUSTOM_HINTS, EXT_OP_FUNCTIONS};
+use lean_vm::{CUSTOM_HINTS, ExtensionOpMode};
 
 /// Reserved function names that users cannot define.
 pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
@@ -38,8 +38,7 @@ fn is_reserved_function_name(name: &str) -> bool {
     if RESERVED_FUNCTION_NAMES.contains(&name) || CUSTOM_HINTS.iter().any(|hint| hint.name() == name) {
         return true;
     }
-    // Extension op function names
-    if EXT_OP_FUNCTIONS.iter().any(|(fn_name, _)| *fn_name == name) {
+    if ExtensionOpMode::from_name(name).is_some() {
         return true;
     }
     false
