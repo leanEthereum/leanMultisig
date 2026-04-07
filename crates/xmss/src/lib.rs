@@ -25,14 +25,17 @@ pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
 pub const MESSAGE_LEN_FE: usize = 9;
 pub const PUBLIC_PARAM_LEN_FE: usize = 4;
-pub const PP_IN_LEFT: usize = 8 - DIGEST_SIZE; // = 3
-pub const PUB_KEY_FLAT_SIZE: usize = DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 9
+pub const PP_IN_LEFT: usize = 8 - DIGEST_SIZE; // = 4
+pub const PUB_KEY_FLAT_SIZE: usize = DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 8
 
 const _: () = assert!(PP_IN_LEFT + DIGEST_SIZE == 8);
 // Right layout: [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
 const _: () = assert!(TWEAK_LEN + 2 + DIGEST_SIZE == 8);
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
+/// Core sig size (without merkle path): only randomness + chain_tips are written to memory.
+/// The merkle path is scattered directly to buffers by hint_scatter_merkle_neighbors.
+pub const WOTS_SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + V * DIGEST_SIZE;
 
 // Tweak: domain separation within each hash.
 pub(crate) const TWEAK_TYPE_CHAIN: usize = 0;

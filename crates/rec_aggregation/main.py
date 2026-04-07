@@ -83,10 +83,8 @@ def main():
         buffer[idx] = i
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * PUB_KEY_SIZE
-        # 1 extra element for safe copy_5 reads past the last merkle path element
-        sig = Array(SIG_SIZE + 1)
+        sig = Array(WOTS_SIG_SIZE)
         hint_xmss(sig)
-        sig[SIG_SIZE] = 0
         xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
 
     counter: Mut = n_raw_xmss

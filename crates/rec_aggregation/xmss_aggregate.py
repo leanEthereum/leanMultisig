@@ -13,7 +13,7 @@ PUBLIC_PARAM_LEN_FE = PUBLIC_PARAM_LEN_FE_PLACEHOLDER
 XMSS_DIGEST = XMSS_DIGEST_SIZE_PLACEHOLDER
 PUB_KEY_SIZE = XMSS_DIGEST + PUBLIC_PARAM_LEN_FE
 PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST
-SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * XMSS_DIGEST
+WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
@@ -58,12 +58,12 @@ def build_chain_right(public_param, out):
 @inline
 def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     # pub_key: PUB_KEY_SIZE FE = merkle_root(XMSS_DIGEST) | public_param(PUBLIC_PARAM_LEN_FE)
-    # signature: randomness(RANDOMNESS_LEN) | chain_tips(V * XMSS_DIGEST) | merkle_path(LOG_LIFETIME * XMSS_DIGEST)
+    # signature (in memory): randomness(RANDOMNESS_LEN) | chain_tips(V * XMSS_DIGEST)
+    # merkle path is NOT in memory — scattered directly to buffers by hint.
 
     public_param = pub_key + XMSS_DIGEST
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
-    merkle_path = chain_starts + V * XMSS_DIGEST
 
     # 1) Encode: poseidon16_compress(message[0:8], [msg[8] | randomness(5) | tweak_encoding(2)])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
@@ -142,9 +142,9 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     wots_pk_tweaks = tweak_table + TWEAK_WOTS_PK_OFFSET
     expected_leaf = wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks)
 
-    # 4) Merkle verification
+    # 4) Merkle verification (merkle path scattered directly from hint state, not via memory)
     merkle_tweaks = tweak_table + TWEAK_MERKLE_OFFSET
-    xmss_merkle_verify(expected_leaf, merkle_path, merkle_chunks, pub_key, public_param, merkle_tweaks)
+    xmss_merkle_verify(expected_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
     return
 
 
@@ -226,15 +226,14 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
 
 
 @inline
-def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, tweak_bufs):
-    # b encodes 4 is_left bits; path elements at XMSS_DIGEST stride.
+def do_4_merkle_levels(b, state_in, state_out, left_bufs, tweak_bufs):
+    # b encodes 4 is_left bits.
     # Convention: left = [pp(4) | data(4)], right = [tweak(4) | data(4)].
-    # tweak_bufs: pre-copied tweak prefixes at BUF_SIZE stride (from batch memcopy_4).
     #
-    # Left buffers get pp broadcast once; right inputs use tweak_bufs directly.
-    # Per level, only one memcopy_4 is needed: routing path or state data to the
-    # correct side. Poseidon output goes to the next level's left or right depending
-    # on the next bit.
+    # left_bufs: pp prefix pre-broadcast, neighbors pre-scattered by hint for b_k==0 levels.
+    # tweak_bufs: tweak prefix pre-copied, neighbors pre-scattered by hint for b_k==1 levels.
+    #
+    # Only per-level work: route state_in (level 0) and poseidon output routing.
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -243,63 +242,65 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, tweak_b
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    # Left buffers: [pp(4) | data(4) | poseidon_tail(4)] = BUF_SIZE each, for 4 levels.
-    left_bufs = Array(4 * BUF_SIZE)
-    memcopy_4(public_param, left_bufs, 0, 4)
-
-    # Level 0 pre-fill: route state_in and path[0] to the correct sides.
+    # Level 0: place state_in in the correct slot, then poseidon.
     if b0 == 1:
         memcopy_4(state_in, left_bufs + PP_IN_LEFT, 0, 1)
-        memcopy_4(path_chunk, tweak_bufs + 4, 0, 1)
+        if b1 == 1:
+            poseidon16_compress(left_bufs, tweak_bufs, left_bufs + 1 * BUF_SIZE + PP_IN_LEFT)
+        else:
+            poseidon16_compress(left_bufs, tweak_bufs, tweak_bufs + 1 * BUF_SIZE + PP_IN_LEFT)
     else:
-        memcopy_4(path_chunk, left_bufs + PP_IN_LEFT, 0, 1)
-        memcopy_4(state_in, tweak_bufs + 4, 0, 1)
+        memcopy_4(state_in, tweak_bufs + PP_IN_LEFT, 0, 1)
+        if b1 == 1:
+            poseidon16_compress(left_bufs, tweak_bufs, left_bufs + 1 * BUF_SIZE + PP_IN_LEFT)
+        else:
+            poseidon16_compress(left_bufs, tweak_bufs, tweak_bufs + 1 * BUF_SIZE + PP_IN_LEFT)
 
-    # Levels 1-3 pre-fill: for b_k==1, path goes right (tweak_buf); for b_k==0, path goes left.
-    # Poseidon output from prev level fills the OTHER side.
-    if b1 == 1:
-        memcopy_4(path_chunk + 1 * XMSS_DIGEST, tweak_bufs + 1 * BUF_SIZE + 4, 0, 1)
-    else:
-        memcopy_4(path_chunk + 1 * XMSS_DIGEST, left_bufs + 1 * BUF_SIZE + PP_IN_LEFT, 0, 1)
-    if b2 == 1:
-        memcopy_4(path_chunk + 2 * XMSS_DIGEST, tweak_bufs + 2 * BUF_SIZE + 4, 0, 1)
-    else:
-        memcopy_4(path_chunk + 2 * XMSS_DIGEST, left_bufs + 2 * BUF_SIZE + PP_IN_LEFT, 0, 1)
-    if b3 == 1:
-        memcopy_4(path_chunk + 3 * XMSS_DIGEST, tweak_bufs + 3 * BUF_SIZE + 4, 0, 1)
-    else:
-        memcopy_4(path_chunk + 3 * XMSS_DIGEST, left_bufs + 3 * BUF_SIZE + PP_IN_LEFT, 0, 1)
-
-    # Poseidon chain: output routed to left (b_{k+1}==1) or right (b_{k+1}==0) of next level.
-    if b1 == 1:
-        poseidon16_compress(left_bufs, tweak_bufs, left_bufs + 1 * BUF_SIZE + PP_IN_LEFT)
-    else:
-        poseidon16_compress(left_bufs, tweak_bufs, tweak_bufs + 1 * BUF_SIZE + 4)
-
+    # Level 1: poseidon output routed to next level's state side.
     if b2 == 1:
         poseidon16_compress(left_bufs + 1 * BUF_SIZE, tweak_bufs + 1 * BUF_SIZE, left_bufs + 2 * BUF_SIZE + PP_IN_LEFT)
     else:
-        poseidon16_compress(left_bufs + 1 * BUF_SIZE, tweak_bufs + 1 * BUF_SIZE, tweak_bufs + 2 * BUF_SIZE + 4)
+        poseidon16_compress(left_bufs + 1 * BUF_SIZE, tweak_bufs + 1 * BUF_SIZE, tweak_bufs + 2 * BUF_SIZE + PP_IN_LEFT)
 
+    # Level 2
     if b3 == 1:
         poseidon16_compress(left_bufs + 2 * BUF_SIZE, tweak_bufs + 2 * BUF_SIZE, left_bufs + 3 * BUF_SIZE + PP_IN_LEFT)
     else:
-        poseidon16_compress(left_bufs + 2 * BUF_SIZE, tweak_bufs + 2 * BUF_SIZE, tweak_bufs + 3 * BUF_SIZE + 4)
+        poseidon16_compress(left_bufs + 2 * BUF_SIZE, tweak_bufs + 2 * BUF_SIZE, tweak_bufs + 3 * BUF_SIZE + PP_IN_LEFT)
 
+    # Level 3 -> state_out
     poseidon16_compress(left_bufs + 3 * BUF_SIZE, tweak_bufs + 3 * BUF_SIZE, state_out)
     return
 
 
 @inline
-def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, public_param, merkle_tweaks):
+def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
-    # Batch-copy all LOG_LIFETIME merkle tweak prefixes into BUF_SIZE-strided slots.
+    # Batch-copy all LOG_LIFETIME merkle tweak prefixes into BUF_SIZE-strided right slots.
     merkle_tweak_bufs = Array(LOG_LIFETIME * BUF_SIZE)
     memcopy_4(merkle_tweaks, merkle_tweak_bufs, TWEAK_LEN, LOG_LIFETIME)
 
+    # Left slots: [pp(4) | data(4)] — broadcast pp to all.
+    merkle_left_bufs = Array(LOG_LIFETIME * BUF_SIZE)
+    memcopy_4(public_param, merkle_left_bufs, 0, LOG_LIFETIME)
+
+    # Scatter all merkle path neighbors directly from XMSS hint state to the correct
+    # left/right slots (0 execution cycles, no intermediate memory).
+    for j in unroll(0, N_MERKLE_CHUNKS):
+        hint_scatter_merkle_neighbors(
+            j * MERKLE_LEVELS_PER_CHUNK * XMSS_DIGEST,
+            merkle_chunks[j],
+            merkle_left_bufs + j * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
+            merkle_tweak_bufs + j * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
+        )
+
     # First chunk
-    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states, public_param, merkle_tweak_bufs))
+    match_range(
+        merkle_chunks[0],
+        range(0, 16),
+        lambda b: do_4_merkle_levels(b, leaf_digest, states, merkle_left_bufs, merkle_tweak_bufs),
+    )
 
     state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
@@ -311,9 +312,8 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
             lambda b: do_4_merkle_levels(
                 b,
                 state_indexes[j - 1],
-                merkle_path + j * MERKLE_LEVELS_PER_CHUNK * XMSS_DIGEST,
                 state_indexes[j],
-                public_param,
+                merkle_left_bufs + j * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
                 merkle_tweak_bufs + j * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
             ),
         )
@@ -326,9 +326,8 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
         lambda b: do_4_merkle_levels(
             b,
             state_indexes[N_MERKLE_CHUNKS - 2],
-            merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * XMSS_DIGEST,
             last_output,
-            public_param,
+            merkle_left_bufs + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
             merkle_tweak_bufs + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * BUF_SIZE,
         ),
     )
