@@ -20,7 +20,8 @@ struct NodeStats {
     cycles: usize,
     memory: usize,
     poseidons: usize,
-    dots: usize,
+    extension_ops: usize,
+    memcopy4: usize,
     n_xmss: Option<usize>,
 }
 
@@ -49,7 +50,7 @@ impl LiveTree {
         let pad = self.max_plain_len + 6; // desc + dots + " ▸ "
         let spacer = " ".repeat(pad);
         format!(
-            "{}{}{:>10}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
+            "{}{}{:>10}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}  {:>10}{}",
             s::D,
             spacer,
             "time",
@@ -57,7 +58,8 @@ impl LiveTree {
             "cycles",
             "memory",
             "poseidons",
-            "extension-ops",
+            "ext-ops",
+            "memcopy4",
             s::R,
         )
     }
@@ -80,7 +82,7 @@ impl LiveTree {
                     None => format!("{}{}{:>9.3}s{}", s::ORG, s::B, st.time_secs, s::R),
                 };
                 format!(
-                    "{} {} {}▸{} {}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
+                    "{} {} {}▸{} {}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
                     desc,
                     dots,
                     s::DRK,
@@ -100,7 +102,10 @@ impl LiveTree {
                     pretty_integer(st.poseidons),
                     s::R,
                     s::WHT,
-                    pretty_integer(st.dots),
+                    pretty_integer(st.extension_ops),
+                    s::R,
+                    s::WHT,
+                    pretty_integer(st.memcopy4),
                     s::R,
                 )
             }
@@ -288,7 +293,8 @@ fn build_aggregation(
                 cycles: result.metadata.as_ref().unwrap().cycles,
                 memory: result.metadata.as_ref().unwrap().memory,
                 poseidons: result.metadata.as_ref().unwrap().n_poseidons,
-                dots: result.metadata.as_ref().unwrap().n_extension_ops,
+                extension_ops: result.metadata.as_ref().unwrap().n_extension_ops,
+                memcopy4: result.metadata.as_ref().unwrap().n_memcopy4,
                 n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
             },
         );

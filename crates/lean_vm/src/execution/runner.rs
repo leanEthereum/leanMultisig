@@ -373,6 +373,7 @@ fn execute_bytecode_helper(
         memory: memory.0.len(),
         n_poseidons: trace.tables[&Table::poseidon16()].columns[0].len(),
         n_extension_ops: trace.tables[&Table::extension_op()].columns[0].len(),
+        n_memcopy4: trace.tables[&Table::memcopy_4()].columns[0].len(),
         bytecode_size: bytecode.instructions.len(),
         public_input_size: public_input.len(),
         private_input_size: private_input.len(),

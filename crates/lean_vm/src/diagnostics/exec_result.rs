@@ -11,6 +11,7 @@ pub struct ExecutionMetadata {
     pub memory: usize,
     pub n_poseidons: usize,
     pub n_extension_ops: usize,
+    pub n_memcopy4: usize,
     pub bytecode_size: usize,
     pub public_input_size: usize,
     pub private_input_size: usize,
@@ -67,6 +68,9 @@ impl ExecutionMetadata {
                 "ExtensionOp calls: {}\n",
                 pretty_integer(self.n_extension_ops)
             ));
+        }
+        if self.n_memcopy4 > 0 {
+            out.push_str(&format!("Memcopy4 calls: {}\n", pretty_integer(self.n_memcopy4)));
         }
         out.push_str("──────────────────────────────────────────────────────────────────────────\n");
 
