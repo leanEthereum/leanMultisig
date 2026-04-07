@@ -98,12 +98,14 @@ pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
+pub const POSEIDON16_NAME: &str = "poseidon16_compress";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     fn name(&self) -> &'static str {
-        "poseidon16_compress"
+        POSEIDON16_NAME
     }
 
     fn table(&self) -> Table {
@@ -152,8 +154,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        _: usize,
-        _: usize,
+        _: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();

@@ -4,7 +4,10 @@ use crate::{
     parser::{ConstArrayValue, parse_program},
 };
 use backend::PrimeCharacteristicRing;
-use lean_vm::{Boolean, BooleanExpr, CustomHint, EXT_OP_FUNCTIONS, FunctionName, SourceLocation, Table, TableT};
+use lean_vm::{
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
+    SourceLocation, Table, TableT,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::{Display, Formatter},
@@ -56,6 +59,8 @@ impl From<Var> for VarOrConstMallocAccess {
     }
 }
 
+pub type SimplePrecompile = PrecompileArgs<SimpleExpr, ConstExpression>;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SimpleLine {
     Match {
@@ -92,10 +97,7 @@ pub enum SimpleLine {
     FunctionRet {
         return_data: Vec<SimpleExpr>,
     },
-    Precompile {
-        table: Table,
-        args: Vec<SimpleExpr>,
-    },
+    Precompile(SimplePrecompile),
     Panic {
         message: Option<String>,
     },
@@ -155,7 +157,7 @@ impl SimpleLine {
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
-            | Self::Precompile { .. }
+            | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
             | Self::Print { .. }
@@ -180,7 +182,7 @@ impl SimpleLine {
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
-            | Self::Precompile { .. }
+            | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
             | Self::Print { .. }
@@ -204,9 +206,8 @@ impl SimpleLine {
             Self::Match { value, .. } => vec![value],
             Self::IfNotZero { condition, .. } => vec![condition],
             Self::HintMAlloc { size, .. } => vec![size],
-            Self::Precompile { args, .. } | Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => {
-                args.iter().collect()
-            }
+            Self::Precompile(precompile) => precompile.operand_exprs().to_vec(),
+            Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
@@ -2117,11 +2118,7 @@ fn simplify_lines(
 
                         // Special handling for extension_op precompile
                         // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
-                        if let Some(mode) = EXT_OP_FUNCTIONS
-                            .iter()
-                            .find(|(name, _)| *name == function_name.as_str())
-                            .map(|(_, mode)| *mode)
-                        {
+                        if let Some(mode) = ExtensionOpMode::from_name(function_name) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2133,22 +2130,24 @@ fn simplify_lines(
                                     args.len()
                                 ));
                             }
-                            let mut simplified_args: Vec<SimpleExpr> = args[..3]
+                            let simplified_args = args[..3]
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            // Inject size (aux_1) and mode (aux_2)
-                            let size: SimpleExpr = if args.len() == 4 {
+
+                            let size = if args.len() == 4 {
                                 simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?
+                                    .as_constant()
+                                    .expect("extension op size must be a constant")
                             } else {
-                                SimpleExpr::one()
+                                ConstExpression::one()
                             };
-                            simplified_args.push(size);
-                            simplified_args.push(SimpleExpr::Constant(mode.into()));
-                            res.push(SimpleLine::Precompile {
-                                table: Table::extension_op(),
-                                args: simplified_args,
-                            });
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::ExtensionOp { size, mode },
+                            }));
                             continue;
                         }
 
@@ -2159,14 +2158,22 @@ fn simplify_lines(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
+                            if args.len() != 3 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 arguments (ptr_a, ptr_b, ptr_res), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
                             let simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            res.push(SimpleLine::Precompile {
-                                table: Table::poseidon16(),
-                                args: simplified_args,
-                            });
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::Poseidon16,
+                            }));
                             continue;
                         }
 
@@ -3962,16 +3969,7 @@ impl SimpleLine {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Precompile {
-                table: precompile,
-                args,
-            } => {
-                format!(
-                    "{}({})",
-                    &precompile.name(),
-                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
-                )
-            }
+            Self::Precompile(precompile) => format!("{precompile}"),
             Self::Print { line_info: _, content } => {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")
