@@ -114,20 +114,22 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
 
     # 2) Chain hashes -> recover WOTS public key
     # Chain hash convention: left = [tweak(4) | data(4)], right = [pp(4) | zeros(4)] (constant).
-    wots_public_key = Array(V * DIGEST_LEN)
+    # Chain results stored at BUF_SIZE stride with digest at offset PP_IN_LEFT.
+    # Layout per slot: [gap(4) | poseidon_output(8)]. The gap is later filled with
+    # wots_pk tweaks via memcopy_4, so each slot becomes a ready right input for wots_pk_hash.
+    wots_pk_bufs = Array(V * BUF_SIZE)
 
     chain_right = Array(DIGEST_LEN)
     build_chain_right(public_param, chain_right)
 
     # Shared buffer for all chain hashes: V * CHAIN_LENGTH slots.
-    # One memcopy_4 dispatches all chain tweak prefixes at once.
     ch_shared_bufs = Array(V * CHAIN_LENGTH * BUF_SIZE)
     memcopy_4(tweak_table + TWEAK_CHAIN_OFFSET, ch_shared_bufs, TWEAK_LEN, V * CHAIN_LENGTH)
 
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * XMSS_DIGEST
-        chain_end = wots_public_key + i * DIGEST_LEN
+        chain_end = wots_pk_bufs + i * BUF_SIZE + PP_IN_LEFT
         chain_buf_base = ch_shared_bufs + i * CHAIN_LENGTH * BUF_SIZE
 
         match_range(
@@ -138,9 +140,11 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
             lambda n: chain_hash_pa(chain_start, n, chain_end, chain_right, chain_buf_base + (CHAIN_LENGTH - 1 - n) * BUF_SIZE),
         )
 
-    # 3) Hash WOTS public key
+    # 3) Hash WOTS public key — dispatch all V-1 tweaks in one memcopy_4.
+    # wots_pk_bufs[1..V-1] become right inputs: [tweak(4) | digest(4)].
     wots_pk_tweaks = tweak_table + TWEAK_WOTS_PK_OFFSET
-    expected_leaf = wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks)
+    memcopy_4(wots_pk_tweaks, wots_pk_bufs + BUF_SIZE, TWEAK_LEN, V - 1)
+    expected_leaf = wots_pk_hash(wots_pk_bufs, public_param)
 
     # 4) Merkle verification (merkle path scattered directly from hint state, not via memory)
     merkle_tweaks = tweak_table + TWEAK_MERKLE_OFFSET
@@ -185,40 +189,33 @@ def chain_hash_pa(input, n, output, chain_right, buf_base):
     return
 
 
-def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
-    # Sequential hash over V elements at DIGEST_LEN stride.
-    #
-    # All V-1 right inputs are allocated contiguously (stride BUF_SIZE=12) so that
-    # a single memcopy_4 dispatches all tweak prefixes. Data is then copied individually.
-    # V-2 intermediate left buffers get their pp prefix via one broadcast memcopy_4.
-
-    # Right inputs: [tweak(4) | data(4) | unused(4)] = BUF_SIZE each.
-    wots_pk_tweak_bufs = Array((V - 1) * BUF_SIZE)
-    memcopy_4(wots_pk_tweaks, wots_pk_tweak_bufs, TWEAK_LEN, V - 1)
-    for i in unroll(0, V - 1):
-        memcopy_4(wots_public_key + (i + 1) * DIGEST_LEN, wots_pk_tweak_bufs + i * BUF_SIZE + 4, 0, 1)
+def wots_pk_hash(wots_pk_bufs, public_param):
+    # Sequential hash over V chain results.
+    # wots_pk_bufs: V slots at BUF_SIZE stride, each [gap(4) | poseidon_output(8)].
+    # Slots 1..V-1 already have tweak prefix in the gap (from memcopy_4 in caller).
+    # They serve directly as right inputs: [tweak(4) | digest(4)].
 
     # First left input: [pp(4) | wots_pk[0](4)]
     left0 = Array(DIGEST_LEN)
-    build_left_fn(public_param, wots_public_key, left0)
+    build_left_fn(public_param, wots_pk_bufs + PP_IN_LEFT, left0)
 
     # Intermediate left buffers: [pp(4) | digest(4) | poseidon_tail(4)] = BUF_SIZE each.
     left_bufs = Array((V - 2) * BUF_SIZE)
     memcopy_4(public_param, left_bufs, 0, V - 2)
 
-    # Hash chain
-    poseidon16_compress(left0, wots_pk_tweak_bufs, left_bufs + PP_IN_LEFT)
+    # Hash chain: right inputs from wots_pk_bufs[1..V-1]
+    poseidon16_compress(left0, wots_pk_bufs + 1 * BUF_SIZE, left_bufs + PP_IN_LEFT)
 
     for i in unroll(1, V - 2):
         poseidon16_compress(
             left_bufs + (i - 1) * BUF_SIZE,
-            wots_pk_tweak_bufs + i * BUF_SIZE,
+            wots_pk_bufs + (i + 1) * BUF_SIZE,
             left_bufs + i * BUF_SIZE + PP_IN_LEFT,
         )
 
     # Final hash
     result = Array(DIGEST_LEN)
-    poseidon16_compress(left_bufs + (V - 3) * BUF_SIZE, wots_pk_tweak_bufs + (V - 2) * BUF_SIZE, result)
+    poseidon16_compress(left_bufs + (V - 3) * BUF_SIZE, wots_pk_bufs + (V - 1) * BUF_SIZE, result)
 
     return result
 
