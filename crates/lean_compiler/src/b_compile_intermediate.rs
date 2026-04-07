@@ -508,14 +508,9 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Precompile { table, args, .. } => {
-                match table {
-                    Table::ExtensionOp(_) => assert_eq!(args.len(), 5),
-                    Table::Poseidon16(_) => assert_eq!(args.len(), 3),
-                    Table::Execution(_) => unreachable!(),
-                }
-                // if arg_c is constant, create a variable (in memory) to hold it
-                let arg_c = if let SimpleExpr::Constant(cst) = &args[2] {
+            SimpleLine::Precompile(precompile) => {
+                // if res is constant, create a variable (in memory) to hold it
+                let res = if let SimpleExpr::Constant(cst) = &precompile.res {
                     instructions.push(IntermediateInstruction::Computation {
                         operation: Operation::Add,
                         arg_a: IntermediateValue::Constant(cst.clone()),
@@ -528,27 +523,25 @@ fn compile_lines(
                     compiler.stack_pos += 1;
                     IntermediateValue::MemoryAfterFp { offset: offset.into() }
                 } else {
-                    try_precompile_fp_relative(&args[2], compiler)
-                        .unwrap_or_else(|| IntermediateValue::from_simple_expr(&args[2], compiler))
+                    try_precompile_fp_relative(&precompile.res, compiler)
+                        .unwrap_or_else(|| IntermediateValue::from_simple_expr(&precompile.res, compiler))
                 };
-                let (arg_a, arg_b) = match (
-                    try_precompile_fp_relative(&args[0], compiler),
-                    try_precompile_fp_relative(&args[1], compiler),
+                let (left, right) = match (
+                    try_precompile_fp_relative(&precompile.arg_0, compiler),
+                    try_precompile_fp_relative(&precompile.arg_1, compiler),
                 ) {
                     (Some(a), Some(b)) => (a, b),
                     _ => (
-                        IntermediateValue::from_simple_expr(&args[0], compiler),
-                        IntermediateValue::from_simple_expr(&args[1], compiler),
+                        IntermediateValue::from_simple_expr(&precompile.arg_0, compiler),
+                        IntermediateValue::from_simple_expr(&precompile.arg_1, compiler),
                     ),
                 };
-                instructions.push(IntermediateInstruction::Precompile {
-                    table: *table,
-                    arg_a,
-                    arg_b,
-                    arg_c,
-                    aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
-                    aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
-                });
+                instructions.push(IntermediateInstruction::Precompile(PrecompileArgs {
+                    arg_0: left,
+                    arg_1: right,
+                    res,
+                    data: precompile.data.clone(),
+                }));
             }
 
             SimpleLine::FunctionRet { return_data } => {
@@ -886,20 +879,21 @@ fn collect_use_info(
             }
         }
 
-        if let SimpleLine::Precompile { args, .. } = line {
-            // args[0] & args[1] count only if both are fp-rel-capable
-            let both_capable = args[..2]
+        if let SimpleLine::Precompile(precompile) = line {
+            let exprs = precompile.operand_exprs();
+            // exprs[0] & exprs[1] count only if both are fp-rel-capable
+            let both_capable = exprs[..2]
                 .iter()
                 .all(|a| matches!(a, SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) if fp_rel_capable.contains(v)));
             if both_capable {
-                for arg in &args[..2] {
+                for arg in &exprs[..2] {
                     if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = arg {
                         *fp_rel_uses.entry(v.clone()).or_default() += 1;
                     }
                 }
             }
-            // args[2]: independently fp-rel-capable
-            if let Some(SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) = args.get(2)
+            // exprs[2]: independently fp-rel-capable
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = exprs[2]
                 && fp_rel_capable.contains(v)
             {
                 *fp_rel_uses.entry(v.clone()).or_default() += 1;
