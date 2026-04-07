@@ -18,47 +18,39 @@ NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 
-# Tweak table layout: each tweak is stored as a 5-FE padded slot [0, tw[0], tw[1], 0, 0].
-# Convention: tweak pointers always point to the tweak VALUE (offset +1 within the slot).
-# Individual access: ptr[0] = tw[0], ptr[1] = tw[1] (unchanged from the unpadded version).
-# Copy_5 access: copy_5(ptr - 1, dst) reads the 5-element slot [0, tw[0], tw[1], 0, 0].
-TWEAK_LEN = 5  # stride / slot size in the padded table
+# Tweak table layout: each tweak is stored as a 4-FE slot [tw[0], tw[1], 0, 0].
+# Pointers point directly to tw[0]. Individual access: ptr[0] = tw[0], ptr[1] = tw[1].
+# Compatible with memcopy_4 (stride_in=4).
+TWEAK_LEN = 4  # stride / slot size in the padded table
 N_TWEAKS = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME
 TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(N_TWEAKS * TWEAK_LEN, DIGEST_LEN)
-TWEAK_ENCODING_OFFSET = 1  # skip the leading zero of slot 0
+TWEAK_ENCODING_OFFSET = 0
 TWEAK_CHAIN_OFFSET = TWEAK_ENCODING_OFFSET + TWEAK_LEN
 TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
 TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + (V - 1) * TWEAK_LEN
 
 # Buffer size for the hash-chaining trick.
-# Each slot is [extra(1) | prefix(4) | hash_output(8)] = 13 elements.
-# The "extra" position at offset 0 is the landing spot for copy_5's leading zero when
-# writing a padded tweak from the table. The effective buffer (hash-input pointer) is at
-# offset 1; poseidon writes its output at offset 5 (= 1 + PP_IN_LEFT).
-# Hash input for the next iteration = slot[1..9] = [prefix(4) | digest(4)].
-BUF_SIZE = 1 + PP_IN_LEFT + DIGEST_LEN
+# Each slot is [prefix(4) | hash_output(8)] = 12 elements.
+# Poseidon writes its output at offset PP_IN_LEFT (= 4).
+# Hash input for the next iteration = slot[0..8] = [prefix(4) | digest(4)].
+BUF_SIZE = PP_IN_LEFT + DIGEST_LEN
 
 
 @inline
 def build_left_fn(pp, data, out):
-    # out must be Array(DIGEST_LEN + 1) or more
-    # data must have at least 5 readable elements in memory.
+    # out must be Array(DIGEST_LEN) or more.
     for k in unroll(0, PP_IN_LEFT):
         out[k] = pp[k]
-    copy_5(data, out + PP_IN_LEFT)
+    memcopy_4(data, out + PP_IN_LEFT, 0, 1)
     return
 
 
 @inline
 def build_right_fn(tweak, data, out):
     # [tweak(2) | zeros(2) | data(XMSS_DIGEST)]
-    # `tweak` is a pointer to the tweak VALUE (slot_start + 1). copy_5(tweak - 1, out - 1)
-    # writes the padded slot [0, tw(2), 0, 0] to out[-1..4]; the leading 0 lands at the
-    # "extra" slot before `out`.
-    # `out` must be allocated as `alloc + 1` where alloc is Array(DIGEST_LEN + 2) or more
-    # (so that out[-1] and out[0..9] are all valid writable memory).
-    copy_5(tweak - 1, out - 1)
-    copy_5(data, out + 4)
+    # `tweak` points directly to [tw[0], tw[1], 0, 0] in the 4-FE slot.
+    memcopy_4(tweak, out, 0, 1)
+    memcopy_4(data, out + 4, 0, 1)
     return
 
 
@@ -66,21 +58,11 @@ def build_right_fn(tweak, data, out):
 def build_chain_right(public_param, out):
     # Shared chain-hash right input: [public_param(4) | zeros(4)]
     # Built once per xmss_verify and reused for every chain hash.
-    # out must be Array(DIGEST_LEN + 1) so set_to_5_zeros can write positions 4..8.
     for k in unroll(0, PUBLIC_PARAM_LEN_FE):
         out[k] = public_param[k]
-    set_to_5_zeros(out + PUBLIC_PARAM_LEN_FE)
+    memcopy_4(ZERO_VEC_PTR, out + PUBLIC_PARAM_LEN_FE, 0, 1)
     return
 
-
-@inline
-def set_chain_left_prefix(cur_buf, tweak):
-    # Writes [tweak(2) | zeros(2)] to cur_buf[0..4].
-    cur_buf[0] = tweak[0]
-    cur_buf[1] = tweak[1]
-    cur_buf[2] = 0
-    cur_buf[3] = 0
-    return
 
 
 @inline
@@ -96,21 +78,20 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     # 1) Encode: poseidon16_compress(message[0:8], [msg[8] | randomness(5) | tweak_encoding(2)])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
     encoding_tweak = tweak_table + TWEAK_ENCODING_OFFSET
-    # Allocate 11 elements so the 2nd copy_5 (which reads [tw(2), 0, 0, 0] from the padded
-    # table and writes 5 elements at offset 6) can safely write positions 6..11.
-    a_input_right = Array(1 + RANDOMNESS_LEN + TWEAK_LEN)
+    # Right input: [msg[8] | randomness(5) | tweak(2)] = 8 FE
+    a_input_right = Array(DIGEST_LEN)
     a_input_right[0] = message[DIGEST_LEN]
     copy_5(randomness, a_input_right + 1)
-    # encoding_tweak points to the tweak VALUE; reading 5 elements gives [tw(2), 0, 0, 0].
-    copy_5(encoding_tweak, a_input_right + 1 + RANDOMNESS_LEN)
+    a_input_right[1 + RANDOMNESS_LEN] = encoding_tweak[0]
+    a_input_right[1 + RANDOMNESS_LEN + 1] = encoding_tweak[1]
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
 
-    # pp_input layout: [public_param(4) | zeros(4)]. Allocate 9 so set_to_5_zeros can write positions 4..8.
-    pp_input = Array(DIGEST_LEN + 1)
+    # pp_input layout: [public_param(4) | zeros(4)]
+    pp_input = Array(DIGEST_LEN)
     for k in unroll(0, PUBLIC_PARAM_LEN_FE):
         pp_input[k] = public_param[k]
-    set_to_5_zeros(pp_input + PUBLIC_PARAM_LEN_FE)
+    memcopy_4(ZERO_VEC_PTR, pp_input + PUBLIC_PARAM_LEN_FE, 0, 1)
     encoding_fe = Array(DIGEST_LEN)
     poseidon16_compress(pre_compressed, pp_input, encoding_fe)
 
@@ -144,34 +125,31 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
 
     # 2) Chain hashes -> recover WOTS public key
     wots_public_key = Array(V * DIGEST_LEN)
-    MAX_CHAIN_HASHES = CHAIN_LENGTH - 1
 
-    chain_right = Array(DIGEST_LEN + 1)
+    chain_right = Array(DIGEST_LEN)
     build_chain_right(public_param, chain_right)
+
+    # Single shared buffer for ALL chain hashes: V * CHAIN_LENGTH slots.
+    # One memcopy_4 dispatches all chain tweak prefixes at once.
+    # Each slot is [prefix(4) | hash_output(8)] = BUF_SIZE.
+    # Chain i, step s maps to slot (i * CHAIN_LENGTH + s).
+    # Unused slots (steps before starting_step) are harmless.
+    ch_shared_bufs = Array(V * CHAIN_LENGTH * BUF_SIZE)
+    chain_tweaks_start = tweak_table + TWEAK_CHAIN_OFFSET
+    memcopy_4(chain_tweaks_start, ch_shared_bufs, TWEAK_LEN, V * CHAIN_LENGTH)
 
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * XMSS_DIGEST
         chain_end = wots_public_key + i * DIGEST_LEN
-        chain_i_tweaks = tweak_table + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
-
-        # Pre-allocate all buffers (constant allocation regardless of num_hashes).
-        # Each slot starts with an "extra" element at offset 0, used as the landing spot
-        # for copy_5's leading zero when writing the padded tweak prefix.
-        # We allocate 1 extra element BEFORE the first slot and expose pointers pointing
-        # at slot_start + 1 (the hash-input position). Thus `ptr - 1` is always valid.
-        ch_left_first_alloc = Array(BUF_SIZE)
-        ch_left_first = ch_left_first_alloc + 1
-        ch_bufs_alloc = Array((MAX_CHAIN_HASHES - 1) * BUF_SIZE)
-        ch_bufs = ch_bufs_alloc + 1
-        ch_buf_idx = Array(MAX_CHAIN_HASHES - 1)
+        chain_buf_base = ch_shared_bufs + i * CHAIN_LENGTH * BUF_SIZE
 
         match_range(
             num_hashes,
             range(0, 1),
-            lambda _: copy_5(chain_start, chain_end),
+            lambda _: memcopy_4(chain_start, chain_end, 0, 1),
             range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx),
+            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_right, chain_buf_base + (CHAIN_LENGTH - 1 - n) * BUF_SIZE),
         )
 
     # 3) Hash WOTS public key
@@ -186,68 +164,45 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
 
 @inline
 def copy_xmss_digest(src, dst):
-    # Copy XMSS_DIGEST elements from src to dst (within a DIGEST_LEN-strided destination)
-    for k in unroll(0, XMSS_DIGEST):
-        dst[k] = src[k]
+    # Copy XMSS_DIGEST (= 4) elements from src to dst.
+    memcopy_4(src, dst, 0, 1)
     return
 
 
 @inline
-def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_left_first, ch_bufs, ch_buf_idx):
-    # Uses pre-allocated buffers (zero internal allocation for parallel_range compatibility).
-    # Chain hash layout: left = [tweak(2) | zeros(2) | data(4)], right = chain_right (shared).
+def chain_hash_pa(input, n, output, chain_right, buf_base):
+    # Tweak prefixes are already written to all buffer slots by the global memcopy_4.
+    # buf_base points to the first slot for this chain (at starting_step within the shared buffer).
     #
-    # Each slot is BUF_SIZE = 13: [extra(1) | prefix(4) | hash_output(8)].
-    # The "hash-input" pointer for a slot is slot_start + 1 (skipping the extra).
-    # copy_5 writes to slot_start (5 elements, leading zero lands in extra slot).
-    # Poseidon writes its output at slot_start + 5 (= hash_input_ptr + 4), so the digest
-    # lands at hash_input_ptr[4..8]; together with the prefix at hash_input_ptr[0..4],
-    # the slot's hash_input_ptr[0..8] forms a valid left input for the NEXT hash.
-    #
-    # ch_left_first, ch_bufs, ch_buf_idx all store HASH-INPUT pointers (= slot_start + 1).
-    # copy_5 destination = ptr - 1 (the slot start).
-    starting_step = CHAIN_LENGTH - 1 - n
+    # Each slot is BUF_SIZE = 12: [prefix(4) | hash_output(8)].
+    # Poseidon writes its output at slot + PP_IN_LEFT (= 4), so the digest
+    # lands at slot[4..8]; together with the prefix at slot[0..4],
+    # slot[0..8] forms a valid left input for the NEXT hash.
 
-    # Build L_0 = [tweak_0, zeros, input]
-    # first_tweak is a pointer to the tweak VALUE (slot_start + 1); copy_5 reads from
-    # first_tweak - 1 (the slot_start including its leading zero).
-    first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
-    copy_5(first_tweak - 1, ch_left_first - 1)  # writes ch_left_first[-1..4]
-    copy_5(input, ch_left_first + 4)  # writes ch_left_first[4..9] = input(4) + extra
+    # Write input data into first slot
+    memcopy_4(input, buf_base + PP_IN_LEFT, 0, 1)
 
     if n == 1:
-        poseidon16_compress(ch_left_first, chain_right, output)
+        poseidon16_compress(buf_base, chain_right, output)
     else:
-        # Hash 0: L_0 → ch_bufs[0] + 4 (writes bufs[0][4..12], digest at bufs[0][4..8])
-        ch_buf_idx[0] = ch_bufs
-        poseidon16_compress(ch_left_first, chain_right, ch_bufs + 4)
-        # Write L_1 prefix via copy_5 of padded tweak_1 to ch_bufs - 1 (the extra slot).
-        next_tweak = chain_i_tweaks + (starting_step + 1) * TWEAK_LEN
-        copy_5(next_tweak - 1, ch_bufs - 1)
+        # Poseidon chain: hash slot[j] → slot[j+1] + PP_IN_LEFT
+        for j in unroll(0, n - 1):
+            cur_buf = buf_base + j * BUF_SIZE
+            next_buf = buf_base + (j + 1) * BUF_SIZE
+            poseidon16_compress(cur_buf, chain_right, next_buf + PP_IN_LEFT)
 
-        # Hashes 1..n-2: buf[j-1] → buf[j] + 4
-        for j in unroll(1, n - 1):
-            ch_buf_idx[j] = ch_buf_idx[j - 1] + BUF_SIZE
-            cur_buf = ch_buf_idx[j]
-            poseidon16_compress(ch_buf_idx[j - 1], chain_right, cur_buf + 4)
-            cur_tweak = chain_i_tweaks + (starting_step + j + 1) * TWEAK_LEN
-            copy_5(cur_tweak - 1, cur_buf - 1)
-
-        # Final hash: buf[n-2] → output
-        poseidon16_compress(ch_buf_idx[n - 2], chain_right, output)
+        # Final hash: last buf → output
+        poseidon16_compress(buf_base + (n - 1) * BUF_SIZE, chain_right, output)
     return
 
 
 def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     # Sequential hash over V elements at DIGEST_LEN stride
 
-    # First hash: build from scratch. build_right_fn's copy_5 prefix trick needs
-    # an "extra" slot at ptr - 1, so we allocate (DIGEST_LEN + 2) and offset by +1.
-    left0_alloc = Array(DIGEST_LEN + 2)
-    left0 = left0_alloc + 1
+    # First hash: build from scratch.
+    left0 = Array(DIGEST_LEN)
     build_left_fn(public_param, wots_public_key, left0)
-    right0_alloc = Array(DIGEST_LEN + 2)
-    right0 = right0_alloc + 1
+    right0 = Array(DIGEST_LEN)
     build_right_fn(wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
 
     # Buffer trick for intermediate states
@@ -262,8 +217,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
     for i in unroll(1, V - 2):
         buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
         cur_buf = buf_indexes[i]
-        right_i_alloc = Array(DIGEST_LEN + 2)
-        right_i = right_i_alloc + 1
+        right_i = Array(DIGEST_LEN)
         build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
         poseidon16_compress(buf_indexes[i - 1], right_i, cur_buf + PP_IN_LEFT)
         for k in unroll(0, PP_IN_LEFT):
@@ -271,8 +225,7 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
 
     # Final hash
     result = Array(DIGEST_LEN)
-    right_last_alloc = Array(DIGEST_LEN + 2)
-    right_last = right_last_alloc + 1
+    right_last = Array(DIGEST_LEN)
     build_right_fn(wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
     poseidon16_compress(buf_indexes[V - 3], right_last, result)
 
@@ -288,11 +241,8 @@ def set_buf_prefix_left(buf, public_param):
 
 @inline
 def set_buf_prefix_right(buf, tweak):
-    # `tweak` points to the tweak VALUE (slot_start + 1). copy_5 reads the padded slot
-    # [0, tw[0], tw[1], 0, 0] and writes buf[-1..4]; the leading 0 lands at the "extra"
-    # slot before buf, and buf[0..4] = [tw[0], tw[1], 0, 0] — the desired prefix.
-    # buf must be `alloc + 1` where alloc has at least BUF_SIZE + 1 elements.
-    copy_5(tweak - 1, buf - 1)
+    # Write [tw[0], tw[1], 0, 0] to buf[0..4] via memcopy_4.
+    memcopy_4(tweak, buf, 0, 1)
     return
 
 
@@ -308,12 +258,8 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     b3 = r3 % 2
 
     # Level 0: build from external state_in and path_chunk (no prior hash to reuse)
-    # All `Array(DIGEST_LEN + 2)` allocations reserve 1 element at offset 0 as the "extra"
-    # landing spot for build_right_fn's copy_5 prefix trick; the effective pointer is alloc+1.
-    left0_alloc = Array(DIGEST_LEN + 2)
-    left0 = left0_alloc + 1
-    right0_alloc = Array(DIGEST_LEN + 2)
-    right0 = right0_alloc + 1
+    left0 = Array(DIGEST_LEN)
+    right0 = Array(DIGEST_LEN)
     if b0 == 1:
         build_left_fn(public_param, state_in, left0)
         build_right_fn(merkle_tweaks_chunk, path_chunk, right0)
@@ -322,16 +268,12 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         build_right_fn(merkle_tweaks_chunk, state_in, right0)
 
     # Buffer trick: hash output to buf + PP_IN_LEFT, then prepend prefix.
-    # buf*_alloc has a leading "extra" slot so set_buf_prefix_right can use copy_5.
-    buf0_alloc = Array(BUF_SIZE + 1)
-    buf0 = buf0_alloc + 1
+    buf0 = Array(BUF_SIZE)
     poseidon16_compress(left0, right0, buf0 + PP_IN_LEFT)
 
     # Level 1
-    other1_alloc = Array(DIGEST_LEN + 2)
-    other1 = other1_alloc + 1
-    buf1_alloc = Array(BUF_SIZE + 1)
-    buf1 = buf1_alloc + 1
+    other1 = Array(DIGEST_LEN)
+    buf1 = Array(BUF_SIZE)
     if b1 == 1:
         set_buf_prefix_left(buf0, public_param)
         build_right_fn(merkle_tweaks_chunk + 1 * TWEAK_LEN, path_chunk + 1 * XMSS_DIGEST, other1)
@@ -342,10 +284,8 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         poseidon16_compress(other1, buf0, buf1 + PP_IN_LEFT)
 
     # Level 2
-    other2_alloc = Array(DIGEST_LEN + 2)
-    other2 = other2_alloc + 1
-    buf2_alloc = Array(BUF_SIZE + 1)
-    buf2 = buf2_alloc + 1
+    other2 = Array(DIGEST_LEN)
+    buf2 = Array(BUF_SIZE)
     if b2 == 1:
         set_buf_prefix_left(buf1, public_param)
         build_right_fn(merkle_tweaks_chunk + 2 * TWEAK_LEN, path_chunk + 2 * XMSS_DIGEST, other2)
@@ -356,8 +296,7 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         poseidon16_compress(other2, buf1, buf2 + PP_IN_LEFT)
 
     # Level 3 -> state_out
-    other3_alloc = Array(DIGEST_LEN + 2)
-    other3 = other3_alloc + 1
+    other3 = Array(DIGEST_LEN)
     if b3 == 1:
         set_buf_prefix_left(buf2, public_param)
         build_right_fn(merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * XMSS_DIGEST, other3)

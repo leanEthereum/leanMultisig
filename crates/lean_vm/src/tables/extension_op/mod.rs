@@ -30,7 +30,8 @@ pub const MAX_EXT_OP_LEN: usize = 2048;
 /// Supported source strides for memcopy_4. Index 0 ↔ is_be bit off, index 1 ↔ is_be bit on.
 pub const MEMCOPY4_STRIDES: [usize; 2] = [0, 4];
 /// Hardcoded destination stride for memcopy_4 mode.
-pub const MEMCOPY_4_STRIDE_OUT: usize = 8;
+/// Set to 12 to match the chain-hash buffer slot size (PP_IN_LEFT + DIGEST_LEN = 4 + 8).
+pub const MEMCOPY_4_STRIDE_OUT: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExtensionOp {

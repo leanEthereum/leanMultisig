@@ -210,8 +210,18 @@ pub(super) fn exec_memcopy_4(
     for i in 0..n_reps {
         let src_addr = ptr_in.to_usize() + i * stride_in;
         let dst_addr = ptr_out.to_usize() + i * MEMCOPY_4_STRIDE_OUT;
-        let v = memory.get_ef_element(src_addr)?;
-        memory.set_ef_element(dst_addr, v)?;
+        // Read the first 4 source coordinates (mandatory) and the 5th (optional, may be unset).
+        // Only the first 4 are written to the destination and constrained by the AIR.
+        let mut coeffs = [F::ZERO; DIMENSION];
+        for (k, c) in coeffs[..4].iter_mut().enumerate() {
+            *c = memory.get(src_addr + k)?;
+        }
+        coeffs[4] = memory.get(src_addr + 4).unwrap_or(F::ZERO);
+        let v = EF::from_basis_coefficients_slice(&coeffs).unwrap();
+        // Write only the first 4 coordinates to the destination.
+        for (k, &val) in coeffs[..4].iter().enumerate() {
+            memory.set(dst_addr + k, val)?;
+        }
         values.push(v);
         idx_as.push(F::from_usize(src_addr));
         idx_bs.push(F::from_usize(dst_addr));
@@ -237,9 +247,13 @@ pub(super) fn exec_memcopy_4(
         for k in 0..DIMENSION {
             trace.columns[COL_VA + k].push(F::ZERO);
         }
-        for (k, &val) in values[i].as_basis_coefficients_slice().iter().enumerate() {
-            trace.columns[COL_VB + k].push(val);
+        // VB[0..3] = source coordinates (the 4 values we copy).
+        // VB[4] = placeholder (patched later by fill_trace_extension_op from final memory).
+        for k in 0..4 {
+            trace.columns[COL_VB + k].push(values[i].as_basis_coefficients_slice()[k]);
         }
+        trace.columns[COL_VB + 4].push(F::ZERO);
+
         for (k, &val) in values[i].as_basis_coefficients_slice().iter().enumerate() {
             trace.columns[COL_VRES + k].push(val);
         }
@@ -254,14 +268,20 @@ pub(super) fn exec_memcopy_4(
     Ok(())
 }
 
-/// Fill the VALUE_A columns (5 base field coordinates) after execution
-/// by looking up memory at idx_A addresses.
+/// Fill deferred trace columns after all execution completes:
+/// - VALUE_A columns (5 base field coordinates) from memory at idx_A addresses.
+/// - For memcopy_4 rows: VB[4] from memory at idx_B + 4 (the 5th destination coordinate,
+///   which memcopy_4 does not write — it may be written by a later instruction like poseidon).
 pub fn fill_trace_extension_op(trace: &mut TableTrace, memory: &[F]) {
     let n = trace.columns[COL_IDX_A].len();
     for i in 0..n {
         let addr = trace.columns[COL_IDX_A][i].to_usize();
         for k in 0..DIMENSION {
             trace.columns[COL_VA + k][i] = memory[addr + k];
+        }
+        if trace.columns[COL_FLAG_MEMCOPY_4][i] == F::ONE {
+            let dst_addr = trace.columns[COL_IDX_B][i].to_usize();
+            trace.columns[COL_VB + 4][i] = memory[dst_addr + 4];
         }
     }
 }
