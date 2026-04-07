@@ -197,37 +197,39 @@ def chain_hash_pa(input, n, output, chain_right, buf_base):
 
 
 def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
-    # Sequential hash over V elements at DIGEST_LEN stride
+    # Sequential hash over V elements at DIGEST_LEN stride.
+    #
+    # All V-1 right inputs are allocated contiguously (stride BUF_SIZE=12) so that
+    # a single memcopy_4 dispatches all tweak prefixes. Data is then copied individually.
+    # Similarly, all V-2 intermediate left buffers get their pp prefix via one broadcast memcopy_4.
 
-    # First hash: build from scratch.
+    # Right inputs: [tweak(4) | data(4) | unused(4)] = BUF_SIZE each.
+    right_bufs = Array((V - 1) * BUF_SIZE)
+    memcopy_4(wots_pk_tweaks, right_bufs, TWEAK_LEN, V - 1)
+    for i in unroll(0, V - 1):
+        memcopy_4(wots_public_key + (i + 1) * DIGEST_LEN, right_bufs + i * BUF_SIZE + 4, 0, 1)
+
+    # First left input: [pp(4) | wots_pk[0](4)]
     left0 = Array(DIGEST_LEN)
     build_left_fn(public_param, wots_public_key, left0)
-    right0 = Array(DIGEST_LEN)
-    build_right_fn(wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
 
-    # Buffer trick for intermediate states
-    bufs = Array((V - 2) * BUF_SIZE)
-    buf_indexes = Array(V - 2)
-    buf_indexes[0] = bufs
+    # Intermediate left buffers: [pp(4) | digest(4) | poseidon_tail(4)] = BUF_SIZE each.
+    left_bufs = Array((V - 2) * BUF_SIZE)
+    memcopy_4(public_param, left_bufs, 0, V - 2)
 
-    poseidon16_compress(left0, right0, bufs + PP_IN_LEFT)
-    for k in unroll(0, PP_IN_LEFT):
-        bufs[k] = public_param[k]
+    # Hash chain
+    poseidon16_compress(left0, right_bufs, left_bufs + PP_IN_LEFT)
 
     for i in unroll(1, V - 2):
-        buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
-        cur_buf = buf_indexes[i]
-        right_i = Array(DIGEST_LEN)
-        build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
-        poseidon16_compress(buf_indexes[i - 1], right_i, cur_buf + PP_IN_LEFT)
-        for k in unroll(0, PP_IN_LEFT):
-            cur_buf[k] = public_param[k]
+        poseidon16_compress(
+            left_bufs + (i - 1) * BUF_SIZE,
+            right_bufs + i * BUF_SIZE,
+            left_bufs + i * BUF_SIZE + PP_IN_LEFT,
+        )
 
     # Final hash
     result = Array(DIGEST_LEN)
-    right_last = Array(DIGEST_LEN)
-    build_right_fn(wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
-    poseidon16_compress(buf_indexes[V - 3], right_last, result)
+    poseidon16_compress(left_bufs + (V - 3) * BUF_SIZE, right_bufs + (V - 2) * BUF_SIZE, result)
 
     return result
 
