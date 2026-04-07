@@ -74,7 +74,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let nu_c = flag_c * field_repr[instr_idx(COL_OPERAND_C)]
                 + (F::ONE - flag_c - flag_c_fp) * value_c
                 + flag_c_fp * (F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)]);
-            if let Instruction::Precompile { .. } = instruction {
+            if let Instruction::Precompile(..) = instruction {
                 *trace_row[COL_IS_PRECOMPILE] = F::ONE;
             }
             *trace_row[COL_EXEC_NU_A] = nu_a;

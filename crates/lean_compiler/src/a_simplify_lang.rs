@@ -5,8 +5,8 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_FLAG_VARIANT, EXT_OP_FUNCTIONS,
-    EXT_OP_MEMCOPY_4_V0, FunctionName, MAX_EXT_OP_LEN, MEMCOPY4_STRIDES, SourceLocation, Table, TableT,
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, MAX_EXT_OP_LEN, MEMCOPY4_STRIDES, PrecompileArgs,
+    PrecompileCompTimeArgs, SourceLocation, Table, TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -59,6 +59,8 @@ impl From<Var> for VarOrConstMallocAccess {
     }
 }
 
+pub type SimplePrecompile = PrecompileArgs<SimpleExpr, ConstExpression>;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SimpleLine {
     Match {
@@ -95,10 +97,7 @@ pub enum SimpleLine {
     FunctionRet {
         return_data: Vec<SimpleExpr>,
     },
-    Precompile {
-        table: Table,
-        args: Vec<SimpleExpr>,
-    },
+    Precompile(SimplePrecompile),
     Panic {
         message: Option<String>,
     },
@@ -158,7 +157,7 @@ impl SimpleLine {
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
-            | Self::Precompile { .. }
+            | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
             | Self::Print { .. }
@@ -183,7 +182,7 @@ impl SimpleLine {
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
-            | Self::Precompile { .. }
+            | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
             | Self::Print { .. }
@@ -207,9 +206,8 @@ impl SimpleLine {
             Self::Match { value, .. } => vec![value],
             Self::IfNotZero { condition, .. } => vec![condition],
             Self::HintMAlloc { size, .. } => vec![size],
-            Self::Precompile { args, .. } | Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => {
-                args.iter().collect()
-            }
+            Self::Precompile(precompile) => precompile.operand_exprs().to_vec(),
+            Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
@@ -2119,89 +2117,88 @@ fn simplify_lines(
                         }
 
                         // Special handling for extension_op precompile
-                        // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
                         // Special signature for memcopy_4:
                         //     memcopy_4(addr_in, addr_out, stride_in, n_reps)
                         //   addr_in / addr_out are runtime, stride_in and n_reps are compile-time constants.
-                        if let Some(mode) = EXT_OP_FUNCTIONS
-                            .iter()
-                            .find(|(name, _)| *name == function_name.as_str())
-                            .map(|(_, mode)| *mode)
-                        {
+                        if function_name == "memcopy_4" {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
+                            assert_arg_count(function_name, args.len(), 4, location)?;
+                            let addr_in = simplify_expr(ctx, state, const_malloc, &args[0], &mut res)?;
+                            let addr_out = simplify_expr(ctx, state, const_malloc, &args[1], &mut res)?;
+                            let stride_in_u = const_usize_arg(
+                                ctx,
+                                state,
+                                const_malloc,
+                                &args[2],
+                                &mut res,
+                                "memcopy_4 stride_in",
+                                location,
+                            )?;
+                            let n_reps_u = const_usize_arg(
+                                ctx,
+                                state,
+                                const_malloc,
+                                &args[3],
+                                &mut res,
+                                "memcopy_4 n_reps",
+                                location,
+                            )?;
+                            assert!(
+                                MEMCOPY4_STRIDES.contains(&stride_in_u),
+                                "memcopy_4 stride_in must be one of {MEMCOPY4_STRIDES:?}, got {stride_in_u}"
+                            );
+                            assert!(
+                                (1..MAX_EXT_OP_LEN).contains(&n_reps_u),
+                                "memcopy_4 n_reps={n_reps_u} out of range"
+                            );
+                            let n_reps_const = ConstExpression::from(n_reps_u);
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: addr_in.clone(),
+                                arg_1: addr_out,
+                                res: addr_in,
+                                data: PrecompileCompTimeArgs::Memcopy4 {
+                                    n_reps: n_reps_const,
+                                    stride_in: stride_in_u,
+                                },
+                            }));
+                            continue;
+                        }
 
-                            if mode == EXT_OP_MEMCOPY_4_V0 {
-                                // memcopy_4(addr_in, addr_out, stride_in, n_reps)
-                                assert_arg_count(&function_name, args.len(), 4, &location)?;
-                                let addr_in = simplify_expr(ctx, state, const_malloc, &args[0], &mut res)?;
-                                let addr_out = simplify_expr(ctx, state, const_malloc, &args[1], &mut res)?;
-                                let stride_in_u = const_usize_arg(
-                                    ctx,
-                                    state,
-                                    const_malloc,
-                                    &args[2],
-                                    &mut res,
-                                    "memcopy_4 stride_in",
-                                    &location,
-                                )?;
-                                let n_reps_u = const_usize_arg(
-                                    ctx,
-                                    state,
-                                    const_malloc,
-                                    &args[3],
-                                    &mut res,
-                                    "memcopy_4 n_reps",
-                                    &location,
-                                )?;
-                                let variant = MEMCOPY4_STRIDES.iter().position(|&s| s == stride_in_u);
-                                assert!(
-                                    variant.is_some(),
-                                    "memcopy_4 stride_in must be one of {MEMCOPY4_STRIDES:?}, got {stride_in_u}"
-                                );
-                                assert!(
-                                    (1..MAX_EXT_OP_LEN).contains(&n_reps_u),
-                                    "memcopy_4 n_reps={n_reps_u} out of range"
-                                );
-                                let packed_mode = EXT_OP_FLAG_MEMCOPY_4 + variant.unwrap() * EXT_OP_FLAG_VARIANT;
-                                res.push(SimpleLine::Precompile {
-                                    table: Table::extension_op(),
-                                    args: vec![
-                                        addr_in.clone(),
-                                        addr_out,
-                                        addr_in,
-                                        SimpleExpr::Constant(n_reps_u.into()),
-                                        SimpleExpr::Constant(packed_mode.into()),
-                                    ],
-                                });
-                                continue;
+                        // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
+                        if let Some(mode) = ExtensionOpMode::from_name(function_name) {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
                             }
-
                             if args.len() != 3 && args.len() != 4 {
                                 return Err(format!(
                                     "Precompile {function_name} expects 3 or 4 arguments (a, b, result[, length]), got {}, at {location}",
                                     args.len()
                                 ));
                             }
-                            let mut simplified_args: Vec<SimpleExpr> = args[..3]
+                            let simplified_args = args[..3]
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            // Inject size (aux_1) and mode (aux_2)
-                            let size: SimpleExpr = if args.len() == 4 {
+
+                            let size = if args.len() == 4 {
                                 simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?
+                                    .as_constant()
+                                    .expect("extension op size must be a constant")
                             } else {
-                                SimpleExpr::one()
+                                ConstExpression::one()
                             };
-                            simplified_args.push(size);
-                            simplified_args.push(SimpleExpr::Constant(mode.into()));
-                            res.push(SimpleLine::Precompile {
-                                table: Table::extension_op(),
-                                args: simplified_args,
-                            });
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::ExtensionOp { size, mode },
+                            }));
                             continue;
                         }
 
@@ -2212,14 +2209,22 @@ fn simplify_lines(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
+                            if args.len() != 3 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 arguments (ptr_a, ptr_b, ptr_res), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
                             let simplified_args = args
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            res.push(SimpleLine::Precompile {
-                                table: Table::poseidon16(),
-                                args: simplified_args,
-                            });
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::Poseidon16,
+                            }));
                             continue;
                         }
 
@@ -4039,16 +4044,7 @@ impl SimpleLine {
                     .join(", ");
                 format!("return {return_data_str}")
             }
-            Self::Precompile {
-                table: precompile,
-                args,
-            } => {
-                format!(
-                    "{}({})",
-                    &precompile.name(),
-                    args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
-                )
-            }
+            Self::Precompile(precompile) => format!("{precompile}"),
             Self::Print { line_info: _, content } => {
                 let content_str = content.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ");
                 format!("print({content_str})")

@@ -1,5 +1,5 @@
 use crate::{
-    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, EXT_OP_FLAG_VARIANT,
+    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ,
     ExtraDataForBuses, eval_virtual_bus_column,
     tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile, MEMCOPY_4_STRIDE_OUT, MEMCOPY4_STRIDES},
 };
@@ -115,7 +115,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         // Virtual aux column: reconstructed from the individual flag/len columns.
         // Must match the packed PRECOMPILE_DATA value pushed by the execution table.
         // For memcopy_4, `is_be` encodes the stride_in variant (0 or 4) — see below.
-        let aux = is_be * AB::F::from_usize(EXT_OP_FLAG_VARIANT)
+        let aux = is_be * AB::F::from_usize(EXT_OP_FLAG_IS_BE)
             + flag_add * AB::F::from_usize(EXT_OP_FLAG_ADD)
             + flag_mul * AB::F::from_usize(EXT_OP_FLAG_MUL)
             + flag_poly_eq * AB::F::from_usize(EXT_OP_FLAG_POLY_EQ)

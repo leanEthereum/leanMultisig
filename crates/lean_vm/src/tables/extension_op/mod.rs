@@ -1,9 +1,6 @@
 use crate::{
     execution::memory::MemoryAccess,
-    tables::extension_op::exec::{
-        exec_add_be, exec_add_ee, exec_dot_product_be, exec_dot_product_ee, exec_memcopy_4, exec_poly_eq_be,
-        exec_poly_eq_ee,
-    },
+    tables::extension_op::exec::{exec_memcopy_4, exec_multi_row},
     *,
 };
 use backend::*;
@@ -15,48 +12,87 @@ pub use exec::fill_trace_extension_op;
 
 // domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
 /// Extension op PRECOMPILE_DATA bit-field encoding:
-/// aux = 4*variant + 8*flag_add + 16*flag_mul + 32*flag_poly_eq + 64*flag_memcopy_4
+/// aux = 4*is_be + 8*flag_add + 16*flag_mul + 32*flag_poly_eq + 64*flag_memcopy_4
 ///     + 128*len
 ///
-/// The variant bit (bit 2) selects BE vs EE for add/mul/poly_eq,
+/// The is_be bit (bit 2) selects BE vs EE for add/mul/poly_eq,
 /// or `MEMCOPY4_STRIDES[1]` vs `MEMCOPY4_STRIDES[0]` for memcopy_4.
-pub const EXT_OP_FLAG_VARIANT: usize = 4;
+pub const EXT_OP_FLAG_IS_BE: usize = 4;
 pub(crate) const EXT_OP_FLAG_ADD: usize = 8;
 pub(crate) const EXT_OP_FLAG_MUL: usize = 16;
 pub(crate) const EXT_OP_FLAG_POLY_EQ: usize = 32;
 pub const EXT_OP_FLAG_MEMCOPY_4: usize = 64;
 
-pub const EXT_OP_ADD_EE: usize = EXT_OP_FLAG_ADD;
-pub const EXT_OP_ADD_BE: usize = EXT_OP_FLAG_VARIANT + EXT_OP_FLAG_ADD;
-pub const EXT_OP_DOT_PRODUCT_EE: usize = EXT_OP_FLAG_MUL;
-pub const EXT_OP_DOT_PRODUCT_BE: usize = EXT_OP_FLAG_VARIANT + EXT_OP_FLAG_MUL;
-pub const EXT_OP_POLY_EQ_EE: usize = EXT_OP_FLAG_POLY_EQ;
-pub const EXT_OP_POLY_EQ_BE: usize = EXT_OP_FLAG_VARIANT + EXT_OP_FLAG_POLY_EQ;
-/// memcopy_4 with variant=0 → stride_in = MEMCOPY4_STRIDES[0].
-pub const EXT_OP_MEMCOPY_4_V0: usize = EXT_OP_FLAG_MEMCOPY_4;
-/// memcopy_4 with variant=1 → stride_in = MEMCOPY4_STRIDES[1].
-pub const EXT_OP_MEMCOPY_4_V1: usize = EXT_OP_FLAG_MEMCOPY_4 + EXT_OP_FLAG_VARIANT;
-
-/// Supported source strides for memcopy_4. Index 0 ↔ variant bit off, index 1 ↔ variant bit on.
-pub const MEMCOPY4_STRIDES: [usize; 2] = [0, 4];
-/// Hardcoded destination stride for memcopy_4 mode.
-pub const MEMCOPY_4_STRIDE_OUT: usize = 8;
-
 pub const EXT_OP_LEN_MULTIPLIER: usize = 128;
 /// Maximum supported `size` / `n_reps` value (exclusive upper bound).
 pub const MAX_EXT_OP_LEN: usize = 2048;
 
-/// Mapping from zkDSL function names to extension op mode values.
-pub const EXT_OP_FUNCTIONS: [(&str, usize); 8] = [
-    ("add_ee", EXT_OP_ADD_EE),
-    ("add_be", EXT_OP_ADD_BE),
-    ("dot_product_ee", EXT_OP_DOT_PRODUCT_EE),
-    ("dot_product_be", EXT_OP_DOT_PRODUCT_BE),
-    ("poly_eq_ee", EXT_OP_POLY_EQ_EE),
-    ("poly_eq_be", EXT_OP_POLY_EQ_BE),
-    ("memcopy_4", EXT_OP_MEMCOPY_4_V0),
-    ("memcopy_4", EXT_OP_MEMCOPY_4_V1),
-];
+/// Supported source strides for memcopy_4. Index 0 ↔ is_be bit off, index 1 ↔ is_be bit on.
+pub const MEMCOPY4_STRIDES: [usize; 2] = [0, 4];
+/// Hardcoded destination stride for memcopy_4 mode.
+pub const MEMCOPY_4_STRIDE_OUT: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ExtensionOp {
+    Add,
+    Mul,
+    PolyEq,
+}
+
+impl ExtensionOp {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "add" => Some(Self::Add),
+            "dot_product" => Some(Self::Mul),
+            "poly_eq" => Some(Self::PolyEq),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn flag(self) -> usize {
+        match self {
+            Self::Add => EXT_OP_FLAG_ADD,
+            Self::Mul => EXT_OP_FLAG_MUL,
+            Self::PolyEq => EXT_OP_FLAG_POLY_EQ,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ExtensionOpMode {
+    pub op: ExtensionOp,
+    pub is_be: bool,
+}
+
+impl ExtensionOpMode {
+    pub fn from_name(name: &str) -> Option<Self> {
+        let (prefix, suffix) = name.rsplit_once('_')?;
+        let is_be = match suffix {
+            "ee" => false,
+            "be" => true,
+            _ => return None,
+        };
+        Some(Self {
+            op: ExtensionOp::from_name(prefix)?,
+            is_be,
+        })
+    }
+
+    pub const fn flag_encoding(self) -> usize {
+        self.op.flag() + self.is_be as usize * EXT_OP_FLAG_IS_BE
+    }
+
+    pub const fn name(self) -> &'static str {
+        match (self.op, self.is_be) {
+            (ExtensionOp::Add, false) => "add_ee",
+            (ExtensionOp::Add, true) => "add_be",
+            (ExtensionOp::Mul, false) => "dot_product_ee",
+            (ExtensionOp::Mul, true) => "dot_product_be",
+            (ExtensionOp::PolyEq, false) => "poly_eq_ee",
+            (ExtensionOp::PolyEq, true) => "poly_eq_be",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ExtensionOpPrecompile<const BUS: bool>;
@@ -118,24 +154,18 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
-        let flag_bits = aux_2 & (EXT_OP_LEN_MULTIPLIER - 1);
-        match flag_bits {
-            EXT_OP_ADD_EE => exec_add_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_ADD_BE => exec_add_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_DOT_PRODUCT_EE => exec_dot_product_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_DOT_PRODUCT_BE => exec_dot_product_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_POLY_EQ_EE => exec_poly_eq_ee(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_POLY_EQ_BE => exec_poly_eq_be(arg_a, arg_b, arg_c, aux_1, ctx.memory, trace),
-            EXT_OP_MEMCOPY_4_V0 | EXT_OP_MEMCOPY_4_V1 => {
-                let variant = ((flag_bits & EXT_OP_FLAG_VARIANT) != 0) as usize;
-                exec_memcopy_4(arg_a, arg_b, MEMCOPY4_STRIDES[variant], aux_1, ctx.memory, trace)
+        match args {
+            PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
+                exec_multi_row(arg_a, arg_b, arg_c, size, mode.is_be, mode.op, ctx.memory, trace)
             }
-            _ => unreachable!("Invalid extension_op mode={aux_2}"),
+            PrecompileCompTimeArgs::Memcopy4 { n_reps, stride_in } => {
+                exec_memcopy_4(arg_a, arg_b, stride_in, n_reps, ctx.memory, trace)
+            }
+            _ => unreachable!("ExtensionOp table called with non-ExtensionOp args"),
         }
     }
 }

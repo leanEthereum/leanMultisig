@@ -5,32 +5,25 @@ use crate::MemoryAccess;
 use crate::RunnerError;
 use crate::TableTrace;
 use crate::tables::extension_op::{
-    EXT_OP_FLAG_ADD, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, EXT_OP_FLAG_VARIANT,
-    EXT_OP_LEN_MULTIPLIER, MEMCOPY_4_STRIDE_OUT, MEMCOPY4_STRIDES, air::*,
+    EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_LEN_MULTIPLIER, ExtensionOp, MEMCOPY_4_STRIDE_OUT,
+    MEMCOPY4_STRIDES, air::*,
 };
 use backend::*;
 use utils::ToUsize;
 
-#[derive(Clone, Copy, PartialEq)]
-enum Op {
-    Add,
-    Mul,
-    PolyEq,
-}
-
-fn compute_elem(v_a: EF, v_b: EF, op: Op) -> EF {
+fn compute_elem(v_a: EF, v_b: EF, op: ExtensionOp) -> EF {
     match op {
-        Op::Add => v_a + v_b,
-        Op::Mul => v_a * v_b,
+        ExtensionOp::Add => v_a + v_b,
+        ExtensionOp::Mul => v_a * v_b,
         // poly_eq: a*b + (1-a)*(1-b)
-        Op::PolyEq => (v_a * v_b).double() - v_a - v_b + F::ONE,
+        ExtensionOp::PolyEq => (v_a * v_b).double() - v_a - v_b + F::ONE,
     }
 }
 
-fn accumulate(elem: EF, comp_tail: EF, op: Op) -> EF {
+fn accumulate(elem: EF, comp_tail: EF, op: ExtensionOp) -> EF {
     match op {
-        Op::PolyEq => elem * comp_tail,
-        Op::Add | Op::Mul => elem + comp_tail,
+        ExtensionOp::PolyEq => elem * comp_tail,
+        ExtensionOp::Add | ExtensionOp::Mul => elem + comp_tail,
     }
 }
 
@@ -41,7 +34,7 @@ fn solve_unknowns(
     ptr_b: F,
     ptr_res: F,
     is_be: bool,
-    op: Op,
+    op: ExtensionOp,
     memory: &mut impl MemoryAccess,
 ) -> Result<(), RunnerError> {
     let addr_a = ptr_a.to_usize();
@@ -65,9 +58,9 @@ fn solve_unknowns(
         (Ok(_), Ok(_), Err(_)) => {} // result unknown: compute normally
         (Err(_), Ok(b), Ok(c)) => {
             let a = match op {
-                Op::Add => c - b,
-                Op::Mul => c / b,
-                Op::PolyEq => unreachable!(),
+                ExtensionOp::Add => c - b,
+                ExtensionOp::Mul => c / b,
+                ExtensionOp::PolyEq => unreachable!(),
             };
             if is_be {
                 memory.set(addr_a, a.as_base().expect("solved A not in base field"))?;
@@ -77,9 +70,9 @@ fn solve_unknowns(
         }
         (Ok(a), Err(_), Ok(c)) => {
             let b = match op {
-                Op::Add => c - a,
-                Op::Mul => c / a,
-                Op::PolyEq => unreachable!(),
+                ExtensionOp::Add => c - a,
+                ExtensionOp::Mul => c / a,
+                ExtensionOp::PolyEq => unreachable!(),
             };
             memory.set_ef_element(addr_b, b)?;
         }
@@ -89,19 +82,19 @@ fn solve_unknowns(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn exec_multi_row(
+pub(super) fn exec_multi_row(
     ptr_a: F,
     ptr_b: F,
     ptr_res: F,
     size: usize,
     is_be: bool,
-    op: Op,
+    op: ExtensionOp,
     memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     assert!(size >= 1);
 
-    if size == 1 && op != Op::PolyEq {
+    if size == 1 && op != ExtensionOp::PolyEq {
         solve_unknowns(ptr_a, ptr_b, ptr_res, is_be, op, memory)?;
     }
 
@@ -145,16 +138,10 @@ fn exec_multi_row(
 
     // 4. Push trace rows
     let is_be_f = F::from_bool(is_be);
-    let flag_add = op == Op::Add;
-    let flag_mul = op == Op::Mul;
-    let flag_poly_eq = op == Op::PolyEq;
-    let flag_add_f = F::from_bool(flag_add);
-    let flag_mul_f = F::from_bool(flag_mul);
-    let flag_poly_eq_f = F::from_bool(flag_poly_eq);
-    let mode_bits = EXT_OP_FLAG_VARIANT * is_be as usize
-        + EXT_OP_FLAG_ADD * flag_add as usize
-        + EXT_OP_FLAG_MUL * flag_mul as usize
-        + EXT_OP_FLAG_POLY_EQ * flag_poly_eq as usize;
+    let flag_add_f = F::from_bool(op == ExtensionOp::Add);
+    let flag_mul_f = F::from_bool(op == ExtensionOp::Mul);
+    let flag_poly_eq_f = F::from_bool(op == ExtensionOp::PolyEq);
+    let mode_bits = op.flag() + EXT_OP_FLAG_IS_BE * is_be as usize;
 
     let result_coords = result.as_basis_coefficients_slice();
 
@@ -195,77 +182,11 @@ fn exec_multi_row(
     Ok(())
 }
 
-pub(super) fn exec_add_be(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Add, memory, trace)
-}
-
-pub(super) fn exec_add_ee(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Add, memory, trace)
-}
-
-pub(super) fn exec_dot_product_be(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::Mul, memory, trace)
-}
-
-pub(super) fn exec_dot_product_ee(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::Mul, memory, trace)
-}
-
-pub(super) fn exec_poly_eq_be(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, true, Op::PolyEq, memory, trace)
-}
-
-pub(super) fn exec_poly_eq_ee(
-    ptr_a: F,
-    ptr_b: F,
-    ptr_res: F,
-    size: usize,
-    memory: &mut impl MemoryAccess,
-    trace: &mut TableTrace,
-) -> Result<(), RunnerError> {
-    exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
-}
-
 /// memcopy_4: copy `n_reps` 5-element (DIMENSION) chunks from `ptr_in`
 /// to `ptr_out`, advancing source by `stride_in` (one of `MEMCOPY4_STRIDES`) and
 /// destination by `MEMCOPY_4_STRIDE_OUT` per iteration.
 ///
-/// The variant column encodes the stride: variant=1 → MEMCOPY4_STRIDES[1], variant=0 → MEMCOPY4_STRIDES[0].
+/// The is_be column encodes the stride: is_be=1 → MEMCOPY4_STRIDES[1], is_be=0 → MEMCOPY4_STRIDES[0].
 pub(super) fn exec_memcopy_4(
     ptr_in: F,
     ptr_out: F,
@@ -296,7 +217,7 @@ pub(super) fn exec_memcopy_4(
         idx_bs.push(F::from_usize(dst_addr));
     }
 
-    let mode_bits = EXT_OP_FLAG_MEMCOPY_4 + if is_be { EXT_OP_FLAG_VARIANT } else { 0 };
+    let mode_bits = EXT_OP_FLAG_MEMCOPY_4 + if is_be { EXT_OP_FLAG_IS_BE } else { 0 };
 
     for i in 0..n_reps {
         let is_start = i == 0;
