@@ -73,10 +73,10 @@ pub(crate) fn build_right(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
 }
 
 /// Chain-hash-specific left layout: [tweak(2) | zeros(2) | data(4)].
+/// (Chain hash uses the REVERSE convention: tweak on left, pp on right.)
 pub(crate) fn build_left_chain(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
     let mut left = [F::default(); 8];
     left[..TWEAK_LEN].copy_from_slice(&tweak);
-    // left[TWEAK_LEN..8-DIGEST_SIZE] = zeros (default)
     left[8 - DIGEST_SIZE..].copy_from_slice(data);
     left
 }
