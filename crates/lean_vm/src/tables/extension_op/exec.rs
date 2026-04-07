@@ -5,7 +5,8 @@ use crate::MemoryAccess;
 use crate::RunnerError;
 use crate::TableTrace;
 use crate::tables::extension_op::{
-    EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, EXT_OP_LEN_MULTIPLIER, air::*,
+    EXT_OP_FLAG_ADD, EXT_OP_FLAG_MEMCOPY_4, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, EXT_OP_FLAG_VARIANT,
+    EXT_OP_LEN_MULTIPLIER, MEMCOPY_4_STRIDE_OUT, MEMCOPY4_STRIDES, air::*,
 };
 use backend::*;
 use utils::ToUsize;
@@ -150,7 +151,7 @@ fn exec_multi_row(
     let flag_add_f = F::from_bool(flag_add);
     let flag_mul_f = F::from_bool(flag_mul);
     let flag_poly_eq_f = F::from_bool(flag_poly_eq);
-    let mode_bits = EXT_OP_FLAG_IS_BE * is_be as usize
+    let mode_bits = EXT_OP_FLAG_VARIANT * is_be as usize
         + EXT_OP_FLAG_ADD * flag_add as usize
         + EXT_OP_FLAG_MUL * flag_mul as usize
         + EXT_OP_FLAG_POLY_EQ * flag_poly_eq as usize;
@@ -166,6 +167,7 @@ fn exec_multi_row(
         trace.columns[COL_FLAG_ADD].push(flag_add_f);
         trace.columns[COL_FLAG_MUL].push(flag_mul_f);
         trace.columns[COL_FLAG_POLY_EQ].push(flag_poly_eq_f);
+        trace.columns[COL_FLAG_MEMCOPY_4].push(F::ZERO);
         trace.columns[COL_LEN].push(F::from_usize(current_len));
         trace.columns[COL_IDX_A].push(idx_as[i]);
         trace.columns[COL_IDX_B].push(idx_bs[i]);
@@ -257,6 +259,78 @@ pub(super) fn exec_poly_eq_ee(
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
     exec_multi_row(ptr_a, ptr_b, ptr_res, size, false, Op::PolyEq, memory, trace)
+}
+
+/// memcopy_4: copy `n_reps` 5-element (DIMENSION) chunks from `ptr_in`
+/// to `ptr_out`, advancing source by `stride_in` (one of `MEMCOPY4_STRIDES`) and
+/// destination by `MEMCOPY_4_STRIDE_OUT` per iteration.
+///
+/// The variant column encodes the stride: variant=1 → MEMCOPY4_STRIDES[1], variant=0 → MEMCOPY4_STRIDES[0].
+pub(super) fn exec_memcopy_4(
+    ptr_in: F,
+    ptr_out: F,
+    stride_in: usize,
+    n_reps: usize,
+    memory: &mut impl MemoryAccess,
+    trace: &mut TableTrace,
+) -> Result<(), RunnerError> {
+    assert!(n_reps >= 1);
+    let variant = MEMCOPY4_STRIDES
+        .iter()
+        .position(|&s| s == stride_in)
+        .unwrap_or_else(|| panic!("memcopy_4 stride_in must be one of {MEMCOPY4_STRIDES:?}, got {stride_in}"));
+    let is_be = variant == 1;
+    let is_be_f = F::from_bool(is_be);
+
+    let mut values: Vec<EF> = Vec::with_capacity(n_reps);
+    let mut idx_as: Vec<F> = Vec::with_capacity(n_reps);
+    let mut idx_bs: Vec<F> = Vec::with_capacity(n_reps);
+
+    for i in 0..n_reps {
+        let src_addr = ptr_in.to_usize() + i * stride_in;
+        let dst_addr = ptr_out.to_usize() + i * MEMCOPY_4_STRIDE_OUT;
+        let v = memory.get_ef_element(src_addr)?;
+        memory.set_ef_element(dst_addr, v)?;
+        values.push(v);
+        idx_as.push(F::from_usize(src_addr));
+        idx_bs.push(F::from_usize(dst_addr));
+    }
+
+    let mode_bits = EXT_OP_FLAG_MEMCOPY_4 + if is_be { EXT_OP_FLAG_VARIANT } else { 0 };
+
+    for i in 0..n_reps {
+        let is_start = i == 0;
+        let current_len = n_reps - i;
+
+        trace.columns[COL_IS_BE].push(is_be_f);
+        trace.columns[COL_START].push(F::from_bool(is_start));
+        trace.columns[COL_FLAG_ADD].push(F::ZERO);
+        trace.columns[COL_FLAG_MUL].push(F::ZERO);
+        trace.columns[COL_FLAG_POLY_EQ].push(F::ZERO);
+        trace.columns[COL_FLAG_MEMCOPY_4].push(F::ONE);
+        trace.columns[COL_LEN].push(F::from_usize(current_len));
+        trace.columns[COL_IDX_A].push(idx_as[i]);
+        trace.columns[COL_IDX_B].push(idx_bs[i]);
+        trace.columns[COL_IDX_RES].push(idx_as[i]);
+
+        for k in 0..DIMENSION {
+            trace.columns[COL_VA + k].push(F::ZERO);
+        }
+        for (k, &val) in values[i].as_basis_coefficients_slice().iter().enumerate() {
+            trace.columns[COL_VB + k].push(val);
+        }
+        for (k, &val) in values[i].as_basis_coefficients_slice().iter().enumerate() {
+            trace.columns[COL_VRES + k].push(val);
+        }
+        for (k, &val) in values[i].as_basis_coefficients_slice().iter().enumerate() {
+            trace.columns[COL_COMP + k].push(val);
+        }
+
+        trace.columns[COL_ACTIVATION_FLAG].push(F::from_bool(is_start));
+        trace.columns[COL_AUX_EXTENSION_OP].push(F::from_usize(mode_bits + EXT_OP_LEN_MULTIPLIER * current_len));
+    }
+
+    Ok(())
 }
 
 /// Fill the VALUE_A columns (5 base field coordinates) after execution

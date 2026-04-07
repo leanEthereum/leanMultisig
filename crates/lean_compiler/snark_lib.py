@@ -105,6 +105,10 @@ def poly_eq_ee(a, b, result, length=None):
     _ = a, b, result, length
 
 
+def memcopy_4(addr_in, addr_out, stride_in, n_reps):
+    _ = addr_in, addr_out, stride_in, n_reps
+
+
 def hint_decompose_bits(value, bits, n_bits, endian):
     _ = value, bits, n_bits, endian
 
