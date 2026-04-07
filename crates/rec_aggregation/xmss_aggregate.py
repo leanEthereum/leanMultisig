@@ -189,6 +189,7 @@ def chain_hash_pa(input, n, output, chain_right, buf_base):
     return
 
 
+@inline
 def wots_pk_hash(wots_pk_bufs, public_param):
     # Sequential hash over V chain results.
     # wots_pk_bufs: V slots at BUF_SIZE stride, each [gap(4) | poseidon_output(8)].
