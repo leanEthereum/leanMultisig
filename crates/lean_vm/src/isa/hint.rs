@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::SIG_SIZE_FE;
+use xmss::{DIGEST_SIZE, PP_IN_LEFT, SIG_SIZE_FE, WOTS_SIG_SIZE_FE};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -86,9 +86,12 @@ pub enum CustomHint {
     PrivateInputStart,
     Xmss,
     Merkle,
+    /// Scatter merkle path neighbors to the correct left/right buffer based on bit pattern.
+    /// Args: (path_ptr, bits, left_bufs_ptr, tweak_bufs_ptr)
+    ScatterMerkleNeighbors,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 9] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
@@ -97,6 +100,7 @@ pub const CUSTOM_HINTS: [CustomHint; 8] = [
     CustomHint::PrivateInputStart,
     CustomHint::Xmss,
     CustomHint::Merkle,
+    CustomHint::ScatterMerkleNeighbors,
 ];
 
 impl CustomHint {
@@ -110,6 +114,7 @@ impl CustomHint {
             Self::PrivateInputStart => "hint_private_input_start",
             Self::Xmss => "hint_xmss",
             Self::Merkle => "hint_merkle",
+            Self::ScatterMerkleNeighbors => "hint_scatter_merkle_neighbors",
         }
     }
 
@@ -123,6 +128,7 @@ impl CustomHint {
             Self::PrivateInputStart => 1,
             Self::Xmss => 1,
             Self::Merkle => 2,
+            Self::ScatterMerkleNeighbors => 4,
         }
     }
 
@@ -214,7 +220,9 @@ impl CustomHint {
                 );
                 let sig = &ctx.hints.xmss_signatures[index];
                 assert_eq!(sig.len(), SIG_SIZE_FE);
-                ctx.memory.set_slice(buf_ptr, sig)?;
+                // Write only core signature (randomness + chain_tips), not the merkle path.
+                // Merkle path is scattered directly to buffers by hint_scatter_merkle_neighbors.
+                ctx.memory.set_slice(buf_ptr, &sig[..WOTS_SIG_SIZE_FE])?;
                 *ctx.hints.xmss_hint_index += 1;
             }
             Self::Merkle => {
@@ -236,6 +244,33 @@ impl CustomHint {
                 );
                 ctx.memory.set_slice(buf_ptr, path)?;
                 *ctx.hints.merkle_hint_index += 1;
+            }
+            Self::ScatterMerkleNeighbors => {
+                // Scatter 4 merkle path neighbors directly from XMSS signature hint state
+                // to left or right buffers based on bit pattern. The neighbors never touch
+                // intermediate memory — they go straight from the signature to their final slot.
+                // merkle_offset: offset (in FE) into the merkle path within the signature
+                // bits: 4-bit value encoding is_left for each level
+                // left_bufs_ptr: 4 left buffers at buf_size stride (pp prefix pre-written)
+                // tweak_bufs_ptr: 4 right buffers at buf_size stride (tweak prefix pre-written)
+                let merkle_offset = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let bits = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let left_bufs_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let tweak_bufs_ptr = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let buf_size = PP_IN_LEFT + crate::DIGEST_LEN;
+                // Read from the last-used XMSS signature (hint_xmss already incremented the index).
+                let sig_index = *ctx.hints.xmss_hint_index - 1;
+                let sig = &ctx.hints.xmss_signatures[sig_index];
+                for k in 0..4 {
+                    let src_offset = WOTS_SIG_SIZE_FE + merkle_offset + k * DIGEST_SIZE;
+                    let neighbor = &sig[src_offset..src_offset + DIGEST_SIZE];
+                    let dest = if (bits >> k) & 1 == 1 {
+                        tweak_bufs_ptr + k * buf_size + PP_IN_LEFT
+                    } else {
+                        left_bufs_ptr + k * buf_size + PP_IN_LEFT
+                    };
+                    ctx.memory.set_slice(dest, neighbor)?;
+                }
             }
         }
         Ok(())
