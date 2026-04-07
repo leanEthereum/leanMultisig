@@ -46,7 +46,7 @@ def main():
     for i in unroll(0, 12):
         mc_src[i] = i * 3 + 7
     mc_dst = Array(28)
-    memcopy4(mc_src, mc_dst, 4, 3)
+    memcopy_4(mc_src, mc_dst, 4, 3)
     for rep in unroll(0, 3):
         for k in unroll(0, 4):
             assert mc_dst[rep * 12 + k] == mc_src[rep * 4 + k]
@@ -56,7 +56,7 @@ def main():
     for i in unroll(0, 4):
         mc_src2[i] = i + 100
     mc_dst2 = Array(16)
-    memcopy4(mc_src2, mc_dst2, 0, 2)
+    memcopy_4(mc_src2, mc_dst2, 0, 2)
     for k in unroll(0, 4):
         assert mc_dst2[k] == mc_src2[k]
         assert mc_dst2[12 + k] == mc_src2[k]

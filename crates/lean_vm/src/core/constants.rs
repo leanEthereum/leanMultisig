@@ -23,7 +23,7 @@ pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 4] = [
     (Table::execution(), 25),
     (Table::extension_op(), 20),
     (Table::poseidon16(), 21),
-    (Table::memcopy4(), 20),
+    (Table::memcopy_4(), 20),
 ];
 
 /// Starting program counter

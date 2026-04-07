@@ -23,11 +23,11 @@ pub struct Memcopy4Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Memcopy4Precompile<BUS> {
     fn name(&self) -> &'static str {
-        "memcopy4"
+        "memcopy_4"
     }
 
     fn table(&self) -> Table {
-        Table::memcopy4()
+        Table::memcopy_4()
     }
 
     fn lookups(&self) -> Vec<LookupIntoMemory> {

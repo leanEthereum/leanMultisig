@@ -2118,8 +2118,8 @@ fn simplify_lines(
                         }
 
                         // Special handling for memcopy4 precompile
-                        // Signature: memcopy4(addr_in, addr_out, stride_in, n_reps)
-                        if function_name == "memcopy4" {
+                        // Signature: memcopy_4(addr_in, addr_out, stride_in, n_reps)
+                        if function_name == "memcopy_4" {
                             if !targets.is_empty() {
                                 return Err(format!("Precompile memcopy4 should not return values, at {location}"));
                             }
@@ -2163,7 +2163,7 @@ fn simplify_lines(
                                 SimpleExpr::Constant(flag_val.into()),
                             ];
                             res.push(SimpleLine::Precompile {
-                                table: Table::memcopy4(),
+                                table: Table::memcopy_4(),
                                 args: simplified_args,
                             });
                             continue;

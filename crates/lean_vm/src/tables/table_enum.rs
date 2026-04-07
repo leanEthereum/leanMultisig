@@ -8,7 +8,7 @@ pub const ALL_TABLES: [Table; N_TABLES] = [
     Table::execution(),
     Table::extension_op(),
     Table::poseidon16(),
-    Table::memcopy4(),
+    Table::memcopy_4(),
 ];
 /// Tables handled by the recursive aggregation program (recursion.py only supports 3).
 /// TODO: add Memcopy4 once recursion.py is updated.
@@ -57,7 +57,7 @@ impl Table {
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
     }
-    pub const fn memcopy4() -> Self {
+    pub const fn memcopy_4() -> Self {
         Self::Memcopy4(Memcopy4Precompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
