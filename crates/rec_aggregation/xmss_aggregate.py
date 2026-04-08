@@ -84,39 +84,35 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     encoding_fe = Array(DIGEST_LEN)
     poseidon16_compress(pre_compressed, pp_input, encoding_fe)
 
-    encoding = Array(NUM_ENCODING_FE * 24 / W)
+    # Decompose by 2W-bit chunks (pairs of chain values per element).
+    DOUBLE_W = 2 * W
+    ELEMS_PER_FE = 24 / DOUBLE_W
+    encoding = Array(NUM_ENCODING_FE * ELEMS_PER_FE)
     remaining = Array(NUM_ENCODING_FE)
 
-    # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
-    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, W)
+    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, DOUBLE_W)
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
-        for j in unroll(0, 24 / W):
-            assert encoding[i * (24 / W) + j] < CHAIN_LENGTH
+        for j in unroll(0, ELEMS_PER_FE):
+            assert encoding[i * ELEMS_PER_FE + j] < CHAIN_LENGTH**2
 
-        assert remaining[i] < 2**7 - 1
+        assert remaining[i] < 2**7 - 1  # ensures uniformity + prevent overflow
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24 / W):
-            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH**j
+        for j in unroll(0, ELEMS_PER_FE):
+            partial_sum += encoding[i * ELEMS_PER_FE + j] * (CHAIN_LENGTH**2) ** j
         assert partial_sum == encoding_fe[i]
 
-    # we need to check the target sum
-    target_sum: Mut = encoding[0]
-    for i in unroll(1, V):
-        target_sum += encoding[i]
-    assert target_sum == TARGET_SUM
-
     # grinding
-    for i in unroll(V, V + V_GRINDING):
-        assert encoding[i] == CHAIN_LENGTH - 1
+    debug_assert(V_GRINDING % 2 == 0)
+    debug_assert(V % 2 == 0)
+    for i in unroll(V / 2, (V + V_GRINDING) / 2):
+        assert encoding[i] == CHAIN_LENGTH**2 - 1
 
-    # 2) Chain hashes -> recover WOTS public key
+    # 2) Chain hashes -> recover WOTS public key (paired: 2 chains per match_range)
     # Chain hash convention: left = [tweak(4) | data(4)], right = [pp(4) | zeros(4)] (constant).
     # Chain results stored at BUF_SIZE stride with digest at offset PP_IN_LEFT.
-    # Layout per slot: [gap(4) | poseidon_output(8)]. The gap is later filled with
-    # wots_pk tweaks via memcopy_4, so each slot becomes a ready right input for wots_pk_hash.
     wots_pk_bufs = Array(V * BUF_SIZE)
 
     chain_right = Array(DIGEST_LEN)
@@ -126,19 +122,25 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
     ch_shared_bufs = Array(V * CHAIN_LENGTH * BUF_SIZE)
     memcopy_4(tweak_table + TWEAK_CHAIN_OFFSET, ch_shared_bufs, TWEAK_LEN, V * CHAIN_LENGTH)
 
-    for i in unroll(0, V):
-        num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * XMSS_DIGEST
-        chain_end = wots_pk_bufs + i * BUF_SIZE + PP_IN_LEFT
-        chain_buf_base = ch_shared_bufs + i * CHAIN_LENGTH * BUF_SIZE
+    target_sum: Mut = 0
+
+    for i in unroll(0, V / 2):
+        chain_start_pair = chain_starts + i * (XMSS_DIGEST * 2)
+        pair_sum_ptr = Array(1)
+        # Left chain = 2i, right chain = 2i+1
+        chain_end_l = wots_pk_bufs + (2 * i) * BUF_SIZE + PP_IN_LEFT
+        chain_end_r = wots_pk_bufs + (2 * i + 1) * BUF_SIZE + PP_IN_LEFT
+        buf_base_l = ch_shared_bufs + (2 * i) * CHAIN_LENGTH * BUF_SIZE
+        buf_base_r = ch_shared_bufs + (2 * i + 1) * CHAIN_LENGTH * BUF_SIZE
 
         match_range(
-            num_hashes,
-            range(0, 1),
-            lambda _: memcopy_4(chain_start, chain_end, 0, 1),
-            range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_right, chain_buf_base + (CHAIN_LENGTH - 1 - n) * BUF_SIZE),
+            encoding[i],
+            range(0, CHAIN_LENGTH**2),
+            lambda n: chain_hash_paired(chain_start_pair, n, chain_end_l, chain_end_r, pair_sum_ptr, chain_right, buf_base_l, buf_base_r),
         )
+        target_sum += pair_sum_ptr[0]
+
+    assert target_sum == TARGET_SUM
 
     # 3) Hash WOTS public key — dispatch all V-1 tweaks in one memcopy_4.
     # wots_pk_bufs[1..V-1] become right inputs: [tweak(4) | digest(4)].
@@ -156,6 +158,32 @@ def xmss_verify(pub_key, message, signature, tweak_table, merkle_chunks):
 def copy_xmss_digest(src, dst):
     # Copy XMSS_DIGEST (= 4) elements from src to dst.
     memcopy_4(src, dst, 0, 1)
+    return
+
+
+@inline
+def chain_hash_paired(input_pair, n, output_l, output_r, pair_sum_ptr, chain_right, buf_base_l, buf_base_r):
+    # Process two chains simultaneously from a 2W-bit encoding value n.
+    # n encodes: raw_left = n % CHAIN_LENGTH, raw_right = n / CHAIN_LENGTH.
+    raw_left = n % CHAIN_LENGTH
+    raw_right = (n - raw_left) / CHAIN_LENGTH
+
+    n_left = (CHAIN_LENGTH - 1) - raw_left
+    n_right = (CHAIN_LENGTH - 1) - raw_right
+
+    # Left chain (even-indexed)
+    if n_left == 0:
+        memcopy_4(input_pair, output_l, 0, 1)
+    else:
+        chain_hash_pa(input_pair, n_left, output_l, chain_right, buf_base_l + (CHAIN_LENGTH - 1 - n_left) * BUF_SIZE)
+
+    # Right chain (odd-indexed)
+    if n_right == 0:
+        memcopy_4(input_pair + XMSS_DIGEST, output_r, 0, 1)
+    else:
+        chain_hash_pa(input_pair + XMSS_DIGEST, n_right, output_r, chain_right, buf_base_r + (CHAIN_LENGTH - 1 - n_right) * BUF_SIZE)
+
+    pair_sum_ptr[0] = raw_left + raw_right
     return
 
 

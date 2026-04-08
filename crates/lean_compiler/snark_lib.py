@@ -180,3 +180,7 @@ def hint_xmss(buff):
 def hint_merkle(buff, n):
     _ = buff
     _ = n
+
+
+def hint_scatter_merkle_neighbors(path_ptr, bits, left_bufs_ptr, tweak_bufs_ptr):
+    _ = path_ptr, bits, left_bufs_ptr, tweak_bufs_ptr
