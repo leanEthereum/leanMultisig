@@ -1888,6 +1888,35 @@ impl MutableVarTracker {
 pub struct ConstMalloc {
     counter: usize,
     map: BTreeMap<Var, ConstMallocLabel>,
+    /// Lazily-allocated 1-element const_malloc region initialized to zero.
+    /// Shared by all memcopy_4 calls as a dummy arg_c (avoids per-call materialization).
+    zero_cell: Option<ConstMallocLabel>,
+}
+
+impl ConstMalloc {
+    /// Returns the label of a shared zero cell. Emits allocation + initialization on first use.
+    fn get_or_create_zero(&mut self, res: &mut Vec<SimpleLine>) -> ConstMallocLabel {
+        if let Some(label) = self.zero_cell {
+            return label;
+        }
+        let label = self.counter;
+        self.counter += 1;
+        let var: Var = "@mc4_zero".to_string();
+        self.map.insert(var.clone(), label);
+        self.zero_cell = Some(label);
+        res.push(SimpleLine::ConstMalloc { var, size: ConstExpression::one(), label });
+        // Initialize the cell to 0 via assignment to the ConstMalloc address.
+        res.push(SimpleLine::Assignment {
+            var: VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label: label,
+                offset: ConstExpression::zero(),
+            },
+            operation: MathOperation::Add,
+            arg0: SimpleExpr::Constant(ConstExpression::zero()),
+            arg1: SimpleExpr::Constant(ConstExpression::zero()),
+        });
+        label
+    }
 }
 
 impl ArrayManager {
@@ -2155,10 +2184,14 @@ fn simplify_lines(
                             }
                             // stride_in_flag: index 0 → flag=1, index 1 → flag=0
                             let flag_val = 1 - stride_in_flag.unwrap();
+                            let zero_label = const_malloc.get_or_create_zero(&mut res);
                             let simplified_args = vec![
                                 addr_in,
                                 addr_out,
-                                SimpleExpr::Constant(ConstExpression::zero()),
+                                SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess {
+                                    malloc_label: zero_label,
+                                    offset: ConstExpression::zero(),
+                                }),
                                 SimpleExpr::Constant(n_reps_u.into()),
                                 SimpleExpr::Constant(flag_val.into()),
                             ];
