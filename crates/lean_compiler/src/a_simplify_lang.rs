@@ -5,8 +5,9 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, POSEIDON16_HALF_NAME, PrecompileArgs,
-    PrecompileCompTimeArgs, SourceLocation, Table, TableT,
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, POSEIDON16_HALF_NAME,
+    POSEIDON16_HALF_ZERO_RSUFFIX_NAME, POSEIDON16_ZERO_RSUFFIX_NAME, PrecompileArgs, PrecompileCompTimeArgs,
+    SourceLocation, Table, TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2151,9 +2152,15 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() || function_name == POSEIDON16_HALF_NAME {
-                            let half_output = function_name == POSEIDON16_HALF_NAME;
+                        // Special handling for poseidon16 precompile variants
+                        let poseidon16_variant = match function_name {
+                            _ if function_name == Table::poseidon16().name() => Some((false, false)),
+                            _ if function_name == POSEIDON16_HALF_NAME => Some((true, false)),
+                            _ if function_name == POSEIDON16_ZERO_RSUFFIX_NAME => Some((false, true)),
+                            _ if function_name == POSEIDON16_HALF_ZERO_RSUFFIX_NAME => Some((true, true)),
+                            _ => None,
+                        };
+                        if let Some((half_output, zero_right_suffix)) = poseidon16_variant {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2173,7 +2180,10 @@ fn simplify_lines(
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16 { half_output },
+                                data: PrecompileCompTimeArgs::Poseidon16 {
+                                    half_output,
+                                    zero_right_suffix,
+                                },
                             }));
                             continue;
                         }

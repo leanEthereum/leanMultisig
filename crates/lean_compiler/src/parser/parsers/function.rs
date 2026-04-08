@@ -9,7 +9,10 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{CUSTOM_HINTS, ExtensionOpMode, POSEIDON16_HALF_NAME, POSEIDON16_NAME};
+use lean_vm::{
+    CUSTOM_HINTS, ExtensionOpMode, POSEIDON16_HALF_NAME, POSEIDON16_HALF_ZERO_RSUFFIX_NAME, POSEIDON16_NAME,
+    POSEIDON16_ZERO_RSUFFIX_NAME,
+};
 
 /// Reserved function names that users cannot define.
 pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
@@ -35,7 +38,14 @@ fn is_reserved_function_name(name: &str) -> bool {
         return true;
     }
     // Check precompile names (poseidon16, extension_op functions)
-    if name == POSEIDON16_NAME || name == POSEIDON16_HALF_NAME {
+    if [
+        POSEIDON16_NAME,
+        POSEIDON16_HALF_NAME,
+        POSEIDON16_ZERO_RSUFFIX_NAME,
+        POSEIDON16_HALF_ZERO_RSUFFIX_NAME,
+    ]
+    .contains(&name)
+    {
         return true;
     }
     if ExtensionOpMode::from_name(name).is_some() {

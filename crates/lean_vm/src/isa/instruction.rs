@@ -63,7 +63,7 @@ pub struct PrecompileArgs<V, S> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrecompileCompTimeArgs<S> {
-    Poseidon16 { half_output: bool },
+    Poseidon16 { half_output: bool, zero_right_suffix: bool },
     ExtensionOp { size: S, mode: ExtensionOpMode },
 }
 
@@ -77,7 +77,13 @@ impl<S> PrecompileCompTimeArgs<S> {
 
     pub fn map_size<T>(self, f: impl FnOnce(S) -> T) -> PrecompileCompTimeArgs<T> {
         match self {
-            Self::Poseidon16 { half_output } => PrecompileCompTimeArgs::Poseidon16 { half_output },
+            Self::Poseidon16 {
+                half_output,
+                zero_right_suffix,
+            } => PrecompileCompTimeArgs::Poseidon16 {
+                half_output,
+                zero_right_suffix,
+            },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
     }
@@ -233,12 +239,17 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
             data,
         } = self;
         match data {
-            PrecompileCompTimeArgs::Poseidon16 { half_output } => {
-                if *half_output {
-                    write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)")
-                } else {
-                    write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
-                }
+            PrecompileCompTimeArgs::Poseidon16 {
+                half_output,
+                zero_right_suffix,
+            } => {
+                let suffix = match (*half_output, *zero_right_suffix) {
+                    (false, false) => "",
+                    (true, false) => "_half",
+                    (false, true) => "_zero_rsuffix",
+                    (true, true) => "_half_zero_rsuffix",
+                };
+                write!(f, "{POSEIDON16_NAME}{suffix}({arg_0}, {arg_1}, {res})")
             }
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
