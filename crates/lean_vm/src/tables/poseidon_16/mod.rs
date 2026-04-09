@@ -203,9 +203,20 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg_a_usize = arg_a.to_usize();
+        let flag_hardcoded = hardcoded_left_4.is_some();
+        // Convention:
+        //   flag = 0: left input = m[arg_a..arg_a+8] (split as [arg_a..+4], [arg_a+4..+8])
+        //   flag = 1: left input = m[offset..offset+4] | m[arg_a..arg_a+4]
+        //             (i.e. arg_a now points to a 4-element data digest, and the first 4
+        //              elements come from the hardcoded prefix at `offset`)
         let left_first_addr = hardcoded_left_4.unwrap_or(arg_a_usize);
+        let left_second_addr = if flag_hardcoded {
+            arg_a_usize
+        } else {
+            arg_a_usize + HALF_DIGEST_LEN
+        };
         let arg0_first = ctx.memory.get_slice(left_first_addr, HALF_DIGEST_LEN)?;
-        let arg0_second = ctx.memory.get_slice(arg_a_usize + HALF_DIGEST_LEN, HALF_DIGEST_LEN)?;
+        let arg0_second = ctx.memory.get_slice(left_second_addr, HALF_DIGEST_LEN)?;
         let arg1 = ctx.memory.get_slice(arg_b.to_usize(), DIGEST_LEN)?;
 
         let mut input = [F::ZERO; DIGEST_LEN * 2];
@@ -222,7 +233,6 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
         }
 
-        let flag_hardcoded = hardcoded_left_4.is_some();
         let offset_hardcoded = hardcoded_left_4.unwrap_or(0);
 
         trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
@@ -233,7 +243,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4].push(if flag_hardcoded { F::ONE } else { F::ZERO });
         trace.columns[POSEIDON_16_COL_OFFSET_HARDCODED].push(F::from_usize(offset_hardcoded));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
-        trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(arg_a + F::from_usize(HALF_DIGEST_LEN));
+        trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
         for (i, value) in input.iter().enumerate() {
             trace.columns[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
@@ -314,10 +324,16 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 + cols.offset_hardcoded * cols.flag_hardcoded_left_4,
         );
 
-        // effective_index_left_second = index_a + 4
+        // effective_index_left_second = index_a + (1 - flag_hardcoded_left_4) * 4
+        // - When the hardcoded flag is disabled (legacy path) the second half of the left
+        //   input is read from m[index_a + 4 .. index_a + 8] (the upper half of an 8-element
+        //   chunk pointed to by index_a).
+        // - When the hardcoded flag is set, only a 4-element data digest is read from
+        //   m[index_a .. index_a + 4]; the first 4 inputs are supplied from the hardcoded
+        //   m[offset .. offset + 4].
         builder.assert_eq(
             cols.effective_index_left_second,
-            cols.index_a + AB::F::from_usize(HALF_DIGEST_LEN),
+            cols.index_a + (AB::IF::ONE - cols.flag_hardcoded_left_4) * AB::F::from_usize(HALF_DIGEST_LEN),
         );
 
         eval_poseidon1_16(builder, &cols)
