@@ -93,8 +93,12 @@ impl WotsSignature {
 
 impl WotsPublicKey {
     /// Sponge-like hash of V public key digests.
-    /// IV = [tweak(2) | 00(2) | pp(4)], then ingest 8 FE per step (2 digests at a time).
-    /// The IV layout matches the LEFT-input convention for poseidon16_compress_hardcoded_left_4
+    /// IV = [tweak(2) | 00(2) | pp(4)]; first absorb 8 zeros, then ingest 8 FE per step
+    /// (2 digests at a time). The leading zero-absorb gives the SNARK-side a uniform
+    /// per-pair loop starting at i=0 and lets each pair live in a 10-FE slot
+    /// `[leading_0 | tip_a | tip_b | trailing_0]`, with the leading/trailing zero cells
+    /// serving as copy_5 slack in `chain_hash_pair`.
+    /// The IV layout matches the LEFT-input convention for `poseidon16_compress_hardcoded_left_4`
     /// — `[tweak(2) | 00]` is read straight from the wots_pk tweak slot, and `[pp(4)]` lives at
     /// the runtime public_param pointer. Final output truncated to DIGEST_SIZE (4 FE).
     pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
@@ -105,6 +109,11 @@ impl WotsPublicKey {
         state[..TWEAK_LEN].copy_from_slice(&tweak);
         // state[2..4] = 00 (default)
         state[4..4 + PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
+
+        // Initial absorb of 8 zeros (matches the SNARK's `poseidon16_compress_hardcoded_left_4`
+        // call against `ZERO_VEC_PTR` in `wots_pk_hash`).
+        let zeros = [F::ZERO; 8];
+        state = poseidon16_compress_pair(&state, &zeros);
 
         for i in (0..V).step_by(2) {
             let mut chunk = [F::default(); 8];

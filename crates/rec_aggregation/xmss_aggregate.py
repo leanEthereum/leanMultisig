@@ -14,6 +14,11 @@ XMSS_DIGEST_LEN = XMSS_DIGEST_LEN_PLACEHOLDER
 PUB_KEY_SIZE = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE
 PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST_LEN
 WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
+# wots_public_key pair stride: each pair occupies 10 cells
+# `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. The two zero cells are slack
+# used by chain_hash_pair's copy_5 calls — they receive the harmless 5th-cell
+# spillover so copy_5 never collides with adjacent chain writes.
+WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
@@ -134,11 +139,15 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
         assert encoding[i] == CHAIN_LENGTH**2 - 1
 
     # 2) Chain hashes -> recover WOTS public key
-    # `wots_public_key` is packed at stride XMSS_DIGEST (= 4): pk[i] lives at offset
-    # i * XMSS_DIGEST. We over-allocate by (DIGEST_LEN - XMSS_DIGEST) trailing slots so
-    # the half-output lookup of the LAST chain (which still reads 8 memory cells past
-    # its 4-element digest) stays in bounds.
-    wots_public_key = Array(V * XMSS_DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST_LEN))
+    # `wots_public_key` layout: V/2 pairs of stride WOTS_PK_PAIR_STRIDE = 10. Each pair
+    # is `[leading_0(1) | tip_a(4) | tip_b(4) | trailing_0(1)]`. The leading and trailing
+    # zero cells are slack used by `chain_hash_pair`'s copy_5 calls in the n==0 case
+    # (the 5th cell that copy_5 always writes lands in slack, never in the adjacent
+    # chain's slot). The wots_pk_hash absorbs 8 zeros first (matching the Rust side),
+    # then iterates over pairs reading 8 cells `[tip_a | tip_b]` per pair from offset
+    # `i * WOTS_PK_PAIR_STRIDE + 1`. Plus 4 trailing slots so the LAST chain b's
+    # half-output lookup stays in bounds.
+    wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE + 4)
 
     chain_right = Array(DIGEST_LEN + 1)
     build_chain_right(public_param, chain_right)
@@ -150,8 +159,8 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     for i in unroll(0, V / 2):
         chain_start_a = chain_starts + (2 * i) * XMSS_DIGEST_LEN
         chain_start_b = chain_starts + (2 * i + 1) * XMSS_DIGEST_LEN
-        chain_end_a = wots_public_key + (2 * i) * XMSS_DIGEST_LEN
-        chain_end_b = wots_public_key + (2 * i + 1) * XMSS_DIGEST_LEN
+        chain_end_a = wots_public_key + i * WOTS_PK_PAIR_STRIDE + 1
+        chain_end_b = wots_public_key + i * WOTS_PK_PAIR_STRIDE + 1 + XMSS_DIGEST_LEN
         tweaks_a = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i) * CHAIN_LENGTH * TWEAK_LEN
         tweaks_b = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i + 1) * CHAIN_LENGTH * TWEAK_LEN
         pair_sum_ptr = Array(1)
@@ -183,14 +192,6 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # poseidon16_compress_hardcoded_left_4.
     merkle_tweaks = TWEAK_TABLE_ADDR + TWEAK_MERKLE_OFFSET
     xmss_merkle_verify(expected_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
-    return
-
-
-@inline
-def copy_xmss_digest(src, dst):
-    # Copy XMSS_DIGEST elements from src to dst (within a DIGEST_LEN-strided destination)
-    for k in unroll(0, XMSS_DIGEST_LEN):
-        dst[k] = src[k]
     return
 
 
@@ -274,12 +275,19 @@ def chain_hash_pair(
     num_hashes_b = (CHAIN_LENGTH - 1) - raw_b
 
     if num_hashes_a == 0:
-        copy_xmss_digest(input_a, output_a)
+        # Single-cycle copy_5: writes 5 cells [output_a[-1..4]]. The 5th cell is the
+        # leading-zero slack of this pair (output_a points to pair_start + 1, so
+        # output_a - 1 = pair_start = leading_0). The slack cell receives input_a[-1]
+        # (a signature byte) — harmless because nothing else reads it.
+        copy_5(input_a - 1, output_a - 1)
     else:
         chain_hash_pa(input_a, num_hashes_a, output_a, tweaks_a, chain_right)
 
     if num_hashes_b == 0:
-        copy_xmss_digest(input_b, output_b)
+        # Single-cycle copy_5: writes 5 cells [output_b[0..4]]. The 5th cell lands in
+        # the trailing-zero slack of this pair (output_b = pair_start + 5; output_b + 4
+        # = pair_start + 9 = trailing_0). It receives input_b[4] — harmless.
+        copy_5(input_b, output_b)
     else:
         chain_hash_pa(input_b, num_hashes_b, output_b, tweaks_b, chain_right)
 
@@ -289,33 +297,37 @@ def chain_hash_pair(
 
 @inline
 def wots_pk_hash(wots_public_key, public_param):
-    # Sponge-like hash of V public key digests, packed at stride XMSS_DIGEST = 4 in
-    # `wots_public_key`. Each 8-FE sponge chunk = pk[2i] || pk[2i+1] is therefore
-    # already contiguous in memory at `wots_public_key + i * DIGEST_LEN` — we feed
-    # those pointers straight into poseidon, no copy / no `chunks` array.
+    # Sponge-like hash of V public key digests, packed at stride WOTS_PK_PAIR_STRIDE
+    # in `wots_public_key`. Each pair occupies 10 cells:
+    # `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. The 8-FE sponge chunk for
+    # pair i is `[tip_a | tip_b]` at offset `i * WOTS_PK_PAIR_STRIDE + 1` (skipping
+    # the per-pair leading_0 slack).
     #
-    # IV = [tweak(2) | 00 | pp(4)] (matches the LEFT-input convention for
-    # poseidon16_compress_hardcoded_left_4: the first 4 FE come from the wots_pk
-    # tweak slot at the compile-time address TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET,
-    # and the next 4 FE come from `public_param` at runtime).
+    # IV = [tweak(2) | 00 | pp(4)]. We absorb 8 zeros first via hardcoded_left_4
+    # against `ZERO_VEC_PTR` (matching the Rust side's `WotsPublicKey::hash`), then
+    # iterate over pairs in a uniform `for i in 0..N_CHUNKS` loop. The leading
+    # zero-absorb gives us a uniform loop and lets each pair's slack cells live in
+    # the buffer (used by `chain_hash_pair` copy_5 calls).
     # V must be even.
     N_CHUNKS = V / 2
 
-    states = Array(N_CHUNKS * DIGEST_LEN)
-    # First hash: LEFT input is [tweak(2) | 00 | pp(4)]; the precompile reads
-    # [tweak(2) | 00] from the wots_pk tweak slot and [pp(4)] from `public_param`.
-    # RIGHT input is the first 8-FE chunk (pk[0] || pk[1]) at wots_public_key + 0.
+    # +1 chunk for the initial zero-absorb output.
+    states = Array((N_CHUNKS + 1) * DIGEST_LEN)
+    # Initial absorb of 8 zeros: state[0..8] = poseidon([tweak(2) | 00 | pp(4)], 0(8)).
+    # The precompile reads [tweak(2) | 00] from the wots_pk tweak slot at the
+    # compile-time address `TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET` and `[pp(4)]`
+    # from the runtime `public_param` pointer.
     poseidon16_compress_hardcoded_left_4(
-        public_param, wots_public_key, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
+        public_param, ZERO_VEC_PTR, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
     )
-    for i in unroll(1, N_CHUNKS):
+    for i in unroll(0, N_CHUNKS):
         poseidon16_compress(
-            states + (i - 1) * DIGEST_LEN,
-            wots_public_key + i * DIGEST_LEN,
             states + i * DIGEST_LEN,
+            wots_public_key + i * WOTS_PK_PAIR_STRIDE + 1,
+            states + (i + 1) * DIGEST_LEN,
         )
 
-    return states + (N_CHUNKS - 1) * DIGEST_LEN
+    return states + N_CHUNKS * DIGEST_LEN
 
 
 @inline
@@ -357,17 +369,34 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    # Level 0 input: copy state_in into buf0 (we don't know its statically); hint the
-    # level-0 merkle path neighbour into the OTHER slot.
-    buf0 = Array(DIGEST_LEN)
+    # Level 0 input: copy state_in into buf0 (we don't know its address statically);
+    # hint the level-0 merkle path neighbour into the OTHER slot.
+    #
+    # We use copy_5 (1 dot_product_ee precompile call) instead of a 4-write loop in
+    # both branches. copy_5 writes 5 FE, and dot_product_ee's runtime helper also
+    # READS all 5 source elements via solve_unknowns, so state_in needs an extra
+    # readable element on the side opposite the hint slot:
+    #   - b0 == 1: copy_5(state_in - 1, buf0 - 1). Source slack at state_in[-1],
+    #              destination slack at buf0[-1]. state_in[-1] is initialized by the
+    #              previous chunk's `state_out[7] = 0` write (or by `wots_pk_hash`'s
+    #              full output for chunk 0, or by the leading-slot init in
+    #              `xmss_merkle_verify` for chunk 1).
+    #   - b0 == 0: copy_5(state_in, buf0 + 4).     Source slack at state_in[4],
+    #              destination slack at buf0[8]. state_in[4] is initialized by the
+    #              previous chunk's `state_out[4] = 0` write (or by full output for
+    #              chunk 0).
+    # buf0 is over-allocated by 2 (one slack at each end) so a single allocation
+    # serves both branches.
+    buf0_alloc = Array(DIGEST_LEN + 2)  # 10 elements
+    buf0 = buf0_alloc + 1  # logical positions [-1..8]
     if b0 == 1:
-        # state_in is the LEFT child
-        copy_xmss_digest(state_in, buf0)
+        # state_in is the LEFT child → state_in[0..4] lands at buf0[0..4].
+        copy_5(state_in - 1, buf0 - 1)
         hint_xmss_merkle_node(buf0 + XMSS_DIGEST_LEN)
     else:
-        # the merkle path neighbour is the LEFT child
+        # state_in is the RIGHT child → state_in[0..4] lands at buf0[4..8].
         hint_xmss_merkle_node(buf0)
-        copy_xmss_digest(state_in, buf0 + XMSS_DIGEST_LEN)
+        copy_5(state_in, buf0 + XMSS_DIGEST_LEN)
 
     # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4).
     # The path neighbour for level 1 is hinted into the OTHER slot of buf1.
@@ -399,13 +428,24 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
 
     # Level 3 hash → state_out (digest always written at offset 0 since the next chunk
     # reads state_out as a 4-element pointer regardless).
+    # The next chunk's level-0 copy_5 reads `state_in[4]` (b0 == 0) or `state_in[-1]`
+    # (b0 == 1), which lands in this chunk's `state_out[4]` / `state_out[7]`. These
+    # cells are unwritten by this poseidon (half_output only writes [0..4]); the
+    # extension_op `solve_unknowns` "copy_5" fast path handles undefined cells
+    # cell-by-cell and sets both source/dest to zero — no explicit writes needed.
     poseidon16_compress_half_hardcoded_left_4(public_param, buf3, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     return
 
 
 @inline
 def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
-    states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
+    # 1 extra leading slot, initialized to 0, so the b0 == 1 copy_5 in chunk 1 of
+    # do_4_merkle_levels can read `state_in[-1] = states[-1]` (= the leading slot).
+    # For chunks j > 1, `state_in[-1]` lands in the previous chunk's state_out[7]
+    # which is initialized by the explicit write at the end of do_4_merkle_levels.
+    states_alloc = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN + 1)
+    states = states_alloc + 1
+    states_alloc[0] = 0
 
     # First chunk
     match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, states, public_param, merkle_tweaks))
@@ -440,6 +480,13 @@ def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, 
         ),
     )
 
-    # Assert computed root == expected (first XMSS_DIGEST elements)
-    copy_xmss_digest(last_output, expected_root)
+    # Assert computed root == expected (first XMSS_DIGEST elements).
+    # Single-cycle copy_5: cells 0..3 verify the digest against the merkle root in
+    # `expected_root` (the actual assertion). Cell 4 of `last_output` is undefined
+    # (do_4_merkle_levels no longer pre-writes the slack), and cell 4 of expected_root
+    # is `public_param[0]` (defined in pub_mem). The extension_op `solve_unknowns`
+    # copy_5 fast path handles this cell-by-cell: source unknown + dest known →
+    # propagate dest into source. Memory[last_output[4]] gets set to public_param[0],
+    # harmless because nothing else reads it.
+    copy_5(last_output, expected_root)
     return
