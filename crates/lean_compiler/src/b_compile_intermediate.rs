@@ -588,7 +588,10 @@ fn compile_lines(
             SimpleLine::CustomHint(hint, args) => {
                 let simplified_args = args
                     .iter()
-                    .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
+                    .map(|expr| {
+                        try_precompile_fp_relative(expr, compiler)
+                            .unwrap_or_else(|| IntermediateValue::from_simple_expr(expr, compiler))
+                    })
                     .collect::<Vec<_>>();
                 instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
             }
@@ -897,6 +900,16 @@ fn collect_use_info(
                 && fp_rel_capable.contains(v)
             {
                 *fp_rel_uses.entry(v.clone()).or_default() += 1;
+            }
+        }
+
+        if let SimpleLine::CustomHint(_, args) = line {
+            for arg in args {
+                if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = arg
+                    && fp_rel_capable.contains(v)
+                {
+                    *fp_rel_uses.entry(v.clone()).or_default() += 1;
+                }
             }
         }
 
