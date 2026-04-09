@@ -439,13 +439,21 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
 
 @inline
 def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
-    # 1 extra leading slot, initialized to 0, so the b0 == 1 copy_5 in chunk 1 of
-    # do_4_merkle_levels can read `state_in[-1] = states[-1]` (= the leading slot).
-    # For chunks j > 1, `state_in[-1]` lands in the previous chunk's state_out[7]
-    # which is initialized by the explicit write at the end of do_4_merkle_levels.
-    states_alloc = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN + 1)
+    # Stride (XMSS_DIGEST_LEN + 1) = 5 per chunk: 4 digest cells written by the
+    # half-output Poseidon + 1 slack cell. The slack cell holds harmless writes
+    # from the next chunk's level-0 copy_5 (which reads `state_in[4]` for b0 == 0
+    # or `state_in[-1]` for b0 == 1; with stride 5 both reads land in an adjacent
+    # chunk's slack cell, never colliding with a written digest cell).
+    #
+    # Allocation = 1 leading slack + (N-1) chunks × 5 cells + 4 trailing slack (for
+    # the LAST stored chunk's half-output Poseidon lookup which reads 8 cells past
+    # the storage start) = 5 * N_MERKLE_CHUNKS cells.
+    #
+    # The leading slack cell does NOT need an explicit `= 0` write — the execute
+    # fix in `solve_unknowns` handles undefined source/dest cells via the copy_5
+    # fast path by setting both to zero.
+    states_alloc = Array(DIM * N_MERKLE_CHUNKS)
     states = states_alloc + 1
-    states_alloc[0] = 0
 
     # First chunk
     match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, states, public_param, merkle_tweaks))
@@ -453,7 +461,7 @@ def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, 
     state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
-        state_indexes[j] = state_indexes[j - 1] + DIGEST_LEN
+        state_indexes[j] = state_indexes[j - 1] + DIM
         match_range(
             merkle_chunks[j],
             range(0, 16),
@@ -466,8 +474,8 @@ def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, 
             ),
         )
 
-    # Last chunk: write to temp, then assert match with expected_root (write-once)
-    last_output = Array(DIGEST_LEN)
+    # Last chunk: write to a 5-cell buffer (4 digest cells + 1 slack for copy_5).
+    last_output = Array(DIM)
     match_range(
         merkle_chunks[N_MERKLE_CHUNKS - 1],
         range(0, 16),
