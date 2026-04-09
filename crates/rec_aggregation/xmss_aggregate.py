@@ -239,44 +239,34 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_left_first, 
 
 
 def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
-    # Sequential hash over V elements at DIGEST_LEN stride
+    # Sponge-like hash of V public key digests.
+    # IV = [tweak(2) | pp(4) | 00(2)], then ingest 8 FE per step (2 digests).
+    # V must be even. Digests in wots_public_key are at stride DIGEST_LEN (=8).
+    N_CHUNKS = V / 2
 
-    # First hash: build from scratch. build_right_fn's copy_5 prefix trick needs
-    # an "extra" slot at ptr - 1, so we allocate (DIGEST_LEN + 2) and offset by +1.
-    left0_alloc = Array(DIGEST_LEN + 2)
-    left0 = left0_alloc + 1
-    build_left_fn(public_param, wots_public_key, left0)
-    right0_alloc = Array(DIGEST_LEN + 2)
-    right0 = right0_alloc + 1
-    build_right_fn(wots_pk_tweaks, wots_public_key + DIGEST_LEN, right0)
+    # Build IV: [tweak(2) | 0 | pp(4) | 0]
+    iv = Array(DIGEST_LEN)
+    iv[0] = wots_pk_tweaks[0]
+    iv[1] = wots_pk_tweaks[1]
+    iv[2] = 0
+    for k in unroll(0, PUBLIC_PARAM_LEN_FE):
+        iv[3 + k] = public_param[k]
+    iv[7] = 0
 
-    # Buffer trick for intermediate states
-    bufs = Array((V - 2) * BUF_SIZE)
-    buf_indexes = Array(V - 2)
-    buf_indexes[0] = bufs
+    # Ingest V digests, 2 at a time (8 FE per chunk)
+    # Each chunk packs pk[2i] and pk[2i+1] (each XMSS_DIGEST FE, at DIGEST_LEN stride)
+    chunks = Array(N_CHUNKS * DIGEST_LEN)
+    for i in unroll(0, N_CHUNKS):
+        for k in unroll(0, XMSS_DIGEST):
+            chunks[i * DIGEST_LEN + k] = wots_public_key[(2 * i) * DIGEST_LEN + k]
+            chunks[i * DIGEST_LEN + XMSS_DIGEST + k] = wots_public_key[(2 * i + 1) * DIGEST_LEN + k]
 
-    poseidon16_compress(left0, right0, bufs + PP_IN_LEFT)
-    for k in unroll(0, PP_IN_LEFT):
-        bufs[k] = public_param[k]
+    states = Array(N_CHUNKS * DIGEST_LEN)
+    poseidon16_compress(iv, chunks, states)
+    for i in unroll(1, N_CHUNKS):
+        poseidon16_compress(states + (i - 1) * DIGEST_LEN, chunks + i * DIGEST_LEN, states + i * DIGEST_LEN)
 
-    for i in unroll(1, V - 2):
-        buf_indexes[i] = buf_indexes[i - 1] + BUF_SIZE
-        cur_buf = buf_indexes[i]
-        right_i_alloc = Array(DIGEST_LEN + 2)
-        right_i = right_i_alloc + 1
-        build_right_fn(wots_pk_tweaks + i * TWEAK_LEN, wots_public_key + (i + 1) * DIGEST_LEN, right_i)
-        poseidon16_compress(buf_indexes[i - 1], right_i, cur_buf + PP_IN_LEFT)
-        for k in unroll(0, PP_IN_LEFT):
-            cur_buf[k] = public_param[k]
-
-    # Final hash
-    result = Array(DIGEST_LEN)
-    right_last_alloc = Array(DIGEST_LEN + 2)
-    right_last = right_last_alloc + 1
-    build_right_fn(wots_pk_tweaks + (V - 2) * TWEAK_LEN, wots_public_key + (V - 1) * DIGEST_LEN, right_last)
-    poseidon16_compress(buf_indexes[V - 3], right_last, result)
-
-    return result
+    return states + (N_CHUNKS - 1) * DIGEST_LEN
 
 
 @inline

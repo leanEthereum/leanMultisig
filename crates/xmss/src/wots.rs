@@ -92,20 +92,26 @@ impl WotsSignature {
 }
 
 impl WotsPublicKey {
+    /// Sponge-like hash of V public key digests.
+    /// IV = [tweak(2) | pp(4) | 00(2)], then ingest 8 FE per step (2 digests at a time).
+    /// Final output truncated to DIGEST_SIZE (4 FE).
     pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
-        let left = build_left(&public_param, &self.0[0]);
-        let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot), &self.0[1]);
-        let mut running_hash: Digest = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
-            .try_into()
-            .unwrap();
-        for i in 2..V {
-            let left = build_left(&public_param, &running_hash);
-            let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, i - 1, slot), &self.0[i]);
-            running_hash = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
-                .try_into()
-                .unwrap();
+        assert!(V % 2 == 0);
+        // IV: [tweak(2) | 0 | pp(4) | 0]
+        let tweak = make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot);
+        let mut state = [F::default(); 8];
+        state[..TWEAK_LEN].copy_from_slice(&tweak);
+        // state[2] = 0 (default)
+        state[3..3 + PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
+        // state[7] = 0 (default)
+
+        for i in (0..V).step_by(2) {
+            let mut chunk = [F::default(); 8];
+            chunk[..DIGEST_SIZE].copy_from_slice(&self.0[i]);
+            chunk[DIGEST_SIZE..].copy_from_slice(&self.0[i + 1]);
+            state = poseidon16_compress_pair(&state, &chunk);
         }
-        running_hash
+        state[..DIGEST_SIZE].try_into().unwrap()
     }
 }
 

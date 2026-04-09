@@ -70,7 +70,7 @@ fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseido
     // Zero last 4 right inputs when zero_right_suffix=1 (works for both scalar and SIMD packed)
     let one_minus_zrs = F::ONE - *perm.zero_right_suffix;
     for j in 0..HALF_DIGEST_LEN {
-        state[DIGEST_LEN + HALF_DIGEST_LEN + j] = state[DIGEST_LEN + HALF_DIGEST_LEN + j] * one_minus_zrs;
+        state[DIGEST_LEN + HALF_DIGEST_LEN + j] *= one_minus_zrs;
     }
 
     // No initial linear layer for Poseidon1 (unlike Poseidon2)
