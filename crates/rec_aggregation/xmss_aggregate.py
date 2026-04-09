@@ -101,33 +101,37 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     encoding_fe = Array(DIGEST_LEN)
     poseidon16_compress(pre_compressed, pp_input, encoding_fe)
 
-    encoding = Array(NUM_ENCODING_FE * 24 / W)
+    # Decompose the encoding into chunks of 2*W bits. Each chunk packs the chain step
+    # counts of two consecutive WOTS chains: chunk i = step_{2i} + CHAIN_LENGTH * step_{2i+1}.
+    # Compared to the per-W-bit decomposition, this halves the number of `match_range`
+    # dispatch sites in the chain-hash loop (one match per pair, with CHAIN_LENGTH^2
+    # arms, instead of two matches per pair with CHAIN_LENGTH arms each).
+    encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
     remaining = Array(NUM_ENCODING_FE)
 
-    # TODO: decompose by chunks of 2.w bits (or even 3.w bits) and use a big match on the w^2 (or w^3) possibilities
-    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, W)
+    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, 2 * W)
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
-        for j in unroll(0, 24 / W):
-            assert encoding[i * (24 / W) + j] < CHAIN_LENGTH
+        for j in unroll(0, 24 / (2 * W)):
+            assert encoding[i * (24 / (2 * W)) + j] < CHAIN_LENGTH**2
 
         assert remaining[i] < 2**7 - 1
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24 / W):
-            partial_sum += encoding[i * (24 / W) + j] * CHAIN_LENGTH**j
+        for j in unroll(0, 24 / (2 * W)):
+            partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
         assert partial_sum == encoding_fe[i]
 
-    # we need to check the target sum
-    target_sum: Mut = encoding[0]
-    for i in unroll(1, V):
-        target_sum += encoding[i]
-    assert target_sum == TARGET_SUM
-
-    # grinding
-    for i in unroll(V, V + V_GRINDING):
-        assert encoding[i] == CHAIN_LENGTH - 1
+    # grinding (V and V_GRINDING must both be even so that grinding values land on
+    # whole pair-encoded slots)
+    debug_assert(V % 2 == 0)
+    debug_assert(V_GRINDING % 2 == 0)
+    for i in unroll(V / 2, (V + V_GRINDING) / 2):
+        # Both raw chain counts in this pair must equal CHAIN_LENGTH - 1, i.e.
+        # encoding[i] == (CHAIN_LENGTH - 1) + CHAIN_LENGTH * (CHAIN_LENGTH - 1)
+        #             == CHAIN_LENGTH**2 - 1.
+        assert encoding[i] == CHAIN_LENGTH**2 - 1
 
     # 2) Chain hashes -> recover WOTS public key
     # `wots_public_key` is packed at stride XMSS_DIGEST (= 4): pk[i] lives at offset
@@ -139,19 +143,37 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     chain_right = Array(DIGEST_LEN + 1)
     build_chain_right(public_param, chain_right)
 
-    for i in unroll(0, V):
-        num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * XMSS_DIGEST_LEN
-        chain_end = wots_public_key + i * XMSS_DIGEST_LEN
-        chain_i_tweaks = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
+    # Each pair (chain 2*i, chain 2*i+1) is dispatched in a single match_range with
+    # CHAIN_LENGTH^2 arms. The per-pair compile-time chain-step sum is written into
+    # `pair_sum_ptr` by `chain_hash_pair` and accumulated at runtime into `target_sum`.
+    target_sum: Mut = 0
+    for i in unroll(0, V / 2):
+        chain_start_a = chain_starts + (2 * i) * XMSS_DIGEST_LEN
+        chain_start_b = chain_starts + (2 * i + 1) * XMSS_DIGEST_LEN
+        chain_end_a = wots_public_key + (2 * i) * XMSS_DIGEST_LEN
+        chain_end_b = wots_public_key + (2 * i + 1) * XMSS_DIGEST_LEN
+        tweaks_a = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i) * CHAIN_LENGTH * TWEAK_LEN
+        tweaks_b = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i + 1) * CHAIN_LENGTH * TWEAK_LEN
+        pair_sum_ptr = Array(1)
 
         match_range(
-            num_hashes,
-            range(0, 1),
-            lambda _: copy_xmss_digest(chain_start, chain_end),
-            range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right),
+            encoding[i],
+            range(0, CHAIN_LENGTH**2),
+            lambda n: chain_hash_pair(
+                chain_start_a,
+                chain_start_b,
+                n,
+                chain_end_a,
+                chain_end_b,
+                tweaks_a,
+                tweaks_b,
+                chain_right,
+                pair_sum_ptr,
+            ),
         )
+        target_sum += pair_sum_ptr[0]
+
+    assert target_sum == TARGET_SUM
 
     # 3) Hash WOTS public key (the LEFT-input tweak slot is baked in via TWEAK_TABLE_ADDR)
     expected_leaf = wots_pk_hash(wots_public_key, public_param)
@@ -218,6 +240,50 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
         poseidon16_compress_half_hardcoded_left_4(
             digests + (n - 2) * XMSS_DIGEST_LEN, chain_right, output, last_tweak
         )
+    return
+
+
+@inline
+def chain_hash_pair(
+    input_a,
+    input_b,
+    n,
+    output_a,
+    output_b,
+    tweaks_a,
+    tweaks_b,
+    chain_right,
+    pair_sum_ptr,
+):
+    # Pair-encoded chain hash. `n` is a compile-time constant in [0, CHAIN_LENGTH^2)
+    # supplied by `match_range`. It packs two raw chain step counts:
+    #   raw_a = n % CHAIN_LENGTH    (chain 2*i)
+    #   raw_b = (n - raw_a) / CHAIN_LENGTH    (chain 2*i + 1)
+    # so the inverse is n = raw_a + CHAIN_LENGTH * raw_b, matching the bit layout
+    # produced by `hint_decompose_bits_xmss(..., 2 * W)`.
+    #
+    # We dispatch both chains from a single match arm, halving the number of
+    # match-arm sites compared to the per-chain version. Both chains share the
+    # same RIGHT poseidon input ([pp(4) | zeros(4)] in `chain_right`).
+    #
+    # `pair_sum_ptr[0]` receives the compile-time constant `raw_a + raw_b`, which
+    # the caller accumulates into the runtime `target_sum`.
+    raw_a = n % CHAIN_LENGTH
+    raw_b = (n - raw_a) / CHAIN_LENGTH
+    num_hashes_a = (CHAIN_LENGTH - 1) - raw_a
+    num_hashes_b = (CHAIN_LENGTH - 1) - raw_b
+
+    if num_hashes_a == 0:
+        copy_xmss_digest(input_a, output_a)
+    else:
+        chain_hash_pa(input_a, num_hashes_a, output_a, tweaks_a, chain_right)
+
+    if num_hashes_b == 0:
+        copy_xmss_digest(input_b, output_b)
+    else:
+        chain_hash_pa(input_b, num_hashes_b, output_b, tweaks_b, chain_right)
+
+    pair_sum_ptr[0] = raw_a + raw_b
     return
 
 
