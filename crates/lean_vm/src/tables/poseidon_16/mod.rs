@@ -89,27 +89,21 @@ const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
 const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
-/// PRECOMPILE_DATA encoding: 1 + half_output + 2 * zero_right_suffix
 pub const POSEIDON_PRECOMPILE_DATA: usize = 1;
 pub const POSEIDON_HALF_PRECOMPILE_DATA: usize = 2;
-pub const POSEIDON_ZERO_RSUFFIX_PRECOMPILE_DATA: usize = 3;
-pub const POSEIDON_HALF_ZERO_RSUFFIX_PRECOMPILE_DATA: usize = 4;
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = 1;
 pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 2;
 pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_HALF_OUTPUT: ColIndex = 4;
-pub const POSEIDON_16_COL_ZERO_RIGHT_SUFFIX: ColIndex = 5;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 6;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 5;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 /// Non-committed columns:
 pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16();
 
 pub const POSEIDON16_NAME: &str = "poseidon16_compress";
 pub const POSEIDON16_HALF_NAME: &str = "poseidon16_compress_half";
-pub const POSEIDON16_ZERO_RSUFFIX_NAME: &str = "poseidon16_compress_zero_rsuffix";
-pub const POSEIDON16_HALF_ZERO_RSUFFIX_NAME: &str = "poseidon16_compress_half_zero_rsuffix";
 pub const HALF_DIGEST_LEN: usize = DIGEST_LEN / 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -173,13 +167,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
-        let (half_output, zero_right_suffix) = match args {
-            PrecompileCompTimeArgs::Poseidon16 {
-                half_output,
-                zero_right_suffix,
-            } => (half_output, zero_right_suffix),
-            _ => unreachable!(),
-        };
+        let half_output = matches!(args, PrecompileCompTimeArgs::Poseidon16 { half_output: true });
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg0 = ctx.memory.get_slice(arg_a.to_usize(), DIGEST_LEN)?;
@@ -189,13 +177,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         input[..DIGEST_LEN].copy_from_slice(&arg0);
         input[DIGEST_LEN..].copy_from_slice(&arg1);
 
-        // Zero the last 4 right inputs for the hash computation
-        let mut hash_input = input;
-        if zero_right_suffix {
-            hash_input[DIGEST_LEN + HALF_DIGEST_LEN..].fill(F::ZERO);
-        }
-
-        let output = poseidon16_compress(hash_input);
+        let output = poseidon16_compress(input);
 
         if half_output {
             ctx.memory
@@ -209,13 +191,15 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
         trace.columns[POSEIDON_16_COL_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_ZERO_RIGHT_SUFFIX].push(if zero_right_suffix { F::ONE } else { F::ZERO });
         for (i, value) in input.iter().enumerate() {
             trace.columns[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
-        // Non-committed precompile_data
-        let precompile_data = POSEIDON_PRECOMPILE_DATA + half_output as usize + 2 * zero_right_suffix as usize;
-        trace.columns[POSEIDON_16_COL_PRECOMPILE_DATA].push(F::from_usize(precompile_data));
+        // Non-committed columns
+        trace.columns[POSEIDON_16_COL_PRECOMPILE_DATA].push(F::from_usize(if half_output {
+            POSEIDON_HALF_PRECOMPILE_DATA
+        } else {
+            POSEIDON_PRECOMPILE_DATA
+        }));
 
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)
 
@@ -235,7 +219,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 79 // 76 perm + 3 booleans
+        BUS as usize + 77
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
@@ -247,9 +231,8 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             unsafe { std::ptr::read(&shorts[0]) }
         };
 
-        // Reconstruct precompile_data: 1 + half_output + 2 * zero_right_suffix
-        let precompile_data_reconstructed =
-            AB::IF::ONE + cols.half_output + cols.zero_right_suffix * AB::IF::from_usize(2);
+        // Reconstruct precompile_data from half_output: precompile_data = 1 + 4 * half_output
+        let precompile_data_reconstructed = AB::IF::ONE + cols.half_output;
 
         // Bus data: [precompile_data, a, b, res]
         if BUS {
@@ -275,7 +258,6 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         builder.assert_bool(cols.flag);
         builder.assert_bool(cols.half_output);
-        builder.assert_bool(cols.zero_right_suffix);
 
         eval_poseidon1_16(builder, &cols)
     }
@@ -289,7 +271,6 @@ pub(super) struct Poseidon1Cols16<T> {
     pub index_b: T,
     pub index_res: T,
     pub half_output: T,
-    pub zero_right_suffix: T,
 
     pub inputs: [T; WIDTH],
     pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
@@ -299,24 +280,10 @@ pub(super) struct Poseidon1Cols16<T> {
 }
 
 fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<AB::IF>) {
+    let mut state: [_; WIDTH] = local.inputs;
+
     let initial_constants = poseidon1_initial_constants();
-
-    // First pair of full rounds: compute both paths (normal and zeroed right suffix)
-    // and merge using the boolean flag.
-    {
-        let mut state_normal: [_; WIDTH] = local.inputs;
-        compute_2_full_rounds_16::<AB, false>(&mut state_normal, &initial_constants[0], &initial_constants[1]);
-        let mut state_zeroed: [_; WIDTH] = local.inputs;
-        compute_2_full_rounds_16::<AB, true>(&mut state_zeroed, &initial_constants[0], &initial_constants[1]);
-        for i in 0..WIDTH {
-            let merged = state_normal[i] + local.zero_right_suffix * (state_zeroed[i] - state_normal[i]);
-            builder.assert_eq(merged, local.beginning_full_rounds[0][i]);
-        }
-    }
-
-    // Continue from committed columns (degree 1)
-    let mut state: [_; WIDTH] = local.beginning_full_rounds[0];
-    for round in 1..HALF_INITIAL_FULL_ROUNDS {
+    for round in 0..HALF_INITIAL_FULL_ROUNDS {
         eval_2_full_rounds_16(
             &mut state,
             &local.beginning_full_rounds[round],
@@ -378,34 +345,6 @@ pub const fn num_cols_poseidon_16() -> usize {
 
 pub const fn num_cols_total_poseidon_16() -> usize {
     num_cols_poseidon_16() + 1 // +1 for non-committed POSEIDON_16_COL_PRECOMPILE_DATA
-}
-
-/// Compute 2 full rounds without asserting. When `ZERO_SUFFIX`, elements 12-15
-/// are treated as zero: round 1 cubes become pure field constants `c^3` (no symbolic
-/// muls), and the MDS of those 4 slots only contributes constant corrections.
-#[inline]
-fn compute_2_full_rounds_16<AB: AirBuilder, const ZERO_SUFFIX: bool>(
-    state: &mut [AB::IF; WIDTH],
-    round_constants_1: &[F; WIDTH],
-    round_constants_2: &[F; WIDTH],
-) {
-    for (i, (s, r)) in state.iter_mut().zip(round_constants_1.iter()).enumerate() {
-        if ZERO_SUFFIX && i >= DIGEST_LEN + HALF_DIGEST_LEN {
-            // (0 + c)^3 = c^3: pure field constant, no symbolic mul
-            let c3 = r.cube();
-            *s = mul_kb(AB::IF::ONE, c3);
-        } else {
-            add_kb(s, *r);
-            *s = s.cube();
-        }
-    }
-    mds_air_16(state);
-    // Round 2: all 16 elements are now symbolic (MDS mixed), no shortcut
-    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
-        add_kb(s, *r);
-        *s = s.cube();
-    }
-    mds_air_16(state);
 }
 
 #[inline]

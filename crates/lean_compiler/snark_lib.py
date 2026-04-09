@@ -86,16 +86,6 @@ def poseidon16_compress_half(left, right, output):
     _ = left, right, output
 
 
-def poseidon16_compress_zero_rsuffix(left, right, output):
-    """Poseidon16 compression with the last 4 FE of the right input zeroed."""
-    _ = left, right, output
-
-
-def poseidon16_compress_half_zero_rsuffix(left, right, output):
-    """Poseidon16 compression with zeroed right suffix and half output."""
-    _ = left, right, output
-
-
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 

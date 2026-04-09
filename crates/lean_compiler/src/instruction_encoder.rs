@@ -48,10 +48,13 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
         }
         Instruction::Precompile(precompile) => {
             let precompile_data = match &precompile.data {
-                PrecompileCompTimeArgs::Poseidon16 {
-                    half_output,
-                    zero_right_suffix,
-                } => POSEIDON_PRECOMPILE_DATA + *half_output as usize + 2 * *zero_right_suffix as usize,
+                PrecompileCompTimeArgs::Poseidon16 { half_output } => {
+                    if *half_output {
+                        POSEIDON_HALF_PRECOMPILE_DATA
+                    } else {
+                        POSEIDON_PRECOMPILE_DATA
+                    }
+                }
                 PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                     assert!(*size >= 1, "invalid extension_op size={size}");
                     mode.flag_encoding() + EXT_OP_LEN_MULTIPLIER * size

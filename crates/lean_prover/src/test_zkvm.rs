@@ -25,17 +25,6 @@ def main():
     for i in unroll(0, HALF_DIGEST_LEN):
         assert full_out[i] == half_out[i]
 
-    # poseidon16_compress_zero_rsuffix: last 4 right inputs zeroed in hash computation
-    # (the right input's last 4 FE are random/non-zero in memory)
-    zrs_out = pub_start + 1400
-    poseidon16_compress_zero_rsuffix(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, zrs_out)
-
-    # poseidon16_compress_half_zero_rsuffix: both features combined
-    hzrs_out = pub_start + 1410
-    poseidon16_compress_half_zero_rsuffix(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, hzrs_out)
-    for i in unroll(0, HALF_DIGEST_LEN):
-        assert zrs_out[i] == hzrs_out[i]
-
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
     ext_b_ptr = pub_start + 88 + N * (DIM + 1)
@@ -88,21 +77,6 @@ def main():
         F::from_usize(222),
         F::from_usize(333),
         F::from_usize(444),
-    ]);
-
-    // poseidon16_compress_zero_rsuffix: hash with last 4 right inputs zeroed
-    // Note: poseidon_16_compress_input[12..16] are random non-zero — that's the tricky part
-    let mut zrs_input = poseidon_16_compress_input;
-    zrs_input[12..16].fill(F::ZERO);
-    let zrs_output = poseidon16_compress(zrs_input);
-    public_input[1400..1408].copy_from_slice(&zrs_output[..8]);
-    // poseidon16_compress_half_zero_rsuffix: first 4 = same as zrs, last 4 = arbitrary
-    public_input[1410..1414].copy_from_slice(&zrs_output[..4]);
-    public_input[1414..1418].copy_from_slice(&[
-        F::from_usize(555),
-        F::from_usize(666),
-        F::from_usize(777),
-        F::from_usize(888),
     ]);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]

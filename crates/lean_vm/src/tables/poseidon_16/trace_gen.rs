@@ -1,7 +1,7 @@
 use tracing::instrument;
 
 use crate::{
-    DIGEST_LEN, F, HALF_DIGEST_LEN, ZERO_VEC_PTR,
+    F, ZERO_VEC_PTR,
     tables::{Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16},
 };
 use backend::*;
@@ -56,7 +56,6 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(null_hash_ptr);
     *perm.half_output = F::ZERO;
-    *perm.zero_right_suffix = F::ZERO;
     // Non-committed column for padding rows
     row[num_cols_poseidon_16()] = F::from_usize(crate::POSEIDON_PRECOMPILE_DATA);
 
@@ -67,11 +66,6 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
 fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols16<&mut F>) {
     let inputs: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
     let mut state = inputs;
-    // Zero last 4 right inputs when zero_right_suffix=1 (works for both scalar and SIMD packed)
-    let one_minus_zrs = F::ONE - *perm.zero_right_suffix;
-    for j in 0..HALF_DIGEST_LEN {
-        state[DIGEST_LEN + HALF_DIGEST_LEN + j] *= one_minus_zrs;
-    }
 
     // No initial linear layer for Poseidon1 (unlike Poseidon2)
 
