@@ -181,37 +181,37 @@ def copy_xmss_digest(src, dst):
 def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_bufs, ch_buf_idx):
     # Chain hash layout: left = [tweak(2) | zeros(2) | data(4)], right = chain_right (shared).
     # The LEFT prefix [tweak(2) | 00] is read directly from the tweak table by
-    # poseidon16_compress_hardcoded_left_4 — no per-hash buffer copies needed.
+    # poseidon16_compress_half_hardcoded_left_4 — no per-hash buffer copies needed.
     #
     # `chain_i_tweaks` is a compile-time constant address (TWEAK_TABLE_ADDR + chain_offset),
     # so each `chain_i_tweaks + step * TWEAK_LEN` is also a compile-time constant; the
     # hardcoded_left_4 precompile bakes the absolute tweak slot address into the bytecode.
     #
-    # Each ch_buf slot still spans BUF_SIZE elements (the legacy stride is preserved),
-    # but we only use the digest sub-slot at offset 4: bufs[j][4..8] holds the j-th hash
-    # output; the next hash uses `bufs[j] + 4` as its 4-element LEFT data.
+    # Every chain hash only consumes 4 output FE (either as the LEFT data of the next
+    # chain step or as the final XMSS digest), so we use the `_half_` variant which only
+    # constrains the first 4 output FE — saves AIR constraints + memory writes per hash.
     starting_step = CHAIN_LENGTH - 1 - n
 
     if n == 1:
         # Single hash: input → output, with tweak_{starting_step} as the LEFT prefix.
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
-        poseidon16_compress_hardcoded_left_4(input, chain_right, output, first_tweak)
+        poseidon16_compress_half_hardcoded_left_4(input, chain_right, output, first_tweak)
     else:
         # Hash 0: input → ch_bufs[0] + 4
         ch_buf_idx[0] = ch_bufs
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
-        poseidon16_compress_hardcoded_left_4(input, chain_right, ch_bufs + 4, first_tweak)
+        poseidon16_compress_half_hardcoded_left_4(input, chain_right, ch_bufs + 4, first_tweak)
 
         # Hashes 1..n-2: bufs[j-1] + 4 → bufs[j] + 4
         for j in unroll(1, n - 1):
             ch_buf_idx[j] = ch_buf_idx[j - 1] + BUF_SIZE
             cur_buf = ch_buf_idx[j]
             cur_tweak = chain_i_tweaks + (starting_step + j) * TWEAK_LEN
-            poseidon16_compress_hardcoded_left_4(ch_buf_idx[j - 1] + 4, chain_right, cur_buf + 4, cur_tweak)
+            poseidon16_compress_half_hardcoded_left_4(ch_buf_idx[j - 1] + 4, chain_right, cur_buf + 4, cur_tweak)
 
         # Final hash: bufs[n-2] + 4 → output
         last_tweak = chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN
-        poseidon16_compress_hardcoded_left_4(ch_buf_idx[n - 2] + 4, chain_right, output, last_tweak)
+        poseidon16_compress_half_hardcoded_left_4(ch_buf_idx[n - 2] + 4, chain_right, output, last_tweak)
     return
 
 
@@ -260,9 +260,13 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     #
     # `merkle_tweaks_chunk` MUST be a compile-time constant absolute address into the
     # tweak table — the per-level `+ k * TWEAK_LEN` offsets are baked into
-    # poseidon16_compress_hardcoded_left_4 so the LEFT input prefix
+    # poseidon16_compress_half_hardcoded_left_4 so the LEFT input prefix
     # `[tweak(2) | 00]` is read directly from the tweak table without ever
     # being copied into a per-hash buffer.
+    #
+    # Every level only consumes 4 output FE downstream (either as the LEFT data of the
+    # next merkle level or as a 4-element XMSS digest in `state_out`), so we use the
+    # `_half_` variant which only constrains the first 4 output FE.
     #
     # Each intermediate level still uses an 8-element `buf*` because when the buffer
     # holds the RIGHT input we need [pp(4) | digest(4)] contiguous in memory. When the
@@ -282,10 +286,10 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     buf0 = buf0_alloc + 1
     if b0 == 1:
         build_right_fn(public_param, path_chunk, right0_alloc)
-        poseidon16_compress_hardcoded_left_4(state_in, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
+        poseidon16_compress_half_hardcoded_left_4(state_in, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
     else:
         build_right_fn(public_param, state_in, right0_alloc)
-        poseidon16_compress_hardcoded_left_4(path_chunk, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
+        poseidon16_compress_half_hardcoded_left_4(path_chunk, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
 
     # Level 1
     buf1_alloc = Array(BUF_SIZE + 1)
@@ -294,11 +298,11 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
         # buf0's digest is the LEFT data; build [pp | path[1]] as the RIGHT input.
         right1_alloc = Array(DIGEST_LEN + 1)
         build_right_fn(public_param, path_chunk + 1 * XMSS_DIGEST, right1_alloc)
-        poseidon16_compress_hardcoded_left_4(buf0 + PP_IN_LEFT, right1_alloc, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(buf0 + PP_IN_LEFT, right1_alloc, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
     else:
         # path[1] is the LEFT data; reuse buf0 as the [pp | digest] RIGHT input.
         set_buf_prefix_right(buf0, public_param)
-        poseidon16_compress_hardcoded_left_4(path_chunk + 1 * XMSS_DIGEST, buf0, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(path_chunk + 1 * XMSS_DIGEST, buf0, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
 
     # Level 2
     buf2_alloc = Array(BUF_SIZE + 1)
@@ -306,19 +310,19 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     if b2 == 1:
         right2_alloc = Array(DIGEST_LEN + 1)
         build_right_fn(public_param, path_chunk + 2 * XMSS_DIGEST, right2_alloc)
-        poseidon16_compress_hardcoded_left_4(buf1 + PP_IN_LEFT, right2_alloc, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(buf1 + PP_IN_LEFT, right2_alloc, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
     else:
         set_buf_prefix_right(buf1, public_param)
-        poseidon16_compress_hardcoded_left_4(path_chunk + 2 * XMSS_DIGEST, buf1, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(path_chunk + 2 * XMSS_DIGEST, buf1, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
 
     # Level 3 -> state_out
     if b3 == 1:
         right3_alloc = Array(DIGEST_LEN + 1)
         build_right_fn(public_param, path_chunk + 3 * XMSS_DIGEST, right3_alloc)
-        poseidon16_compress_hardcoded_left_4(buf2 + PP_IN_LEFT, right3_alloc, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(buf2 + PP_IN_LEFT, right3_alloc, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     else:
         set_buf_prefix_right(buf2, public_param)
-        poseidon16_compress_hardcoded_left_4(path_chunk + 3 * XMSS_DIGEST, buf2, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(path_chunk + 3 * XMSS_DIGEST, buf2, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     return
 
 
