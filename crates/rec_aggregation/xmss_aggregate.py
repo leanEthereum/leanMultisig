@@ -147,9 +147,8 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
             lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right),
         )
 
-    # 3) Hash WOTS public key
-    wots_pk_tweaks = TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
-    expected_leaf = wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks)
+    # 3) Hash WOTS public key (the LEFT-input tweak slot is baked in via TWEAK_TABLE_ADDR)
+    expected_leaf = wots_pk_hash(wots_public_key, public_param)
 
     # 4) Merkle verification — merkle_tweaks is now a compile-time constant absolute
     # address, which lets do_4_merkle_levels feed tweak offsets straight into
@@ -216,20 +215,15 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
     return
 
 
-def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
+@inline
+def wots_pk_hash(wots_public_key, public_param):
     # Sponge-like hash of V public key digests.
-    # IV = [tweak(2) | pp(4) | 00(2)], then ingest 8 FE per step (2 digests).
+    # IV = [tweak(2) | 00 | pp(4)] (matches the LEFT-input convention for
+    # poseidon16_compress_hardcoded_left_4: the first 4 FE come from the wots_pk
+    # tweak slot at the compile-time address TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET,
+    # and the next 4 FE come from `public_param` at runtime).
     # V must be even. Digests in wots_public_key are at stride DIGEST_LEN (=8).
     N_CHUNKS = V / 2
-
-    # Build IV: [tweak(2) | 0 | pp(4) | 0]
-    iv = Array(DIGEST_LEN)
-    iv[0] = wots_pk_tweaks[0]
-    iv[1] = wots_pk_tweaks[1]
-    iv[2] = 0
-    for k in unroll(0, PUBLIC_PARAM_LEN_FE):
-        iv[3 + k] = public_param[k]
-    iv[7] = 0
 
     # Ingest V digests, 2 at a time (8 FE per chunk)
     # Each chunk packs pk[2i] and pk[2i+1] (each XMSS_DIGEST FE, at DIGEST_LEN stride)
@@ -240,7 +234,11 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
             chunks[i * DIGEST_LEN + XMSS_DIGEST + k] = wots_public_key[(2 * i + 1) * DIGEST_LEN + k]
 
     states = Array(N_CHUNKS * DIGEST_LEN)
-    poseidon16_compress(iv, chunks, states)
+    # First hash: LEFT input is [tweak(2) | 00 | pp(4)]; the precompile reads
+    # [tweak(2) | 00] from the wots_pk tweak slot and [pp(4)] from `public_param`.
+    poseidon16_compress_hardcoded_left_4(
+        public_param, chunks, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
+    )
     for i in unroll(1, N_CHUNKS):
         poseidon16_compress(states + (i - 1) * DIGEST_LEN, chunks + i * DIGEST_LEN, states + i * DIGEST_LEN)
 
