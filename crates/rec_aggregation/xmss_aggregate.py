@@ -260,22 +260,24 @@ def set_buf_prefix_right(buf, public_param):
 
 @inline
 def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_tweaks_chunk):
-    # b encodes 4 is_left bits; path elements at XMSS_DIGEST stride.
+    # New merkle hash layout:
+    #   LEFT  = [tweak(2) | 00 | pp(4)]   ← `[tweak(2) | 00]` is read straight from
+    #                                       the merkle tweak slot at the compile-time
+    #                                       address `merkle_tweaks_chunk + level*TWEAK_LEN`,
+    #                                       and `[pp(4)]` from the runtime `public_param`.
+    #   RIGHT = [left_child(4) | right_child(4)]   ← packed contiguously in `buf*`
     #
-    # `merkle_tweaks_chunk` MUST be a compile-time constant absolute address into the
-    # tweak table — the per-level `+ k * TWEAK_LEN` offsets are baked into
-    # poseidon16_compress_half_hardcoded_left_4 so the LEFT input prefix
-    # `[tweak(2) | 00]` is read directly from the tweak table without ever
-    # being copied into a per-hash buffer.
+    # Each level's half-output digest is written DIRECTLY into the next level's `buf`
+    # at the correct slot (offset 0 if it's the LEFT child of the next level, offset 4
+    # if it's the RIGHT child). The OTHER child slot is filled by copying the next
+    # path element into it. No copies of pp, no buffer-prefix tricks.
     #
-    # Every level only consumes 4 output FE downstream (either as the LEFT data of the
-    # next merkle level or as a 4-element XMSS digest in `state_out`), so we use the
-    # `_half_` variant which only constrains the first 4 output FE.
-    #
-    # Each intermediate level still uses an 8-element `buf*` because when the buffer
-    # holds the RIGHT input we need [pp(4) | digest(4)] contiguous in memory. When the
-    # buffer holds the LEFT input we just pass `buf + PP_IN_LEFT` (the 4-element digest
-    # part) as the precompile's `index_a`.
+    # `buf1`/`buf2`/`buf3` are over-allocated to 12 elements (instead of 8) so the
+    # half-output lookup at the digest still has 8 valid memory cells when the digest
+    # lands at offset 4. The trailing 4 cells are vacuous (memory[buf+8..buf+12] = 0
+    # in write-once memory; the prover sets the unconstrained trace columns to 0).
+    BUF_SIZE_DEST = DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST)  # 8 + 4 = 12
+
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -284,49 +286,47 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    # Level 0
-    right0_alloc = Array(DIGEST_LEN + 1)
-    buf0_alloc = Array(BUF_SIZE + 1)
-    buf0 = buf0_alloc + 1
+    # Level 0 input: copy state_in and path_chunk into buf0 in merkle order.
+    buf0 = Array(DIGEST_LEN)
     if b0 == 1:
-        build_right_fn(public_param, path_chunk, right0_alloc)
-        poseidon16_compress_half_hardcoded_left_4(state_in, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
+        # state_in is the LEFT child
+        copy_xmss_digest(state_in, buf0)
+        copy_xmss_digest(path_chunk, buf0 + XMSS_DIGEST)
     else:
-        build_right_fn(public_param, state_in, right0_alloc)
-        poseidon16_compress_half_hardcoded_left_4(path_chunk, right0_alloc, buf0 + PP_IN_LEFT, merkle_tweaks_chunk)
+        # path_chunk[0] is the LEFT child
+        copy_xmss_digest(path_chunk, buf0)
+        copy_xmss_digest(state_in, buf0 + XMSS_DIGEST)
 
-    # Level 1
-    buf1_alloc = Array(BUF_SIZE + 1)
-    buf1 = buf1_alloc + 1
+    # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4)
+    buf1 = Array(BUF_SIZE_DEST)
     if b1 == 1:
-        # buf0's digest is the LEFT data; build [pp | path[1]] as the RIGHT input.
-        right1_alloc = Array(DIGEST_LEN + 1)
-        build_right_fn(public_param, path_chunk + 1 * XMSS_DIGEST, right1_alloc)
-        poseidon16_compress_half_hardcoded_left_4(buf0 + PP_IN_LEFT, right1_alloc, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1, merkle_tweaks_chunk)
+        copy_xmss_digest(path_chunk + 1 * XMSS_DIGEST, buf1 + XMSS_DIGEST)
     else:
-        # path[1] is the LEFT data; reuse buf0 as the [pp | digest] RIGHT input.
-        set_buf_prefix_right(buf0, public_param)
-        poseidon16_compress_half_hardcoded_left_4(path_chunk + 1 * XMSS_DIGEST, buf0, buf1 + PP_IN_LEFT, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1 + XMSS_DIGEST, merkle_tweaks_chunk)
+        copy_xmss_digest(path_chunk + 1 * XMSS_DIGEST, buf1)
 
-    # Level 2
-    buf2_alloc = Array(BUF_SIZE + 1)
-    buf2 = buf2_alloc + 1
+    # Level 1 hash → buf2
+    buf2 = Array(BUF_SIZE_DEST)
     if b2 == 1:
-        right2_alloc = Array(DIGEST_LEN + 1)
-        build_right_fn(public_param, path_chunk + 2 * XMSS_DIGEST, right2_alloc)
-        poseidon16_compress_half_hardcoded_left_4(buf1 + PP_IN_LEFT, right2_alloc, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        copy_xmss_digest(path_chunk + 2 * XMSS_DIGEST, buf2 + XMSS_DIGEST)
     else:
-        set_buf_prefix_right(buf1, public_param)
-        poseidon16_compress_half_hardcoded_left_4(path_chunk + 2 * XMSS_DIGEST, buf1, buf2 + PP_IN_LEFT, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2 + XMSS_DIGEST, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        copy_xmss_digest(path_chunk + 2 * XMSS_DIGEST, buf2)
 
-    # Level 3 -> state_out
+    # Level 2 hash → buf3
+    buf3 = Array(BUF_SIZE_DEST)
     if b3 == 1:
-        right3_alloc = Array(DIGEST_LEN + 1)
-        build_right_fn(public_param, path_chunk + 3 * XMSS_DIGEST, right3_alloc)
-        poseidon16_compress_half_hardcoded_left_4(buf2 + PP_IN_LEFT, right3_alloc, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        copy_xmss_digest(path_chunk + 3 * XMSS_DIGEST, buf3 + XMSS_DIGEST)
     else:
-        set_buf_prefix_right(buf2, public_param)
-        poseidon16_compress_half_hardcoded_left_4(path_chunk + 3 * XMSS_DIGEST, buf2, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3 + XMSS_DIGEST, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        copy_xmss_digest(path_chunk + 3 * XMSS_DIGEST, buf3)
+
+    # Level 3 hash → state_out (digest always written at offset 0 since the next chunk
+    # reads state_out as a 4-element pointer regardless).
+    poseidon16_compress_half_hardcoded_left_4(public_param, buf3, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     return
 
 
