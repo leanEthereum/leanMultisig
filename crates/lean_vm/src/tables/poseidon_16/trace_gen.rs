@@ -2,7 +2,7 @@ use tracing::instrument;
 
 use crate::{
     F, ZERO_VEC_PTR,
-    tables::{Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16},
+    tables::{HALF_DIGEST_LEN, Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16},
 };
 use backend::*;
 
@@ -55,7 +55,11 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
     *perm.index_a = F::from_usize(ZERO_VEC_PTR);
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(null_hash_ptr);
-    *perm.half_output = F::ZERO;
+    *perm.flag_half_output = F::ZERO;
+    *perm.flag_hardcoded_left_4 = F::ZERO;
+    *perm.offset_hardcoded = F::ZERO;
+    *perm.effective_index_left_first = F::from_usize(ZERO_VEC_PTR);
+    *perm.effective_index_left_second = F::from_usize(ZERO_VEC_PTR + HALF_DIGEST_LEN);
     // Non-committed column for padding rows
     row[num_cols_poseidon_16()] = F::from_usize(crate::POSEIDON_PRECOMPILE_DATA);
 

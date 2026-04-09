@@ -25,6 +25,27 @@ def main():
     for i in unroll(0, HALF_DIGEST_LEN):
         assert full_out[i] == half_out[i]
 
+    # poseidon16_compress_hardcoded_left_4: first 4 FE of left input come from
+    # memory[pub_start + 1500 .. pub_start + 1504] instead of memory[left .. left+4].
+    hardcoded_full_out = pub_start + 1504
+    poseidon16_compress_hardcoded_left_4(
+        pub_start + 4 * DIGEST_LEN,
+        pub_start + 5 * DIGEST_LEN,
+        hardcoded_full_out,
+        pub_start + 1500
+    )
+
+    # Same, but only first 4 FE of the output are constrained.
+    hardcoded_half_out = pub_start + 1512
+    poseidon16_compress_half_hardcoded_left_4(
+        pub_start + 4 * DIGEST_LEN,
+        pub_start + 5 * DIGEST_LEN,
+        hardcoded_half_out,
+        pub_start + 1500
+    )
+    for i in unroll(0, HALF_DIGEST_LEN):
+        assert hardcoded_full_out[i] == hardcoded_half_out[i]
+
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
     ext_b_ptr = pub_start + 88 + N * (DIM + 1)
@@ -77,6 +98,26 @@ def main():
         F::from_usize(222),
         F::from_usize(333),
         F::from_usize(444),
+    ]);
+
+    // Hardcoded-left-4 test data, placed at public_input[1500..1520].
+    // The 4-element prefix lives at offset 1500. The hardcoded variant computes
+    // Poseidon(prefix || original_input[4..8], original_input[8..16]).
+    let hardcoded_prefix: [F; 4] = rng.random();
+    public_input[1500..1504].copy_from_slice(&hardcoded_prefix);
+    let mut hardcoded_input = [F::ZERO; 16];
+    hardcoded_input[..4].copy_from_slice(&hardcoded_prefix);
+    hardcoded_input[4..16].copy_from_slice(&poseidon_16_compress_input[4..16]);
+    let hardcoded_output = poseidon16_compress(hardcoded_input);
+    // Full output at 1504..1512
+    public_input[1504..1512].copy_from_slice(&hardcoded_output);
+    // Half output at 1512..1520: first 4 = hash, last 4 = arbitrary pre-existing data
+    public_input[1512..1516].copy_from_slice(&hardcoded_output[..4]);
+    public_input[1516..1520].copy_from_slice(&[
+        F::from_usize(555),
+        F::from_usize(666),
+        F::from_usize(777),
+        F::from_usize(888),
     ]);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]

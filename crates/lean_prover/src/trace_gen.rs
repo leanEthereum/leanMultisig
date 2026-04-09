@@ -109,7 +109,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     // For half_output rows, override last 4 output columns with actual memory values
     // (the AIR doesn't constrain them, but the lookup checks against memory)
     {
-        let half_output_col = poseidon_trace.columns[POSEIDON_16_COL_HALF_OUTPUT].clone();
+        let half_output_col = poseidon_trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].clone();
         let res_col = poseidon_trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].clone();
         for j in HALF_DIGEST_LEN..DIGEST_LEN {
             poseidon_trace.columns[POSEIDON_16_COL_OUTPUT_START + j]

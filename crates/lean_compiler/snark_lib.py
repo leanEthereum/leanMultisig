@@ -86,6 +86,19 @@ def poseidon16_compress_half(left, right, output):
     _ = left, right, output
 
 
+def poseidon16_compress_hardcoded_left_4(left, right, output, offset):
+    """Poseidon16 compression where the first 4 FE of the left input are read from
+    memory[offset..offset+4] instead of memory[left..left+4]. The last 4 FE of the
+    left input still come from memory[left+4..left+8]. `offset` must be a compile-time
+    constant expression."""
+    _ = left, right, output, offset
+
+
+def poseidon16_compress_half_hardcoded_left_4(left, right, output, offset):
+    """Composition of `poseidon16_compress_half` and `poseidon16_compress_hardcoded_left_4`."""
+    _ = left, right, output, offset
+
+
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 
