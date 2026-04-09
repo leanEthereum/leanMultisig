@@ -22,8 +22,13 @@ use super::memory::SegmentMemory;
 pub struct ExecutionWitness<'a> {
     /// Private field elements loaded into memory after public memory.
     pub private_input: &'a [F],
-    /// XMSS signatures, one Vec<F> per signature (each of length SIG_SIZE_FE)
-    pub xmss_signatures: &'a [Vec<F>],
+    /// In-memory part of each XMSS signature (`randomness | chain_tips`, of length
+    /// `WOTS_SIG_SIZE_FE`), consumed by `hint_wots`. The XMSS merkle path is delivered
+    /// out-of-band via `xmss_merkle_nodes`.
+    pub wots_signatures: &'a [Vec<F>],
+    /// Flat queue of XMSS merkle path nodes (4 FE per node), consumed by
+    /// `hint_xmss_merkle_node` calls in the order they execute at runtime.
+    pub xmss_merkle_nodes: &'a [F],
     /// Merkle paths for WHIR recursion, one Vec<F> per hint_merkle call
     pub merkle_paths: &'a [Vec<F>],
 }
@@ -32,7 +37,8 @@ impl ExecutionWitness<'_> {
     pub fn empty() -> Self {
         Self {
             private_input: &[],
-            xmss_signatures: &[],
+            wots_signatures: &[],
+            xmss_merkle_nodes: &[],
             merkle_paths: &[],
         }
     }
@@ -140,7 +146,8 @@ struct ParallelBatchInfo {
     frame_size: usize,
     n_args: usize,
     end_value: MemOrConstant,
-    xmss_hint_index_at_start: usize,
+    wots_hint_index_at_start: usize,
+    xmss_merkle_node_index_at_start: usize,
     merkle_hint_index_at_start: usize,
 }
 
@@ -179,7 +186,8 @@ fn run_loop<M: MemoryAccess>(
                         frame_size: *ap - *fp,
                         n_args: *n_args,
                         end_value: *end_value,
-                        xmss_hint_index_at_start: *hints.xmss_hint_index,
+                        wots_hint_index_at_start: *hints.wots_hint_index,
+                        xmss_merkle_node_index_at_start: *hints.xmss_merkle_node_index,
                         merkle_hint_index_at_start: *hints.merkle_hint_index,
                     });
                 }
@@ -266,7 +274,8 @@ fn execute_bytecode_helper(
     profiling: bool,
 ) -> Result<ExecutionResult, (CodeAddress, RunnerError)> {
     let private_input = witness.private_input;
-    let xmss_signatures = witness.xmss_signatures;
+    let wots_signatures = witness.wots_signatures;
+    let xmss_merkle_nodes = witness.xmss_merkle_nodes;
     let merkle_paths = witness.merkle_paths;
 
     let mut memory = Memory::new(build_public_memory(public_input));
@@ -281,7 +290,8 @@ fn execute_bytecode_helper(
     let mut pc = STARTING_PC;
     let mut ap = initial_ap;
     let mut trace = Trace::new();
-    let mut xmss_hint_index = 0;
+    let mut wots_hint_index = 0;
+    let mut xmss_merkle_node_index = 0;
     let mut merkle_hint_index = 0;
     let mut cpu_cycles_before_new_line = 0;
     let mut last_checkpoint_cpu_cycles = 0;
@@ -297,8 +307,10 @@ fn execute_bytecode_helper(
                 checkpoint_ap: &mut checkpoint_ap,
             }),
             private_input_start: public_memory_size,
-            xmss_signatures,
-            xmss_hint_index: &mut xmss_hint_index,
+            wots_signatures,
+            wots_hint_index: &mut wots_hint_index,
+            xmss_merkle_nodes,
+            xmss_merkle_node_index: &mut xmss_merkle_node_index,
             merkle_paths,
             merkle_hint_index: &mut merkle_hint_index,
         };
@@ -320,8 +332,10 @@ fn execute_bytecode_helper(
                     bytecode,
                     &mut memory,
                     &mut trace,
-                    xmss_signatures,
-                    &mut xmss_hint_index,
+                    wots_signatures,
+                    &mut wots_hint_index,
+                    xmss_merkle_nodes,
+                    &mut xmss_merkle_node_index,
                     merkle_paths,
                     &mut merkle_hint_index,
                     &mut pc,
@@ -338,9 +352,14 @@ fn execute_bytecode_helper(
 
     resolve_deref_hints(&mut memory, &trace.pending_deref_hints);
     assert_eq!(
-        xmss_hint_index,
-        xmss_signatures.len(),
-        "Not all XMSS hints were consumed"
+        wots_hint_index,
+        wots_signatures.len(),
+        "Not all WOTS hints were consumed"
+    );
+    assert_eq!(
+        xmss_merkle_node_index * xmss::XMSS_DIGEST_SIZE,
+        xmss_merkle_nodes.len(),
+        "Not all XMSS merkle node hints were consumed"
     );
     assert_eq!(
         merkle_hint_index,
@@ -414,8 +433,10 @@ fn handle_parallel_batch(
     bytecode: &Bytecode,
     memory: &mut Memory,
     trace: &mut Trace,
-    xmss_signatures: &[Vec<F>],
-    xmss_hint_index: &mut usize,
+    wots_signatures: &[Vec<F>],
+    wots_hint_index: &mut usize,
+    xmss_merkle_nodes: &[F],
+    xmss_merkle_node_index: &mut usize,
     merkle_paths: &[Vec<F>],
     merkle_hint_index: &mut usize,
     pc: &mut usize,
@@ -439,7 +460,8 @@ fn handle_parallel_batch(
         .collect();
 
     // Measure per-iteration hint consumption from iteration 0.
-    let xmss_per_iter = *xmss_hint_index - batch.xmss_hint_index_at_start;
+    let wots_per_iter = *wots_hint_index - batch.wots_hint_index_at_start;
+    let xmss_merkle_node_per_iter = *xmss_merkle_node_index - batch.xmss_merkle_node_index_at_start;
     let merkle_per_iter = *merkle_hint_index - batch.merkle_hint_index_at_start;
 
     for i in 1..=n_iters {
@@ -459,7 +481,8 @@ fn handle_parallel_batch(
         memory.0.resize(max_addr, None);
     }
 
-    let xmss_base = *xmss_hint_index;
+    let wots_base = *wots_hint_index;
+    let xmss_merkle_node_base = *xmss_merkle_node_index;
     let merkle_base = *merkle_hint_index;
     let n_par = n_iters - 1;
 
@@ -479,19 +502,25 @@ fn handle_parallel_batch(
             let seg_start = split_at + i * stride;
             let mut seg_mem = SegmentMemory::new(shared, seg_slice, seg_start);
             let fp_i = batch.batch_fp + (i + 1) * stride;
-            let xmss_sigs = &xmss_signatures[xmss_base + i * xmss_per_iter..xmss_base + (i + 1) * xmss_per_iter];
+            let wots_sigs = &wots_signatures[wots_base + i * wots_per_iter..wots_base + (i + 1) * wots_per_iter];
+            let xmss_merkle_nodes_seg = &xmss_merkle_nodes[(xmss_merkle_node_base + i * xmss_merkle_node_per_iter)
+                * xmss::XMSS_DIGEST_SIZE
+                ..(xmss_merkle_node_base + (i + 1) * xmss_merkle_node_per_iter) * xmss::XMSS_DIGEST_SIZE];
             let merkle = &merkle_paths[merkle_base + i * merkle_per_iter..merkle_base + (i + 1) * merkle_per_iter];
             let mut seg_trace = Trace::new();
             let mut seg_pc = batch.batch_pc;
             let mut seg_fp = fp_i;
             let mut seg_ap = fp_i + batch.frame_size;
-            let mut xmss_idx = 0usize;
+            let mut wots_idx = 0usize;
+            let mut xmss_merkle_node_idx = 0usize;
             let mut merkle_idx = 0usize;
             let mut hints = HintState {
                 diagnostics: None,
                 private_input_start,
-                xmss_signatures: xmss_sigs,
-                xmss_hint_index: &mut xmss_idx,
+                wots_signatures: wots_sigs,
+                wots_hint_index: &mut wots_idx,
+                xmss_merkle_nodes: xmss_merkle_nodes_seg,
+                xmss_merkle_node_index: &mut xmss_merkle_node_idx,
                 merkle_paths: merkle,
                 merkle_hint_index: &mut merkle_idx,
             };
@@ -518,7 +547,8 @@ fn handle_parallel_batch(
         }
     }
 
-    *xmss_hint_index += n_par * xmss_per_iter;
+    *wots_hint_index += n_par * wots_per_iter;
+    *xmss_merkle_node_index += n_par * xmss_merkle_node_per_iter;
     *merkle_hint_index += n_par * merkle_per_iter;
 
     *pc = batch.batch_pc;

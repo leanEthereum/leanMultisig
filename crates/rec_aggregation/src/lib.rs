@@ -7,7 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, SIG_SIZE_FE, V, W, XmssPublicKey, XmssSignature};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, V, W, WOTS_SIG_SIZE_FE, XmssPublicKey, XmssSignature};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -144,15 +144,22 @@ fn build_non_reserved_public_input(
     pi
 }
 
-fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
+fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
+    // The in-memory signature buffer consumed by `hint_wots` is just the WOTS part:
+    // `randomness | chain_tips`. The XMSS merkle path is delivered out-of-band via
+    // `hint_xmss_merkle_node`, see `encode_xmss_merkle_path`.
     let mut data = vec![];
     data.extend(sig.wots_signature.randomness.to_vec());
     data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
-        data.extend(neighbor.to_vec());
-    }
-    assert_eq!(data.len(), SIG_SIZE_FE);
+    assert_eq!(data.len(), WOTS_SIG_SIZE_FE);
     data
+}
+
+/// Flatten the merkle path of an XMSS signature into a 4*LOG_LIFETIME flat vec, in the
+/// order it will be consumed by successive `hint_xmss_merkle_node` calls inside
+/// `do_4_merkle_levels` (= the natural leaf-to-root order of the merkle path).
+fn encode_xmss_merkle_path(sig: &XmssSignature) -> Vec<F> {
+    sig.merkle_proof.iter().flat_map(|d| d.to_vec()).collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -373,10 +380,17 @@ pub fn xmss_aggregate(
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
-    let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
+    // Build the WOTS-portion signature buffers (one Vec<F> per signature, consumed by
+    // hint_wots). The merkle path of each sig is delivered separately via
+    // hint_xmss_merkle_node; we flatten it here in the order it will be consumed at
+    // runtime.
+    let wots_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
+    let xmss_merkle_nodes: Vec<F> = raw_xmss
+        .iter()
+        .flat_map(|(_, sig)| encode_xmss_merkle_path(sig))
+        .collect();
 
-    // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
+    // Source 0: raw XMSS (indices only; signature data goes via hint_wots)
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
@@ -465,7 +479,8 @@ pub fn xmss_aggregate(
 
     let witness = ExecutionWitness {
         private_input: &private_input,
-        xmss_signatures: &xmss_signatures,
+        wots_signatures: &wots_signatures,
+        xmss_merkle_nodes: &xmss_merkle_nodes,
         merkle_paths: &merkle_paths,
     };
     let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);

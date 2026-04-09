@@ -187,7 +187,14 @@ def hint_log2_ceil(n):
     return log2_ceil(n)
 
 
-def hint_xmss(buff):
+def hint_wots(buff):
+    _ = buff
+
+
+def hint_xmss_merkle_node(buff):
+    """Pull the next 4-element XMSS merkle path node from the prover's flat queue and
+    write it at `buff`. Lets the merkle hash code place each path neighbour directly
+    into the merkle hash buffer slot, avoiding per-level copies."""
     _ = buff
 
 

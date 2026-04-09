@@ -13,7 +13,7 @@ PUBLIC_PARAM_LEN_FE = PUBLIC_PARAM_LEN_FE_PLACEHOLDER
 XMSS_DIGEST = XMSS_DIGEST_SIZE_PLACEHOLDER
 PUB_KEY_SIZE = XMSS_DIGEST + PUBLIC_PARAM_LEN_FE
 PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST
-SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * XMSS_DIGEST
+WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
@@ -76,7 +76,9 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     public_param = pub_key + XMSS_DIGEST
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
-    merkle_path = chain_starts + V * XMSS_DIGEST
+    # NOTE: the merkle path is no longer part of `signature`. The prover delivers
+    # each merkle node directly into a `do_4_merkle_levels` slot via
+    # `hint_xmss_merkle_node`, see `xmss_merkle_verify` / `do_4_merkle_levels`.
 
     # 1) Encode: poseidon16_compress(message[0:8], [msg[8] | randomness(5) | tweak_encoding(2)])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
@@ -158,7 +160,7 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # address, which lets do_4_merkle_levels feed tweak offsets straight into
     # poseidon16_compress_hardcoded_left_4.
     merkle_tweaks = TWEAK_TABLE_ADDR + TWEAK_MERKLE_OFFSET
-    xmss_merkle_verify(expected_leaf, merkle_path, merkle_chunks, pub_key, public_param, merkle_tweaks)
+    xmss_merkle_verify(expected_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
     return
 
 
@@ -259,7 +261,7 @@ def set_buf_prefix_right(buf, public_param):
 
 
 @inline
-def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_tweaks_chunk):
+def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk):
     # New merkle hash layout:
     #   LEFT  = [tweak(2) | 00 | pp(4)]   ← `[tweak(2) | 00]` is read straight from
     #                                       the merkle tweak slot at the compile-time
@@ -269,8 +271,11 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     #
     # Each level's half-output digest is written DIRECTLY into the next level's `buf`
     # at the correct slot (offset 0 if it's the LEFT child of the next level, offset 4
-    # if it's the RIGHT child). The OTHER child slot is filled by copying the next
-    # path element into it. No copies of pp, no buffer-prefix tricks.
+    # if it's the RIGHT child). The OTHER child slot is filled by `hint_xmss_merkle_node`,
+    # which the prover supplies in level order — so neither the merkle path nor the
+    # public param are ever copied/duplicated inside `do_4_merkle_levels`. The only
+    # remaining copy is `state_in` into the level-0 buffer (we don't know `state_in`'s
+    # address layout statically across chunk boundaries).
     #
     # `buf1`/`buf2`/`buf3` are over-allocated to 12 elements (instead of 8) so the
     # half-output lookup at the digest still has 8 valid memory cells when the digest
@@ -286,43 +291,45 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    # Level 0 input: copy state_in and path_chunk into buf0 in merkle order.
+    # Level 0 input: copy state_in into buf0 (we don't know its statically); hint the
+    # level-0 merkle path neighbour into the OTHER slot.
     buf0 = Array(DIGEST_LEN)
     if b0 == 1:
         # state_in is the LEFT child
         copy_xmss_digest(state_in, buf0)
-        copy_xmss_digest(path_chunk, buf0 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf0 + XMSS_DIGEST)
     else:
-        # path_chunk[0] is the LEFT child
-        copy_xmss_digest(path_chunk, buf0)
+        # the merkle path neighbour is the LEFT child
+        hint_xmss_merkle_node(buf0)
         copy_xmss_digest(state_in, buf0 + XMSS_DIGEST)
 
-    # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4)
+    # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4).
+    # The path neighbour for level 1 is hinted into the OTHER slot of buf1.
     buf1 = Array(BUF_SIZE_DEST)
     if b1 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1, merkle_tweaks_chunk)
-        copy_xmss_digest(path_chunk + 1 * XMSS_DIGEST, buf1 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf1 + XMSS_DIGEST)
     else:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1 + XMSS_DIGEST, merkle_tweaks_chunk)
-        copy_xmss_digest(path_chunk + 1 * XMSS_DIGEST, buf1)
+        hint_xmss_merkle_node(buf1)
 
     # Level 1 hash → buf2
     buf2 = Array(BUF_SIZE_DEST)
     if b2 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2, merkle_tweaks_chunk + 1 * TWEAK_LEN)
-        copy_xmss_digest(path_chunk + 2 * XMSS_DIGEST, buf2 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf2 + XMSS_DIGEST)
     else:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2 + XMSS_DIGEST, merkle_tweaks_chunk + 1 * TWEAK_LEN)
-        copy_xmss_digest(path_chunk + 2 * XMSS_DIGEST, buf2)
+        hint_xmss_merkle_node(buf2)
 
     # Level 2 hash → buf3
     buf3 = Array(BUF_SIZE_DEST)
     if b3 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3, merkle_tweaks_chunk + 2 * TWEAK_LEN)
-        copy_xmss_digest(path_chunk + 3 * XMSS_DIGEST, buf3 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf3 + XMSS_DIGEST)
     else:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3 + XMSS_DIGEST, merkle_tweaks_chunk + 2 * TWEAK_LEN)
-        copy_xmss_digest(path_chunk + 3 * XMSS_DIGEST, buf3)
+        hint_xmss_merkle_node(buf3)
 
     # Level 3 hash → state_out (digest always written at offset 0 since the next chunk
     # reads state_out as a 4-element pointer regardless).
@@ -331,11 +338,11 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
 
 
 @inline
-def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, public_param, merkle_tweaks):
+def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
     states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
 
     # First chunk
-    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states, public_param, merkle_tweaks))
+    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, states, public_param, merkle_tweaks))
 
     state_indexes = Array(N_MERKLE_CHUNKS - 1)
     state_indexes[0] = states
@@ -347,7 +354,6 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
             lambda b: do_4_merkle_levels(
                 b,
                 state_indexes[j - 1],
-                merkle_path + j * MERKLE_LEVELS_PER_CHUNK * XMSS_DIGEST,
                 state_indexes[j],
                 public_param,
                 merkle_tweaks + j * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
@@ -362,7 +368,6 @@ def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root, p
         lambda b: do_4_merkle_levels(
             b,
             state_indexes[N_MERKLE_CHUNKS - 2],
-            merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * XMSS_DIGEST,
             last_output,
             public_param,
             merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,

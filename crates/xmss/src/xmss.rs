@@ -31,8 +31,8 @@ pub struct XmssPublicKey {
 impl XmssPublicKey {
     pub fn flaten(&self) -> [F; PUB_KEY_FLAT_SIZE] {
         let mut output = [F::default(); PUB_KEY_FLAT_SIZE];
-        output[..DIGEST_SIZE].copy_from_slice(&self.merkle_root);
-        output[DIGEST_SIZE..].copy_from_slice(&self.public_param);
+        output[..XMSS_DIGEST_SIZE].copy_from_slice(&self.merkle_root);
+        output[XMSS_DIGEST_SIZE..].copy_from_slice(&self.public_param);
         output
     }
 }
@@ -115,7 +115,7 @@ pub fn xmss_key_gen(
                     };
                     let poseidon_left = build_left(make_tweak(TWEAK_TYPE_MERKLE, level, i as u32), &public_param);
                     let poseidon_right = build_right(&left, &right);
-                    poseidon16_compress_pair(&poseidon_left, &poseidon_right)[..DIGEST_SIZE]
+                    poseidon16_compress_pair(&poseidon_left, &poseidon_right)[..XMSS_DIGEST_SIZE]
                         .try_into()
                         .unwrap()
                 })
@@ -220,7 +220,7 @@ pub fn xmss_verify(
         } else {
             build_right(neighbour, &current_hash)
         };
-        current_hash = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
+        current_hash = poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_SIZE]
             .try_into()
             .unwrap();
     }

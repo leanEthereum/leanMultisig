@@ -12,7 +12,8 @@ use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{
-    DIGEST_SIZE, LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W,
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W,
+    XMSS_DIGEST_SIZE,
 };
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
@@ -376,7 +377,7 @@ fn build_replacements(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
     );
-    replacements.insert("XMSS_DIGEST_SIZE_PLACEHOLDER".to_string(), DIGEST_SIZE.to_string());
+    replacements.insert("XMSS_DIGEST_SIZE_PLACEHOLDER".to_string(), XMSS_DIGEST_SIZE.to_string());
 
     // Bytecode zero eval
     replacements.insert(
