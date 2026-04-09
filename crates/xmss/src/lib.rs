@@ -25,11 +25,14 @@ pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
 pub const MESSAGE_LEN_FE: usize = 9;
 pub const PUBLIC_PARAM_LEN_FE: usize = 4;
-pub const PP_IN_LEFT: usize = 8 - DIGEST_SIZE; // = 3
+/// Length of the non-data prefix in either Poseidon input. Both inputs reserve the
+/// first `INPUT_PREFIX_LEN` field elements for metadata (tweak/zeros on the left,
+/// public_param on the right) and place the 4-element data digest right after it.
+pub const INPUT_PREFIX_LEN: usize = 8 - DIGEST_SIZE; // = 4
 pub const PUB_KEY_FLAT_SIZE: usize = DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 9
 
-const _: () = assert!(PP_IN_LEFT + DIGEST_SIZE == 8);
-// Right layout: [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
+const _: () = assert!(INPUT_PREFIX_LEN + DIGEST_SIZE == 8);
+// Left layout (with tweak): [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
 const _: () = assert!(TWEAK_LEN + 2 + DIGEST_SIZE == 8);
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;
@@ -55,20 +58,20 @@ pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> 
     ]
 }
 
-/// [public_param(4) | data(4)]
-pub(crate) fn build_left(public_param: &PublicParam, data: &Digest) -> [F; 8] {
+/// [tweak(2) | zeros(2) | data(4)]
+pub(crate) fn build_left(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
     let mut left = [F::default(); 8];
-    left[..PP_IN_LEFT].copy_from_slice(public_param);
-    left[PP_IN_LEFT..].copy_from_slice(data);
+    left[..TWEAK_LEN].copy_from_slice(&tweak);
+    // left[TWEAK_LEN..8-DIGEST_SIZE] = zeros (default)
+    left[8 - DIGEST_SIZE..].copy_from_slice(data);
     left
 }
 
-/// [tweak(2) | zeros(2) | data(4)]
-pub(crate) fn build_right(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
+/// [public_param(4) | data(4)]
+pub(crate) fn build_right(public_param: &PublicParam, data: &Digest) -> [F; 8] {
     let mut right = [F::default(); 8];
-    right[..TWEAK_LEN].copy_from_slice(&tweak);
-    // right[TWEAK_LEN..TWEAK_LEN+2] = zeros (default)
-    right[8 - DIGEST_SIZE..].copy_from_slice(data);
+    right[..INPUT_PREFIX_LEN].copy_from_slice(public_param);
+    right[INPUT_PREFIX_LEN..].copy_from_slice(data);
     right
 }
 

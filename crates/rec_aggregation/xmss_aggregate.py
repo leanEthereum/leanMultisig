@@ -40,17 +40,7 @@ BUF_SIZE = 1 + PP_IN_LEFT + DIGEST_LEN
 
 
 @inline
-def build_left_fn(pp, data, out):
-    # out must be Array(DIGEST_LEN + 1) or more
-    # data must have at least 5 readable elements in memory.
-    for k in unroll(0, PP_IN_LEFT):
-        out[k] = pp[k]
-    copy_5(data, out + PP_IN_LEFT)
-    return
-
-
-@inline
-def build_right_fn(tweak, data, out):
+def build_left_fn(tweak, data, out):
     # [tweak(2) | zeros(2) | data(XMSS_DIGEST)]
     # `tweak` is a pointer to the tweak VALUE (slot_start + 1). copy_5(tweak - 1, out - 1)
     # writes the padded slot [0, tw(2), 0, 0] to out[-1..4]; the leading 0 lands at the
@@ -59,6 +49,17 @@ def build_right_fn(tweak, data, out):
     # (so that out[-1] and out[0..9] are all valid writable memory).
     copy_5(tweak - 1, out - 1)
     copy_5(data, out + 4)
+    return
+
+
+@inline
+def build_right_fn(pp, data, out):
+    # [public_param(4) | data(XMSS_DIGEST)]
+    # out must be Array(DIGEST_LEN + 1) or more.
+    # data must have at least 5 readable elements in memory.
+    for k in unroll(0, PP_IN_LEFT):
+        out[k] = pp[k]
+    copy_5(data, out + PP_IN_LEFT)
     return
 
 
@@ -270,19 +271,21 @@ def wots_pk_hash(wots_public_key, public_param, wots_pk_tweaks):
 
 
 @inline
-def set_buf_prefix_left(buf, public_param):
-    for k in unroll(0, PP_IN_LEFT):
-        buf[k] = public_param[k]
-    return
-
-
-@inline
-def set_buf_prefix_right(buf, tweak):
+def set_buf_prefix_left(buf, tweak):
+    # Writes [tweak(2) | zeros(2)] to buf[0..4] — the LEFT-input prefix.
     # `tweak` points to the tweak VALUE (slot_start + 1). copy_5 reads the padded slot
     # [0, tw[0], tw[1], 0, 0] and writes buf[-1..4]; the leading 0 lands at the "extra"
     # slot before buf, and buf[0..4] = [tw[0], tw[1], 0, 0] — the desired prefix.
     # buf must be `alloc + 1` where alloc has at least BUF_SIZE + 1 elements.
     copy_5(tweak - 1, buf - 1)
+    return
+
+
+@inline
+def set_buf_prefix_right(buf, public_param):
+    # Writes [pp(4)] to buf[0..4] — the RIGHT-input prefix.
+    for k in unroll(0, PP_IN_LEFT):
+        buf[k] = public_param[k]
     return
 
 
@@ -299,20 +302,20 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
 
     # Level 0: build from external state_in and path_chunk (no prior hash to reuse)
     # All `Array(DIGEST_LEN + 2)` allocations reserve 1 element at offset 0 as the "extra"
-    # landing spot for build_right_fn's copy_5 prefix trick; the effective pointer is alloc+1.
+    # landing spot for build_left_fn's copy_5 prefix trick; the effective pointer is alloc+1.
     left0_alloc = Array(DIGEST_LEN + 2)
     left0 = left0_alloc + 1
     right0_alloc = Array(DIGEST_LEN + 2)
     right0 = right0_alloc + 1
     if b0 == 1:
-        build_left_fn(public_param, state_in, left0)
-        build_right_fn(merkle_tweaks_chunk, path_chunk, right0)
+        build_left_fn(merkle_tweaks_chunk, state_in, left0)
+        build_right_fn(public_param, path_chunk, right0)
     else:
-        build_left_fn(public_param, path_chunk, left0)
-        build_right_fn(merkle_tweaks_chunk, state_in, right0)
+        build_left_fn(merkle_tweaks_chunk, path_chunk, left0)
+        build_right_fn(public_param, state_in, right0)
 
     # Buffer trick: hash output to buf + PP_IN_LEFT, then prepend prefix.
-    # buf*_alloc has a leading "extra" slot so set_buf_prefix_right can use copy_5.
+    # buf*_alloc has a leading "extra" slot so set_buf_prefix_left can use copy_5.
     buf0_alloc = Array(BUF_SIZE + 1)
     buf0 = buf0_alloc + 1
     poseidon16_compress(left0, right0, buf0 + PP_IN_LEFT)
@@ -323,12 +326,12 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     buf1_alloc = Array(BUF_SIZE + 1)
     buf1 = buf1_alloc + 1
     if b1 == 1:
-        set_buf_prefix_left(buf0, public_param)
-        build_right_fn(merkle_tweaks_chunk + 1 * TWEAK_LEN, path_chunk + 1 * XMSS_DIGEST, other1)
+        set_buf_prefix_left(buf0, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        build_right_fn(public_param, path_chunk + 1 * XMSS_DIGEST, other1)
         poseidon16_compress(buf0, other1, buf1 + PP_IN_LEFT)
     else:
-        set_buf_prefix_right(buf0, merkle_tweaks_chunk + 1 * TWEAK_LEN)
-        build_left_fn(public_param, path_chunk + 1 * XMSS_DIGEST, other1)
+        set_buf_prefix_right(buf0, public_param)
+        build_left_fn(merkle_tweaks_chunk + 1 * TWEAK_LEN, path_chunk + 1 * XMSS_DIGEST, other1)
         poseidon16_compress(other1, buf0, buf1 + PP_IN_LEFT)
 
     # Level 2
@@ -337,24 +340,24 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out, public_param, merkle_
     buf2_alloc = Array(BUF_SIZE + 1)
     buf2 = buf2_alloc + 1
     if b2 == 1:
-        set_buf_prefix_left(buf1, public_param)
-        build_right_fn(merkle_tweaks_chunk + 2 * TWEAK_LEN, path_chunk + 2 * XMSS_DIGEST, other2)
+        set_buf_prefix_left(buf1, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        build_right_fn(public_param, path_chunk + 2 * XMSS_DIGEST, other2)
         poseidon16_compress(buf1, other2, buf2 + PP_IN_LEFT)
     else:
-        set_buf_prefix_right(buf1, merkle_tweaks_chunk + 2 * TWEAK_LEN)
-        build_left_fn(public_param, path_chunk + 2 * XMSS_DIGEST, other2)
+        set_buf_prefix_right(buf1, public_param)
+        build_left_fn(merkle_tweaks_chunk + 2 * TWEAK_LEN, path_chunk + 2 * XMSS_DIGEST, other2)
         poseidon16_compress(other2, buf1, buf2 + PP_IN_LEFT)
 
     # Level 3 -> state_out
     other3_alloc = Array(DIGEST_LEN + 2)
     other3 = other3_alloc + 1
     if b3 == 1:
-        set_buf_prefix_left(buf2, public_param)
-        build_right_fn(merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * XMSS_DIGEST, other3)
+        set_buf_prefix_left(buf2, merkle_tweaks_chunk + 3 * TWEAK_LEN)
+        build_right_fn(public_param, path_chunk + 3 * XMSS_DIGEST, other3)
         poseidon16_compress(buf2, other3, state_out)
     else:
-        set_buf_prefix_right(buf2, merkle_tweaks_chunk + 3 * TWEAK_LEN)
-        build_left_fn(public_param, path_chunk + 3 * XMSS_DIGEST, other3)
+        set_buf_prefix_right(buf2, public_param)
+        build_left_fn(merkle_tweaks_chunk + 3 * TWEAK_LEN, path_chunk + 3 * XMSS_DIGEST, other3)
         poseidon16_compress(other3, buf2, state_out)
     return
 

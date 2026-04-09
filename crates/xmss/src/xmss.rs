@@ -113,8 +113,8 @@ pub fn xmss_key_gen(
                     } else {
                         gen_random_node(&seed, level - 1, right_idx)
                     };
-                    let poseidon_left = build_left(&public_param, &left);
-                    let poseidon_right = build_right(make_tweak(TWEAK_TYPE_MERKLE, level, i as u32), &right);
+                    let poseidon_left = build_left(make_tweak(TWEAK_TYPE_MERKLE, level, i as u32), &left);
+                    let poseidon_right = build_right(&public_param, &right);
                     poseidon16_compress_pair(&poseidon_left, &poseidon_right)[..DIGEST_SIZE]
                         .try_into()
                         .unwrap()
@@ -215,14 +215,14 @@ pub fn xmss_verify(
         let parent_index = ((slot as u64) >> (level + 1)) as u32;
         let tweak = make_tweak(TWEAK_TYPE_MERKLE, level + 1, parent_index);
         if is_left {
-            let left = build_left(&pub_key.public_param, &current_hash);
-            let right = build_right(tweak, neighbour);
+            let left = build_left(tweak, &current_hash);
+            let right = build_right(&pub_key.public_param, neighbour);
             current_hash = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
         } else {
-            let left = build_left(&pub_key.public_param, neighbour);
-            let right = build_right(tweak, &current_hash);
+            let left = build_left(tweak, neighbour);
+            let right = build_right(&pub_key.public_param, &current_hash);
             current_hash = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
                 .try_into()
                 .unwrap();
