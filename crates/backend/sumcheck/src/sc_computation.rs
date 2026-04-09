@@ -590,7 +590,7 @@ where
                 let lo = m[i];
                 let hi = m[i + fold_size];
                 let diff_hi_lo = hi - lo;
-                [lo, diff_hi_lo, diff_hi_lo]
+                [lo, diff_hi_lo, hi]
             })
             .collect::<Vec<_>>();
 
@@ -604,12 +604,12 @@ where
         let mut evals = Vec::with_capacity(degree);
         evals.push(eval_0);
 
-        // z = 2, 3 ...
+        // z = 2, 3, ...
         for _ in 1..degree {
-            for [_, diff_hi_lo, acc] in &mut rows {
-                *acc += *diff_hi_lo;
+            for [_, diff_hi_lo, running] in &mut rows {
+                *running += *diff_hi_lo;
             }
-            let point_f = rows.iter().map(|row| row[0] + row[2]).collect::<Vec<_>>();
+            let point_f = rows.iter().map(|row| row[2]).collect::<Vec<_>>();
             let mut eval = eval_fn(computation, point_f, extra_data);
             if let Some(eq) = eq_val {
                 eval *= eq;
@@ -666,7 +666,7 @@ where
                     *ptr.add(i + compute_fold_size) = hi;
                 }
                 let diff_hi_lo = hi - lo;
-                [lo, diff_hi_lo, diff_hi_lo]
+                [lo, diff_hi_lo, hi]
             })
             .collect();
 
@@ -680,12 +680,12 @@ where
         let mut evals = Vec::with_capacity(degree);
         evals.push(eval_0);
 
-        // z = 2, 3 ...
+        // z = 2, 3, ...
         for _ in 1..degree {
-            for [_, diff_hi_lo, acc] in &mut rows_f {
-                *acc += *diff_hi_lo;
+            for [_, diff_hi_lo, running] in &mut rows_f {
+                *running += *diff_hi_lo;
             }
-            let point_f = rows_f.iter().map(|row| row[0] + row[2]).collect::<Vec<FT>>();
+            let point_f = rows_f.iter().map(|row| row[2]).collect::<Vec<FT>>();
             let mut eval = eval_fn(computation, point_f, extra_data);
             if let Some(eq) = eq_mle_eval {
                 eval *= eq;
@@ -746,7 +746,7 @@ where
                         let lo = m[i];
                         let hi = m[i + fold_size];
                         let diff = hi - lo;
-                        [lo, diff, diff]
+                        [lo, diff, hi]
                     })
                     .collect::<Vec<_>>();
 
@@ -758,10 +758,10 @@ where
 
                 // z = 2, 3, ...
                 for d in 1..degree {
-                    for [_, diff, acc] in &mut rows {
-                        *acc += *diff;
+                    for [_, diff, running] in &mut rows {
+                        *running += *diff;
                     }
-                    let pf = rows.iter().map(|r| r[0] + r[2]).collect();
+                    let pf = rows.iter().map(|r| r[2]).collect();
                     let mut ev = eval_fn(computation, pf, extra_data);
                     ev *= eq_val;
                     block_acc[d] += ev;
@@ -839,7 +839,7 @@ where
                             *ptr.add(i + compute_fold_size) = hi;
                         }
                         let diff = hi - lo;
-                        [lo, diff, diff]
+                        [lo, diff, hi]
                     })
                     .collect();
 
@@ -849,10 +849,10 @@ where
                 block_acc[0] += e0;
 
                 for d in 1..degree {
-                    for [_, diff, acc] in &mut rows_f {
-                        *acc += *diff;
+                    for [_, diff, running] in &mut rows_f {
+                        *running += *diff;
                     }
-                    let pf = rows_f.iter().map(|r| r[0] + r[2]).collect();
+                    let pf = rows_f.iter().map(|r| r[2]).collect();
                     let mut ev = eval_fn(computation, pf, extra_data);
                     ev *= eq_val;
                     block_acc[d] += ev;
