@@ -129,7 +129,6 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
 
     # 2) Chain hashes -> recover WOTS public key
     wots_public_key = Array(V * DIGEST_LEN)
-    MAX_CHAIN_HASHES = CHAIN_LENGTH - 1
 
     chain_right = Array(DIGEST_LEN + 1)
     build_chain_right(public_param, chain_right)
@@ -140,21 +139,12 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
         chain_end = wots_public_key + i * DIGEST_LEN
         chain_i_tweaks = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
 
-        # Pre-allocate intermediate-digest buffers (one BUF_SIZE-strided slot per
-        # chain hash; only the [4..8] sub-slot of each slot is actually used to hold
-        # the 4-element digest). We don't need a separate ch_left_first buffer anymore
-        # because the first hash reads its 4-element LEFT data straight from `input`
-        # via poseidon16_compress_hardcoded_left_4.
-        ch_bufs_alloc = Array((MAX_CHAIN_HASHES - 1) * BUF_SIZE)
-        ch_bufs = ch_bufs_alloc + 1
-        ch_buf_idx = Array(MAX_CHAIN_HASHES - 1)
-
         match_range(
             num_hashes,
             range(0, 1),
             lambda _: copy_5(chain_start, chain_end),
             range(1, CHAIN_LENGTH),
-            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right, ch_bufs, ch_buf_idx),
+            lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right),
         )
 
     # 3) Hash WOTS public key
@@ -178,40 +168,51 @@ def copy_xmss_digest(src, dst):
 
 
 @inline
-def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right, ch_bufs, ch_buf_idx):
-    # Chain hash layout: left = [tweak(2) | zeros(2) | data(4)], right = chain_right (shared).
-    # The LEFT prefix [tweak(2) | 00] is read directly from the tweak table by
-    # poseidon16_compress_half_hardcoded_left_4 — no per-hash buffer copies needed.
+def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
+    # Chain of n half-output poseidon compressions:
+    #   D_0    = poseidon([tweak_s     | 00 | input(4)],  chain_right)[..4]
+    #   D_j    = poseidon([tweak_{s+j} | 00 | D_{j-1}],   chain_right)[..4]   for j in 1..n-2
+    #   output = poseidon([tweak_{s+n-1} | 00 | D_{n-2}], chain_right)[..4]
+    # where s = starting_step = CHAIN_LENGTH - 1 - n.
     #
-    # `chain_i_tweaks` is a compile-time constant address (TWEAK_TABLE_ADDR + chain_offset),
-    # so each `chain_i_tweaks + step * TWEAK_LEN` is also a compile-time constant; the
-    # hardcoded_left_4 precompile bakes the absolute tweak slot address into the bytecode.
+    # `chain_i_tweaks` is a compile-time constant absolute address into the tweak table,
+    # so each per-step `chain_i_tweaks + k * TWEAK_LEN` is also compile-time. The LEFT
+    # prefix [tweak | 00] is read straight from the tweak slot by the hardcoded_left_4
+    # precompile — no per-hash buffer copies. Every output is consumed as a 4-element
+    # digest, so we use the `_half_` variant.
     #
-    # Every chain hash only consumes 4 output FE (either as the LEFT data of the next
-    # chain step or as the final XMSS digest), so we use the `_half_` variant which only
-    # constrains the first 4 output FE — saves AIR constraints + memory writes per hash.
+    # Intermediate digests are packed at stride XMSS_DIGEST (= 4) inside `digests`.
+    # The buffer is sized n * XMSS_DIGEST: (n-1) digests at offsets 0, 4, ..., (n-2)*4
+    # plus 4 trailing slots that the last digest's RES lookup reads (vacuously, since
+    # half_output leaves those columns unconstrained — the prover sets them to whatever
+    # is at memory[res+4..res+8], which is 0 in write-once memory).
     starting_step = CHAIN_LENGTH - 1 - n
 
     if n == 1:
-        # Single hash: input → output, with tweak_{starting_step} as the LEFT prefix.
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
         poseidon16_compress_half_hardcoded_left_4(input, chain_right, output, first_tweak)
     else:
-        # Hash 0: input → ch_bufs[0] + 4
-        ch_buf_idx[0] = ch_bufs
+        digests = Array(n * XMSS_DIGEST)
+
+        # Hash 0: input → digests[0..4]
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
-        poseidon16_compress_half_hardcoded_left_4(input, chain_right, ch_bufs + 4, first_tweak)
+        poseidon16_compress_half_hardcoded_left_4(input, chain_right, digests, first_tweak)
 
-        # Hashes 1..n-2: bufs[j-1] + 4 → bufs[j] + 4
+        # Hashes 1..n-2: digests[(j-1)*4..j*4] → digests[j*4..(j+1)*4]
         for j in unroll(1, n - 1):
-            ch_buf_idx[j] = ch_buf_idx[j - 1] + BUF_SIZE
-            cur_buf = ch_buf_idx[j]
             cur_tweak = chain_i_tweaks + (starting_step + j) * TWEAK_LEN
-            poseidon16_compress_half_hardcoded_left_4(ch_buf_idx[j - 1] + 4, chain_right, cur_buf + 4, cur_tweak)
+            poseidon16_compress_half_hardcoded_left_4(
+                digests + (j - 1) * XMSS_DIGEST,
+                chain_right,
+                digests + j * XMSS_DIGEST,
+                cur_tweak,
+            )
 
-        # Final hash: bufs[n-2] + 4 → output
+        # Final hash: digests[(n-2)*4..(n-1)*4] → output
         last_tweak = chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN
-        poseidon16_compress_half_hardcoded_left_4(ch_buf_idx[n - 2] + 4, chain_right, output, last_tweak)
+        poseidon16_compress_half_hardcoded_left_4(
+            digests + (n - 2) * XMSS_DIGEST, chain_right, output, last_tweak
+        )
     return
 
 
