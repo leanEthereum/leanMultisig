@@ -108,18 +108,18 @@ pub const POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT: usize = 1 << 2;
 pub const POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT: usize = 1 << 3;
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = 1;
-pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 2;
-pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
-pub const POSEIDON_16_COL_FLAG_HALF_OUTPUT: ColIndex = 4;
-pub const POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4: ColIndex = 5;
-pub const POSEIDON_16_COL_OFFSET_HARDCODED: ColIndex = 6;
-pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST: ColIndex = 7;
-pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND: ColIndex = 8;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 9;
+pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 1;
+pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 2;
+pub const POSEIDON_16_COL_FLAG_HALF_OUTPUT: ColIndex = 3;
+pub const POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4: ColIndex = 4;
+pub const POSEIDON_16_COL_OFFSET_HARDCODED: ColIndex = 5;
+pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST: ColIndex = 6;
+pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND: ColIndex = 7;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 8;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
-/// Non-committed columns:
-pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16();
+/// Non-committed columns ("virtual"):
+pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = num_cols_poseidon_16();
+pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16() + 1;
 
 pub const POSEIDON16_NAME: &str = "poseidon16_compress";
 pub const POSEIDON16_HALF_NAME: &str = "poseidon16_compress_half";
@@ -236,7 +236,6 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let offset_hardcoded = hardcoded_left_4.unwrap_or(0);
 
         trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
-        trace.columns[POSEIDON_16_COL_INDEX_INPUT_LEFT].push(arg_a);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
         trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
@@ -248,6 +247,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             trace.columns[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
         // Non-committed columns
+        trace.columns[POSEIDON_16_COL_INDEX_INPUT_LEFT].push(arg_a);
         let precompile_data = POSEIDON_PRECOMPILE_DATA
             + POSEIDON_HALF_OUTPUT_SHIFT * (half_output as usize)
             + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * (flag_hardcoded as usize)
@@ -272,7 +272,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 80
+        BUS as usize + 79
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
@@ -291,50 +291,27 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 * cols.offset_hardcoded
                 * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT);
 
+        // effective_index_left_first = index_a * (1 - flag_hardcoded_left_4) + offset * flag_hardcoded_left_4
+        let index_a = cols.effective_index_left_second
+            - (AB::IF::ONE - cols.flag_hardcoded_left_4) * AB::F::from_usize(HALF_DIGEST_LEN);
+
         // Bus data: [precompile_data, a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag,
-                &[
-                    precompile_data_reconstructed,
-                    cols.index_a,
-                    cols.index_b,
-                    cols.index_res,
-                ],
+                &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag));
-            builder.declare_values(&[
-                precompile_data_reconstructed,
-                cols.index_a,
-                cols.index_b,
-                cols.index_res,
-            ]);
+            builder.declare_values(&[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res]);
         }
 
         builder.assert_bool(cols.flag);
         builder.assert_bool(cols.flag_half_output);
         builder.assert_bool(cols.flag_hardcoded_left_4);
 
-        // effective_index_left_first = index_a * (1 - flag) + offset * flag
-        builder.assert_eq(
-            cols.effective_index_left_first,
-            cols.index_a * (AB::IF::ONE - cols.flag_hardcoded_left_4)
-                + cols.offset_hardcoded * cols.flag_hardcoded_left_4,
-        );
-
-        // effective_index_left_second = index_a + (1 - flag_hardcoded_left_4) * 4
-        // - When the hardcoded flag is disabled (legacy path) the second half of the left
-        //   input is read from m[index_a + 4 .. index_a + 8] (the upper half of an 8-element
-        //   chunk pointed to by index_a).
-        // - When the hardcoded flag is set, only a 4-element data digest is read from
-        //   m[index_a .. index_a + 4]; the first 4 inputs are supplied from the hardcoded
-        //   m[offset .. offset + 4].
-        builder.assert_eq(
-            cols.effective_index_left_second,
-            cols.index_a + (AB::IF::ONE - cols.flag_hardcoded_left_4) * AB::F::from_usize(HALF_DIGEST_LEN),
-        );
+        builder.assert_zero(cols.flag_hardcoded_left_4 * (cols.offset_hardcoded - cols.effective_index_left_first));
 
         eval_poseidon1_16(builder, &cols)
     }
@@ -344,7 +321,6 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 #[derive(Debug)]
 pub(super) struct Poseidon1Cols16<T> {
     pub flag: T,
-    pub index_a: T,
     pub index_b: T,
     pub index_res: T,
     pub flag_half_output: T,
@@ -425,7 +401,8 @@ pub const fn num_cols_poseidon_16() -> usize {
 }
 
 pub const fn num_cols_total_poseidon_16() -> usize {
-    num_cols_poseidon_16() + 1 // +1 for non-committed POSEIDON_16_COL_PRECOMPILE_DATA
+    // +2 for non-committed columns: POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_PRECOMPILE_DATA
+    num_cols_poseidon_16() + 2
 }
 
 #[inline]

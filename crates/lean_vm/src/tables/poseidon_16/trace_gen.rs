@@ -2,7 +2,10 @@ use tracing::instrument;
 
 use crate::{
     F, ZERO_VEC_PTR,
-    tables::{HALF_DIGEST_LEN, Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16},
+    tables::{
+        HALF_DIGEST_LEN, POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_PRECOMPILE_DATA, POSEIDON_PRECOMPILE_DATA,
+        Poseidon1Cols16, WIDTH, num_cols_poseidon_16, num_cols_total_poseidon_16,
+    },
 };
 use backend::*;
 
@@ -42,7 +45,7 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
 }
 
 pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
-    // +1 for non-committed POSEIDON_16_COL_PRECOMPILE_DATA
+    // +2 for non-committed POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_PRECOMPILE_DATA
     let n_cols_total = num_cols_total_poseidon_16();
     let mut row = vec![F::ZERO; n_cols_total];
     let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
@@ -52,7 +55,6 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
     let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
     perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
     *perm.flag = F::ZERO;
-    *perm.index_a = F::from_usize(ZERO_VEC_PTR);
     *perm.index_b = F::from_usize(ZERO_VEC_PTR);
     *perm.index_res = F::from_usize(null_hash_ptr);
     *perm.flag_half_output = F::ZERO;
@@ -60,8 +62,9 @@ pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
     *perm.offset_hardcoded = F::ZERO;
     *perm.effective_index_left_first = F::from_usize(ZERO_VEC_PTR);
     *perm.effective_index_left_second = F::from_usize(ZERO_VEC_PTR + HALF_DIGEST_LEN);
-    // Non-committed column for padding rows
-    row[num_cols_poseidon_16()] = F::from_usize(crate::POSEIDON_PRECOMPILE_DATA);
+    // Non-committed columns for padding rows
+    row[POSEIDON_16_COL_INDEX_INPUT_LEFT] = F::from_usize(ZERO_VEC_PTR);
+    row[POSEIDON_16_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_PRECOMPILE_DATA);
 
     generate_trace_rows_for_perm(perm);
     row
