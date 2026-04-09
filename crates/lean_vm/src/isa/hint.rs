@@ -2,7 +2,7 @@ use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::RunnerError;
 use crate::execution::ExecutionHistory;
 use crate::execution::memory::MemoryAccess;
-use crate::isa::operands::MemOrConstant;
+use crate::isa::operands::{MemOrConstant, MemOrFpOrConstant};
 use backend::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
@@ -46,7 +46,7 @@ pub enum Hint {
     },
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
-    Custom(CustomHint, Vec<MemOrConstant>),
+    Custom(CustomHint, Vec<MemOrFpOrConstant>),
     /// Deref hint for range checks - records a constraint to be resolved at end of execution
     /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
     /// The runner resolves all these constraints at the end, in the correct order.
@@ -138,7 +138,7 @@ impl CustomHint {
 
     pub fn execute<M: MemoryAccess>(
         &self,
-        args: &[MemOrConstant],
+        args: &[MemOrFpOrConstant],
         ctx: &mut HintExecutionContext<'_, '_, M>,
     ) -> Result<(), RunnerError> {
         match self {
