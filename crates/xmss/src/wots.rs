@@ -108,11 +108,11 @@ impl WotsPublicKey {
 
         for i in (0..V).step_by(2) {
             let mut chunk = [F::default(); 8];
-            chunk[..XMSS_DIGEST_SIZE].copy_from_slice(&self.0[i]);
-            chunk[XMSS_DIGEST_SIZE..].copy_from_slice(&self.0[i + 1]);
+            chunk[..XMSS_DIGEST_LEN].copy_from_slice(&self.0[i]);
+            chunk[XMSS_DIGEST_LEN..].copy_from_slice(&self.0[i + 1]);
             state = poseidon16_compress_pair(&state, &chunk);
         }
-        state[..XMSS_DIGEST_SIZE].try_into().unwrap()
+        state[..XMSS_DIGEST_LEN].try_into().unwrap()
     }
 }
 
@@ -129,7 +129,7 @@ pub fn iterate_hash(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left_chain(tweak, &acc);
-        poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_SIZE]
+        poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
             .try_into()
             .unwrap()
     })
@@ -149,7 +149,7 @@ pub fn iterate_hash_with_poseidon_trace(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left_chain(tweak, &acc);
-        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..XMSS_DIGEST_SIZE]
+        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..XMSS_DIGEST_LEN]
             .try_into()
             .unwrap()
     })

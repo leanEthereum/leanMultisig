@@ -357,7 +357,7 @@ fn execute_bytecode_helper(
         "Not all WOTS hints were consumed"
     );
     assert_eq!(
-        xmss_merkle_node_index * xmss::XMSS_DIGEST_SIZE,
+        xmss_merkle_node_index * xmss::XMSS_DIGEST_LEN,
         xmss_merkle_nodes.len(),
         "Not all XMSS merkle node hints were consumed"
     );
@@ -504,8 +504,8 @@ fn handle_parallel_batch(
             let fp_i = batch.batch_fp + (i + 1) * stride;
             let wots_sigs = &wots_signatures[wots_base + i * wots_per_iter..wots_base + (i + 1) * wots_per_iter];
             let xmss_merkle_nodes_seg = &xmss_merkle_nodes[(xmss_merkle_node_base + i * xmss_merkle_node_per_iter)
-                * xmss::XMSS_DIGEST_SIZE
-                ..(xmss_merkle_node_base + (i + 1) * xmss_merkle_node_per_iter) * xmss::XMSS_DIGEST_SIZE];
+                * xmss::XMSS_DIGEST_LEN
+                ..(xmss_merkle_node_base + (i + 1) * xmss_merkle_node_per_iter) * xmss::XMSS_DIGEST_LEN];
             let merkle = &merkle_paths[merkle_base + i * merkle_per_iter..merkle_base + (i + 1) * merkle_per_iter];
             let mut seg_trace = Trace::new();
             let mut seg_pc = batch.batch_pc;

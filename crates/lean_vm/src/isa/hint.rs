@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::{WOTS_SIG_SIZE_FE, XMSS_DIGEST_SIZE};
+use xmss::{WOTS_SIG_SIZE_FE, XMSS_DIGEST_LEN};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -230,13 +230,13 @@ impl CustomHint {
             Self::XmssMerkleNode => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let index = *ctx.hints.xmss_merkle_node_index;
-                let start = index * XMSS_DIGEST_SIZE;
+                let start = index * XMSS_DIGEST_LEN;
                 assert!(
-                    start + XMSS_DIGEST_SIZE <= ctx.hints.xmss_merkle_nodes.len(),
+                    start + XMSS_DIGEST_LEN <= ctx.hints.xmss_merkle_nodes.len(),
                     "hint_xmss_merkle_node: not enough merkle nodes (index={index})"
                 );
                 ctx.memory
-                    .set_slice(buf_ptr, &ctx.hints.xmss_merkle_nodes[start..start + XMSS_DIGEST_SIZE])?;
+                    .set_slice(buf_ptr, &ctx.hints.xmss_merkle_nodes[start..start + XMSS_DIGEST_LEN])?;
                 *ctx.hints.xmss_merkle_node_index += 1;
             }
             Self::Merkle => {

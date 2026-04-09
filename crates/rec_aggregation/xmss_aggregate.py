@@ -10,10 +10,10 @@ LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
 PUBLIC_PARAM_LEN_FE = PUBLIC_PARAM_LEN_FE_PLACEHOLDER
-XMSS_DIGEST = XMSS_DIGEST_SIZE_PLACEHOLDER
-PUB_KEY_SIZE = XMSS_DIGEST + PUBLIC_PARAM_LEN_FE
-PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST
-WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST
+XMSS_DIGEST_LEN = XMSS_DIGEST_LEN_PLACEHOLDER
+PUB_KEY_SIZE = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE
+PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST_LEN
+WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
 NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
@@ -73,7 +73,7 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # poseidon16_compress_hardcoded_left_4 without ever copying tweak prefixes into
     # per-hash buffers.
 
-    public_param = pub_key + XMSS_DIGEST
+    public_param = pub_key + XMSS_DIGEST_LEN
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
     # NOTE: the merkle path is no longer part of `signature`. The prover delivers
@@ -134,15 +134,15 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # i * XMSS_DIGEST. We over-allocate by (DIGEST_LEN - XMSS_DIGEST) trailing slots so
     # the half-output lookup of the LAST chain (which still reads 8 memory cells past
     # its 4-element digest) stays in bounds.
-    wots_public_key = Array(V * XMSS_DIGEST + (DIGEST_LEN - XMSS_DIGEST))
+    wots_public_key = Array(V * XMSS_DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST_LEN))
 
     chain_right = Array(DIGEST_LEN + 1)
     build_chain_right(public_param, chain_right)
 
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * XMSS_DIGEST
-        chain_end = wots_public_key + i * XMSS_DIGEST
+        chain_start = chain_starts + i * XMSS_DIGEST_LEN
+        chain_end = wots_public_key + i * XMSS_DIGEST_LEN
         chain_i_tweaks = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
 
         match_range(
@@ -167,7 +167,7 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
 @inline
 def copy_xmss_digest(src, dst):
     # Copy XMSS_DIGEST elements from src to dst (within a DIGEST_LEN-strided destination)
-    for k in unroll(0, XMSS_DIGEST):
+    for k in unroll(0, XMSS_DIGEST_LEN):
         dst[k] = src[k]
     return
 
@@ -197,7 +197,7 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
         poseidon16_compress_half_hardcoded_left_4(input, chain_right, output, first_tweak)
     else:
-        digests = Array(n * XMSS_DIGEST)
+        digests = Array(n * XMSS_DIGEST_LEN)
 
         # Hash 0: input → digests[0..4]
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
@@ -207,16 +207,16 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
         for j in unroll(1, n - 1):
             cur_tweak = chain_i_tweaks + (starting_step + j) * TWEAK_LEN
             poseidon16_compress_half_hardcoded_left_4(
-                digests + (j - 1) * XMSS_DIGEST,
+                digests + (j - 1) * XMSS_DIGEST_LEN,
                 chain_right,
-                digests + j * XMSS_DIGEST,
+                digests + j * XMSS_DIGEST_LEN,
                 cur_tweak,
             )
 
         # Final hash: digests[(n-2)*4..(n-1)*4] → output
         last_tweak = chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN
         poseidon16_compress_half_hardcoded_left_4(
-            digests + (n - 2) * XMSS_DIGEST, chain_right, output, last_tweak
+            digests + (n - 2) * XMSS_DIGEST_LEN, chain_right, output, last_tweak
         )
     return
 
@@ -281,7 +281,7 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
     # half-output lookup at the digest still has 8 valid memory cells when the digest
     # lands at offset 4. The trailing 4 cells are vacuous (memory[buf+8..buf+12] = 0
     # in write-once memory; the prover sets the unconstrained trace columns to 0).
-    BUF_SIZE_DEST = DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST)  # 8 + 4 = 12
+    BUF_SIZE_DEST = DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST_LEN)  # 8 + 4 = 12
 
     b0 = b % 2
     r1 = (b - b0) / 2
@@ -297,38 +297,38 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
     if b0 == 1:
         # state_in is the LEFT child
         copy_xmss_digest(state_in, buf0)
-        hint_xmss_merkle_node(buf0 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf0 + XMSS_DIGEST_LEN)
     else:
         # the merkle path neighbour is the LEFT child
         hint_xmss_merkle_node(buf0)
-        copy_xmss_digest(state_in, buf0 + XMSS_DIGEST)
+        copy_xmss_digest(state_in, buf0 + XMSS_DIGEST_LEN)
 
     # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4).
     # The path neighbour for level 1 is hinted into the OTHER slot of buf1.
     buf1 = Array(BUF_SIZE_DEST)
     if b1 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1, merkle_tweaks_chunk)
-        hint_xmss_merkle_node(buf1 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf1 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1 + XMSS_DIGEST, merkle_tweaks_chunk)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1 + XMSS_DIGEST_LEN, merkle_tweaks_chunk)
         hint_xmss_merkle_node(buf1)
 
     # Level 1 hash → buf2
     buf2 = Array(BUF_SIZE_DEST)
     if b2 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2, merkle_tweaks_chunk + 1 * TWEAK_LEN)
-        hint_xmss_merkle_node(buf2 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf2 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2 + XMSS_DIGEST, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2 + XMSS_DIGEST_LEN, merkle_tweaks_chunk + 1 * TWEAK_LEN)
         hint_xmss_merkle_node(buf2)
 
     # Level 2 hash → buf3
     buf3 = Array(BUF_SIZE_DEST)
     if b3 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3, merkle_tweaks_chunk + 2 * TWEAK_LEN)
-        hint_xmss_merkle_node(buf3 + XMSS_DIGEST)
+        hint_xmss_merkle_node(buf3 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3 + XMSS_DIGEST, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3 + XMSS_DIGEST_LEN, merkle_tweaks_chunk + 2 * TWEAK_LEN)
         hint_xmss_merkle_node(buf3)
 
     # Level 3 hash → state_out (digest always written at offset 0 since the next chunk

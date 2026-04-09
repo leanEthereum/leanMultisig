@@ -6,11 +6,11 @@ pub use wots::*;
 mod xmss;
 pub use xmss::*;
 
-pub const XMSS_DIGEST_SIZE: usize = 4;
+pub const XMSS_DIGEST_LEN: usize = 4;
 pub(crate) const TWEAK_LEN: usize = 2;
 
 type F = KoalaBear;
-type Digest = [F; XMSS_DIGEST_SIZE];
+type Digest = [F; XMSS_DIGEST_LEN];
 type PublicParam = [F; PUBLIC_PARAM_LEN_FE];
 type Randomness = [F; RANDOMNESS_LEN_FE];
 
@@ -28,17 +28,17 @@ pub const PUBLIC_PARAM_LEN_FE: usize = 4;
 /// Length of the non-data prefix in either Poseidon input. Both inputs reserve the
 /// first `INPUT_PREFIX_LEN` field elements for metadata (tweak/zeros on the left,
 /// public_param on the right) and place the 4-element data digest right after it.
-pub const INPUT_PREFIX_LEN: usize = 8 - XMSS_DIGEST_SIZE; // = 4
-pub const PUB_KEY_FLAT_SIZE: usize = XMSS_DIGEST_SIZE + PUBLIC_PARAM_LEN_FE; // = 9
+pub const INPUT_PREFIX_LEN: usize = 8 - XMSS_DIGEST_LEN; // = 4
+pub const PUB_KEY_FLAT_SIZE: usize = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE; // = 9
 
-const _: () = assert!(INPUT_PREFIX_LEN + XMSS_DIGEST_SIZE == 8);
+const _: () = assert!(INPUT_PREFIX_LEN + XMSS_DIGEST_LEN == 8);
 // Left layout (with tweak): [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
-const _: () = assert!(TWEAK_LEN + 2 + XMSS_DIGEST_SIZE == 8);
+const _: () = assert!(TWEAK_LEN + 2 + XMSS_DIGEST_LEN == 8);
 
 /// In-memory layout consumed by `hint_wots`: just `randomness | chain_tips` (the WOTS
 /// part of an XMSS signature). The XMSS merkle path lives in a separate prover-side
 /// queue and is consumed by `hint_xmss_merkle_node`.
-pub const WOTS_SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + V * XMSS_DIGEST_SIZE;
+pub const WOTS_SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + V * XMSS_DIGEST_LEN;
 
 // Tweak: domain separation within each hash.
 pub(crate) const TWEAK_TYPE_CHAIN: usize = 0;
@@ -81,8 +81,8 @@ pub(crate) fn build_left(tweak: [F; TWEAK_LEN], public_param: &PublicParam) -> [
 /// Merkle RIGHT input: the two children of the parent node packed contiguously.
 pub(crate) fn build_right(left_child: &Digest, right_child: &Digest) -> [F; 8] {
     let mut right = [F::default(); 8];
-    right[..XMSS_DIGEST_SIZE].copy_from_slice(left_child);
-    right[XMSS_DIGEST_SIZE..].copy_from_slice(right_child);
+    right[..XMSS_DIGEST_LEN].copy_from_slice(left_child);
+    right[XMSS_DIGEST_LEN..].copy_from_slice(right_child);
     right
 }
 
@@ -91,7 +91,7 @@ pub(crate) fn build_left_chain(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; 8] {
     let mut left = [F::default(); 8];
     left[..TWEAK_LEN].copy_from_slice(&tweak);
     // left[TWEAK_LEN..8-DIGEST_SIZE] = zeros (default)
-    left[8 - XMSS_DIGEST_SIZE..].copy_from_slice(data);
+    left[8 - XMSS_DIGEST_LEN..].copy_from_slice(data);
     left
 }
 
