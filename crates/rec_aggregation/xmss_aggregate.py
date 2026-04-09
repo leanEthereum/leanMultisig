@@ -128,7 +128,11 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
         assert encoding[i] == CHAIN_LENGTH - 1
 
     # 2) Chain hashes -> recover WOTS public key
-    wots_public_key = Array(V * DIGEST_LEN)
+    # `wots_public_key` is packed at stride XMSS_DIGEST (= 4): pk[i] lives at offset
+    # i * XMSS_DIGEST. We over-allocate by (DIGEST_LEN - XMSS_DIGEST) trailing slots so
+    # the half-output lookup of the LAST chain (which still reads 8 memory cells past
+    # its 4-element digest) stays in bounds.
+    wots_public_key = Array(V * XMSS_DIGEST + (DIGEST_LEN - XMSS_DIGEST))
 
     chain_right = Array(DIGEST_LEN + 1)
     build_chain_right(public_param, chain_right)
@@ -136,13 +140,13 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     for i in unroll(0, V):
         num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
         chain_start = chain_starts + i * XMSS_DIGEST
-        chain_end = wots_public_key + i * DIGEST_LEN
+        chain_end = wots_public_key + i * XMSS_DIGEST
         chain_i_tweaks = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + i * CHAIN_LENGTH * TWEAK_LEN
 
         match_range(
             num_hashes,
             range(0, 1),
-            lambda _: copy_5(chain_start, chain_end),
+            lambda _: copy_xmss_digest(chain_start, chain_end),
             range(1, CHAIN_LENGTH),
             lambda n: chain_hash_pa(chain_start, n, chain_end, chain_i_tweaks, chain_right),
         )
@@ -217,30 +221,31 @@ def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
 
 @inline
 def wots_pk_hash(wots_public_key, public_param):
-    # Sponge-like hash of V public key digests.
+    # Sponge-like hash of V public key digests, packed at stride XMSS_DIGEST = 4 in
+    # `wots_public_key`. Each 8-FE sponge chunk = pk[2i] || pk[2i+1] is therefore
+    # already contiguous in memory at `wots_public_key + i * DIGEST_LEN` — we feed
+    # those pointers straight into poseidon, no copy / no `chunks` array.
+    #
     # IV = [tweak(2) | 00 | pp(4)] (matches the LEFT-input convention for
     # poseidon16_compress_hardcoded_left_4: the first 4 FE come from the wots_pk
     # tweak slot at the compile-time address TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET,
     # and the next 4 FE come from `public_param` at runtime).
-    # V must be even. Digests in wots_public_key are at stride DIGEST_LEN (=8).
+    # V must be even.
     N_CHUNKS = V / 2
-
-    # Ingest V digests, 2 at a time (8 FE per chunk)
-    # Each chunk packs pk[2i] and pk[2i+1] (each XMSS_DIGEST FE, at DIGEST_LEN stride)
-    chunks = Array(N_CHUNKS * DIGEST_LEN)
-    for i in unroll(0, N_CHUNKS):
-        for k in unroll(0, XMSS_DIGEST):
-            chunks[i * DIGEST_LEN + k] = wots_public_key[(2 * i) * DIGEST_LEN + k]
-            chunks[i * DIGEST_LEN + XMSS_DIGEST + k] = wots_public_key[(2 * i + 1) * DIGEST_LEN + k]
 
     states = Array(N_CHUNKS * DIGEST_LEN)
     # First hash: LEFT input is [tweak(2) | 00 | pp(4)]; the precompile reads
     # [tweak(2) | 00] from the wots_pk tweak slot and [pp(4)] from `public_param`.
+    # RIGHT input is the first 8-FE chunk (pk[0] || pk[1]) at wots_public_key + 0.
     poseidon16_compress_hardcoded_left_4(
-        public_param, chunks, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
+        public_param, wots_public_key, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
     )
     for i in unroll(1, N_CHUNKS):
-        poseidon16_compress(states + (i - 1) * DIGEST_LEN, chunks + i * DIGEST_LEN, states + i * DIGEST_LEN)
+        poseidon16_compress(
+            states + (i - 1) * DIGEST_LEN,
+            wots_public_key + i * DIGEST_LEN,
+            states + i * DIGEST_LEN,
+        )
 
     return states + (N_CHUNKS - 1) * DIGEST_LEN
 
