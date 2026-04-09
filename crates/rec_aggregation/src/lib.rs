@@ -7,7 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, SIG_SIZE_FE, V, W, XmssPublicKey, XmssSignature};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, V, W, WOTS_SIG_SIZE_FE, XmssPublicKey, XmssSignature};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -144,15 +144,22 @@ fn build_non_reserved_public_input(
     pi
 }
 
-fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
+fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
+    // The in-memory signature buffer consumed by `hint_wots` is just the WOTS part:
+    // `randomness | chain_tips`. The XMSS merkle path is delivered out-of-band via
+    // `hint_xmss_merkle_node`, see `encode_xmss_merkle_path`.
     let mut data = vec![];
     data.extend(sig.wots_signature.randomness.to_vec());
     data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
-        data.extend(neighbor.to_vec());
-    }
-    assert_eq!(data.len(), SIG_SIZE_FE);
+    assert_eq!(data.len(), WOTS_SIG_SIZE_FE);
     data
+}
+
+/// Flatten the merkle path of an XMSS signature into a 4*LOG_LIFETIME flat vec, in the
+/// order it will be consumed by successive `hint_xmss_merkle_node` calls inside
+/// `do_4_merkle_levels` (= the natural leaf-to-root order of the merkle path).
+fn encode_xmss_merkle_path(sig: &XmssSignature) -> Vec<F> {
+    sig.merkle_proof.iter().flat_map(|d| d.to_vec()).collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -356,20 +363,34 @@ pub fn xmss_aggregate(
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
-    // Layout: [n_recursions, n_dup, ptr_pubkeys, ptr_tweak_table, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
-    //          global_pubkeys, dup_pubkeys, tweak_table, source_blocks..., bytecode_sumcheck_proof]
-    let header_size = n_recursions + 6;
-    let pubkeys_start = public_memory.len() + header_size;
+    // Layout: [tweak_table (FIXED size, sits at the FIXED address public_memory.len() so the
+    //          .py code can address it via the TWEAK_TABLE_ADDR compile-time constant),
+    //          n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
+    //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
+    //
+    // We dropped `ptr_tweak_table` from the header because the address is now a
+    // compile-time constant; main.py reads tweak_table = TWEAK_TABLE_ADDR directly.
+    let tweak_table_ptr = public_memory.len();
+    let header_size = n_recursions + 5;
+    let header_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED;
+    let pubkeys_start = header_start + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
     let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
     let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
-    let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
+    // Build the WOTS-portion signature buffers (one Vec<F> per signature, consumed by
+    // hint_wots). The merkle path of each sig is delivered separately via
+    // hint_xmss_merkle_node; we flatten it here in the order it will be consumed at
+    // runtime.
+    let wots_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
+    let xmss_merkle_nodes: Vec<F> = raw_xmss
+        .iter()
+        .flat_map(|(_, sig)| encode_xmss_merkle_path(sig))
+        .collect();
 
-    // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
+    // Source 0: raw XMSS (indices only; signature data goes via hint_wots)
     {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
@@ -406,10 +427,9 @@ pub fn xmss_aggregate(
 
     let n_dup = dup_pub_keys.len();
     let pubkeys_block_size = n_sigs * PUB_KEY_FLAT_SIZE + n_dup * PUB_KEY_FLAT_SIZE;
-    let tweak_table_ptr = pubkeys_start + pubkeys_block_size;
 
-    // Compute absolute memory addresses for each source block
-    let sources_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED;
+    // Compute absolute memory addresses for each source block (placed after the pubkeys block).
+    let sources_start = pubkeys_start + pubkeys_block_size;
     let mut offset = sources_start;
     let mut source_ptrs: Vec<usize> = vec![];
     for block in &source_blocks {
@@ -418,25 +438,29 @@ pub fn xmss_aggregate(
     }
     let bytecode_sumcheck_proof_ptr = offset;
 
-    let mut private_input = vec![
-        F::from_usize(n_recursions),
-        F::from_usize(n_dup),
-        F::from_usize(pubkeys_start),
-        F::from_usize(tweak_table_ptr),
-    ];
+    // Tweak table sits at the very start of private input (FIXED address).
+    let mut private_input: Vec<F> = Vec::with_capacity(TWEAK_TABLE_SIZE_FE_PADDED);
+    private_input.extend_from_slice(&tweak_table);
+    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED);
+
+    // Header (variable-length only via n_recursions; lives right after the tweak table).
+    private_input.push(F::from_usize(n_recursions));
+    private_input.push(F::from_usize(n_dup));
+    private_input.push(F::from_usize(pubkeys_start));
     for &ptr in &source_ptrs {
         private_input.push(F::from_usize(ptr));
     }
     private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    assert_eq!(private_input.len(), header_size);
+    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED + header_size);
 
+    // Pubkeys block.
     for pk in &global_pub_keys {
         private_input.extend_from_slice(&pk.flaten());
     }
     for pk in &dup_pub_keys {
         private_input.extend_from_slice(&pk.flaten());
     }
-    private_input.extend_from_slice(&tweak_table);
+    // Source blocks (already addressed by source_ptrs above).
     for block in &source_blocks {
         private_input.extend_from_slice(block);
     }
@@ -455,7 +479,8 @@ pub fn xmss_aggregate(
 
     let witness = ExecutionWitness {
         private_input: &private_input,
-        xmss_signatures: &xmss_signatures,
+        wots_signatures: &wots_signatures,
+        xmss_merkle_nodes: &xmss_merkle_nodes,
         merkle_paths: &merkle_paths,
     };
     let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);

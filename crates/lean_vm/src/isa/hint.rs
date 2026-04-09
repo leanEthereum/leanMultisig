@@ -2,13 +2,13 @@ use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::RunnerError;
 use crate::execution::ExecutionHistory;
 use crate::execution::memory::MemoryAccess;
-use crate::isa::operands::MemOrConstant;
+use crate::isa::operands::{MemOrConstant, MemOrFpOrConstant};
 use backend::*;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::SIG_SIZE_FE;
+use xmss::{WOTS_SIG_SIZE_FE, XMSS_DIGEST_LEN};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -46,7 +46,7 @@ pub enum Hint {
     },
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
-    Custom(CustomHint, Vec<MemOrConstant>),
+    Custom(CustomHint, Vec<MemOrFpOrConstant>),
     /// Deref hint for range checks - records a constraint to be resolved at end of execution
     /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
     /// The runner resolves all these constraints at the end, in the correct order.
@@ -84,18 +84,26 @@ pub enum CustomHint {
     LessThan,
     Log2Ceil,
     PrivateInputStart,
-    Xmss,
+    /// Hint the in-memory part of an XMSS signature: `randomness | chain_tips` (the WOTS
+    /// part). The XMSS merkle path is hinted separately via `XmssMerkleNode`.
+    Wots,
+    /// Pull the next 4-element XMSS merkle node from the prover's flat queue and write
+    /// it at a runtime-chosen buf address. Lets `do_4_merkle_levels` place each
+    /// merkle path neighbour directly into the merkle hash buffer at the right slot,
+    /// avoiding the per-level copy from a contiguous merkle path array.
+    XmssMerkleNode,
     Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 9] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
     CustomHint::PrivateInputStart,
-    CustomHint::Xmss,
+    CustomHint::Wots,
+    CustomHint::XmssMerkleNode,
     CustomHint::Merkle,
 ];
 
@@ -108,7 +116,8 @@ impl CustomHint {
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
             Self::PrivateInputStart => "hint_private_input_start",
-            Self::Xmss => "hint_xmss",
+            Self::Wots => "hint_wots",
+            Self::XmssMerkleNode => "hint_xmss_merkle_node",
             Self::Merkle => "hint_merkle",
         }
     }
@@ -121,14 +130,15 @@ impl CustomHint {
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
             Self::PrivateInputStart => 1,
-            Self::Xmss => 1,
+            Self::Wots => 1,
+            Self::XmssMerkleNode => 1,
             Self::Merkle => 2,
         }
     }
 
     pub fn execute<M: MemoryAccess>(
         &self,
-        args: &[MemOrConstant],
+        args: &[MemOrFpOrConstant],
         ctx: &mut HintExecutionContext<'_, '_, M>,
     ) -> Result<(), RunnerError> {
         match self {
@@ -204,18 +214,30 @@ impl CustomHint {
                 let res_ptr = args[0].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(ctx.hints.private_input_start))?;
             }
-            Self::Xmss => {
+            Self::Wots => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.xmss_hint_index;
+                let index = *ctx.hints.wots_hint_index;
                 assert!(
-                    index < ctx.hints.xmss_signatures.len(),
-                    "hint_xmss: not enough XMSS signatures (index={})",
+                    index < ctx.hints.wots_signatures.len(),
+                    "hint_wots: not enough WOTS signatures (index={})",
                     index
                 );
-                let sig = &ctx.hints.xmss_signatures[index];
-                assert_eq!(sig.len(), SIG_SIZE_FE);
+                let sig = &ctx.hints.wots_signatures[index];
+                assert_eq!(sig.len(), WOTS_SIG_SIZE_FE);
                 ctx.memory.set_slice(buf_ptr, sig)?;
-                *ctx.hints.xmss_hint_index += 1;
+                *ctx.hints.wots_hint_index += 1;
+            }
+            Self::XmssMerkleNode => {
+                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let index = *ctx.hints.xmss_merkle_node_index;
+                let start = index * XMSS_DIGEST_LEN;
+                assert!(
+                    start + XMSS_DIGEST_LEN <= ctx.hints.xmss_merkle_nodes.len(),
+                    "hint_xmss_merkle_node: not enough merkle nodes (index={index})"
+                );
+                ctx.memory
+                    .set_slice(buf_ptr, &ctx.hints.xmss_merkle_nodes[start..start + XMSS_DIGEST_LEN])?;
+                *ctx.hints.xmss_merkle_node_index += 1;
             }
             Self::Merkle => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -274,8 +296,15 @@ pub struct DiagnosticState<'a> {
 pub struct HintState<'a> {
     pub diagnostics: Option<DiagnosticState<'a>>,
     pub private_input_start: usize,
-    pub xmss_signatures: &'a [Vec<F>],
-    pub xmss_hint_index: &'a mut usize,
+    /// In-memory part of each XMSS signature: `randomness | chain_tips`. Consumed by
+    /// `hint_wots`. The merkle path lives in `xmss_merkle_nodes`.
+    pub wots_signatures: &'a [Vec<F>],
+    pub wots_hint_index: &'a mut usize,
+    /// Flat queue of XMSS merkle path nodes, 4 FE per node, ordered by the runtime
+    /// consumption order of `hint_xmss_merkle_node` calls. The prover provides one
+    /// node per call; each call writes 4 FE at a runtime-chosen buf address.
+    pub xmss_merkle_nodes: &'a [F],
+    pub xmss_merkle_node_index: &'a mut usize,
     pub merkle_paths: &'a [Vec<F>],
     pub merkle_hint_index: &'a mut usize,
 }

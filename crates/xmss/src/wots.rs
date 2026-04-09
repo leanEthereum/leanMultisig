@@ -92,20 +92,36 @@ impl WotsSignature {
 }
 
 impl WotsPublicKey {
+    /// Sponge-like hash of V public key digests.
+    /// IV = [tweak(2) | 00(2) | pp(4)]; first absorb 8 zeros, then ingest 8 FE per step
+    /// (2 digests at a time). The leading zero-absorb gives the SNARK-side a uniform
+    /// per-pair loop starting at i=0 and lets each pair live in a 10-FE slot
+    /// `[leading_0 | tip_a | tip_b | trailing_0]`, with the leading/trailing zero cells
+    /// serving as copy_5 slack in `chain_hash_pair`.
+    /// The IV layout matches the LEFT-input convention for `poseidon16_compress_hardcoded_left_4`
+    /// — `[tweak(2) | 00]` is read straight from the wots_pk tweak slot, and `[pp(4)]` lives at
+    /// the runtime public_param pointer. Final output truncated to DIGEST_SIZE (4 FE).
     pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
-        let left = build_left(&public_param, &self.0[0]);
-        let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot), &self.0[1]);
-        let mut running_hash: Digest = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
-            .try_into()
-            .unwrap();
-        for i in 2..V {
-            let left = build_left(&public_param, &running_hash);
-            let right = build_right(make_tweak(TWEAK_TYPE_WOTS_PK, i - 1, slot), &self.0[i]);
-            running_hash = poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
-                .try_into()
-                .unwrap();
+        assert!(V % 2 == 0);
+        // IV: [tweak(2) | 00 | pp(4)]
+        let tweak = make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot);
+        let mut state = [F::default(); 8];
+        state[..TWEAK_LEN].copy_from_slice(&tweak);
+        // state[2..4] = 00 (default)
+        state[4..4 + PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
+
+        // Initial absorb of 8 zeros (matches the SNARK's `poseidon16_compress_hardcoded_left_4`
+        // call against `ZERO_VEC_PTR` in `wots_pk_hash`).
+        let zeros = [F::ZERO; 8];
+        state = poseidon16_compress_pair(&state, &zeros);
+
+        for i in (0..V).step_by(2) {
+            let mut chunk = [F::default(); 8];
+            chunk[..XMSS_DIGEST_LEN].copy_from_slice(&self.0[i]);
+            chunk[XMSS_DIGEST_LEN..].copy_from_slice(&self.0[i + 1]);
+            state = poseidon16_compress_pair(&state, &chunk);
         }
-        running_hash
+        state[..XMSS_DIGEST_LEN].try_into().unwrap()
     }
 }
 
@@ -122,7 +138,7 @@ pub fn iterate_hash(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left_chain(tweak, &acc);
-        poseidon16_compress_pair(&left, &right)[..DIGEST_SIZE]
+        poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
             .try_into()
             .unwrap()
     })
@@ -142,7 +158,7 @@ pub fn iterate_hash_with_poseidon_trace(
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left_chain(tweak, &acc);
-        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..DIGEST_SIZE]
+        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..XMSS_DIGEST_LEN]
             .try_into()
             .unwrap()
     })

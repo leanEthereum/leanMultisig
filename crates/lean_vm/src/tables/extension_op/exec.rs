@@ -46,6 +46,18 @@ fn solve_unknowns(
     let b = memory.get_ef_element(addr_b);
     let c = memory.get_ef_element(addr_res);
 
+    if op == ExtensionOp::Mul && !is_be {
+        // detect "copy_5"
+        if b == Ok(EF::ONE) {
+            memory.make_slices_equal_and_defined(ptr_a.to_usize(), ptr_res.to_usize(), DIMENSION)?;
+            return Ok(());
+        }
+        if a == Ok(EF::ONE) {
+            memory.make_slices_equal_and_defined(ptr_b.to_usize(), ptr_res.to_usize(), DIMENSION)?;
+            return Ok(());
+        }
+    }
+
     match (a, b, c) {
         (Ok(a), Ok(b), Ok(c)) => {
             if compute_elem(a, b, op) != c {

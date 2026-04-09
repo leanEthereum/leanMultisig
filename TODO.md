@@ -10,6 +10,7 @@
 - Proof size: replace all equality checks in the verifier algo by value deduction
 - Recursion: Remove the few hardcoded constants that depend on the guest execution (cycles etc)
 - About the ordering of the variables in sumchecks, currently we do as follows:
+- ensure 0% of the hints create unused variables (i.e. variables only usefull at execution, but not at verification -> that can be skipped)
 - [2024/108](https://eprint.iacr.org/2024/108.pdf) section 3.1
 - Fancy zkDSL compiler opti: within each function frame, we could assign one (if any) of the dynamic allocation to the part of the memory coming just after the current frame. This way, the pointer would not be hinted, but rather constant at compile time -> more efficient memory acceses. We could even even have a special keyword (instead of just "Array") to specify which dynamic allocation should benefit from this optimization. Difficulty: that would require to manipulate segments of memory at runtime.
 - Integrate the recent optimizations in whir-p3 by Onur

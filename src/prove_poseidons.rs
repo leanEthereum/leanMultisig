@@ -1,7 +1,8 @@
 use air::{check_air_validity, prove_air, verify_air};
 use backend::*;
 use lean_vm::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_INDEX_INPUT_RES,
+    EF, ExtraDataForBuses, F, HALF_DIGEST_LEN, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST,
+    POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INDEX_INPUT_RES,
     POSEIDON_16_COL_INDEX_INPUT_RIGHT, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, ZERO_VEC_PTR,
     fill_trace_poseidon_16, num_cols_poseidon_16,
 };
@@ -30,8 +31,13 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
     }
     trace[POSEIDON_16_COL_FLAG] = (0..n_rows).map(|_| F::ONE).collect();
     trace[POSEIDON_16_COL_INDEX_INPUT_RES] = (0..n_rows).map(|_| F::ZERO).collect(); // useless
-    trace[POSEIDON_16_COL_INDEX_INPUT_LEFT] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    // INDEX_INPUT_LEFT is non-committed, so it does not exist in this committed-only benchmark trace.
     trace[POSEIDON_16_COL_INDEX_INPUT_RIGHT] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    // Hardcoded-left-4 feature disabled: effective_index_first = index_left, second = index_left + 4
+    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST] = (0..n_rows).map(|_| F::from_usize(ZERO_VEC_PTR)).collect();
+    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND] = (0..n_rows)
+        .map(|_| F::from_usize(ZERO_VEC_PTR + HALF_DIGEST_LEN))
+        .collect();
     fill_trace_poseidon_16(&mut trace);
 
     let whir_config = WhirConfigBuilder {

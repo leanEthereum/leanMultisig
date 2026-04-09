@@ -12,7 +12,7 @@ use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{
-    DIGEST_SIZE, LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W,
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W, XMSS_DIGEST_LEN,
 };
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
@@ -44,11 +44,16 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
         + claim_data_size_padded
         + DIGEST_LEN;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
+    // The private input layout in lib.rs places the tweak table at the very start of
+    // private input. Private input starts at `public_memory_size = 1 << inner_public_memory_log_size`,
+    // so the tweak table sits at this exact compile-time address.
+    let tweak_table_address_in_memory = 1usize << inner_public_memory_log_size;
     let replacements = build_replacements(
         inner_program_log_size,
         inner_public_memory_log_size,
         bytecode_zero_eval,
         pub_input_size,
+        tweak_table_address_in_memory,
     );
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -84,6 +89,7 @@ fn build_replacements(
     inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
     pub_input_size: usize,
+    tweak_table_address_in_memory: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
@@ -155,6 +161,10 @@ fn build_replacements(
     if too_much_grinding {
         tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
+    replacements.insert(
+        "TWEAK_TABLE_ADDR_PLACEHOLDER".to_string(),
+        tweak_table_address_in_memory.to_string(),
+    );
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
         RS_DOMAIN_INITIAL_REDUCTION_FACTOR.to_string(),
@@ -366,7 +376,7 @@ fn build_replacements(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
     );
-    replacements.insert("XMSS_DIGEST_SIZE_PLACEHOLDER".to_string(), DIGEST_SIZE.to_string());
+    replacements.insert("XMSS_DIGEST_LEN_PLACEHOLDER".to_string(), XMSS_DIGEST_LEN.to_string());
 
     // Bytecode zero eval
     replacements.insert(

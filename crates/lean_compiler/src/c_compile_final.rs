@@ -291,7 +291,7 @@ fn compile_block(
                 let hint = Hint::Custom(
                     hint,
                     args.into_iter()
-                        .map(|expr| try_as_mem_or_constant(&expr).unwrap())
+                        .map(|expr| expr.try_into_mem_or_fp_or_constant(compiler).unwrap())
                         .collect(),
                 );
                 hints.entry(pc).or_default().push(hint);

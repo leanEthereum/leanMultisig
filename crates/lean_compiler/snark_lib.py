@@ -77,8 +77,26 @@ EQ_MLE_COEFFS_PTR = 45
 NONRESERVED_PROGRAM_INPUT_START = 50
 
 
-def poseidon16_compress(left, right, output, mode):
-    _ = left, right, output, mode
+def poseidon16_compress(left, right, output):
+    _ = left, right, output
+
+
+def poseidon16_compress_half(left, right, output):
+    """Poseidon16 compression outputting only the first 4 FE (last 4 unconstrained)."""
+    _ = left, right, output
+
+
+def poseidon16_compress_hardcoded_left_4(left, right, output, offset):
+    """Poseidon16 compression where the first 4 FE of the left input are read from
+    memory[offset..offset+4] instead of memory[left..left+4]. The last 4 FE of the
+    left input still come from memory[left+4..left+8]. `offset` must be a compile-time
+    constant expression."""
+    _ = left, right, output, offset
+
+
+def poseidon16_compress_half_hardcoded_left_4(left, right, output, offset):
+    """Composition of `poseidon16_compress_half` and `poseidon16_compress_hardcoded_left_4`."""
+    _ = left, right, output, offset
 
 
 def add_be(a, b, result, length=None):
@@ -169,7 +187,14 @@ def hint_log2_ceil(n):
     return log2_ceil(n)
 
 
-def hint_xmss(buff):
+def hint_wots(buff):
+    _ = buff
+
+
+def hint_xmss_merkle_node(buff):
+    """Pull the next 4-element XMSS merkle path node from the prover's flat queue and
+    write it at `buff`. Lets the merkle hash code place each path neighbour directly
+    into the merkle hash buffer slot, avoiding per-level copies."""
     _ = buff
 
 

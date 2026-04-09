@@ -27,15 +27,22 @@ def main():
 
     priv_start: Imu
     hint_private_input_start(priv_start)
+    debug_assert(priv_start == TWEAK_TABLE_ADDR)
+    # Private input layout: [tweak_table (FIXED size, lives at the compile-time
+    # address TWEAK_TABLE_ADDR), header, pubkeys, source_blocks, ...].
+    # Use the compile-time constant for the tweak table — this is what enables
+    # poseidon16_compress_hardcoded_left_4 in xmss_aggregate.py to embed every
+    # tweak's absolute address into the bytecode.
+    tweak_table = TWEAK_TABLE_ADDR
+    header = priv_start + TWEAK_TABLE_SIZE_FE_PADDED
 
-    n_recursions = priv_start[0]
+    n_recursions = header[0]
     assert n_recursions <= MAX_RECURSIONS
 
-    n_dup = priv_start[1]
+    n_dup = header[1]
     assert n_dup < MAX_N_SIGS  # TODO increase
-    all_pubkeys = priv_start[2]
-    tweak_table = priv_start[3]
-    sub_slice_starts = priv_start + 4
+    all_pubkeys = header[2]
+    sub_slice_starts = header + 3
     bytecode_sumcheck_proof = sub_slice_starts[n_recursions + 1]
 
     source_0 = sub_slice_starts[0]
@@ -81,13 +88,15 @@ def main():
         idx = raw_indices[i]
         assert idx < n_total
         buffer[idx] = i
-        # Verify raw XMSS signatures
+        # Verify raw XMSS signatures.
+        # `sig` only carries the WOTS part (`randomness | chain_tips`); the merkle path
+        # is delivered out-of-band via hint_xmss_merkle_node inside do_4_merkle_levels.
         pk = all_pubkeys + idx * PUB_KEY_SIZE
-        # 1 extra element for safe copy_5 reads past the last merkle path element
-        sig = Array(SIG_SIZE + 1)
-        hint_xmss(sig)
-        sig[SIG_SIZE] = 0
-        xmss_verify(pk, message, sig, tweak_table, merkle_chunks_for_slot)
+        # 1 extra element for safe copy_5 reads past the last chain_tip
+        sig = Array(WOTS_SIG_SIZE + 1)
+        hint_wots(sig)
+        sig[WOTS_SIG_SIZE] = 0
+        xmss_verify(pk, message, sig, merkle_chunks_for_slot)
 
     counter: Mut = n_raw_xmss
 
