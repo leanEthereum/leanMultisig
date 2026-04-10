@@ -24,15 +24,17 @@ N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 PRIVATE_INPUT_START = PRIVATE_INPUT_START_PLACEHOLDER
 TWEAK_TABLE_ADDR = PRIVATE_INPUT_START
 
-# Tweak table layout: each tweak is stored as a 5-FE padded slot [0, tw[0], tw[1], 0, 0].
-# Convention: tweak pointers always point to the tweak VALUE (offset +1 within the slot).
-# Individual access: ptr[0] = tw[0], ptr[1] = tw[1] (unchanged from the unpadded version).
-# Copy_5 access: copy_5(ptr - 1, dst) reads the 5-element slot [0, tw[0], tw[1], 0, 0].
-TWEAK_LEN = 5  # stride / slot size in the padded table
+# Tweak table layout: most tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0].
+# The first slot (encoding tweak) is 5-FE [tw[0], tw[1], 0, 0, 0]: it's the only
+# tweak read via copy_5 (5 cells), so it gets an extra trailing zero. Every other
+# tweak is read only via poseidon16_compress_(half_)hardcoded_left_4, which reads
+# exactly 4 cells. Tweak pointers point directly at tw[0] (no offset trick).
+TWEAK_LEN = 4  # stride / slot size for non-encoding tweaks
+ENCODING_TWEAK_SLOT_SIZE = 5  # encoding tweak slot has one extra trailing zero
 N_TWEAKS = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME
-TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(N_TWEAKS * TWEAK_LEN, DIGEST_LEN)
-TWEAK_ENCODING_OFFSET = 1  # skip the leading zero of slot 0
-TWEAK_CHAIN_OFFSET = TWEAK_ENCODING_OFFSET + TWEAK_LEN
+TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(ENCODING_TWEAK_SLOT_SIZE + (N_TWEAKS - 1) * TWEAK_LEN, DIGEST_LEN)
+TWEAK_ENCODING_OFFSET = 0
+TWEAK_CHAIN_OFFSET = ENCODING_TWEAK_SLOT_SIZE  # encoding occupies cells [0..5]
 TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
 TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + (V - 1) * TWEAK_LEN
 
@@ -91,13 +93,13 @@ def xmss_verify(pub_key, message, merkle_chunks):
     # 1) Encode: poseidon16_compress(message[0:8], [randomness(5) | tweak_encoding(2) | 0])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
     encoding_tweak = TWEAK_TABLE_ADDR + TWEAK_ENCODING_OFFSET
-    # Allocate 10 elements so the 2nd copy_5 (which reads [tw(2), 0, 0, 0] from the padded
-    # table and writes 5 elements at offset 5) can safely write positions 5..10. The
-    # poseidon reads positions 0..8 = [randomness(5) | tw(2) | 0]; the trailing zero comes
-    # for free from the padded tweak slot's first zero pad cell.
-    a_input_right = Array(RANDOMNESS_LEN + TWEAK_LEN)
+    # Allocate 10 elements (RANDOMNESS_LEN + 5) so the 2nd copy_5 (which reads
+    # the 5-FE encoding slot [tw(2), 0, 0, 0] and writes 5 elements at offset 5)
+    # can safely write positions 5..10. The encoding slot is the unique 5-cell
+    # tweak slot precisely so this read returns all zeros after the value.
+    a_input_right = Array(RANDOMNESS_LEN + ENCODING_TWEAK_SLOT_SIZE)
     copy_5(randomness, a_input_right)
-    # encoding_tweak points to the tweak VALUE; reading 5 elements gives [tw(2), 0, 0, 0].
+    # encoding_tweak points to tw[0] of slot 0; reading 5 elements gives [tw(2), 0, 0, 0].
     copy_5(encoding_tweak, a_input_right + RANDOMNESS_LEN)
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)

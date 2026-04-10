@@ -29,9 +29,14 @@ const TWEAK_TYPE_ENCODING: usize = 3;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
 const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
-/// Each tweak is stored as a 5-FE slot [0, tw[0], tw[1], 0, 0] so that we can use copy_5
-const TWEAK_SLOT_SIZE: usize = 5;
-const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
+/// All, except one, tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0]. The first slot
+/// (the encoding tweak) is the ONLY slot read via copy_5 (5 cells), so it gets
+/// an extra trailing zero: [tw[0], tw[1], 0, 0, 0]. Every other slot is read
+/// only via `poseidon16_compress_hardcoded_left_4`, which reads exactly 4 cells.
+const TWEAK_SLOT_SIZE: usize = 4;
+const ENCODING_TWEAK_SLOT_SIZE: usize = 5;
+const TWEAK_TABLE_SIZE_FE_PADDED: usize =
+    (ENCODING_TWEAK_SLOT_SIZE + (N_TWEAKS - 1) * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
 
 const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
 
@@ -65,21 +70,29 @@ fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 
     ]
 }
 
-/// Each tweak is stored as a 5-FE slot: [0, tw[0], tw[1], 0, 0]
+/// Tweak slots are 4-FE [tw[0], tw[1], 0, 0], except the first (encoding) slot
+/// which is 5-FE [tw[0], tw[1], 0, 0, 0] — the extra trailing zero is needed
+/// because the encoding tweak is the only slot read via copy_5.
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
         let tw = make_tweak_values(tweak_type, sub_position, index);
-        table.push(F::ZERO);
         table.push(tw[0]);
         table.push(tw[1]);
         table.push(F::ZERO);
         table.push(F::ZERO);
     };
 
-    // Encoding tweak
-    push_padded(&mut table, TWEAK_TYPE_ENCODING, 0, slot);
+    // Encoding tweak (5-FE: extra trailing zero so that copy_5 reads all zeros after the value).
+    {
+        let tw = make_tweak_values(TWEAK_TYPE_ENCODING, 0, slot);
+        table.push(tw[0]);
+        table.push(tw[1]);
+        table.push(F::ZERO);
+        table.push(F::ZERO);
+        table.push(F::ZERO);
+    }
 
     // Chain tweaks: for chain i, step s → make_tweak(CHAIN, i*CHAIN_LENGTH + s, slot)
     for i in 0..V {
