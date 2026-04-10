@@ -179,15 +179,18 @@ fn compute_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
     let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN_FE; // encoding + chain + leaf + merkle
-    // pub_input layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash(8)
-    let pub_input_size =
+    // input_data layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash_domsep(8)
+    let input_data_size =
         1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
+    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
+    // The actual public input is just a single digest (the hash of the input data).
+    let pub_input_size = DIGEST_LEN;
     let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     build_replacements(
         inner_program_log_size,
         inner_public_memory_log_size,
         bytecode_zero_eval,
-        pub_input_size,
+        input_data_size_padded,
     )
 }
 
@@ -205,7 +208,7 @@ fn build_replacements(
     inner_program_log_size: usize,
     inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
-    pub_input_size: usize,
+    input_data_size_padded: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
@@ -377,7 +380,10 @@ fn build_replacements(
         "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
         inner_public_memory_log_size.to_string(),
     );
-    replacements.insert("PUB_INPUT_SIZE_PLACEHOLDER".to_string(), pub_input_size.to_string());
+    replacements.insert(
+        "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
+        input_data_size_padded.to_string(),
+    );
 
     let mut lookup_indexes_str = vec![];
     let mut lookup_values_str = vec![];

@@ -1,6 +1,6 @@
 use crate::core::{F, SourceLocation};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RunnerError {
     OutOfMemory,
     MemoryAlreadySet {
