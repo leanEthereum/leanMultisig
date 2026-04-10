@@ -8,6 +8,7 @@ MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
+PRIVATE_INPUT_START = INNER_PUB_MEM_SIZE
 
 INPUT_DATA_SIZE_PADDED = INPUT_DATA_SIZE_PADDED_PLACEHOLDER
 INPUT_DATA_NUM_CHUNKS = INPUT_DATA_SIZE_PADDED / DIGEST_LEN
@@ -19,10 +20,7 @@ def main():
     debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16)  # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
 
-    priv_start: Imu
-    hint_private_input_start(priv_start)
-
-    data_buf = priv_start
+    data_buf: Mut = PRIVATE_INPUT_START # Mut is a trick to force the compiler to put it in memory (TODO improve this)
     n_sigs = data_buf[0]
     assert n_sigs != 0
     assert n_sigs - 1 < MAX_N_SIGS
@@ -33,7 +31,7 @@ def main():
     bytecode_claim_output = data_buf + BYTECODE_CLAIM_OFFSET
     bytecode_hash_domsep = data_buf + BYTECODE_HASH_DOMSEP_OFFSET
 
-    header = priv_start + INPUT_DATA_SIZE_PADDED
+    header = PRIVATE_INPUT_START + INPUT_DATA_SIZE_PADDED
 
     n_recursions = header[0]
     assert n_recursions <= MAX_RECURSIONS
@@ -229,7 +227,11 @@ def stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot,
         copy_5(all_tweaks + k * DIM, inner_all_tweaks + k * DIM)
     for k in unroll(0, N_ALL_TWEAKS % DIM):
         inner_all_tweaks[n_tweak_copy5 * DIM + k] = all_tweaks[n_tweak_copy5 * DIM + k]
+    for k in unroll(BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE, BYTECODE_HASH_DOMSEP_OFFSET):
+        inner_data_buf[k] = 0
     copy_8(bytecode_hash_domsep, inner_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
+    for k in unroll(BYTECODE_HASH_DOMSEP_OFFSET + DIGEST_LEN, INPUT_DATA_SIZE_PADDED):
+        inner_data_buf[k] = 0
     return
 
 

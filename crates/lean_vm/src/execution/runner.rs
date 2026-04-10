@@ -8,9 +8,9 @@ use crate::isa::Bytecode;
 use crate::isa::hint::{DiagnosticState, Hint, HintState};
 use crate::isa::instruction::{InstructionContext, InstructionCounts};
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, EQ_MLE_COEFFS_LEN, EQ_MLE_COEFFS_PTR, HintExecutionContext, MemOrConstant,
-    N_TABLES, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR,
-    STARTING_PC, Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, MemOrConstant, N_TABLES,
+    NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC,
+    Table, TableTrace,
 };
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -50,7 +50,6 @@ pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
     public_memory[SAMPLING_DOMAIN_SEPARATOR_PTR] = F::ONE;
     public_memory[ONE_EF_PTR] = F::ONE;
     public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);
-    public_memory[EQ_MLE_COEFFS_PTR..][..EQ_MLE_COEFFS_LEN].copy_from_slice(&[F::TWO, F::NEG_ONE, F::NEG_ONE, F::ONE]);
     public_memory
 }
 
@@ -296,7 +295,6 @@ fn execute_bytecode_helper(
                 last_checkpoint_cpu_cycles: &mut last_checkpoint_cpu_cycles,
                 checkpoint_ap: &mut checkpoint_ap,
             }),
-            private_input_start: public_memory_size,
             xmss_signatures,
             xmss_hint_index: &mut xmss_hint_index,
             merkle_paths,
@@ -327,7 +325,6 @@ fn execute_bytecode_helper(
                     &mut pc,
                     &mut fp,
                     &mut ap,
-                    public_memory_size,
                     &batch,
                 )
                 .map_err(|e| (pc, e))?;
@@ -421,7 +418,6 @@ fn handle_parallel_batch(
     pc: &mut usize,
     fp: &mut usize,
     ap: &mut usize,
-    private_input_start: usize,
     batch: &ParallelBatchInfo,
 ) -> Result<(), RunnerError> {
     let start_value = memory.get(batch.batch_fp + 2)?.to_usize();
@@ -489,7 +485,6 @@ fn handle_parallel_batch(
             let mut merkle_idx = 0usize;
             let mut hints = HintState {
                 diagnostics: None,
-                private_input_start,
                 xmss_signatures: xmss_sigs,
                 xmss_hint_index: &mut xmss_idx,
                 merkle_paths: merkle,

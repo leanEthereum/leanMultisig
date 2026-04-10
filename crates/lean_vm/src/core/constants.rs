@@ -59,12 +59,9 @@ pub const ONE_EF_PTR: usize = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN;
 pub const NUM_REPEATED_ONES_IN_RESERVED_MEMORY: usize = 16;
 pub const REPEATED_ONES_PTR: usize = ONE_EF_PTR + DIMENSION;
 
-/// [2, -1, -1, 1] is useful to compute (xy + (1-x)(1-y)) = 2xy - x - y + 1 = dot_product([xy, x, y, 1], [2, -1, -1, 1])
-pub const EQ_MLE_COEFFS_LEN: usize = 4;
-pub const EQ_MLE_COEFFS_PTR: usize = REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY;
-
 /// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = (EQ_MLE_COEFFS_PTR + EQ_MLE_COEFFS_LEN).next_multiple_of(DIMENSION);
+pub const NONRESERVED_PROGRAM_INPUT_START: usize =
+    (REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY).next_multiple_of(DIMENSION);
 
 #[cfg(test)]
 mod tests {
