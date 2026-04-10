@@ -153,10 +153,6 @@ def match_range(value: int, *args):
     raise AssertionError(f"Value {value} not in any range")
 
 
-def hint_private_input_start(priv_start):
-    _ = priv_start
-
-
 def hint_decompose_bits_xmss(*args):
     _ = args
 

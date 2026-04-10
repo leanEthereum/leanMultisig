@@ -83,18 +83,16 @@ pub enum CustomHint {
     DecomposeBits,
     LessThan,
     Log2Ceil,
-    PrivateInputStart,
     Xmss,
     Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 7] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
-    CustomHint::PrivateInputStart,
     CustomHint::Xmss,
     CustomHint::Merkle,
 ];
@@ -107,7 +105,6 @@ impl CustomHint {
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
-            Self::PrivateInputStart => "hint_private_input_start",
             Self::Xmss => "hint_xmss",
             Self::Merkle => "hint_merkle",
         }
@@ -120,7 +117,6 @@ impl CustomHint {
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
-            Self::PrivateInputStart => 1,
             Self::Xmss => 1,
             Self::Merkle => 2,
         }
@@ -200,10 +196,6 @@ impl CustomHint {
                 let res_ptr = args[1].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
             }
-            Self::PrivateInputStart => {
-                let res_ptr = args[0].memory_address(ctx.fp)?;
-                ctx.memory.set(res_ptr, F::from_usize(ctx.hints.private_input_start))?;
-            }
             Self::Xmss => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let index = *ctx.hints.xmss_hint_index;
@@ -273,7 +265,6 @@ pub struct DiagnosticState<'a> {
 #[derive(Debug)]
 pub struct HintState<'a> {
     pub diagnostics: Option<DiagnosticState<'a>>,
-    pub private_input_start: usize,
     pub xmss_signatures: &'a [Vec<F>],
     pub xmss_hint_index: &'a mut usize,
     pub merkle_paths: &'a [Vec<F>],

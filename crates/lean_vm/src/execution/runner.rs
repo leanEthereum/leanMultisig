@@ -296,7 +296,6 @@ fn execute_bytecode_helper(
                 last_checkpoint_cpu_cycles: &mut last_checkpoint_cpu_cycles,
                 checkpoint_ap: &mut checkpoint_ap,
             }),
-            private_input_start: public_memory_size,
             xmss_signatures,
             xmss_hint_index: &mut xmss_hint_index,
             merkle_paths,
@@ -327,7 +326,6 @@ fn execute_bytecode_helper(
                     &mut pc,
                     &mut fp,
                     &mut ap,
-                    public_memory_size,
                     &batch,
                 )
                 .map_err(|e| (pc, e))?;
@@ -421,7 +419,6 @@ fn handle_parallel_batch(
     pc: &mut usize,
     fp: &mut usize,
     ap: &mut usize,
-    private_input_start: usize,
     batch: &ParallelBatchInfo,
 ) -> Result<(), RunnerError> {
     let start_value = memory.get(batch.batch_fp + 2)?.to_usize();
@@ -489,7 +486,6 @@ fn handle_parallel_batch(
             let mut merkle_idx = 0usize;
             let mut hints = HintState {
                 diagnostics: None,
-                private_input_start,
                 xmss_signatures: xmss_sigs,
                 xmss_hint_index: &mut xmss_idx,
                 merkle_paths: merkle,
