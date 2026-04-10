@@ -77,9 +77,7 @@ def main():
         buffer[idx] = i
         # Verify raw XMSS signatures
         pk = all_pubkeys + idx * DIGEST_LEN
-        sig = Array(SIG_SIZE)
-        hint_xmss(sig)
-        xmss_verify(pk, message, sig, slot_lo, slot_hi, merkle_chunks_for_slot)
+        xmss_verify(pk, message, slot_lo, slot_hi, merkle_chunks_for_slot)
 
     counter: Mut = n_raw_xmss
 
