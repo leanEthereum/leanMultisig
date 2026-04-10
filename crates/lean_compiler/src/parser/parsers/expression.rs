@@ -120,7 +120,10 @@ impl Parse<Expression> for ArrayAccessParser {
             .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Expression::ArrayAccess { array, index })
+        Ok(Expression::ArrayAccess {
+            array: array.into(),
+            index,
+        })
     }
 }
 

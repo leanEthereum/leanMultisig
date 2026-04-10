@@ -102,8 +102,7 @@ pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -
             SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => None,
         },
         &|arr, index| {
-            // Support const array access in expressions
-            let array = ctx.get_const_array(arr)?;
+            let array = ctx.get_const_array(arr.as_var()?)?;
             array.navigate(&index)?.as_scalar()
         },
     )
