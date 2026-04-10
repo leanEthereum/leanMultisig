@@ -29,8 +29,8 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
-    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
     // pub_input layout: n_sigs(1) + slice_hash(8) + message + slot_low(1) + slot_high(1)
@@ -43,17 +43,14 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
         + DIGEST_LEN
         + claim_data_size_padded
         + DIGEST_LEN;
-    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    // The private input layout in lib.rs places the tweak table at the very start of
-    // private input. Private input starts at `public_memory_size = 1 << inner_public_memory_log_size`,
-    // so the tweak table sits at this exact compile-time address.
-    let tweak_table_address_in_memory = 1usize << inner_public_memory_log_size;
+    let public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
+    let private_input_start = 1usize << public_memory_log_size;
     let replacements = build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
+        program_log_size,
+        public_memory_log_size,
         bytecode_zero_eval,
         pub_input_size,
-        tweak_table_address_in_memory,
+        private_input_start,
     );
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -89,7 +86,7 @@ fn build_replacements(
     inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
     pub_input_size: usize,
-    tweak_table_address_in_memory: usize,
+    private_input_start: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
@@ -162,8 +159,8 @@ fn build_replacements(
         tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
     replacements.insert(
-        "TWEAK_TABLE_ADDR_PLACEHOLDER".to_string(),
-        tweak_table_address_in_memory.to_string(),
+        "PRIVATE_INPUT_START_PLACEHOLDER".to_string(),
+        private_input_start.to_string(),
     );
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),

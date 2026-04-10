@@ -25,11 +25,8 @@ def main():
     tweaks_hash_expected = merkle_chunks_for_slot + N_MERKLE_CHUNKS
     bytecode_claim_output = pub_mem + BYTECODE_CLAIM_OFFSET
 
-    priv_start: Imu
-    hint_private_input_start(priv_start)
-    debug_assert(priv_start == TWEAK_TABLE_ADDR)
     tweak_table = TWEAK_TABLE_ADDR
-    header = priv_start + TWEAK_TABLE_SIZE_FE_PADDED
+    header = PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED
 
     n_recursions = header[0]
     assert n_recursions <= MAX_RECURSIONS
