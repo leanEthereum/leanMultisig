@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 pub mod signers_cache;
 mod wots;
-use backend::KoalaBear;
+use backend::{DIGEST_LEN_FE, KoalaBear, POSEIDON1_WIDTH};
 pub use wots::*;
 mod xmss;
 pub use xmss::*;
@@ -24,13 +24,8 @@ pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
 pub const MESSAGE_LEN_FE: usize = 8;
 pub const PUBLIC_PARAM_LEN_FE: usize = 4;
-/// Length of the non-data prefix in either Poseidon input. Both inputs reserve the
-/// first `INPUT_PREFIX_LEN` field elements for metadata (tweak/zeros on the left,
-/// public_param on the right) and place the 4-element data digest right after it.
-pub const INPUT_PREFIX_LEN: usize = 8 - XMSS_DIGEST_LEN; // = 4
 pub const PUB_KEY_FLAT_SIZE: usize = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE; // = 9
 
-const _: () = assert!(INPUT_PREFIX_LEN + XMSS_DIGEST_LEN == 8);
 // Left layout (with tweak): [tweak(2) | zeros(2) | data(DIGEST_SIZE)]
 const _: () = assert!(TWEAK_LEN + 2 + XMSS_DIGEST_LEN == 8);
 
@@ -59,29 +54,20 @@ pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> 
     ]
 }
 
-/// [tweak(2) | zeros(2) | public_param(4)]
-///
-/// Merkle LEFT input. Matches the LEFT-input convention for
-/// `poseidon16_compress_half_hardcoded_left_4`: the first 4 FE come from the merkle
-/// tweak slot at a compile-time absolute address, and the next 4 FE come from the
-/// runtime `public_param` pointer — so the verifier never copies pp into a per-level
-/// buffer.
-pub(crate) fn build_left(tweak: [F; TWEAK_LEN], public_param: &PublicParam) -> [F; 8] {
-    let mut left = [F::default(); 8];
-    left[..TWEAK_LEN].copy_from_slice(&tweak);
-    // left[TWEAK_LEN..INPUT_PREFIX_LEN] = zeros (default)
-    left[INPUT_PREFIX_LEN..].copy_from_slice(public_param);
-    left
-}
-
-/// [left_child(4) | right_child(4)]
-///
-/// Merkle RIGHT input: the two children of the parent node packed contiguously.
-pub(crate) fn build_right(left_child: &Digest, right_child: &Digest) -> [F; 8] {
-    let mut right = [F::default(); 8];
-    right[..XMSS_DIGEST_LEN].copy_from_slice(left_child);
-    right[XMSS_DIGEST_LEN..].copy_from_slice(right_child);
-    right
+/// [tweak(2) | zeros(2) | public_param(4) | left_child(4) | right_child(4)]
+pub(crate) fn build_merkle_data(
+    tweak: [F; TWEAK_LEN],
+    public_param: &PublicParam,
+    left_child: &Digest,
+    right_child: &Digest,
+) -> [F; POSEIDON1_WIDTH] {
+    let mut data = [F::default(); POSEIDON1_WIDTH];
+    data[..TWEAK_LEN].copy_from_slice(&tweak);
+    // data[2..4] = zeros (default)
+    data[DIGEST_LEN_FE - PUBLIC_PARAM_LEN_FE..][..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
+    data[DIGEST_LEN_FE..][..XMSS_DIGEST_LEN].copy_from_slice(left_child);
+    data[DIGEST_LEN_FE + XMSS_DIGEST_LEN..].copy_from_slice(right_child);
+    data
 }
 
 /// Chain-hash-specific left layout: [tweak(2) | zeros(2) | data(4)].

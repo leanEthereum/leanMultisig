@@ -2,7 +2,7 @@ use backend::*;
 use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest as Sha3Digest, Keccak256};
-use utils::poseidon16_compress_pair;
+use utils::poseidon16_compress;
 
 use crate::*;
 
@@ -113,11 +113,13 @@ pub fn xmss_key_gen(
                     } else {
                         gen_random_node(&seed, level - 1, right_idx)
                     };
-                    let poseidon_left = build_left(make_tweak(TWEAK_TYPE_MERKLE, level, i as u32), &public_param);
-                    let poseidon_right = build_right(&left, &right);
-                    poseidon16_compress_pair(&poseidon_left, &poseidon_right)[..XMSS_DIGEST_LEN]
-                        .try_into()
-                        .unwrap()
+                    let merkle_data = build_merkle_data(
+                        make_tweak(TWEAK_TYPE_MERKLE, level, i as u32),
+                        &public_param,
+                        &left,
+                        &right,
+                    );
+                    poseidon16_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap()
                 })
                 .collect()
         };
@@ -213,16 +215,18 @@ pub fn xmss_verify(
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
         let is_left = (((slot as u64) >> level) & 1) == 0;
         let parent_index = ((slot as u64) >> (level + 1)) as u32;
-        let tweak = make_tweak(TWEAK_TYPE_MERKLE, level + 1, parent_index);
-        let left = build_left(tweak, &pub_key.public_param);
-        let right = if is_left {
-            build_right(&current_hash, neighbour)
+        let (left_child, right_child) = if is_left {
+            (current_hash, *neighbour)
         } else {
-            build_right(neighbour, &current_hash)
+            (*neighbour, current_hash)
         };
-        current_hash = poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
-            .try_into()
-            .unwrap();
+        let merkle_data = build_merkle_data(
+            make_tweak(TWEAK_TYPE_MERKLE, level + 1, parent_index),
+            &pub_key.public_param,
+            &left_child,
+            &right_child,
+        );
+        current_hash = poseidon16_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap();
     }
     if current_hash == pub_key.merkle_root {
         Ok(())
