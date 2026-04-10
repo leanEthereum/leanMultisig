@@ -84,16 +84,17 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # each merkle node directly into a `do_4_merkle_levels` slot via
     # `hint_xmss_merkle_node`, see `xmss_merkle_verify` / `do_4_merkle_levels`.
 
-    # 1) Encode: poseidon16_compress(message[0:8], [msg[8] | randomness(5) | tweak_encoding(2)])
+    # 1) Encode: poseidon16_compress(message[0:8], [randomness(5) | tweak_encoding(2) | 0])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
     encoding_tweak = TWEAK_TABLE_ADDR + TWEAK_ENCODING_OFFSET
-    # Allocate 11 elements so the 2nd copy_5 (which reads [tw(2), 0, 0, 0] from the padded
-    # table and writes 5 elements at offset 6) can safely write positions 6..11.
-    a_input_right = Array(1 + RANDOMNESS_LEN + TWEAK_LEN)
-    a_input_right[0] = message[DIGEST_LEN]
-    copy_5(randomness, a_input_right + 1)
+    # Allocate 10 elements so the 2nd copy_5 (which reads [tw(2), 0, 0, 0] from the padded
+    # table and writes 5 elements at offset 5) can safely write positions 5..10. The
+    # poseidon reads positions 0..8 = [randomness(5) | tw(2) | 0]; the trailing zero comes
+    # for free from the padded tweak slot's first zero pad cell.
+    a_input_right = Array(RANDOMNESS_LEN + TWEAK_LEN)
+    copy_5(randomness, a_input_right)
     # encoding_tweak points to the tweak VALUE; reading 5 elements gives [tw(2), 0, 0, 0].
-    copy_5(encoding_tweak, a_input_right + 1 + RANDOMNESS_LEN)
+    copy_5(encoding_tweak, a_input_right + RANDOMNESS_LEN)
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
 

@@ -22,7 +22,7 @@ pub const NUM_CHAIN_HASHES: usize = 110;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 5;
-pub const MESSAGE_LEN_FE: usize = 9;
+pub const MESSAGE_LEN_FE: usize = 8;
 pub const PUBLIC_PARAM_LEN_FE: usize = 4;
 /// Length of the non-data prefix in either Poseidon input. Both inputs reserve the
 /// first `INPUT_PREFIX_LEN` field elements for metadata (tweak/zeros on the left,
@@ -46,7 +46,6 @@ pub(crate) const TWEAK_TYPE_MERKLE: usize = 2;
 pub(crate) const TWEAK_TYPE_ENCODING: usize = 3;
 
 use backend::PrimeCharacteristicRing;
-use utils::poseidon16_compress;
 
 /// index = slot or node_index in Merkle tree
 pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> [F; TWEAK_LEN] {
@@ -99,11 +98,4 @@ pub(crate) fn build_right_chain_pp(public_param: &PublicParam) -> [F; 8] {
     let mut right = [F::default(); 8];
     right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
     right
-}
-
-fn poseidon16_compress_with_trace(a: [F; 8], b: [F; 8], poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>) -> [F; 8] {
-    let input: [F; 16] = [a, b].concat().try_into().unwrap();
-    let output = poseidon16_compress(input);
-    poseidon_16_trace.push((input, output));
-    output
 }

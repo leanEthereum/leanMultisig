@@ -144,26 +144,6 @@ pub fn iterate_hash(
     })
 }
 
-pub fn iterate_hash_with_poseidon_trace(
-    a: &Digest,
-    n: usize,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
-    public_param: PublicParam,
-    slot: u32,
-    chain_index: usize,
-    start_step: usize,
-) -> Digest {
-    // Chain hash layout: left = [tweak | zeros | data], right = [pp | zeros] (constant).
-    let right = build_right_chain_pp(&public_param);
-    (0..n).fold(*a, |acc, j| {
-        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
-        let left = build_left_chain(tweak, &acc);
-        poseidon16_compress_with_trace(left, right, poseidon_16_trace)[..XMSS_DIGEST_LEN]
-            .try_into()
-            .unwrap()
-    })
-}
-
 pub fn find_randomness_for_wots_encoding(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
@@ -186,26 +166,15 @@ pub fn wots_encode(
     xmss_pub_key: &XmssPublicKey,
     randomness: &Randomness,
 ) -> Option<[u8; V]> {
-    wots_encode_with_poseidon_trace(message, slot, xmss_pub_key, randomness, &mut Vec::new())
-}
+    let first_input_left = message;
+    let mut first_input_right = [F::default(); DIGEST_LEN_FE];
+    first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
+    first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
+    let pre_compressed = poseidon16_compress_pair(&first_input_left, &first_input_right);
 
-pub fn wots_encode_with_poseidon_trace(
-    message: &[F; MESSAGE_LEN_FE],
-    slot: u32,
-    xmss_pub_key: &XmssPublicKey,
-    randomness: &Randomness,
-    poseidon_16_trace: &mut Vec<([F; 16], [F; 8])>,
-) -> Option<[u8; V]> {
-    let mut first_input_right = [F::default(); 8];
-    first_input_right[0] = message[8];
-    first_input_right[1..1 + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    first_input_right[1 + RANDOMNESS_LEN_FE..].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
-    let pre_compressed =
-        poseidon16_compress_with_trace(message[..8].try_into().unwrap(), first_input_right, poseidon_16_trace);
-
-    let mut pp_input = [F::default(); 8];
-    pp_input[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
-    let compressed = poseidon16_compress_with_trace(pre_compressed, pp_input, poseidon_16_trace);
+    let mut second_input_right = [F::default(); DIGEST_LEN_FE];
+    second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
+    let compressed = poseidon16_compress_pair(&pre_compressed, &second_input_right);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding
