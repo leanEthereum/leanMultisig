@@ -61,6 +61,16 @@ def slice_hash(data, num_chunks):
     return states + (num_chunks - 2) * DIGEST_LEN
 
 
+@inline
+def slice_hash_with_iv(data, num_chunks):
+    debug_assert(0 < num_chunks)
+    states = Array(num_chunks * DIGEST_LEN)
+    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    for j in unroll(1, num_chunks):
+        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    return states + (num_chunks - 1) * DIGEST_LEN
+
+
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
     remainder = modulo_8(len, len_bits)
     num_full_elements = len - remainder
