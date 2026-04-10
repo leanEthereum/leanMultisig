@@ -28,11 +28,6 @@ def main():
     priv_start: Imu
     hint_private_input_start(priv_start)
     debug_assert(priv_start == TWEAK_TABLE_ADDR)
-    # Private input layout: [tweak_table (FIXED size, lives at the compile-time
-    # address TWEAK_TABLE_ADDR), header, pubkeys, source_blocks, ...].
-    # Use the compile-time constant for the tweak table — this is what enables
-    # poseidon16_compress_hardcoded_left_4 in xmss_aggregate.py to embed every
-    # tweak's absolute address into the bytecode.
     tweak_table = TWEAK_TABLE_ADDR
     header = priv_start + TWEAK_TABLE_SIZE_FE_PADDED
 
