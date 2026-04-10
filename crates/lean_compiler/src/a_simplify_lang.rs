@@ -1257,7 +1257,7 @@ fn transform_mutable_in_loops_in_lines(
                     // buff[0] = var (current value)
                     new_lines.push(Line::Statement {
                         targets: vec![AssignmentTarget::ArrayAccess {
-                            array: buff_name.clone(),
+                            array: buff_name.clone().into(),
                             index: Box::new(Expression::zero()),
                         }],
                         value: Expression::var(var.clone()),
@@ -1294,7 +1294,7 @@ fn transform_mutable_in_loops_in_lines(
                             is_mutable: true,
                         }],
                         value: Expression::ArrayAccess {
-                            array: buff_name.clone(),
+                            array: buff_name.clone().into(),
                             index: vec![Expression::Value(
                                 VarOrConstMallocAccess::Var(buff_idx_var.clone()).into(),
                             )],
@@ -1333,7 +1333,7 @@ fn transform_mutable_in_loops_in_lines(
                 for (buff_name, body_name) in var_to_buff.values() {
                     new_body.push(Line::Statement {
                         targets: vec![AssignmentTarget::ArrayAccess {
-                            array: buff_name.clone(),
+                            array: buff_name.clone().into(),
                             index: Expression::var(next_idx_var.clone()).into(),
                         }],
                         value: Expression::var(body_name.clone()),
@@ -1359,7 +1359,7 @@ fn transform_mutable_in_loops_in_lines(
                             is_mutable: false,
                         }],
                         value: Expression::ArrayAccess {
-                            array: buff_name.clone(),
+                            array: buff_name.clone().into(),
                             index: vec![Expression::var(size_var.clone())],
                         },
                         location,
@@ -1730,8 +1730,8 @@ struct SimplifyState<'a> {
 #[derive(Debug, Clone, Default)]
 struct ArrayManager {
     counter: usize,
-    aux_vars: BTreeMap<(Var, Expression), Var>, // (array, index) -> aux_var
-    valid: BTreeSet<Var>,                       // currently valid aux vars
+    aux_vars: BTreeMap<(SimpleExpr, Expression), Var>, // (array, index) -> aux_var
+    valid: BTreeSet<Var>,                              // currently valid aux vars
 }
 
 /// Tracks the current "version" of each mutable variable for SSA-like transformation
@@ -1891,7 +1891,7 @@ pub struct ConstMalloc {
 }
 
 impl ArrayManager {
-    fn get_aux_var(&mut self, array: &Var, index: &Expression) -> Var {
+    fn get_aux_var(&mut self, array: &SimpleExpr, index: &Expression) -> Var {
         if let Some(var) = self.aux_vars.get(&(array.clone(), index.clone())) {
             return var.clone();
         }
@@ -2250,7 +2250,7 @@ fn simplify_lines(
                             .collect::<Result<Vec<_>, _>>()?;
 
                         let mut temp_vars = Vec::new();
-                        let mut array_targets: Vec<(usize, Var, Box<Expression>)> = Vec::new();
+                        let mut array_targets: Vec<(usize, SimpleExpr, Box<Expression>)> = Vec::new();
 
                         for (i, target) in targets.iter().enumerate() {
                             match target {
@@ -2321,8 +2321,10 @@ fn simplify_lines(
                                     }
                                     Expression::ArrayAccess { array, index } => {
                                         // Check if array is a vector (needs to be handled before simplifying indices)
-                                        let versioned_array = state.mut_tracker.current_name(array);
-                                        if state.vec_tracker.is_vector(&versioned_array) {
+                                        let versioned_array = array.as_var().map(|n| state.mut_tracker.current_name(n));
+                                        if let Some(versioned_array) = &versioned_array
+                                            && state.vec_tracker.is_vector(versioned_array)
+                                        {
                                             // Use simplify_expr which handles vectors correctly
                                             let simplified_val = simplify_expr(
                                                 ctx,
@@ -2401,7 +2403,8 @@ fn simplify_lines(
 
                                 // Optimization: direct math assignment to const_malloc array with constant index
                                 if let SimpleExpr::Constant(offset) = &simplified_index
-                                    && let Some(label) = const_malloc.map.get(array)
+                                    && let Some(array_name) = array.as_var()
+                                    && let Some(label) = const_malloc.map.get(array_name)
                                     && let Expression::MathExpr(operation, args) = value
                                 {
                                     let var = VarOrConstMallocAccess::ConstMallocAccess {
@@ -2928,8 +2931,11 @@ fn simplify_expr(
             }
         }
         Expression::ArrayAccess { array, index } => {
-            // Check for const array access
-            if let Some(arr) = ctx.const_arrays.get(array) {
+            let array_var_name = array.as_var();
+
+            if let Some(name) = array_var_name
+                && let Some(arr) = ctx.const_arrays.get(name)
+            {
                 let simplified_index = index
                     .iter()
                     .map(|idx| {
@@ -2940,15 +2946,18 @@ fn simplify_expr(
 
                 return Ok(SimpleExpr::Constant(ConstExpression::scalar(
                     arr.navigate(&simplified_index)
-                        .unwrap_or_else(|| panic!("Const array index out of bounds for array '{}'", array))
+                        .unwrap_or_else(|| panic!("Const array index out of bounds for array '{}'", name))
                         .as_scalar()
                         .expect("Const array access should return a scalar"),
                 )));
             }
 
+            let versioned_array = array_var_name.map(|n| state.mut_tracker.current_name(n));
+
             // Check for compile-time vector access
-            let versioned_array = state.mut_tracker.current_name(array);
-            if state.vec_tracker.is_vector(&versioned_array) {
+            if let Some(versioned) = &versioned_array
+                && state.vec_tracker.is_vector(versioned)
+            {
                 // Vector access - indices must all be compile-time constant
                 // First, simplify all indices (this may mutate state)
                 let mut const_indices: Vec<usize> = Vec::new();
@@ -2965,28 +2974,24 @@ fn simplify_expr(
                 }
 
                 // Now we can borrow vec_tracker again
-                let vector_value = state.vec_tracker.get(&versioned_array).unwrap();
+                let vector_value = state.vec_tracker.get(versioned).unwrap();
 
                 // Navigate to the element
                 let element = vector_value
                     .navigate(&const_indices)
                     .ok_or_else(|| format!("Vector index out of bounds: {:?}", const_indices))?;
 
-                match element {
-                    VectorValue::Scalar(var) => {
-                        // Return memory reference to this variable
-                        return Ok(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var.clone())));
-                    }
-                    VectorValue::Vector(_) => {
-                        return Err("Cannot use nested vector as expression value".to_string());
-                    }
-                }
+                return match element {
+                    VectorValue::Scalar(var) => Ok(var.clone().into()),
+                    VectorValue::Vector(_) => Err("Cannot use nested vector as expression value".to_string()),
+                };
             }
 
             assert_eq!(index.len(), 1);
             let index = index[0].clone();
 
-            if let Some(label) = const_malloc.map.get(array)
+            if let Some(name) = array_var_name
+                && let Some(label) = const_malloc.map.get(name)
                 && let Ok(offset) = ConstExpression::try_from(index.clone())
             {
                 return Ok(VarOrConstMallocAccess::ConstMallocAccess {
@@ -2996,8 +3001,13 @@ fn simplify_expr(
                 .into());
             }
 
-            let versioned_array = state.mut_tracker.current_name(array);
-            let aux_arr = state.array_manager.get_aux_var(&versioned_array, &index); // auxiliary var to store m[array + index]
+            // Key the aux-var cache by the versioned base (for Var bases) or by the
+            // original non-Var SimpleExpr (for constants / ConstMallocAccess bases).
+            let aux_key: SimpleExpr = match versioned_array {
+                Some(versioned) => versioned.into(),
+                None => array.clone(),
+            };
+            let aux_arr = state.array_manager.get_aux_var(&aux_key, &index);
 
             if !state.array_manager.valid.insert(aux_arr.clone()) {
                 return Ok(VarOrConstMallocAccess::Var(aux_arr).into());
@@ -3172,9 +3182,11 @@ pub fn find_variable_usage(
                             }
                         }
                         AssignmentTarget::ArrayAccess { array, index } => {
-                            assert!(!const_arrays.contains_key(array), "Cannot assign to const array");
-                            if !internal_vars.contains(array) {
-                                external_vars.insert(array.clone());
+                            if let Some(array_name) = array.as_var() {
+                                assert!(!const_arrays.contains_key(array_name), "Cannot assign to const array");
+                                if !internal_vars.contains(array_name) {
+                                    external_vars.insert(array_name.clone());
+                                }
                             }
                             on_new_expr(index, &internal_vars, &mut external_vars);
                         }
@@ -3343,7 +3355,10 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::Value(value) => {
             transform_vars_in_simple_expr(value, transform);
         }
-        Expression::ArrayAccess { array, .. } | Expression::Len { array, .. } => {
+        Expression::ArrayAccess { array, .. } => {
+            transform_vars_in_simple_expr(array, transform);
+        }
+        Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
         Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
@@ -3375,7 +3390,7 @@ fn transform_vars_in_lines(lines: &mut [Line], transform: &impl Fn(&Var) -> VarT
                             transform(var).apply_to_var(var);
                         }
                         AssignmentTarget::ArrayAccess { array, .. } => {
-                            transform(array).apply_to_var(array);
+                            transform_vars_in_simple_expr(array, transform);
                         }
                     }
                 }
@@ -3458,8 +3473,12 @@ fn vars_in_expression(expr: &Expression, const_arrays: &BTreeMap<String, ConstAr
         Expression::Value(SimpleExpr::Memory(VarOrConstMallocAccess::Var(var))) => {
             vars.insert(var.clone());
         }
-        Expression::ArrayAccess { array, .. } if !const_arrays.contains_key(array) => {
-            vars.insert(array.clone());
+        Expression::ArrayAccess { array, .. } => {
+            if let Some(name) = array.as_var()
+                && !const_arrays.contains_key(name)
+            {
+                vars.insert(name.clone());
+            }
         }
         _ => {}
     }
@@ -3479,33 +3498,53 @@ fn handle_array_assignment(
     state: &mut SimplifyState<'_>,
     const_malloc: &ConstMalloc,
     res: &mut Vec<SimpleLine>,
-    array: &Var,
+    array: &SimpleExpr,
     simplified_index: &[SimpleExpr],
     access_type: ArrayAccessType,
 ) {
-    // Convert array name to versioned name if it's a mutable variable
-    let array = state.mut_tracker.current_name(array);
+    // Resolve the array base into a SimpleExpr that downstream RawAccess::Deref
+    // can use as an fp-relative address. Var bases get versioning + the const_malloc
+    // fast path; non-Var bases (folded constants) get materialized into a fresh
+    // fp-slot via an explicit ADD, because RawAccess::Deref cannot take a raw
+    // constant address directly.
+    let base_addr: SimpleExpr = match array.as_var() {
+        Some(name) => {
+            let versioned = state.mut_tracker.current_name(name);
 
-    // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
-    // This compiles to a direct ADD (fp + offset) instead of a DEREF
-    if simplified_index.len() == 1
-        && let SimpleExpr::Constant(offset) = &simplified_index[0]
-        && let Some(&label) = const_malloc.map.get(&array)
-    {
-        let const_access = VarOrConstMallocAccess::ConstMallocAccess {
-            malloc_label: label,
-            offset: offset.clone(),
-        };
-        match access_type {
-            ArrayAccessType::VarIsAssigned(var) => {
-                res.push(SimpleLine::equality(var, const_access));
+            // Use ConstMallocAccess when the array is a const_malloc and the index is a constant.
+            // This compiles to a direct ADD (fp + offset) instead of a DEREF
+            if simplified_index.len() == 1
+                && let SimpleExpr::Constant(offset) = &simplified_index[0]
+                && let Some(&label) = const_malloc.map.get(&versioned)
+            {
+                let const_access = VarOrConstMallocAccess::ConstMallocAccess {
+                    malloc_label: label,
+                    offset: offset.clone(),
+                };
+                match access_type {
+                    ArrayAccessType::VarIsAssigned(var) => {
+                        res.push(SimpleLine::equality(var, const_access));
+                    }
+                    ArrayAccessType::ArrayIsAssigned(expr) => {
+                        res.push(SimpleLine::equality(const_access, expr));
+                    }
+                }
+                return;
             }
-            ArrayAccessType::ArrayIsAssigned(expr) => {
-                res.push(SimpleLine::equality(const_access, expr));
-            }
+
+            versioned.into()
         }
-        return;
-    }
+        None => {
+            let base_var = state.counters.aux_var();
+            res.push(SimpleLine::Assignment {
+                var: base_var.clone().into(),
+                operation: MathOperation::Add,
+                arg0: array.clone(),
+                arg1: SimpleExpr::zero(),
+            });
+            base_var.into()
+        }
+    };
 
     let value_simplified = match access_type {
         ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Memory(VarOrConstMallocAccess::Var(var)),
@@ -3515,14 +3554,14 @@ fn handle_array_assignment(
     assert_eq!(simplified_index.len(), 1);
     let simplified_index = simplified_index[0].clone();
     let (index_var, shift) = match simplified_index {
-        SimpleExpr::Constant(c) => (SimpleExpr::Memory(VarOrConstMallocAccess::Var(array.clone())), c),
+        SimpleExpr::Constant(c) => (base_addr, c),
         _ => {
-            // Create pointer variable: ptr = array + index
+            // Create pointer variable: ptr = base_addr + index
             let ptr_var = state.counters.aux_var();
             res.push(SimpleLine::Assignment {
                 var: ptr_var.clone().into(),
                 operation: MathOperation::Add,
-                arg0: SimpleExpr::Memory(VarOrConstMallocAccess::Var(array.clone())),
+                arg0: base_addr,
                 arg1: simplified_index,
             });
             (
@@ -3822,7 +3861,9 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
             SimpleExpr::Constant(_) => {}
         },
         Expression::ArrayAccess { array, index } => {
-            assert!(!map.contains_key(array), "Array {array} is a constant");
+            if let Some(name) = array.as_var() {
+                assert!(!map.contains_key(name), "Array {name} is a constant");
+            }
             for index in index {
                 replace_vars_by_const_in_expr(index, map);
             }
@@ -3862,7 +3903,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                             assert!(!map.contains_key(var), "Variable {var} is a constant");
                         }
                         AssignmentTarget::ArrayAccess { array, .. } => {
-                            assert!(!map.contains_key(array), "Array {array} is a constant");
+                            if let Some(name) = array.as_var() {
+                                assert!(!map.contains_key(name), "Array {name} is a constant");
+                            }
                         }
                     }
                 }

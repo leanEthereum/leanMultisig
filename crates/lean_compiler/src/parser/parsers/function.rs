@@ -203,7 +203,7 @@ impl Parse<AssignmentTarget> for AssignmentTargetParser {
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
                 let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
-                    array,
+                    array: array.into(),
                     index: Box::new(index),
                 })
             }
@@ -364,11 +364,15 @@ impl AssignmentParser {
                     .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
                     .collect::<ParseResult<Vec<_>>>()?;
 
+                let array_expr: SimpleExpr = array.into();
                 let target = AssignmentTarget::ArrayAccess {
-                    array: array.clone(),
+                    array: array_expr.clone(),
                     index: Box::new(indices[0].clone()),
                 };
-                let lhs_expr = Expression::ArrayAccess { array, index: indices };
+                let lhs_expr = Expression::ArrayAccess {
+                    array: array_expr,
+                    index: indices,
+                };
                 Ok((target, lhs_expr))
             }
             Rule::identifier => {

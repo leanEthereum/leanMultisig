@@ -7,8 +7,6 @@ MAX_RECURSIONS = 16
 MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
-INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
-
 INPUT_DATA_SIZE_PADDED = INPUT_DATA_SIZE_PADDED_PLACEHOLDER
 INPUT_DATA_NUM_CHUNKS = INPUT_DATA_SIZE_PADDED / DIGEST_LEN
 # data_buf layout: n_sigs(1) + slice_hash(8) + message + merkle_chunks_for_slot
@@ -204,6 +202,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     copy_5(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
     return
 
+@inline
 def stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot, tweaks_hash, bytecode_hash_domsep):
     inner_data_buf[0] = n_sub
     inner_msg = inner_data_buf + 1 + DIGEST_LEN
@@ -212,8 +211,11 @@ def stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot,
     copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
     for k in unroll(0, N_MERKLE_CHUNKS):
         inner_msg[MESSAGE_LEN + k] = merkle_chunks_for_slot[k]
+    for k in unroll(BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE, BYTECODE_HASH_DOMSEP_OFFSET):
+        inner_data_buf[k] = 0
     copy_8(tweaks_hash, inner_data_buf + TWEAKS_HASH_OFFSET)
-    copy_8(bytecode_hash_domsep, inner_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
+    for k in unroll(BYTECODE_HASH_DOMSEP_OFFSET + DIGEST_LEN, INPUT_DATA_SIZE_PADDED):
+        inner_data_buf[k] = 0
     return
 
 

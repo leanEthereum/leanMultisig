@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::{
-    EQ_MLE_COEFFS_PTR, NONRESERVED_PROGRAM_INPUT_START, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR,
-    REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
+    NONRESERVED_PROGRAM_INPUT_START, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR, REPEATED_ONES_PTR,
+    SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
 };
 
 use super::expression::ExpressionParser;
@@ -102,8 +102,7 @@ pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -
             SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => None,
         },
         &|arr, index| {
-            // Support const array access in expressions
-            let array = ctx.get_const_array(arr)?;
+            let array = ctx.get_const_array(arr.as_var()?)?;
             array.navigate(&index)?.as_scalar()
         },
     )
@@ -143,7 +142,6 @@ impl VarOrConstantParser {
             "SAMPLING_DOMAIN_SEPARATOR_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(
                 SAMPLING_DOMAIN_SEPARATOR_PTR,
             ))),
-            "EQ_MLE_COEFFS_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(EQ_MLE_COEFFS_PTR))),
             _ => {
                 // Check if it's a const array (error case - can't use array as value)
                 if ctx.get_const_array(text).is_some() {

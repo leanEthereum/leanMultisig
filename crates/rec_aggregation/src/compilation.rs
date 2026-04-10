@@ -40,13 +40,11 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
     // The (non-reserved) public input is now just the single 8-FE digest of `input_data_buf`.
     let pub_input_size = DIGEST_LEN;
     let public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    let private_input_start = 1usize << public_memory_log_size;
     let replacements = build_replacements(
         program_log_size,
         public_memory_log_size,
         bytecode_zero_eval,
         input_data_size_padded,
-        private_input_start,
     );
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -82,7 +80,6 @@ fn build_replacements(
     inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
     input_data_size_padded: usize,
-    private_input_start: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
@@ -154,10 +151,6 @@ fn build_replacements(
     if too_much_grinding {
         tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
-    replacements.insert(
-        "PRIVATE_INPUT_START_PLACEHOLDER".to_string(),
-        private_input_start.to_string(),
-    );
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
         RS_DOMAIN_INITIAL_REDUCTION_FACTOR.to_string(),

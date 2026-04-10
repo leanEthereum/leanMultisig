@@ -159,7 +159,7 @@ pub fn wots_encode(
     let mut first_input_right = [F::default(); DIGEST_LEN_FE];
     first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
     first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
-    let pre_compressed = poseidon16_compress_pair(&first_input_left, &first_input_right);
+    let pre_compressed = poseidon16_compress_pair(first_input_left, &first_input_right);
 
     let mut second_input_right = [F::default(); DIGEST_LEN_FE];
     second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);

@@ -83,7 +83,6 @@ pub enum CustomHint {
     DecomposeBits,
     LessThan,
     Log2Ceil,
-    PrivateInputStart,
     /// Hint the in-memory part of an XMSS signature: `randomness | chain_tips` (the WOTS
     /// part). The XMSS merkle path is hinted separately via `XmssMerkleNode`.
     Wots,
@@ -95,13 +94,12 @@ pub enum CustomHint {
     Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 9] = [
+pub const CUSTOM_HINTS: [CustomHint; 8] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
-    CustomHint::PrivateInputStart,
     CustomHint::Wots,
     CustomHint::XmssMerkleNode,
     CustomHint::Merkle,
@@ -115,7 +113,6 @@ impl CustomHint {
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
-            Self::PrivateInputStart => "hint_private_input_start",
             Self::Wots => "hint_wots",
             Self::XmssMerkleNode => "hint_xmss_merkle_node",
             Self::Merkle => "hint_merkle",
@@ -129,7 +126,6 @@ impl CustomHint {
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
-            Self::PrivateInputStart => 1,
             Self::Wots => 1,
             Self::XmssMerkleNode => 1,
             Self::Merkle => 2,
@@ -209,10 +205,6 @@ impl CustomHint {
                 let n = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let res_ptr = args[1].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
-            }
-            Self::PrivateInputStart => {
-                let res_ptr = args[0].memory_address(ctx.fp)?;
-                ctx.memory.set(res_ptr, F::from_usize(ctx.hints.private_input_start))?;
             }
             Self::Wots => {
                 let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -295,7 +287,6 @@ pub struct DiagnosticState<'a> {
 #[derive(Debug)]
 pub struct HintState<'a> {
     pub diagnostics: Option<DiagnosticState<'a>>,
-    pub private_input_start: usize,
     /// In-memory part of each XMSS signature: `randomness | chain_tips`. Consumed by
     /// `hint_wots`. The merkle path lives in `xmss_merkle_nodes`.
     pub wots_signatures: &'a [Vec<F>],

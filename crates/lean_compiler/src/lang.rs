@@ -106,6 +106,14 @@ impl SimpleExpr {
         }
     }
 
+    pub fn as_var(&self) -> Option<&Var> {
+        if let Self::Memory(VarOrConstMallocAccess::Var(name)) = self {
+            Some(name)
+        } else {
+            None
+        }
+    }
+
     pub fn try_vec_as_constant(vec: &[Self]) -> Option<Vec<ConstExpression>> {
         let mut const_elems = Vec::new();
         for expr in vec {
@@ -263,7 +271,7 @@ impl Condition {
 pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
-        array: Var,
+        array: SimpleExpr,
         index: Vec<Self>, // multi-dimensional array access
     },
     MathExpr(MathOperation, Vec<Self>),
@@ -416,7 +424,7 @@ impl Expression {
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
             &|arr, indexes| {
-                let array = const_arrays.get(arr)?;
+                let array = const_arrays.get(arr.as_var()?)?;
                 assert_eq!(indexes.len(), array.depth());
                 array.navigate(&indexes)?.as_scalar()
             },
@@ -426,7 +434,7 @@ impl Expression {
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
     where
         ValueFn: Fn(&SimpleExpr) -> Option<F>,
-        ArrayFn: Fn(&Var, Vec<F>) -> Option<F>,
+        ArrayFn: Fn(&SimpleExpr, Vec<F>) -> Option<F>,
     {
         match self {
             Self::Value(value) => value_fn(value),
@@ -505,7 +513,7 @@ impl Expression {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssignmentTarget {
     Var { var: Var, is_mutable: bool },
-    ArrayAccess { array: Var, index: Box<Expression> }, // always immutable
+    ArrayAccess { array: SimpleExpr, index: Box<Expression> }, // always immutable
 }
 
 impl Display for AssignmentTarget {
