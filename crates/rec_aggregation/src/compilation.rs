@@ -12,7 +12,7 @@ use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{
-    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W, XMSS_DIGEST_LEN,
+    LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W, XMSS_DIGEST_LEN,
 };
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
@@ -362,7 +362,6 @@ fn build_replacements(
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
-    replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());

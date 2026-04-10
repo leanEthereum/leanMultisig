@@ -2,7 +2,6 @@ from snark_lib import *
 from utils import *
 
 V = V_PLACEHOLDER
-V_GRINDING = V_GRINDING_PLACEHOLDER
 W = W_PLACEHOLDER
 CHAIN_LENGTH = 2**W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
@@ -19,7 +18,7 @@ WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
 # used by chain_hash_pair's copy_5 calls — they receive the harmless 5th-cell
 # spillover so copy_5 never collides with adjacent chain writes.
 WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
-NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))
+NUM_ENCODING_FE = div_ceil(V, (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 TWEAK_TABLE_ADDR = TWEAK_TABLE_ADDR_PLACEHOLDER
@@ -128,15 +127,7 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
             partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
         assert partial_sum == encoding_fe[i]
 
-    # grinding (V and V_GRINDING must both be even so that grinding values land on
-    # whole pair-encoded slots)
-    debug_assert(V % 2 == 0)
-    debug_assert(V_GRINDING % 2 == 0)
-    for i in unroll(V / 2, (V + V_GRINDING) / 2):
-        # Both raw chain counts in this pair must equal CHAIN_LENGTH - 1, i.e.
-        # encoding[i] == (CHAIN_LENGTH - 1) + CHAIN_LENGTH * (CHAIN_LENGTH - 1)
-        #             == CHAIN_LENGTH**2 - 1.
-        assert encoding[i] == CHAIN_LENGTH**2 - 1
+
 
     # 2) Chain hashes -> recover WOTS public key
     # `wots_public_key` layout: V/2 pairs of stride WOTS_PK_PAIR_STRIDE = 10. Each pair
@@ -155,6 +146,7 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # Each pair (chain 2*i, chain 2*i+1) is dispatched in a single match_range with
     # CHAIN_LENGTH^2 arms. The per-pair compile-time chain-step sum is written into
     # `pair_sum_ptr` by `chain_hash_pair` and accumulated at runtime into `target_sum`.
+    debug_assert(V % 2 == 0)
     target_sum: Mut = 0
     for i in unroll(0, V / 2):
         chain_start_a = chain_starts + (2 * i) * XMSS_DIGEST_LEN

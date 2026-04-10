@@ -216,7 +216,7 @@ pub fn wots_encode_with_poseidon_trace(
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
         .chunks_exact(W)
-        .take(V + V_GRINDING)
+        .take(V)
         .map(|chunk| {
             chunk
                 .iter()
@@ -228,7 +228,7 @@ pub fn wots_encode_with_poseidon_trace(
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {
-    if encoding.len() != V + V_GRINDING {
+    if encoding.len() != V {
         return false;
     }
     // All indices must be < CHAIN_LENGTH
@@ -237,10 +237,6 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
     }
     // First V indices must sum to TARGET_SUM
     if encoding[..V].iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
-        return false;
-    }
-    // Last V_GRINDING indices must all be CHAIN_LENGTH-1 (grinding constraint)
-    if !encoding[V..].iter().all(|&x| x as usize == CHAIN_LENGTH - 1) {
         return false;
     }
     true
