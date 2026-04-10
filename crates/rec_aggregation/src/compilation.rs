@@ -31,23 +31,21 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // pub_input layout: n_sigs(1) + slice_hash(8) + message + slot_low(1) + slot_high(1)
-    //                   + merkle_chunks_for_slot + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash(8)
-    let pub_input_size = 1
-        + DIGEST_LEN
-        + 2
-        + MESSAGE_LEN_FE
-        + N_MERKLE_CHUNKS_FOR_SLOT
-        + DIGEST_LEN
-        + claim_data_size_padded
-        + DIGEST_LEN;
+    // input_data_buf layout (lives in private memory, hashed to a single digest in public input):
+    //   n_sigs(1) + slice_hash(8) + message + merkle_chunks_for_slot
+    //   + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
+    let input_data_size =
+        1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size_padded + DIGEST_LEN;
+    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
+    // The (non-reserved) public input is now just the single 8-FE digest of `input_data_buf`.
+    let pub_input_size = DIGEST_LEN;
     let public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
     let private_input_start = 1usize << public_memory_log_size;
     let replacements = build_replacements(
         program_log_size,
         public_memory_log_size,
         bytecode_zero_eval,
-        pub_input_size,
+        input_data_size_padded,
         private_input_start,
     );
 
@@ -83,7 +81,7 @@ fn build_replacements(
     inner_program_log_size: usize,
     inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
-    pub_input_size: usize,
+    input_data_size_padded: usize,
     private_input_start: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
@@ -260,7 +258,10 @@ fn build_replacements(
         "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
         inner_public_memory_log_size.to_string(),
     );
-    replacements.insert("PUB_INPUT_SIZE_PLACEHOLDER".to_string(), pub_input_size.to_string());
+    replacements.insert(
+        "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
+        input_data_size_padded.to_string(),
+    );
 
     let mut lookup_indexes_str = vec![];
     let mut lookup_values_str = vec![];

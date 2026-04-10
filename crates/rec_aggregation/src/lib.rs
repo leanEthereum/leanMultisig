@@ -131,7 +131,8 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
     chunks
 }
 
-fn build_non_reserved_public_input(
+/// Builds the (padded) public-input data buffer that ends up being hashed.
+fn build_input_data(
     n_sigs: usize,
     slice_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
@@ -140,21 +141,25 @@ fn build_non_reserved_public_input(
     bytecode_claim_output: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
-    let mut pi = vec![];
-    pi.push(F::from_usize(n_sigs));
-    pi.extend_from_slice(slice_hash);
-    pi.extend_from_slice(message);
-    pi.push(F::from_usize((slot & 0xFFFF) as usize));
-    pi.push(F::from_usize(((slot >> 16) & 0xFFFF) as usize));
-    pi.extend(compute_merkle_chunks_for_slot(slot));
-    pi.extend_from_slice(tweaks_hash);
-    pi.extend_from_slice(bytecode_claim_output);
-    pi.extend(std::iter::repeat_n(
-        F::ZERO,
-        bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len(),
-    ));
-    pi.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
-    pi
+    let mut data = vec![];
+    data.push(F::from_usize(n_sigs));
+    data.extend_from_slice(slice_hash);
+    data.extend_from_slice(message);
+    data.extend(compute_merkle_chunks_for_slot(slot));
+    data.extend_from_slice(tweaks_hash);
+    data.extend_from_slice(bytecode_claim_output);
+    // Pad the bytecode claim itself up to DIGEST_LEN
+    let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
+    data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
+    data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
+    // Round the whole buffer up to DIGEST_LEN so `slice_hash_with_iv` can absorb it chunk by chunk.
+    data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
+    data
+}
+
+pub(crate) fn hash_input_data(data: &[F]) -> [F; DIGEST_LEN] {
+    assert_eq!(data.len() % DIGEST_LEN, 0);
+    poseidon_compress_slice(data, true)
 }
 
 fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
@@ -195,7 +200,7 @@ impl AggregatedXMSS {
         postcard::from_bytes(&decompressed).ok()
     }
 
-    pub fn public_input(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+    pub(crate) fn input_data(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
         let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
@@ -219,7 +224,7 @@ impl AggregatedXMSS {
         let tweak_table = compute_tweak_table(slot);
         let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
-        build_non_reserved_public_input(
+        build_input_data(
             pub_keys.len(),
             &slice_hash.0,
             message,
@@ -228,6 +233,11 @@ impl AggregatedXMSS {
             &bytecode_claim_output,
             &bytecode.hash,
         )
+    }
+
+    /// The 1-digest public input that the verifier passes to `verify_execution`.
+    pub fn public_input_hash(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+        hash_input_data(&self.input_data(pub_keys, message, slot)).to_vec()
     }
 }
 
@@ -240,7 +250,7 @@ pub fn xmss_verify_aggregation(
     if !pub_keys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let public_input = agg_sig.public_input(pub_keys, message, slot);
+    let public_input = agg_sig.public_input_hash(pub_keys, message, slot);
     let bytecode = get_aggregation_bytecode();
     verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
@@ -280,24 +290,27 @@ pub fn xmss_aggregate(
     let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
     // Verify child proofs
-    let mut child_pub_inputs = vec![];
+    let mut child_input_data = vec![];
+    let mut child_input_hashes = vec![];
     let mut child_bytecode_evals = vec![];
     let mut child_raw_proofs = vec![];
     for (child_pub_keys, child) in children {
-        let child_pub_input = child.public_input(child_pub_keys, message, slot);
-        let (verif, raw_proof) = verify_execution(bytecode, &child_pub_input, child.proof.clone()).unwrap();
+        let input_data = child.input_data(child_pub_keys, message, slot);
+        let input_data_hash = hash_input_data(&input_data);
+        let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
-        child_pub_inputs.push(child_pub_input);
+        child_input_data.push(input_data);
+        child_input_hashes.push(input_data_hash);
         child_raw_proofs.push(raw_proof);
     }
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
-            let first_claim = extract_bytecode_claim_from_public_input(
-                &child_pub_inputs[i][bytecode_claim_offset..],
+            let first_claim = extract_bytecode_claim_from_input_data(
+                &child_input_data[i][bytecode_claim_offset..],
                 bytecode_point_n_vars,
             );
             claims.push(first_claim);
@@ -362,9 +375,8 @@ pub fn xmss_aggregate(
         (claim_output, None, vec![])
     };
 
-    // Build public input
     let slice_hash = hash_pubkeys(&global_pub_keys);
-    let non_reserved_public_input = build_non_reserved_public_input(
+    let pub_input_data = build_input_data(
         n_sigs,
         &slice_hash.0,
         message,
@@ -373,19 +385,23 @@ pub fn xmss_aggregate(
         &bytecode_claim_output,
         &bytecode.hash,
     );
+    let input_data_size_padded = pub_input_data.len();
+    let non_reserved_public_input = hash_input_data(&pub_input_data).to_vec();
     let public_memory = build_public_memory(&non_reserved_public_input);
 
     // Build private input
     // Layout: [tweak_table (FIXED size, sits at the FIXED address public_memory.len() so the
     //          .py code can address it via the TWEAK_TABLE_ADDR compile-time constant),
+    //          input_data_buf (the data that hashes to the public-input digest),
     //          n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
     //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
     //
-    // We dropped `ptr_tweak_table` from the header because the address is now a
-    // compile-time constant; main.py reads tweak_table = TWEAK_TABLE_ADDR directly.
+    // The tweak table address is a compile-time constant; main.py reads
+    // tweak_table = TWEAK_TABLE_ADDR directly. The input data buffer follows
+    // immediately after the tweak table at PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED.
     let tweak_table_ptr = public_memory.len();
     let header_size = n_recursions + 5;
-    let header_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED;
+    let header_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded;
     let pubkeys_start = header_start + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
@@ -429,9 +445,8 @@ pub fn xmss_aggregate(
 
         // bytecode_value_hint (DIM elements)
         block.extend_from_slice(child_bytecode_evals[i].value.as_basis_coefficients_slice());
-        // inner_pub_mem
-        let child_pub_mem = build_public_memory(&child_pub_inputs[i]);
-        block.extend_from_slice(&child_pub_mem);
+        block.extend_from_slice(&child_input_data[i]);
+
         // proof_transcript (without Merkle data, delivered via hint_merkle)
         block.extend_from_slice(&child_raw_proofs[i].transcript);
 
@@ -452,11 +467,16 @@ pub fn xmss_aggregate(
     let bytecode_sumcheck_proof_ptr = offset;
 
     // Tweak table sits at the very start of private input (FIXED address).
-    let mut private_input: Vec<F> = Vec::with_capacity(TWEAK_TABLE_SIZE_FE_PADDED);
+    let mut private_input: Vec<F> =
+        Vec::with_capacity(TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded + header_size);
     private_input.extend_from_slice(&tweak_table);
     assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED);
 
-    // Header (variable-length only via n_recursions; lives right after the tweak table).
+    // Input data buffer (the data that hashes to the public-input digest).
+    private_input.extend_from_slice(&pub_input_data);
+    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded);
+
+    // Header (variable-length only via n_recursions; lives right after the input data buffer).
     private_input.push(F::from_usize(n_recursions));
     private_input.push(F::from_usize(n_dup));
     private_input.push(F::from_usize(pubkeys_start));
@@ -464,7 +484,10 @@ pub fn xmss_aggregate(
         private_input.push(F::from_usize(ptr));
     }
     private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED + header_size);
+    assert_eq!(
+        private_input.len(),
+        TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded + header_size
+    );
 
     // Pubkeys block.
     for pk in &global_pub_keys {
@@ -508,7 +531,7 @@ pub fn xmss_aggregate(
     )
 }
 
-pub fn extract_bytecode_claim_from_public_input(public_input: &[F], bytecode_point_n_vars: usize) -> Evaluation<EF> {
+pub fn extract_bytecode_claim_from_input_data(public_input: &[F], bytecode_point_n_vars: usize) -> Evaluation<EF> {
     let claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let packed = pack_scalars_to_extension(&public_input[..claim_size]);
     let point = MultilinearPoint(packed[..bytecode_point_n_vars].to_vec());

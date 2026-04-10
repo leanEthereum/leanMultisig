@@ -8,25 +8,33 @@ MAX_N_SIGS = 2**15
 MAX_N_DUPS = 2**15
 
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE
-BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + 2 + MESSAGE_LEN + N_MERKLE_CHUNKS + DIGEST_LEN
+
+INPUT_DATA_SIZE_PADDED = INPUT_DATA_SIZE_PADDED_PLACEHOLDER
+INPUT_DATA_NUM_CHUNKS = INPUT_DATA_SIZE_PADDED / DIGEST_LEN
+# data_buf layout: n_sigs(1) + slice_hash(8) + message + merkle_chunks_for_slot
+#                  + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
+TWEAKS_HASH_OFFSET = 1 + DIGEST_LEN + MESSAGE_LEN + N_MERKLE_CHUNKS
+BYTECODE_CLAIM_OFFSET = TWEAKS_HASH_OFFSET + DIGEST_LEN
+BYTECODE_HASH_DOMSEP_OFFSET = BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE_PADDED
+
 
 def main():
     debug_assert(MAX_N_SIGS + MAX_N_DUPS <= 2**16)  # because of range checking, TODO increase
     pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    n_sigs = pub_mem[0]
-    assert 1 < n_sigs
-    assert n_sigs - 1 < MAX_N_SIGS
-    pubkeys_hash_expected = pub_mem + 1
-    message = pubkeys_hash_expected + DIGEST_LEN
-    slot_ptr = message + MESSAGE_LEN
-    slot_lo = slot_ptr[0]
-    slot_hi = slot_ptr[1]
-    merkle_chunks_for_slot = slot_ptr + 2
-    tweaks_hash_expected = merkle_chunks_for_slot + N_MERKLE_CHUNKS
-    bytecode_claim_output = pub_mem + BYTECODE_CLAIM_OFFSET
 
     tweak_table = TWEAK_TABLE_ADDR
-    header = PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED
+    data_buf = PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED
+    header = data_buf + INPUT_DATA_SIZE_PADDED
+
+    n_sigs = data_buf[0]
+    assert 1 < n_sigs
+    assert n_sigs - 1 < MAX_N_SIGS
+    pubkeys_hash_expected = data_buf + 1
+    message = pubkeys_hash_expected + DIGEST_LEN
+    merkle_chunks_for_slot = message + MESSAGE_LEN
+    tweaks_hash_expected = data_buf + TWEAKS_HASH_OFFSET
+    bytecode_claim_output = data_buf + BYTECODE_CLAIM_OFFSET
+    bytecode_hash_domsep = data_buf + BYTECODE_HASH_DOMSEP_OFFSET
 
     n_recursions = header[0]
     assert n_recursions <= MAX_RECURSIONS
@@ -53,15 +61,21 @@ def main():
             assert n_sub != 0
             assert n_sub == n_sigs
             bytecode_value_hint = source_data + 1 + n_sub
-            inner_pub_mem = bytecode_value_hint + DIM
-            proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
-            non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sigs, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
-            copy_8(non_reserved_inner + 1, pubkeys_hash_expected)
-            copy_8(tweaks_hash_expected, non_reserved_inner + 1 + DIGEST_LEN + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
+            inner_data_buf = bytecode_value_hint + DIM
+            proof_transcript = inner_data_buf + INPUT_DATA_SIZE_PADDED
+            inner_bytecode_claim = inner_data_buf + BYTECODE_CLAIM_OFFSET
+            copy_8(pubkeys_hash_expected, inner_data_buf + 1)
+            stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot, tweaks_hash_expected, bytecode_hash_domsep)
+            inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
+            construct_inner_pub_mem(inner_pub_mem, inner_data_buf)
             bytecode_claims = Array(2)
-            bytecode_claims[0] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
-            bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint)
+            bytecode_claims[0] = inner_bytecode_claim
+            bytecode_claims[1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, bytecode_hash_domsep)
             reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output, bytecode_sumcheck_proof)
+            # All fields of `data_buf` are now written: hash it and assert the digest
+            # matches the (single-element) public input by writing into public memory.
+            outer_hash = slice_hash_with_iv(data_buf, INPUT_DATA_NUM_CHUNKS)
+            copy_8(outer_hash, pub_mem)
             return
 
     # General path
@@ -97,8 +111,8 @@ def main():
         assert n_sub < MAX_N_SIGS
         sub_indices = source_data + 1
         bytecode_value_hint = sub_indices + n_sub
-        inner_pub_mem = bytecode_value_hint + DIM
-        proof_transcript = inner_pub_mem + INNER_PUB_MEM_SIZE
+        inner_data_buf = bytecode_value_hint + DIM
+        proof_transcript = inner_data_buf + INPUT_DATA_SIZE_PADDED
 
         idx0 = sub_indices[0]
         assert idx0 < n_total
@@ -118,17 +132,15 @@ def main():
             poseidon16_compress(running_hash, pk, new_hash)
             running_hash = new_hash
 
-        non_reserved_inner = verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem)
-        copy_8(running_hash, non_reserved_inner + 1)
-        # Verify inner tweaks hash matches ours
-        inner_msg = non_reserved_inner + 1 + DIGEST_LEN
-        copy_8(tweaks_hash_expected, inner_msg + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS)
+        copy_8(running_hash, inner_data_buf + 1) # hash of pubkeys handled by this recursion
+        stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot, tweaks_hash_expected, bytecode_hash_domsep)
+        inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
+        construct_inner_pub_mem(inner_pub_mem, inner_data_buf)
 
-        # Collect inner bytecode claim from inner pub mem
-        bytecode_claims[2 * rec_idx] = non_reserved_inner + BYTECODE_CLAIM_OFFSET
+        bytecode_claims[2 * rec_idx] = inner_data_buf + BYTECODE_CLAIM_OFFSET
 
         # Verify recursive proof - returns the second bytecode claim
-        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint)
+        bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, proof_transcript, bytecode_value_hint, bytecode_hash_domsep)
 
     # Ensure partition validity
     assert counter == n_total
@@ -142,6 +154,11 @@ def main():
             bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM + k] = 0
     else:
         reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof)
+
+    # All fields of `data_buf` are now written: hash it and assert the digest
+    # matches the (single-element) public input by writing into public memory.
+    outer_hash = slice_hash_with_iv(data_buf, INPUT_DATA_NUM_CHUNKS)
+    copy_8(outer_hash, pub_mem)
     return
 
 def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof):
@@ -187,21 +204,33 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     copy_5(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
     return
 
-
-def verify_inner_pub_mem(inner_pub_mem, n_sub, message, slot_lo, slot_hi, merkle_chunks_for_slot, pub_mem):
-    debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)
-    for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
-        copy_5(i * DIM, inner_pub_mem + i * DIM)
-    non_reserved_inner = inner_pub_mem + NONRESERVED_PROGRAM_INPUT_START
-    assert non_reserved_inner[0] == n_sub
-    inner_msg = non_reserved_inner + 1 + DIGEST_LEN
+def stage_inner_data_buf(inner_data_buf, n_sub, message, merkle_chunks_for_slot, tweaks_hash, bytecode_hash_domsep):
+    inner_data_buf[0] = n_sub
+    inner_msg = inner_data_buf + 1 + DIGEST_LEN
     debug_assert(MESSAGE_LEN <= 2 * DIM)
     copy_5(message, inner_msg)
     copy_5(message + (MESSAGE_LEN - DIM), inner_msg + (MESSAGE_LEN - DIM))
-    inner_msg[MESSAGE_LEN] = slot_lo
-    inner_msg[MESSAGE_LEN + 1] = slot_hi
     for k in unroll(0, N_MERKLE_CHUNKS):
-        inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
-    own_bytecode_hash = pub_mem + BYTECODE_HASH_OFFSET
-    copy_8(own_bytecode_hash, non_reserved_inner + BYTECODE_HASH_OFFSET)
-    return non_reserved_inner
+        inner_msg[MESSAGE_LEN + k] = merkle_chunks_for_slot[k]
+    copy_8(tweaks_hash, inner_data_buf + TWEAKS_HASH_OFFSET)
+    copy_8(bytecode_hash_domsep, inner_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
+    return
+
+
+@inline
+def construct_inner_pub_mem(inner_pub_mem, inner_data_buf):
+    debug_assert(NONRESERVED_PROGRAM_INPUT_START % DIM == 0)
+    for i in unroll(0, NONRESERVED_PROGRAM_INPUT_START / DIM):
+        copy_5(i * DIM, inner_pub_mem + i * DIM)
+    # Non-reserved area: the inner data digest...
+    inner_hash = slice_hash_with_iv(inner_data_buf, INPUT_DATA_NUM_CHUNKS)
+    copy_8(inner_hash, inner_pub_mem + NONRESERVED_PROGRAM_INPUT_START)
+    # ...followed by zeros up to INNER_PUB_MEM_SIZE: as many DIM-wide
+    # set_to_5_zeros as fit, then field-by-field for the leftover.
+    tail_start = NONRESERVED_PROGRAM_INPUT_START + DIGEST_LEN
+    tail_full_chunks = div_floor(INNER_PUB_MEM_SIZE - tail_start, DIM)
+    for c in unroll(0, tail_full_chunks):
+        set_to_5_zeros(inner_pub_mem + tail_start + c * DIM)
+    for k in unroll(tail_start + tail_full_chunks * DIM, INNER_PUB_MEM_SIZE):
+        inner_pub_mem[k] = 0
+    return
