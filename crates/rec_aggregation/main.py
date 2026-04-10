@@ -84,14 +84,8 @@ def main():
         assert idx < n_total
         buffer[idx] = i
         # Verify raw XMSS signatures.
-        # `sig` only carries the WOTS part (`randomness | chain_tips`); the merkle path
-        # is delivered out-of-band via hint_xmss_merkle_node inside do_4_merkle_levels.
         pk = all_pubkeys + idx * PUB_KEY_SIZE
-        # 1 extra element for safe copy_5 reads past the last chain_tip
-        sig = Array(WOTS_SIG_SIZE + 1)
-        hint_wots(sig)
-        sig[WOTS_SIG_SIZE] = 0
-        xmss_verify(pk, message, sig, merkle_chunks_for_slot)
+        xmss_verify(pk, message, merkle_chunks_for_slot)
 
     counter: Mut = n_raw_xmss
 

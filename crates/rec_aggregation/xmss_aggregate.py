@@ -67,7 +67,7 @@ def build_chain_right(public_param, out):
 
 
 @inline
-def xmss_verify(pub_key, message, signature, merkle_chunks):
+def xmss_verify(pub_key, message, merkle_chunks):
     # pub_key: PUB_KEY_SIZE FE = merkle_root(XMSS_DIGEST) | public_param(PUBLIC_PARAM_LEN_FE)
     # signature: randomness(RANDOMNESS_LEN) | chain_tips(V * XMSS_DIGEST) | merkle_path(LOG_LIFETIME * XMSS_DIGEST)
     #
@@ -77,9 +77,14 @@ def xmss_verify(pub_key, message, signature, merkle_chunks):
     # poseidon16_compress_hardcoded_left_4 without ever copying tweak prefixes into
     # per-hash buffers.
 
+    # 1 extra element for safe copy_5 reads past the last chain_tip
+    wots = Array(WOTS_SIG_SIZE + 1)
+    hint_wots(wots)
+    wots[WOTS_SIG_SIZE] = 0
+
     public_param = pub_key + XMSS_DIGEST_LEN
-    randomness = signature
-    chain_starts = signature + RANDOMNESS_LEN
+    randomness = wots
+    chain_starts = wots + RANDOMNESS_LEN
     # NOTE: the merkle path is no longer part of `signature`. The prover delivers
     # each merkle node directly into a `do_4_merkle_levels` slot via
     # `hint_xmss_merkle_node`, see `xmss_merkle_verify` / `do_4_merkle_levels`.
