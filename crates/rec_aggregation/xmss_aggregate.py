@@ -77,10 +77,8 @@ def xmss_verify(pub_key, message, merkle_chunks):
     # poseidon16_compress_hardcoded_left_4 without ever copying tweak prefixes into
     # per-hash buffers.
 
-    # 1 extra element for safe copy_5 reads past the last chain_tip
-    wots = Array(WOTS_SIG_SIZE + 1)
+    wots = Array(WOTS_SIG_SIZE)
     hint_wots(wots)
-    wots[WOTS_SIG_SIZE] = 0
 
     public_param = pub_key + XMSS_DIGEST_LEN
     randomness = wots
