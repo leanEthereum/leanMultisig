@@ -27,8 +27,8 @@ const TWEAK_TYPE_WOTS_PK: usize = 1;
 const TWEAK_TYPE_MERKLE: usize = 2;
 const TWEAK_TYPE_ENCODING: usize = 3;
 
-/// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + (V-1) wots_pk + LOG_LIFETIME merkle
-const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME;
+/// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + 1 wots_pk + LOG_LIFETIME merkle
+const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME;
 /// All, except one, tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0]. The first slot
 /// (the encoding tweak) is the ONLY slot read via copy_5 (5 cells), so it gets
 /// an extra trailing zero: [tw[0], tw[1], 0, 0, 0]. Every other slot is read
@@ -106,10 +106,8 @@ fn compute_tweak_table(slot: u32) -> Vec<F> {
         }
     }
 
-    // WOTS_PK tweaks: for sub_pos p = 0..V-2
-    for p in 0..V - 1 {
-        push_padded(&mut table, TWEAK_TYPE_WOTS_PK, p, slot);
-    }
+    // WOTS_PK tweak
+    push_padded(&mut table, TWEAK_TYPE_WOTS_PK, 0, slot);
 
     // Merkle tweaks: for level 0..LOG_LIFETIME-1
     for level in 0..LOG_LIFETIME {

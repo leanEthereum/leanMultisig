@@ -13,10 +13,7 @@ XMSS_DIGEST_LEN = XMSS_DIGEST_LEN_PLACEHOLDER
 PUB_KEY_SIZE = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE
 PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST_LEN
 WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
-# wots_public_key pair stride: each pair occupies 10 cells
-# `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. The two zero cells are slack
-# used by chain_hash_pair's copy_5 calls — they receive the harmless 5th-cell
-# spillover so copy_5 never collides with adjacent chain writes.
+# wots_public_key pair stride: each pair occupies 10 cells `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. In order to be able to use copy_5 on both sides.
 WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
 NUM_ENCODING_FE = div_ceil(V, (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
@@ -25,19 +22,15 @@ INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE  # = DIGEST_LEN
 PRIVATE_INPUT_START = PREAMBLE_MEMORY_END
 TWEAK_TABLE_ADDR = PRIVATE_INPUT_START
 
-# Tweak table layout: most tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0].
-# The first slot (encoding tweak) is 5-FE [tw[0], tw[1], 0, 0, 0]: it's the only
-# tweak read via copy_5 (5 cells), so it gets an extra trailing zero. Every other
-# tweak is read only via poseidon16_compress_(half_)hardcoded_left_4, which reads
-# exactly 4 cells. Tweak pointers point directly at tw[0] (no offset trick).
+# Tweak table layout: all tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0], except the first, encoding, tweak: which is 5-FE [tw[0], tw[1], 0, 0, 0] (in order to use copy_5)
 TWEAK_LEN = 4  # stride / slot size for non-encoding tweaks
-ENCODING_TWEAK_SLOT_SIZE = 5  # encoding tweak slot has one extra trailing zero
-N_TWEAKS = 1 + V * CHAIN_LENGTH + (V - 1) + LOG_LIFETIME
+ENCODING_TWEAK_SLOT_SIZE = 5  # encoding tweak has one extra trailing zero
+N_TWEAKS = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME
 TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(ENCODING_TWEAK_SLOT_SIZE + (N_TWEAKS - 1) * TWEAK_LEN, DIGEST_LEN)
 TWEAK_ENCODING_OFFSET = 0
 TWEAK_CHAIN_OFFSET = ENCODING_TWEAK_SLOT_SIZE  # encoding occupies cells [0..5]
 TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
-TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + (V - 1) * TWEAK_LEN
+TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + TWEAK_LEN
 
 # Buffer size for the hash-chaining trick.
 # Each slot is [extra(1) | prefix(4) | hash_output(8)] = 13 elements.
