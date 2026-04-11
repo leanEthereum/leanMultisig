@@ -23,10 +23,10 @@ def main():
     build_preamble_memory()
 
     tweak_table: Mut = TWEAK_TABLE_ADDR
-    hint_read("tweak_table", tweak_table)
+    hint_witness("tweak_table", tweak_table)
 
     data_buf = Array(INPUT_DATA_SIZE_PADDED)
-    hint_read("input_data", data_buf)
+    hint_witness("input_data", data_buf)
     n_sigs = data_buf[0]
     assert 1 < n_sigs
     assert n_sigs - 1 < MAX_N_SIGS
@@ -39,7 +39,7 @@ def main():
 
     # meta = [n_recursions, n_dup, pubkeys_len, n_raw_xmss]
     meta = Array(4)
-    hint_read("meta", meta)
+    hint_witness("meta", meta)
     n_recursions = meta[0]
     assert n_recursions <= MAX_RECURSIONS
 
@@ -47,13 +47,13 @@ def main():
     assert n_dup < MAX_N_SIGS  # TODO increase
 
     all_pubkeys = Array(meta[2])
-    hint_read("pubkeys", all_pubkeys)
+    hint_witness("pubkeys", all_pubkeys)
     n_raw_xmss = meta[3]
     raw_indices = Array(n_raw_xmss)
-    hint_read("raw_indices", raw_indices)
+    hint_witness("raw_indices", raw_indices)
 
     aggregate_sizes = Array(n_recursions)
-    hint_read("aggregate_sizes", aggregate_sizes)
+    hint_witness("aggregate_sizes", aggregate_sizes)
 
     computed_tweaks_hash = slice_hash(tweak_table, TWEAK_TABLE_SIZE_FE_PADDED / DIGEST_LEN)
     copy_8(computed_tweaks_hash, tweaks_hash_expected)
@@ -103,7 +103,7 @@ def main():
 
     for rec_idx in range(0, n_recursions):
         sub_indices_blob = Array(aggregate_sizes[rec_idx])
-        hint_read("sub_indices", sub_indices_blob)
+        hint_witness("sub_indices", sub_indices_blob)
         n_sub = sub_indices_blob[0]
         assert n_sub != 0
         assert n_sub < MAX_N_SIGS
@@ -169,7 +169,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
         bytecode_claims_hash = new_hash
 
     bytecode_sumcheck_proof = Array(BYTECODE_SUMCHECK_PROOF_SIZE)
-    hint_read("bytecode_sumcheck_proof", bytecode_sumcheck_proof)
+    hint_witness("bytecode_sumcheck_proof", bytecode_sumcheck_proof)
     reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
     reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
     copy_8(bytecode_claims_hash, received_claims_hash)
@@ -212,7 +212,7 @@ def build_inner_data_buf(n_sub, pubkeys_hash, message, merkle_chunks_for_slot, t
     for k in unroll(0, N_MERKLE_CHUNKS):
         inner_msg[MESSAGE_LEN + k] = merkle_chunks_for_slot[k]
     copy_8(tweaks_hash, inner_data_buf + TWEAKS_HASH_OFFSET)
-    hint_read("inner_bytecode_claim", inner_data_buf + BYTECODE_CLAIM_OFFSET)
+    hint_witness("inner_bytecode_claim", inner_data_buf + BYTECODE_CLAIM_OFFSET)
     for k in unroll(BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE, BYTECODE_HASH_DOMSEP_OFFSET):
         inner_data_buf[k] = 0
     copy_8(bytecode_hash_domsep, inner_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
