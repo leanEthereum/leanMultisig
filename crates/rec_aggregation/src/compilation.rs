@@ -34,14 +34,7 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let input_data_size =
         1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    let pub_input_size = DIGEST_LEN;
-    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    let replacements = build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
-        bytecode_zero_eval,
-        input_data_size_padded,
-    );
+    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -73,7 +66,6 @@ fn compile_main_program_self_referential() -> Bytecode {
 
 fn build_replacements(
     inner_program_log_size: usize,
-    inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
     input_data_size_padded: usize,
 ) -> BTreeMap<String, String> {
@@ -239,14 +231,6 @@ fn build_replacements(
         log_inner_bytecode.to_string(),
     );
     replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
-    replacements.insert(
-        "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
-        NONRESERVED_PROGRAM_INPUT_START.to_string(),
-    );
-    replacements.insert(
-        "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
-        inner_public_memory_log_size.to_string(),
-    );
     replacements.insert(
         "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
         input_data_size_padded.to_string(),

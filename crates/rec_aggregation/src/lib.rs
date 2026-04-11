@@ -20,6 +20,11 @@ mod compilation;
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
+// preamble memory layout: see `build_preamble_memory` in utils.py
+const ZERO_VEC_LEN: usize = 16;
+const NUM_REPEATED_ONES: usize = 16;
+pub const PREAMBLE_MEMORY_LEN: usize = ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES;
+
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
     pub raw_xmss: usize,
@@ -295,12 +300,11 @@ pub fn xmss_aggregate(
         &bytecode.hash,
     );
     let input_data_size_padded = pub_input_data.len();
-    let non_reserved_public_input = hash_input_data(&pub_input_data).to_vec();
-    let public_memory = build_public_memory(&non_reserved_public_input);
+    let public_input = hash_input_data(&pub_input_data).to_vec();
+    let public_memory_size = public_input.len().next_power_of_two();
 
-    // Build private input
     let header_size = n_recursions + 5;
-    let header_start = public_memory.len() + input_data_size_padded;
+    let header_start = public_memory_size + PREAMBLE_MEMORY_LEN + input_data_size_padded;
     let pubkeys_start = header_start + header_size;
 
     // Build source blocks (also discovers duplicate pub_keys)
@@ -395,8 +399,9 @@ pub fn xmss_aggregate(
         private_input: &private_input,
         xmss_signatures: &xmss_signatures,
         merkle_paths: &merkle_paths,
+        preamble_memory_len: PREAMBLE_MEMORY_LEN,
     };
-    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
+    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
 
     (
         global_pub_keys,
