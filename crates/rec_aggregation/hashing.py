@@ -262,11 +262,13 @@ def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
 @inline
 def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
     # Hint and hash leaf
-    leaf_data = hint_read("merkle_leaf", num_chunks * DIGEST_LEN)
+    leaf_data = Array(num_chunks * DIGEST_LEN)
+    hint_read("merkle_leaf", leaf_data)
     leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
 
     # Hint and verify merkle path (processing 4 levels per nibble)
-    merkle_path = hint_read("merkle_path", height * DIGEST_LEN)
+    merkle_path = Array(height * DIGEST_LEN)
+    hint_read("merkle_path", merkle_path)
 
     states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
 

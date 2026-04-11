@@ -592,25 +592,24 @@ fn compile_lines(
                     .collect::<Vec<_>>();
                 instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
             }
-            SimpleLine::HintRead { var, name, const_size } => match const_size {
-                None => {
-                    compiler.register_var_if_needed(var);
-                    instructions.push(IntermediateInstruction::HintRead {
-                        offset: compiler.get_offset(&var.clone().into()),
-                        size: None,
-                        name: name.clone(),
-                    });
-                }
-                Some(HintReadConstSize { size: size_expr, label }) => {
-                    let size = size_expr.naive_eval().unwrap().to_usize();
-                    let data_fp_offset = handle_const_malloc(&mut instructions, compiler, var, size, label);
-                    instructions.push(IntermediateInstruction::HintRead {
-                        offset: ConstExpression::from_usize(data_fp_offset),
-                        size: Some(size),
-                        name: name.clone(),
-                    });
-                }
-            },
+            SimpleLine::HintRead { destination, name } => {
+                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(ptr_var)) = destination else {
+                    panic!("hint_read: destination must be a plain variable, got {destination}")
+                };
+                let hint_destination = if let Some(IntermediateValue::FpRelative { offset }) =
+                    try_precompile_fp_relative(destination, compiler)
+                {
+                    HintReadDestination::Inline { offset }
+                } else {
+                    HintReadDestination::Indirect {
+                        ptr_offset: compiler.get_offset(&ptr_var.clone().into()),
+                    }
+                };
+                instructions.push(IntermediateInstruction::HintRead {
+                    name: name.clone(),
+                    destination: hint_destination,
+                });
+            }
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
                     line_info: line_info.clone(),
@@ -834,12 +833,7 @@ fn collect_fp_rel_capable(
 ) {
     for line in lines {
         match line {
-            SimpleLine::ConstMalloc { var, .. }
-            | SimpleLine::HintRead {
-                var,
-                const_size: Some(_),
-                ..
-            } => {
+            SimpleLine::ConstMalloc { var, .. } => {
                 fp_rel_capable.insert(var.clone());
             }
             SimpleLine::Assignment {
@@ -936,6 +930,13 @@ fn collect_use_info(
                     *fp_rel_uses.entry(v.clone()).or_default() += 1;
                 }
             }
+        }
+
+        if let SimpleLine::HintRead { destination, .. } = line
+            && let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = destination
+            && fp_rel_capable.contains(v)
+        {
+            *fp_rel_uses.entry(v.clone()).or_default() += 1;
         }
 
         for block in line.nested_blocks() {

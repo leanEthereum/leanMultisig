@@ -290,9 +290,11 @@ pub enum Expression {
         param: Var,
         body: Box<Self>,
     },
+    /// `hint_read("name", ptr)` — writes the next witness entry for `name`
+    /// into the buffer pointed to by `ptr`.
     HintRead {
         name: String,
-        size: Option<Box<Self>>,
+        ptr: Box<Self>,
     },
 }
 
@@ -472,7 +474,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter_mut().collect(),
             Self::Len { indices, .. } => indices.iter_mut().collect(),
             Self::Lambda { body, .. } => vec![body.as_mut()],
-            Self::HintRead { size, .. } => size.iter_mut().map(|b| b.as_mut()).collect(),
+            Self::HintRead { ptr, .. } => vec![ptr.as_mut()],
         }
     }
 
@@ -484,7 +486,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter().collect(),
             Self::Lambda { body, .. } => vec![body.as_ref()],
             Self::Len { indices, .. } => indices.iter().collect(),
-            Self::HintRead { size, .. } => size.iter().map(|b| b.as_ref()).collect(),
+            Self::HintRead { ptr, .. } => vec![ptr.as_ref()],
         }
     }
 
@@ -730,11 +732,8 @@ impl Display for Expression {
             Self::Lambda { param, body } => {
                 write!(f, "lambda {param}: {body}")
             }
-            Self::HintRead { name, size: None } => {
-                write!(f, "hint_read(\"{name}\")")
-            }
-            Self::HintRead { name, size: Some(size) } => {
-                write!(f, "hint_read(\"{name}\", {size})")
+            Self::HintRead { name, ptr } => {
+                write!(f, "hint_read(\"{name}\", {ptr})")
             }
         }
     }

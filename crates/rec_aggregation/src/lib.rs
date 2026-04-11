@@ -13,6 +13,7 @@ use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseido
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::compilation::bytecode_reduction_sumcheck_proof_size;
 pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 
 pub mod benchmark;
@@ -336,6 +337,11 @@ pub fn xmss_aggregate(
             sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
             vs.into_raw_proof().transcript
         };
+        assert_eq!(
+            final_sumcheck_proof.len(),
+            bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars),
+            "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
+        );
 
         (claim_output, Some(reduced_point), final_sumcheck_proof)
     } else {
@@ -360,16 +366,15 @@ pub fn xmss_aggregate(
 
     let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
-    // Source 0: raw XMSS (indices only; signature data goes via hint_read("xmss_signature"))
-    let raw_indices = {
-        let mut block = vec![F::from_usize(raw_count)];
-        for (pk, _) in &raw_xmss {
+    // Raw XMSS indices (signature data goes via hint_read("xmss_signature")).
+    let raw_indices: Vec<F> = raw_xmss
+        .iter()
+        .map(|(pk, _)| {
             let pos = global_pub_keys.binary_search(pk).unwrap();
-            block.push(F::from_usize(pos));
             claimed.insert(pk.clone());
-        }
-        block
-    };
+            F::from_usize(pos)
+        })
+        .collect();
 
     let mut sub_indices_blobs = Vec::with_capacity(n_recursions);
     let mut bytecode_value_hint_blobs = Vec::with_capacity(n_recursions);
@@ -426,21 +431,39 @@ pub fn xmss_aggregate(
         })
         .unzip();
 
+    let aggregate_sizes: Vec<F> = sub_indices_blobs.iter().map(|b| F::from_usize(b.len())).collect();
+
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
     hints.insert("input_data".to_string(), vec![pub_input_data]);
+    // [n_recursions, n_dup, pubkeys_len, n_raw_xmss]
     hints.insert(
         "meta".to_string(),
-        vec![vec![F::from_usize(n_recursions), F::from_usize(n_dup)]],
+        vec![vec![
+            F::from_usize(n_recursions),
+            F::from_usize(n_dup),
+            F::from_usize(pubkeys_blob.len()),
+            F::from_usize(raw_count),
+        ]],
     );
     hints.insert("pubkeys".to_string(), vec![pubkeys_blob]);
     hints.insert("raw_indices".to_string(), vec![raw_indices]);
-    hints.insert("sub_indices".to_string(), sub_indices_blobs);
+    let fast_path = n_recursions == 1 && raw_count == 0 && dup_pub_keys.is_empty();
+    let sub_indices_for_hints = if fast_path { Vec::new() } else { sub_indices_blobs };
+    hints.insert("sub_indices".to_string(), sub_indices_for_hints);
     hints.insert("bytecode_value_hint".to_string(), bytecode_value_hint_blobs);
     hints.insert("inner_bytecode_claim".to_string(), inner_bytecode_claim_blobs);
+    hints.insert(
+        "proof_transcript_size".to_string(),
+        proof_transcript_blobs
+            .iter()
+            .map(|b| vec![F::from_usize(b.len())])
+            .collect(),
+    );
     hints.insert("proof_transcript".to_string(), proof_transcript_blobs);
     hints.insert("xmss_signature".to_string(), xmss_signatures);
     hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
     hints.insert("merkle_path".to_string(), merkle_path_blobs);
+    hints.insert("aggregate_sizes".to_string(), vec![aggregate_sizes]);
     if n_recursions > 0 {
         hints.insert("bytecode_sumcheck_proof".to_string(), vec![final_sumcheck_transcript]);
     }

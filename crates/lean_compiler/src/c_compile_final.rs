@@ -312,13 +312,9 @@ fn compile_block(
                 };
                 hints.entry(pc).or_default().push(hint);
             }
-            IntermediateInstruction::HintRead { offset, size, name } => {
-                let hint = Hint::HintRead {
-                    offset: eval_const_expression_usize(&offset, compiler),
-                    size,
-                    name,
-                };
-                hints.entry(pc).or_default().push(hint);
+            IntermediateInstruction::HintRead { name, destination } => {
+                let destination = destination.map(|offset| eval_const_expression_usize(&offset, compiler));
+                hints.entry(pc).or_default().push(Hint::HintRead { name, destination });
             }
             IntermediateInstruction::Print { line_info, content } => {
                 let hint = Hint::Print {

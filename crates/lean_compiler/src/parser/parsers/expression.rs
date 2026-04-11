@@ -93,6 +93,11 @@ impl Parse<Expression> for FunctionCallExprParser {
     }
 }
 
+/// Parser for `hint_read("name", ptr)`: writes the next witness entry for
+/// `name` into the buffer pointed to by `ptr`. The guest is responsible for
+/// having allocated `ptr` with enough room; the witness's length is trusted
+/// (verified transitively via the hash commitment over the guest's public
+/// input). Used as a statement — no return value.
 pub struct HintReadExprParser;
 
 impl Parse<Expression> for HintReadExprParser {
@@ -102,12 +107,9 @@ impl Parse<Expression> for HintReadExprParser {
         let text = string_lit.as_str();
         // Strip the surrounding quotes.
         let name = text[1..text.len() - 1].to_string();
-        let size = if let Some(size_pair) = inner.next() {
-            Some(Box::new(ExpressionParser.parse(size_pair, ctx)?))
-        } else {
-            None
-        };
-        Ok(Expression::HintRead { name, size })
+        let ptr_pair = next_inner_pair(&mut inner, "hint_read destination pointer")?;
+        let ptr = Box::new(ExpressionParser.parse(ptr_pair, ctx)?);
+        Ok(Expression::HintRead { name, ptr })
     }
 }
 

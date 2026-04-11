@@ -367,6 +367,11 @@ fn build_replacements(
         "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
         input_data_size_padded.to_string(),
     );
+    let bytecode_point_n_vars = log_inner_bytecode + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+    replacements.insert(
+        "BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER".to_string(),
+        bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars).to_string(),
+    );
 
     let mut lookup_indexes_str = vec![];
     let mut lookup_values_str = vec![];
@@ -493,6 +498,11 @@ fn build_replacements(
     );
 
     replacements
+}
+
+pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
+    let per_round = (3 * DIMENSION).next_multiple_of(DIGEST_LEN);
+    DIGEST_LEN + bytecode_point_n_vars * per_round
 }
 
 fn all_air_evals_in_zk_dsl() -> String {
