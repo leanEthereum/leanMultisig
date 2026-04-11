@@ -54,7 +54,6 @@ def main():
         if n_raw_xmss == 0:
             source_data = sub_slice_starts[1]
             n_sub = source_data[0]
-            assert n_sub != 0
             assert n_sub == n_sigs
             bytecode_value_hint = source_data + 1 + n_sub
             inner_data_buf = bytecode_value_hint + DIM
