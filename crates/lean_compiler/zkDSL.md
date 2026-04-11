@@ -416,13 +416,18 @@ from utils import *          # imports utils.py (relative to import root)
 from dir.subdir.file import *  # imports dir/subdir/file.py
 ```
 
-## Built-in Constants
+## Memory Layout
+
+The runner places the program's memory as:
 
 ```
-NONRESERVED_PROGRAM_INPUT_START        # pointer to public input
-ZERO_VEC_PTR    # pre-initialized zeros
-ONE_EF_PTR     # [1, 0, 0, ...]
+[ public_input | preamble_memory | private_input | runtime ]
 ```
+
+- `public_input` lives at `memory[0..public_input.len()]` (zero-padded to a power of two by the runner so it can be evaluated as a multilinear polynomial).
+- `preamble_memory` is a region the runner reserves but does not initialize. The guest program is responsible for writing any constants it needs (e.g. `ZERO_VEC_PTR`, `ONE_EF_PTR`, etc.) in this area.
+- `private_input` is the prover-supplied witness, placed immediately after the preamble region.
+
 
 ## Precompiles
 
@@ -464,7 +469,10 @@ func(ptr_a, ptr_b, ptr_result, length)    # explicit length (N elements)
 # Multiply two extension field elements (length=1, default)
 dot_product_ee(x, y, z)              # z = x * y
 
-# Copy extension element (multiply by [1,0,0,0,0])
+# Copy extension element (multiply by [1,0,0,0,0]).
+# `ONE_EF_PTR` is a guest-program constant that the program must materialize
+# in its preamble memory at startup; see `crates/rec_aggregation/utils.py`
+# for an example (`build_preamble_memory`).
 dot_product_ee(src, ONE_EF_PTR, dst)
 
 # Dot product of N extension field elements

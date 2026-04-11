@@ -10,7 +10,7 @@ use utils::poseidon16_compress;
 fn test_poseidon() {
     let program = r#"
 def main():
-    a = NONRESERVED_PROGRAM_INPUT_START
+    a = 0
     b = a + 8
     c = Array(8)
     poseidon16_compress(a, b, c)
@@ -32,9 +32,9 @@ fn test_div_extension_field() {
 DIM = 5
 
 def main():
-    n = NONRESERVED_PROGRAM_INPUT_START
-    d = NONRESERVED_PROGRAM_INPUT_START + DIM
-    q = NONRESERVED_PROGRAM_INPUT_START + 2 * DIM
+    n = 0
+    d = n + DIM
+    q = n + 2 * DIM
     computed_q_1 = div_ext_1(n, d)
     computed_q_2 = div_ext_2(n, d)
     assert_eq_ext(computed_q_2, q)
@@ -122,8 +122,18 @@ fn test_all_programs() {
     assert!(!paths.is_empty(), "No program_*.py files found");
     println!("Found {} test programs", paths.len());
 
+    // Reserve a 5-cell preamble for the programs that materialize a local
+    // ONE_EF_PTR (program_15, program_166, program_179).
+    let witness = ExecutionWitness {
+        preamble_memory_len: 5,
+        ..ExecutionWitness::default()
+    };
     for path in paths {
-        if let Err(err) = try_compile_and_run(&ProgramSource::Filepath(path.clone()), (&[], &[]), false) {
+        let bytecode = match try_compile_program(&ProgramSource::Filepath(path.clone())) {
+            Ok(b) => b,
+            Err(err) => panic!("Program {} failed to compile: {:?}", path, err),
+        };
+        if let Err(err) = try_execute_bytecode(&bytecode, &[], &witness, false) {
             panic!("Program {} failed with error: {:?}", path, err);
         }
     }
@@ -147,7 +157,7 @@ fn test_dynamic_unroll_cycles() {
         let program = format!(
             r#"
 def main():
-    a = NONRESERVED_PROGRAM_INPUT_START
+    a = 0
     end = a[0]
     expected = a[1]
     acc: Mut = 0
@@ -162,7 +172,7 @@ def main():
         let run = |end_val: u32| -> usize {
             let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>() as u32;
             let public_input = [F::new(end_val), F::new(expected_sum)];
-            let result = try_execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false).unwrap();
+            let result = try_execute_bytecode(&bytecode, &public_input, &ExecutionWitness::default(), false).unwrap();
             result.pcs.len()
         };
 
@@ -205,7 +215,7 @@ def func(a, b):
     return
    "#;
     let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
-    let n_cycles = execute_bytecode(&bytecode, &[], &ExecutionWitness::empty(), false).n_cycles();
+    let n_cycles = execute_bytecode(&bytecode, &[], &ExecutionWitness::default(), false).n_cycles();
     assert!(n_cycles < 1100);
 }
 
@@ -234,10 +244,10 @@ def factorial(n):
     let compiled_parallel = compile_program(&ProgramSource::Raw(program.replace("loop", "parallel_range")));
 
     let time_sequential = Instant::now();
-    let exec_seq = execute_bytecode(&compiled_sequencial, &[], &ExecutionWitness::empty(), false);
+    let exec_seq = execute_bytecode(&compiled_sequencial, &[], &ExecutionWitness::default(), false);
     let duration_sequential = time_sequential.elapsed();
     let time_parallel = Instant::now();
-    let exec_par = execute_bytecode(&compiled_parallel, &[], &ExecutionWitness::empty(), false);
+    let exec_par = execute_bytecode(&compiled_parallel, &[], &ExecutionWitness::default(), false);
     let duration_parallel = time_parallel.elapsed();
 
     assert_eq!(exec_seq.metadata.stdout, exec_par.metadata.stdout);

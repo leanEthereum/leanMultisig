@@ -2,6 +2,7 @@ use backend::PrimeCharacteristicRing;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rec_aggregation::PREAMBLE_MEMORY_LEN;
 use utils::poseidon_compress_slice;
 
 #[test]
@@ -13,9 +14,14 @@ fn test_slice_hashing() {
         let mut rng = StdRng::seed_from_u64(0);
         let data: Vec<F> = (0..len).map(|_| rng.random()).collect();
         let hash = poseidon_compress_slice(&data, true);
-        let mut public_input = vec![F::from_usize(len)];
-        public_input.extend(&data);
-        public_input.extend(hash);
-        execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false);
+        let public_input: Vec<F> = hash.to_vec();
+        let mut private_input: Vec<F> = vec![F::from_usize(len)];
+        private_input.extend(&data);
+        let witness = ExecutionWitness {
+            private_input: &private_input,
+            preamble_memory_len: PREAMBLE_MEMORY_LEN,
+            ..Default::default()
+        };
+        execute_bytecode(&bytecode, &public_input, &witness, false);
     }
 }

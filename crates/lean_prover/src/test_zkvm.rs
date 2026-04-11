@@ -15,7 +15,7 @@ DIGEST_LEN = 8
 HALF_DIGEST_LEN = 4
 
 def main():
-    pub_start = NONRESERVED_PROGRAM_INPUT_START
+    pub_start = 0
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
     # poseidon16_compress_half: only first 4 FE constrained
@@ -247,7 +247,7 @@ fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[
     let starting_log_inv_rate = 1;
     let witness = ExecutionWitness {
         private_input,
-        ..ExecutionWitness::empty()
+        ..ExecutionWitness::default()
     };
     let proof = prove_execution(
         &bytecode,

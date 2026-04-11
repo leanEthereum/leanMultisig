@@ -34,7 +34,6 @@ pub fn prove_generic_logup(
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
-    assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());

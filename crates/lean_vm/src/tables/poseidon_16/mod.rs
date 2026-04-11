@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
-use crate::execution::memory::MemoryAccess;
 use crate::*;
+use crate::{execution::memory::MemoryAccess, tables::poseidon_16::trace_gen::generate_trace_rows_for_perm};
 use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
@@ -82,7 +82,7 @@ fn mul_kb<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
 }
 
 mod trace_gen;
-pub use trace_gen::{default_poseidon_16_row, fill_trace_poseidon_16};
+pub use trace_gen::fill_trace_poseidon_16;
 
 pub(super) const WIDTH: usize = 16;
 const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
@@ -179,9 +179,28 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         }
     }
 
-    fn padding_row(&self) -> Vec<F> {
-        // depends on null_poseidon_16_hash_ptr (cf lean_prover/trace_gen.rs)
-        unreachable!()
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
+        let mut row = vec![F::ZERO; num_cols_total_poseidon_16()];
+        let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
+            .map(|i| unsafe { row.as_mut_ptr().add(i) })
+            .collect();
+
+        let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
+        perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
+        *perm.flag = F::ZERO;
+        *perm.index_b = F::from_usize(zero_vec_ptr);
+        *perm.index_res = F::from_usize(null_hash_ptr);
+        *perm.flag_half_output = F::ZERO;
+        *perm.flag_hardcoded_left_4 = F::ZERO;
+        *perm.offset_hardcoded = F::ZERO;
+        *perm.effective_index_left_first = F::from_usize(zero_vec_ptr);
+        *perm.effective_index_left_second = F::from_usize(zero_vec_ptr + HALF_DIGEST_LEN);
+        // Non-committed columns
+        row[POSEIDON_16_COL_INDEX_INPUT_LEFT] = F::from_usize(zero_vec_ptr);
+        row[POSEIDON_16_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_PRECOMPILE_DATA);
+
+        generate_trace_rows_for_perm(perm);
+        row
     }
 
     #[inline(always)]

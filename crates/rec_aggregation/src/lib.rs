@@ -43,6 +43,11 @@ const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
+// preamble memory layout: see `build_preamble_memory` in utils.py
+const ZERO_VEC_LEN: usize = 16;
+const NUM_REPEATED_ONES: usize = 16;
+pub const PREAMBLE_MEMORY_LEN: usize = ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES;
+
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
     pub raw_xmss: usize,
@@ -386,20 +391,21 @@ pub fn xmss_aggregate(
         &bytecode.hash,
     );
     let input_data_size_padded = pub_input_data.len();
-    let non_reserved_public_input = hash_input_data(&pub_input_data).to_vec();
-    let public_memory = build_public_memory(&non_reserved_public_input);
+    let public_input = hash_input_data(&pub_input_data).to_vec();
+    let public_memory_size = public_input.len().next_power_of_two();
 
     // Build private input
-    // Layout: [tweak_table (FIXED size, sits at the FIXED address public_memory.len() so the
-    //          .py code can address it via the TWEAK_TABLE_ADDR compile-time constant),
-    //          input_data_buf (the data that hashes to the public-input digest),
-    //          n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck,
-    //          global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
+    // Layout: [public_memory (pow2)][preamble_memory][tweak_table (FIXED size, at the FIXED
+    //          address PRIVATE_INPUT_START = public_memory_size + PREAMBLE_MEMORY_LEN so the
+    //          .py code can address it via the TWEAK_TABLE_ADDR compile-time constant)]
+    //         [input_data_buf (the data that hashes to the public-input digest)]
+    //         [n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck]
+    //         [global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
     //
     // The tweak table address is a compile-time constant; main.py reads
     // tweak_table = TWEAK_TABLE_ADDR directly. The input data buffer follows
     // immediately after the tweak table at PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED.
-    let tweak_table_ptr = public_memory.len();
+    let tweak_table_ptr = public_memory_size + PREAMBLE_MEMORY_LEN;
     let header_size = n_recursions + 5;
     let header_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded;
     let pubkeys_start = header_start + header_size;
@@ -518,8 +524,9 @@ pub fn xmss_aggregate(
         wots_signatures: &wots_signatures,
         xmss_merkle_nodes: &xmss_merkle_nodes,
         merkle_paths: &merkle_paths,
+        preamble_memory_len: PREAMBLE_MEMORY_LEN,
     };
-    let execution_proof = prove_execution(bytecode, &non_reserved_public_input, &witness, &whir_config, false);
+    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
 
     (
         global_pub_keys,

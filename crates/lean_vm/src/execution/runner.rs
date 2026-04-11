@@ -1,6 +1,6 @@
 //! VM execution runner
 
-use crate::core::{DIGEST_LEN, DIMENSION, F, NONRESERVED_PROGRAM_INPUT_START, ZERO_VEC_PTR};
+use crate::core::{DIMENSION, F};
 use crate::diagnostics::{ExecutionMetadata, ExecutionResult, RunnerError};
 use crate::execution::memory::MemoryAccess;
 use crate::execution::{ExecutionHistory, Memory};
@@ -8,19 +8,17 @@ use crate::isa::Bytecode;
 use crate::isa::hint::{DiagnosticState, Hint, HintState};
 use crate::isa::instruction::{InstructionContext, InstructionCounts};
 use crate::{
-    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, MemOrConstant, N_TABLES,
-    NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR, REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, STARTING_PC,
-    Table, TableTrace,
+    ALL_TABLES, CodeAddress, ENDING_PC, HintExecutionContext, MemOrConstant, N_TABLES, STARTING_PC, Table, TableTrace,
 };
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet};
-use utils::ToUsize;
+use utils::{ToUsize, padd_with_zero_to_next_power_of_two};
 
 use super::memory::SegmentMemory;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExecutionWitness<'a> {
-    /// Private field elements loaded into memory after public memory.
+    /// Private field elements loaded into memory after public memory + preamble memory.
     pub private_input: &'a [F],
     /// In-memory part of each XMSS signature (`randomness | chain_tips`, of length
     /// `WOTS_SIG_SIZE_FE`), consumed by `hint_wots`. The XMSS merkle path is delivered
@@ -31,32 +29,10 @@ pub struct ExecutionWitness<'a> {
     pub xmss_merkle_nodes: &'a [F],
     /// Merkle paths for WHIR recursion, one Vec<F> per hint_merkle call
     pub merkle_paths: &'a [Vec<F>],
-}
-
-impl ExecutionWitness<'_> {
-    pub fn empty() -> Self {
-        Self {
-            private_input: &[],
-            wots_signatures: &[],
-            xmss_merkle_nodes: &[],
-            merkle_paths: &[],
-        }
-    }
-}
-
-pub fn build_public_memory(non_reserved_public_input: &[F]) -> Vec<F> {
-    let public_memory_len = (NONRESERVED_PROGRAM_INPUT_START + non_reserved_public_input.len()).next_power_of_two();
-    let mut public_memory = F::zero_vec(public_memory_len);
-    public_memory[NONRESERVED_PROGRAM_INPUT_START..][..non_reserved_public_input.len()]
-        .copy_from_slice(non_reserved_public_input);
-    let zero_start = ZERO_VEC_PTR;
-    for slot in public_memory.iter_mut().skip(zero_start).take(2 * DIGEST_LEN) {
-        *slot = F::ZERO;
-    }
-    public_memory[SAMPLING_DOMAIN_SEPARATOR_PTR] = F::ONE;
-    public_memory[ONE_EF_PTR] = F::ONE;
-    public_memory[REPEATED_ONES_PTR..][..NUM_REPEATED_ONES_IN_RESERVED_MEMORY].fill(F::ONE);
-    public_memory
+    /// Length of the program's "preamble memory" — a region between public
+    /// memory and private_input that the runner leaves unset, that is filled
+    /// manually by the program at startup.
+    pub preamble_memory_len: usize,
 }
 
 pub fn try_execute_bytecode(
@@ -276,10 +252,10 @@ fn execute_bytecode_helper(
     let wots_signatures = witness.wots_signatures;
     let xmss_merkle_nodes = witness.xmss_merkle_nodes;
     let merkle_paths = witness.merkle_paths;
-
-    let mut memory = Memory::new(build_public_memory(public_input));
-    let public_memory_size = (NONRESERVED_PROGRAM_INPUT_START + public_input.len()).next_power_of_two();
-    let mut fp = public_memory_size;
+    let public_memory = padd_with_zero_to_next_power_of_two(public_input);
+    let public_memory_size = public_memory.len();
+    let mut memory = Memory::new(public_memory);
+    let mut fp = public_memory_size + witness.preamble_memory_len;
     for (i, value) in private_input.iter().enumerate() {
         memory.set(fp + i, *value).expect("to set private input in memory");
     }
@@ -376,14 +352,8 @@ fn execute_bytecode_helper(
     } else {
         None
     };
-    let runtime_memory_size =
-        memory.0.len() - (NONRESERVED_PROGRAM_INPUT_START + public_input.len()) - private_input.len();
-    let used_memory_cells = memory
-        .0
-        .par_iter()
-        .skip(NONRESERVED_PROGRAM_INPUT_START + public_input.len())
-        .filter(|&&x| x.is_some())
-        .count();
+    let runtime_memory_size = memory.0.len() - public_memory_size - witness.preamble_memory_len - private_input.len();
+    let used_memory_cells = memory.0.par_iter().filter(|&&x| x.is_some()).count();
     let metadata = ExecutionMetadata {
         cycles: trace.pcs.len(),
         memory: memory.0.len(),
