@@ -165,6 +165,6 @@ def hint_log2_ceil(n):
     return log2_ceil(n)
 
 
-def hint_read(name, destination):
+def hint_witness(name, destination):
     """Write the next witness entry for `name` into `destination`."""
     _ = (name, destination)

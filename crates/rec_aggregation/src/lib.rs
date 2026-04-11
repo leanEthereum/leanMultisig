@@ -366,7 +366,7 @@ pub fn xmss_aggregate(
 
     let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
-    // Raw XMSS indices (signature data goes via hint_read("xmss_signature")).
+    // Raw XMSS indices (signature data goes via hint_witness("xmss_signature")).
     let raw_indices: Vec<F> = raw_xmss
         .iter()
         .map(|(pk, _)| {
