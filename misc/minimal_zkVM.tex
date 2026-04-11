@@ -568,13 +568,13 @@ We present two independent (and composable) optimizations of the poseidon precom
 
 \vspace{5mm}
 
-\textbf{1. Short digest}
+\textbf{1. Chopped output}
 
 We introduce a boolean flag $\texttt{flag\_short}$ that signals that only the first $\texttt{n}$ field elements of the output should be written to memory, at $\textbf{m}[\nu_C..\nu_C + \texttt{n}]$ (the remaining $8 - \texttt{n}$ ones are ignored), 
 
 \vspace{5mm}
 
-\textbf{2. Hardcoded left first-half}
+\textbf{2. Custom first-half of left-input}
 
 We introduce a boolean flag $\texttt{flag\_left}$, alongside a compile-time parameter $\texttt{offset\_left}$:
 $$\texttt{left} = \begin{cases} \textbf{m}[\nu_A..\nu_A + 8] & \text{if } \texttt{flag\_left} = 0 \text{ (default)} \\ \textbf{m}[\texttt{offset\_left}..\texttt{offset\_left} + 4] \;\|\; \textbf{m}[\nu_A..\nu_A + 4] & \text{if } \texttt{flag\_left} = 1 \end{cases}$$
