@@ -155,10 +155,7 @@ def hint_log2_ceil(n):
     return log2_ceil(n)
 
 
-def hint_xmss(buff):
-    _ = buff
-
-
-def hint_merkle(buff, n):
-    _ = buff
-    _ = n
+def hint_read(name):
+    """Returns a pointer to memory populated with the witness (prover)"""
+    _ = name
+    return 0

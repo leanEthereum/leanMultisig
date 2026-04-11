@@ -10,6 +10,7 @@ impl IntermediateInstruction {
             Self::RequestMemory { .. }
             | Self::Print { .. }
             | Self::CustomHint { .. }
+            | Self::HintRead { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert { .. }
@@ -308,6 +309,14 @@ fn compile_block(
                 let hint = Hint::RequestMemory {
                     offset: eval_const_expression_usize(&offset, compiler),
                     size,
+                };
+                hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::HintRead { offset, size, name } => {
+                let hint = Hint::HintRead {
+                    offset: eval_const_expression_usize(&offset, compiler),
+                    size,
+                    name,
                 };
                 hints.entry(pc).or_default().push(hint);
             }

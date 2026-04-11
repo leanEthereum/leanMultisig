@@ -3,6 +3,7 @@ use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rec_aggregation::PREAMBLE_MEMORY_LEN;
+use std::collections::HashMap;
 use utils::poseidon_compress_slice;
 
 #[test]
@@ -15,12 +16,13 @@ fn test_slice_hashing() {
         let data: Vec<F> = (0..len).map(|_| rng.random()).collect();
         let hash = poseidon_compress_slice(&data, true);
         let public_input: Vec<F> = hash.to_vec();
-        let mut private_input: Vec<F> = vec![F::from_usize(len)];
-        private_input.extend(&data);
+        let mut input_blob: Vec<F> = vec![F::from_usize(len)];
+        input_blob.extend(&data);
+        let mut hints = HashMap::new();
+        hints.insert("input".to_string(), vec![input_blob]);
         let witness = ExecutionWitness {
-            private_input: &private_input,
             preamble_memory_len: PREAMBLE_MEMORY_LEN,
-            ..Default::default()
+            hints,
         };
         execute_bytecode(&bytecode, &public_input, &witness, false);
     }

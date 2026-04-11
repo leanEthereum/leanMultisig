@@ -36,6 +36,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),
             Rule::len_expr => LenParser.parse(pair, ctx),
             Rule::function_call_expr => FunctionCallExprParser.parse(pair, ctx),
+            Rule::hint_read_expr => HintReadExprParser.parse(pair, ctx),
             Rule::lambda_expr => LambdaParser.parse(pair, ctx),
             Rule::primary => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
@@ -89,6 +90,24 @@ impl Parse<Expression> for FunctionCallExprParser {
                 line_number,
             },
         })
+    }
+}
+
+pub struct HintReadExprParser;
+
+impl Parse<Expression> for HintReadExprParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let string_lit = next_inner_pair(&mut inner, "hint_read name literal")?;
+        let text = string_lit.as_str();
+        // Strip the surrounding quotes.
+        let name = text[1..text.len() - 1].to_string();
+        let size = if let Some(size_pair) = inner.next() {
+            Some(Box::new(ExpressionParser.parse(size_pair, ctx)?))
+        } else {
+            None
+        };
+        Ok(Expression::HintRead { name, size })
     }
 }
 

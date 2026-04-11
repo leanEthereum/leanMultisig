@@ -21,7 +21,7 @@ def main():
     return
    "#;
     let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&public_input, &[]), false);
+    compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
 
     let _ = dbg!(poseidon16_compress(public_input));
 }
@@ -65,7 +65,7 @@ def div_ext_2(n, d):
     public_input.extend(n.as_basis_coefficients_slice());
     public_input.extend(d.as_basis_coefficients_slice());
     public_input.extend(q.as_basis_coefficients_slice());
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&public_input, &[]), false);
+    compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
 }
 
 fn test_data_dir() -> String {
@@ -109,7 +109,7 @@ fn test_all_errors() {
     println!("Found {} test error programs", paths.len());
 
     for path in paths {
-        let result = try_compile_and_run(&ProgramSource::Filepath(path.clone()), (&[], &[]), false);
+        let result = try_compile_and_run(&ProgramSource::Filepath(path.clone()), &[], false);
         assert!(result.is_err(), "Expected error for {}, but it succeeded", path);
     }
 }
@@ -144,7 +144,7 @@ fn test_reserved_function_names() {
     for name in RESERVED_FUNCTION_NAMES {
         let program = format!("def main():\n    return\ndef {name}():\n    return");
         assert!(
-            try_compile_and_run(&ProgramSource::Raw(program), (&[], &[]), false).is_err(),
+            try_compile_and_run(&ProgramSource::Raw(program), &[], false).is_err(),
             "Expected error when defining function with reserved name '{name}', but it succeeded"
         );
     }
@@ -194,7 +194,7 @@ def main():
 fn debug_file_program() {
     let index = 167;
     let path = format!("{}/program_{}.py", test_data_dir(), index);
-    compile_and_run(&ProgramSource::Filepath(path), (&[], &[]), false);
+    compile_and_run(&ProgramSource::Filepath(path), &[], false);
 }
 
 #[test]
@@ -272,5 +272,5 @@ def main():
         print(i)
     return
    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), (&[], &[]), false);
+    compile_and_run(&ProgramSource::Raw(program.to_string()), &[], false);
 }

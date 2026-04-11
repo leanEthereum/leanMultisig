@@ -107,6 +107,14 @@ pub enum SimpleLine {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     CustomHint(CustomHint, Vec<SimpleExpr>),
+    /// Named-hint read: binds `var` to a pointer to memory populated with the next `Vec<F>` entry from `named_hints[name]`.
+    /// When `const_size` is `None` the data is dynamically allocated at runtime (at `ap`).
+    /// When `const_size` is `Some(..)` the data is allocated in the current stack frame.
+    HintRead {
+        var: Var,
+        name: String,
+        const_size: Option<HintReadConstSize>,
+    },
     Print {
         line_info: String,
         content: Vec<SimpleExpr>,
@@ -131,6 +139,14 @@ pub enum SimpleLine {
         val: SimpleExpr,
         bound: SimpleExpr,
     },
+}
+
+/// Payload for `SimpleLine::HintRead { const_size: Some(..) }`: the hint is
+/// reserved inline in the frame as a const-malloc slot of compile-time size.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HintReadConstSize {
+    pub size: ConstExpression,
+    pub label: ConstMallocLabel,
 }
 
 impl SimpleLine {
@@ -160,6 +176,7 @@ impl SimpleLine {
             | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
+            | Self::HintRead { .. }
             | Self::Print { .. }
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
@@ -185,6 +202,7 @@ impl SimpleLine {
             | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
+            | Self::HintRead { .. }
             | Self::Print { .. }
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
@@ -214,6 +232,7 @@ impl SimpleLine {
             Self::ForwardDeclaration { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
+            | Self::HintRead { .. }
             | Self::Panic { .. } => vec![],
         }
     }
@@ -2050,6 +2069,38 @@ fn simplify_lines(
                     };
 
                 match value {
+                    Expression::HintRead { name: hint_name, size } => {
+                        if targets.len() != 1 {
+                            return Err(format!(
+                                "hint_read expects exactly 1 return target, got {}, at {location}",
+                                targets.len()
+                            ));
+                        }
+                        let AssignmentTarget::Var { var, is_mutable } = &targets[0] else {
+                            return Err(format!(
+                                "hint_read does not support array access as return target, at {location}"
+                            ));
+                        };
+                        let target_var = get_target_var_name(state, var, *is_mutable)?;
+                        let const_size = if let Some(size_expr) = size {
+                            let simplified_size = simplify_expr(ctx, state, const_malloc, size_expr, &mut res)?;
+                            let SimpleExpr::Constant(size) = simplified_size else {
+                                return Err(format!("hint_read size must be a compile-time constant, at {location}"));
+                            };
+                            let label = const_malloc.counter;
+                            const_malloc.counter += 1;
+                            const_malloc.map.insert(target_var.clone(), label);
+                            Some(HintReadConstSize { size, label })
+                        } else {
+                            None
+                        };
+                        res.push(SimpleLine::HintRead {
+                            var: target_var,
+                            name: hint_name.clone(),
+                            const_size,
+                        });
+                        continue;
+                    }
                     Expression::FunctionCall {
                         function_name, args, ..
                     } => {
@@ -2367,6 +2418,9 @@ fn simplify_lines(
                                     }
                                     Expression::Lambda { .. } => {
                                         unreachable!("Lambda should be expanded by match_range")
+                                    }
+                                    Expression::HintRead { .. } => {
+                                        unreachable!("HintRead should be handled above")
                                     }
                                 }
                             }
@@ -3085,6 +3139,9 @@ fn simplify_expr(
             unreachable!("len() should have been resolved at parse time for const arrays")
         }
         Expression::Lambda { .. } => Err("Lambda expressions can only be used as arguments to match_range".to_string()),
+        Expression::HintRead { .. } => {
+            Err("hint_read(\"...\") is only valid as the right-hand side of an assignment".to_string())
+        }
     }
 }
 
@@ -3334,7 +3391,7 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
-        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } | Expression::HintRead { .. } => {}
         Expression::Lambda { param, .. } => {
             transform(param).apply_to_var(param);
         }
@@ -3859,6 +3916,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         Expression::Lambda { body, .. } => {
             replace_vars_by_const_in_expr(body, map);
         }
+        Expression::HintRead { .. } => {}
     }
 }
 
@@ -3957,6 +4015,20 @@ impl SimpleLine {
                     hint.name(),
                     args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
+            }
+            Self::HintRead {
+                var,
+                name,
+                const_size: None,
+            } => {
+                format!("{var} = hint_read(\"{name}\")")
+            }
+            Self::HintRead {
+                var,
+                name,
+                const_size: Some(HintReadConstSize { size, .. }),
+            } => {
+                format!("{var} = hint_read(\"{name}\", {size})")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("{res} = memory[{index} + {shift}]")
