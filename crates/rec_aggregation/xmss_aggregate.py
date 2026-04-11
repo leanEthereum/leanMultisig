@@ -32,79 +32,31 @@ TWEAK_CHAIN_OFFSET = ENCODING_TWEAK_SLOT_SIZE  # encoding occupies cells [0..5]
 TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
 TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + TWEAK_LEN
 
-# Buffer size for the hash-chaining trick.
-# Each slot is [extra(1) | prefix(4) | hash_output(8)] = 13 elements.
-# The "extra" position at offset 0 is the landing spot for copy_5's leading zero when
-# writing a padded tweak from the table. The effective buffer (hash-input pointer) is at
-# offset 1; poseidon writes its output at offset 5 (= 1 + PP_IN_LEFT).
-# Hash input for the next iteration = slot[1..9] = [prefix(4) | digest(4)].
-BUF_SIZE = 1 + PP_IN_LEFT + DIGEST_LEN
-
-
-@inline
-def build_right_fn(pp, data, out):
-    # [public_param(4) | data(XMSS_DIGEST)]
-    # out must be Array(DIGEST_LEN + 1) or more.
-    # data must have at least 5 readable elements in memory.
-    for k in unroll(0, PP_IN_LEFT):
-        out[k] = pp[k]
-    copy_5(data, out + PP_IN_LEFT)
-    return
-
-
-@inline
-def build_chain_right(public_param, out):
-    # Shared chain-hash right input: [public_param(4) | zeros(4)]
-    # Built once per xmss_verify and reused for every chain hash.
-    # out must be Array(DIGEST_LEN + 1) so set_to_5_zeros can write positions 4..8.
-    for k in unroll(0, PUBLIC_PARAM_LEN_FE):
-        out[k] = public_param[k]
-    set_to_5_zeros(out + PUBLIC_PARAM_LEN_FE)
-    return
-
-
 @inline
 def xmss_verify(pub_key, message, merkle_chunks):
-    # pub_key: PUB_KEY_SIZE FE = merkle_root(XMSS_DIGEST) | public_param(PUBLIC_PARAM_LEN_FE)
-    # signature: randomness(RANDOMNESS_LEN) | chain_tips(V * XMSS_DIGEST) | merkle_path(LOG_LIFETIME * XMSS_DIGEST)
-    #
-    # The tweak table lives at the compile-time constant address TWEAK_TABLE_ADDR
-    # (asserted at the top of main.py), so every tweak slot has a compile-time absolute
-    # address. This lets us pass tweak offsets straight to
-    # poseidon16_compress_hardcoded_left_4 without ever copying tweak prefixes into
-    # per-hash buffers.
-
     wots = Array(WOTS_SIG_SIZE)
     hint_wots(wots)
 
     public_param = pub_key + XMSS_DIGEST_LEN
     randomness = wots
     chain_starts = wots + RANDOMNESS_LEN
-    # NOTE: the merkle path is no longer part of `signature`. The prover delivers
-    # each merkle node directly into a `do_4_merkle_levels` slot via
-    # `hint_xmss_merkle_node`, see `xmss_merkle_verify` / `do_4_merkle_levels`.
-
+   
     # 1) Encode: poseidon16_compress(message[0:8], [randomness(5) | tweak_encoding(2) | 0])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
     encoding_tweak = TWEAK_TABLE_ADDR + TWEAK_ENCODING_OFFSET
-    # Allocate 10 elements (RANDOMNESS_LEN + 5) so the 2nd copy_5 (which reads
-    # the 5-FE encoding slot [tw(2), 0, 0, 0] and writes 5 elements at offset 5)
-    # can safely write positions 5..10. The encoding slot is the unique 5-cell
-    # tweak slot precisely so this read returns all zeros after the value.
     a_input_right = Array(RANDOMNESS_LEN + ENCODING_TWEAK_SLOT_SIZE)
     copy_5(randomness, a_input_right)
     # encoding_tweak points to tw[0] of slot 0; reading 5 elements gives [tw(2), 0, 0, 0].
     copy_5(encoding_tweak, a_input_right + RANDOMNESS_LEN)
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
-
-    # pp_input layout: [public_param(4) | zeros(4)]. Allocate 9 so set_to_5_zeros can write positions 4..8.
-    pp_input = Array(DIGEST_LEN + 1)
-    for k in unroll(0, PUBLIC_PARAM_LEN_FE):
-        pp_input[k] = public_param[k]
-    set_to_5_zeros(pp_input + PUBLIC_PARAM_LEN_FE)
+    
+    public_params_paded_buff = Array(DIGEST_LEN + 2) # 0 [public_param(4) | zeros(4)] 0
+    copy_5(public_param - 1, public_params_paded_buff)
+    set_to_5_zeros(public_params_paded_buff + 5)
+    public_params_paded = public_params_paded_buff + 1
     encoding_fe = Array(DIGEST_LEN)
-    poseidon16_compress(pre_compressed, pp_input, encoding_fe)
+    poseidon16_compress(pre_compressed, public_params_paded, encoding_fe)
 
     # Decompose the encoding into chunks of 2*W bits. Each chunk packs the chain step
     # counts of two consecutive WOTS chains: chunk i = step_{2i} + CHAIN_LENGTH * step_{2i+1}.
@@ -141,9 +93,6 @@ def xmss_verify(pub_key, message, merkle_chunks):
     # half-output lookup stays in bounds.
     wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE + 4)
 
-    chain_right = Array(DIGEST_LEN + 1)
-    build_chain_right(public_param, chain_right)
-
     # Each pair (chain 2*i, chain 2*i+1) is dispatched in a single match_range with
     # CHAIN_LENGTH^2 arms. The per-pair compile-time chain-step sum is written into
     # `pair_sum_ptr` by `chain_hash_pair` and accumulated at runtime into `target_sum`.
@@ -169,7 +118,7 @@ def xmss_verify(pub_key, message, merkle_chunks):
                 chain_end_b,
                 tweaks_a,
                 tweaks_b,
-                chain_right,
+                public_params_paded,
                 pair_sum_ptr,
             ),
         )
