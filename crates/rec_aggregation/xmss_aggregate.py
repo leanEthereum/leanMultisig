@@ -206,27 +206,6 @@ def set_buf_prefix_right(buf, public_param):
 
 @inline
 def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk):
-    # New merkle hash layout:
-    #   LEFT  = [tweak(2) | 00 | pp(4)]   ← `[tweak(2) | 00]` is read straight from
-    #                                       the merkle tweak slot at the compile-time
-    #                                       address `merkle_tweaks_chunk + level*TWEAK_LEN`,
-    #                                       and `[pp(4)]` from the runtime `public_param`.
-    #   RIGHT = [left_child(4) | right_child(4)]   ← packed contiguously in `buf*`
-    #
-    # Each level's half-output digest is written DIRECTLY into the next level's `buf`
-    # at the correct slot (offset 0 if it's the LEFT child of the next level, offset 4
-    # if it's the RIGHT child). The OTHER child slot is filled by `hint_xmss_merkle_node`,
-    # which the prover supplies in level order — so neither the merkle path nor the
-    # public param are ever copied/duplicated inside `do_4_merkle_levels`. The only
-    # remaining copy is `state_in` into the level-0 buffer (we don't know `state_in`'s
-    # address layout statically across chunk boundaries).
-    #
-    # `buf1`/`buf2`/`buf3` are over-allocated to 12 elements (instead of 8) so the
-    # half-output lookup at the digest still has 8 valid memory cells when the digest
-    # lands at offset 4. The trailing 4 cells are vacuous (memory[buf+8..buf+12] = 0
-    # in write-once memory; the prover sets the unconstrained trace columns to 0).
-    BUF_SIZE_DEST = DIGEST_LEN + (DIGEST_LEN - XMSS_DIGEST_LEN)  # 8 + 4 = 12
-
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -235,25 +214,7 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    # Level 0 input: copy state_in into buf0 (we don't know its address statically);
-    # hint the level-0 merkle path neighbour into the OTHER slot.
-    #
-    # We use copy_5 (1 dot_product_ee precompile call) instead of a 4-write loop in
-    # both branches. copy_5 writes 5 FE, and dot_product_ee's runtime helper also
-    # READS all 5 source elements via solve_unknowns, so state_in needs an extra
-    # readable element on the side opposite the hint slot:
-    #   - b0 == 1: copy_5(state_in - 1, buf0 - 1). Source slack at state_in[-1],
-    #              destination slack at buf0[-1]. state_in[-1] is initialized by the
-    #              previous chunk's `state_out[7] = 0` write (or by `wots_pk_hash`'s
-    #              full output for chunk 0, or by the leading-slot init in
-    #              `xmss_merkle_verify` for chunk 1).
-    #   - b0 == 0: copy_5(state_in, buf0 + 4).     Source slack at state_in[4],
-    #              destination slack at buf0[8]. state_in[4] is initialized by the
-    #              previous chunk's `state_out[4] = 0` write (or by full output for
-    #              chunk 0).
-    # buf0 is over-allocated by 2 (one slack at each end) so a single allocation
-    # serves both branches.
-    buf0_alloc = Array(DIGEST_LEN + 2)  # 10 elements
+    buf0_alloc = Array(XMSS_DIGEST_LEN * 2 + 2)  # 10 elements
     buf0 = buf0_alloc + 1  # logical positions [-1..8]
     if b0 == 1:
         # state_in is the LEFT child → state_in[0..4] lands at buf0[0..4].
@@ -264,9 +225,8 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
         hint_xmss_merkle_node(buf0)
         copy_5(state_in, buf0 + XMSS_DIGEST_LEN)
 
-    # Level 0 hash → buf1 (digest at offset 0 if LEFT child of level 1, else offset 4).
-    # The path neighbour for level 1 is hinted into the OTHER slot of buf1.
-    buf1 = Array(BUF_SIZE_DEST)
+    # Level 0 hash
+    buf1 = Array(XMSS_DIGEST_LEN * 2) # 8 elements
     if b1 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf0, buf1, merkle_tweaks_chunk)
         hint_xmss_merkle_node(buf1 + XMSS_DIGEST_LEN)
@@ -275,7 +235,7 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
         hint_xmss_merkle_node(buf1)
 
     # Level 1 hash → buf2
-    buf2 = Array(BUF_SIZE_DEST)
+    buf2 = Array(XMSS_DIGEST_LEN * 2) # 8 elements
     if b2 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf1, buf2, merkle_tweaks_chunk + 1 * TWEAK_LEN)
         hint_xmss_merkle_node(buf2 + XMSS_DIGEST_LEN)
@@ -284,7 +244,7 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
         hint_xmss_merkle_node(buf2)
 
     # Level 2 hash → buf3
-    buf3 = Array(BUF_SIZE_DEST)
+    buf3 = Array(XMSS_DIGEST_LEN * 2) # 8 elements
     if b3 == 1:
         poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3, merkle_tweaks_chunk + 2 * TWEAK_LEN)
         hint_xmss_merkle_node(buf3 + XMSS_DIGEST_LEN)
@@ -292,32 +252,12 @@ def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk
         poseidon16_compress_half_hardcoded_left_4(public_param, buf2, buf3 + XMSS_DIGEST_LEN, merkle_tweaks_chunk + 2 * TWEAK_LEN)
         hint_xmss_merkle_node(buf3)
 
-    # Level 3 hash → state_out (digest always written at offset 0 since the next chunk
-    # reads state_out as a 4-element pointer regardless).
-    # The next chunk's level-0 copy_5 reads `state_in[4]` (b0 == 0) or `state_in[-1]`
-    # (b0 == 1), which lands in this chunk's `state_out[4]` / `state_out[7]`. These
-    # cells are unwritten by this poseidon (half_output only writes [0..4]); the
-    # extension_op `solve_unknowns` "copy_5" fast path handles undefined cells
-    # cell-by-cell and sets both source/dest to zero — no explicit writes needed.
     poseidon16_compress_half_hardcoded_left_4(public_param, buf3, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     return
 
 
 @inline
 def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
-    # Stride (XMSS_DIGEST_LEN + 1) = 5 per chunk: 4 digest cells written by the
-    # half-output Poseidon + 1 slack cell. The slack cell holds harmless writes
-    # from the next chunk's level-0 copy_5 (which reads `state_in[4]` for b0 == 0
-    # or `state_in[-1]` for b0 == 1; with stride 5 both reads land in an adjacent
-    # chunk's slack cell, never colliding with a written digest cell).
-    #
-    # Allocation = 1 leading slack + (N-1) chunks × 5 cells + 4 trailing slack (for
-    # the LAST stored chunk's half-output Poseidon lookup which reads 8 cells past
-    # the storage start) = 5 * N_MERKLE_CHUNKS cells.
-    #
-    # The leading slack cell does NOT need an explicit `= 0` write — the execute
-    # fix in `solve_unknowns` handles undefined source/dest cells via the copy_5
-    # fast path by setting both to zero.
     states_alloc = Array(DIM * N_MERKLE_CHUNKS)
     states = states_alloc + 1
 
@@ -340,27 +280,16 @@ def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, 
             ),
         )
 
-    # Last chunk: write to a 5-cell buffer (4 digest cells + 1 slack for copy_5).
-    last_output = Array(DIM)
+    # last chunk → write directly to expected_root
     match_range(
         merkle_chunks[N_MERKLE_CHUNKS - 1],
         range(0, 16),
         lambda b: do_4_merkle_levels(
             b,
             state_indexes[N_MERKLE_CHUNKS - 2],
-            last_output,
+            expected_root,
             public_param,
             merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
         ),
     )
-
-    # Assert computed root == expected (first XMSS_DIGEST elements).
-    # Single-cycle copy_5: cells 0..3 verify the digest against the merkle root in
-    # `expected_root` (the actual assertion). Cell 4 of `last_output` is undefined
-    # (do_4_merkle_levels no longer pre-writes the slack), and cell 4 of expected_root
-    # is `public_param[0]` (defined in pub_mem). The extension_op `solve_unknowns`
-    # copy_5 fast path handles this cell-by-cell: source unknown + dest known →
-    # propagate dest into source. Memory[last_output[4]] gets set to public_param[0],
-    # harmless because nothing else reads it.
-    copy_5(last_output, expected_root)
     return
