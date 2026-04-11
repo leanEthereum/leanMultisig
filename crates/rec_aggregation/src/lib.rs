@@ -11,7 +11,7 @@ use utils::poseidon24_compress_0_9;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 
@@ -353,110 +353,101 @@ pub fn xmss_aggregate(
         &bytecode_claim_output,
         &bytecode.hash,
     );
-    let input_data_size_padded = pub_input_data.len();
     let public_input = hash_input_data(&pub_input_data).to_vec();
-    let public_memory_size = public_input.len().next_power_of_two();
 
-    let header_size = n_recursions + 5;
-    let header_start = public_memory_size + PREAMBLE_MEMORY_LEN + input_data_size_padded;
-    let pubkeys_start = header_start + header_size;
-
-    // Build source blocks (also discovers duplicate pub_keys)
     let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
-    let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Build XMSS signatures (one Vec<F> per signature, consumed by hint_xmss)
     let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
-    // Source 0: raw XMSS (indices only; signature data goes via hint_xmss)
-    {
+    // Source 0: raw XMSS (indices only; signature data goes via hint_read("xmss_signature"))
+    let raw_indices = {
         let mut block = vec![F::from_usize(raw_count)];
         for (pk, _) in &raw_xmss {
             let pos = global_pub_keys.binary_search(pk).unwrap();
             block.push(F::from_usize(pos));
             claimed.insert(pk.clone());
         }
-        source_blocks.push(block);
-    }
+        block
+    };
+
+    let mut sub_indices_blobs = Vec::with_capacity(n_recursions);
+    let mut bytecode_value_hint_blobs = Vec::with_capacity(n_recursions);
+    let mut inner_bytecode_claim_blobs = Vec::with_capacity(n_recursions);
+    let mut proof_transcript_blobs = Vec::with_capacity(n_recursions);
+
+    let n_all_tweaks_fe = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
+    let claim_offset_in_input = 1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
+    let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
 
     // Sources 1..n_recursions: recursive children
-    for (i, (child_pubkeys, _)) in children.iter().enumerate() {
-        let mut block = vec![F::from_usize(child_pubkeys.len())];
-        for pubkeykey in child_pubkeys {
-            if claimed.insert(pubkeykey.clone()) {
-                let pos = global_pub_keys.binary_search(pubkeykey).unwrap();
-                block.push(F::from_usize(pos));
+    for (i, (child_pub_keys, _)) in children.iter().enumerate() {
+        // sub_indices: [n_sub, idx_0, idx_1, ...] into global_pub_keys + dup_pub_keys
+        let mut sub_indices = vec![F::from_usize(child_pub_keys.len())];
+        for pubkey in child_pub_keys {
+            if claimed.insert(pubkey.clone()) {
+                let pos = global_pub_keys.binary_search(pubkey).unwrap();
+                sub_indices.push(F::from_usize(pos));
             } else {
-                block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
-                dup_pub_keys.push(pubkeykey.clone());
+                sub_indices.push(F::from_usize(n_sigs + dup_pub_keys.len()));
+                dup_pub_keys.push(pubkey.clone());
             }
         }
+        sub_indices_blobs.push(sub_indices);
 
-        // bytecode_value_hint (DIM elements)
-        block.extend_from_slice(child_bytecode_evals[i].value.as_basis_coefficients_slice());
-        block.extend_from_slice(&child_input_data[i]);
+        bytecode_value_hint_blobs.push(child_bytecode_evals[i].value.as_basis_coefficients_slice().to_vec());
 
-        // proof_transcript (without Merkle data, delivered via hint_merkle)
-        block.extend_from_slice(&child_raw_proofs[i].transcript);
+        inner_bytecode_claim_blobs.push(child_input_data[i][claim_offset_in_input..][..claim_size_padded].to_vec());
 
-        source_blocks.push(block);
+        // Transcript minus Merkle data;
+        proof_transcript_blobs.push(child_raw_proofs[i].transcript.clone());
     }
 
     let n_dup = dup_pub_keys.len();
+
     let pubkey_fe_size = DIGEST_LEN + PARAMETER_LEN;
-    let pubkeys_block_size = (n_sigs + n_dup) * pubkey_fe_size;
-
-    // Compute absolute memory addresses for each source block
-    let sources_start = pubkeys_start + pubkeys_block_size;
-    let mut offset = sources_start;
-    let mut source_ptrs: Vec<usize> = vec![];
-    for block in &source_blocks {
-        source_ptrs.push(offset);
-        offset += block.len();
-    }
-    let bytecode_sumcheck_proof_ptr = offset;
-
-    let mut private_input = pub_input_data;
-    private_input.push(F::from_usize(n_recursions));
-    private_input.push(F::from_usize(n_dup));
-    private_input.push(F::from_usize(pubkeys_start));
-    for &ptr in &source_ptrs {
-        private_input.push(F::from_usize(ptr));
-    }
-    private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    assert_eq!(private_input.len(), input_data_size_padded + header_size);
-
+    let mut pubkeys_blob: Vec<F> = Vec::with_capacity((n_sigs + n_dup) * pubkey_fe_size);
     for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pubkey_merkle_root(pk));
-        private_input.extend_from_slice(&pubkey_public_parameter(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_merkle_root(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pubkey_merkle_root(pk));
-        private_input.extend_from_slice(&pubkey_public_parameter(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_merkle_root(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_public_parameter(pk));
     }
-    for block in &source_blocks {
-        private_input.extend_from_slice(block);
-    }
-    private_input.extend_from_slice(&final_sumcheck_transcript);
 
-    // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
-    // Each opening produces two entries: leaf_data, then the flattened path.
-    let merkle_paths: Vec<Vec<F>> = child_raw_proofs
+    let (merkle_leaf_blobs, merkle_path_blobs): (Vec<Vec<F>>, Vec<Vec<F>>) = child_raw_proofs
         .iter()
         .flat_map(|p| p.merkle_openings.iter())
-        .flat_map(|o| {
+        .map(|o| {
             let leaf = o.leaf_data.clone();
             let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
-            [leaf, path]
+            (leaf, path)
         })
-        .collect();
+        .unzip();
+
+    let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
+    hints.insert("input_data".to_string(), vec![pub_input_data]);
+    hints.insert(
+        "meta".to_string(),
+        vec![vec![F::from_usize(n_recursions), F::from_usize(n_dup)]],
+    );
+    hints.insert("pubkeys".to_string(), vec![pubkeys_blob]);
+    hints.insert("raw_indices".to_string(), vec![raw_indices]);
+    hints.insert("sub_indices".to_string(), sub_indices_blobs);
+    hints.insert("bytecode_value_hint".to_string(), bytecode_value_hint_blobs);
+    hints.insert("inner_bytecode_claim".to_string(), inner_bytecode_claim_blobs);
+    hints.insert("proof_transcript".to_string(), proof_transcript_blobs);
+    hints.insert("xmss_signature".to_string(), xmss_signatures);
+    hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
+    hints.insert("merkle_path".to_string(), merkle_path_blobs);
+    if n_recursions > 0 {
+        hints.insert("bytecode_sumcheck_proof".to_string(), vec![final_sumcheck_transcript]);
+    }
 
     let witness = ExecutionWitness {
-        private_input: &private_input,
-        xmss_signatures: &xmss_signatures,
-        merkle_paths: &merkle_paths,
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
+        hints,
     };
     let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
 

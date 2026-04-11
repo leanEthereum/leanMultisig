@@ -39,6 +39,11 @@ pub enum IntermediateInstruction {
         size: IntermediateValue, // the hint
     },
     CustomHint(CustomHint, Vec<IntermediateValue>),
+    HintRead {
+        offset: ConstExpression,
+        size: Option<usize>,
+        name: String,
+    },
     /// Deref hint for range checks - records constraint resolved at end of execution
     DerefHint {
         /// Offset of cell containing the address to dereference
@@ -160,6 +165,20 @@ impl Display for IntermediateInstruction {
                     write!(f, "{expr}")?;
                 }
                 write!(f, ")")
+            }
+            Self::HintRead {
+                offset,
+                size: None,
+                name,
+            } => {
+                write!(f, "m[fp + {offset}] = hint_read(\"{name}\")")
+            }
+            Self::HintRead {
+                offset,
+                size: Some(size),
+                name,
+            } => {
+                write!(f, "m[fp + {offset} .. +{size}] = hint_read(\"{name}\", {size})")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print {line_info}: ")?;

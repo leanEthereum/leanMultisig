@@ -166,6 +166,7 @@ impl TryFrom<Expression> for ConstExpression {
             Expression::FunctionCall { .. } => Err(()),
             Expression::Len { .. } => Err(()),
             Expression::Lambda { .. } => Err(()),
+            Expression::HintRead { .. } => Err(()),
         }
     }
 }
@@ -288,6 +289,10 @@ pub enum Expression {
     Lambda {
         param: Var,
         body: Box<Self>,
+    },
+    HintRead {
+        name: String,
+        size: Option<Box<Self>>,
     },
 }
 
@@ -455,6 +460,7 @@ impl Expression {
             Self::FunctionCall { .. } => None,
             Self::Len { .. } => None,
             Self::Lambda { .. } => None, // Lambdas are only used in match_range, not evaluated directly
+            Self::HintRead { .. } => None,
         }
     }
 
@@ -466,6 +472,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter_mut().collect(),
             Self::Len { indices, .. } => indices.iter_mut().collect(),
             Self::Lambda { body, .. } => vec![body.as_mut()],
+            Self::HintRead { size, .. } => size.iter_mut().map(|b| b.as_mut()).collect(),
         }
     }
 
@@ -477,6 +484,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter().collect(),
             Self::Lambda { body, .. } => vec![body.as_ref()],
             Self::Len { indices, .. } => indices.iter().collect(),
+            Self::HintRead { size, .. } => size.iter().map(|b| b.as_ref()).collect(),
         }
     }
 
@@ -721,6 +729,12 @@ impl Display for Expression {
             }
             Self::Lambda { param, body } => {
                 write!(f, "lambda {param}: {body}")
+            }
+            Self::HintRead { name, size: None } => {
+                write!(f, "hint_read(\"{name}\")")
+            }
+            Self::HintRead { name, size: Some(size) } => {
+                write!(f, "hint_read(\"{name}\", {size})")
             }
         }
     }

@@ -30,8 +30,9 @@ MERKLE_TWEAKS_OFFSET = TWEAK_LEN + V * CHAIN_LENGTH * TWEAK_LEN + TWEAK_LEN
 
 
 @inline
-def xmss_verify(merkle_root, public_param, message, signature, all_tweaks, merkle_chunks):
+def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
     # signature layout: randomness | chain_tips | merkle_path
+    signature = hint_read("xmss_signature", SIG_SIZE)
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
     merkle_path = chain_starts + V * DIGEST_LEN

@@ -18,7 +18,7 @@ pub struct ExecutionProof {
 pub fn prove_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    witness: &ExecutionWitness<'_>,
+    witness: &ExecutionWitness,
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {

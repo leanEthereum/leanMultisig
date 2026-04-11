@@ -580,9 +580,6 @@ fn compile_lines(
             }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize();
-                if !compiler.dead_fp_relative_vars.contains(var) {
-                    compiler.register_var_if_needed(var);
-                }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
             SimpleLine::CustomHint(hint, args) => {
@@ -595,6 +592,25 @@ fn compile_lines(
                     .collect::<Vec<_>>();
                 instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
             }
+            SimpleLine::HintRead { var, name, const_size } => match const_size {
+                None => {
+                    compiler.register_var_if_needed(var);
+                    instructions.push(IntermediateInstruction::HintRead {
+                        offset: compiler.get_offset(&var.clone().into()),
+                        size: None,
+                        name: name.clone(),
+                    });
+                }
+                Some(HintReadConstSize { size: size_expr, label }) => {
+                    let size = size_expr.naive_eval().unwrap().to_usize();
+                    let data_fp_offset = handle_const_malloc(&mut instructions, compiler, var, size, label);
+                    instructions.push(IntermediateInstruction::HintRead {
+                        offset: ConstExpression::from_usize(data_fp_offset),
+                        size: Some(size),
+                        name: name.clone(),
+                    });
+                }
+            },
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
                     line_info: line_info.clone(),
@@ -711,15 +727,18 @@ fn handle_const_malloc(
     var: &Var,
     size: usize,
     label: &ConstMallocLabel,
-) {
-    compiler.const_mallocs.insert(*label, compiler.stack_pos);
-    compiler
-        .const_malloc_vars
-        .insert(var.clone(), compiler.stack_pos as isize);
-    if !compiler.dead_fp_relative_vars.contains(var) {
+) -> usize {
+    let is_live = !compiler.dead_fp_relative_vars.contains(var);
+    if is_live {
+        compiler.register_var_if_needed(var);
+    }
+    let data_fp_offset = compiler.stack_pos;
+    compiler.const_mallocs.insert(*label, data_fp_offset);
+    compiler.const_malloc_vars.insert(var.clone(), data_fp_offset as isize);
+    if is_live {
         instructions.push(IntermediateInstruction::Computation {
             operation: Operation::Add,
-            arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),
+            arg_a: IntermediateValue::Constant(data_fp_offset.into()),
             arg_b: IntermediateValue::FpRelative {
                 offset: ConstExpression::zero(),
             },
@@ -729,6 +748,7 @@ fn handle_const_malloc(
         });
     }
     compiler.stack_pos += size;
+    data_fp_offset
 }
 
 fn setup_function_call(
@@ -814,7 +834,12 @@ fn collect_fp_rel_capable(
 ) {
     for line in lines {
         match line {
-            SimpleLine::ConstMalloc { var, .. } => {
+            SimpleLine::ConstMalloc { var, .. }
+            | SimpleLine::HintRead {
+                var,
+                const_size: Some(_),
+                ..
+            } => {
                 fp_rel_capable.insert(var.clone());
             }
             SimpleLine::Assignment {
