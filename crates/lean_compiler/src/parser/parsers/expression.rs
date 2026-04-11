@@ -36,6 +36,7 @@ impl Parse<Expression> for ExpressionParser {
             Rule::array_access_expr => ArrayAccessParser.parse(pair, ctx),
             Rule::len_expr => LenParser.parse(pair, ctx),
             Rule::function_call_expr => FunctionCallExprParser.parse(pair, ctx),
+            Rule::hint_read_expr => HintReadExprParser.parse(pair, ctx),
             Rule::lambda_expr => LambdaParser.parse(pair, ctx),
             Rule::primary => {
                 let inner = next_inner_pair(&mut pair.into_inner(), "primary expression")?;
@@ -89,6 +90,26 @@ impl Parse<Expression> for FunctionCallExprParser {
                 line_number,
             },
         })
+    }
+}
+
+/// Parser for `hint_read("name", ptr)`: writes the next witness entry for
+/// `name` into the buffer pointed to by `ptr`. The guest is responsible for
+/// having allocated `ptr` with enough room; the witness's length is trusted
+/// (verified transitively via the hash commitment over the guest's public
+/// input). Used as a statement — no return value.
+pub struct HintReadExprParser;
+
+impl Parse<Expression> for HintReadExprParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Expression> {
+        let mut inner = pair.into_inner();
+        let string_lit = next_inner_pair(&mut inner, "hint_read name literal")?;
+        let text = string_lit.as_str();
+        // Strip the surrounding quotes.
+        let name = text[1..text.len() - 1].to_string();
+        let ptr_pair = next_inner_pair(&mut inner, "hint_read destination pointer")?;
+        let ptr = Box::new(ExpressionParser.parse(ptr_pair, ctx)?);
+        Ok(Expression::HintRead { name, ptr })
     }
 }
 

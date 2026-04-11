@@ -555,7 +555,10 @@ TODO: Verify and (formally) prove soundness.
 
 \subsection{Poseidon table}
 
-TODO
+We use poseidon \cite{poseidon1} over 16 field elements, in compression mode, i.e. for $\texttt{input} \in \Fp^{16}$ and interpreting the addition as coordinate-wise in $\Fp^8$:
+ $$\text{poseidon\_compress}(\texttt{input}) = \text{poseidon}(\texttt{input})[..8] + \texttt{input}[..8]$$.
+
+The Poseidon precompile receives 3 arguments: $\nu_A$, $\nu_B$, $\nu_C$ interpreted as memory pointers. 3 lookups (each of size 8) into the memory are used to fetch $\texttt{left}$ = $\textbf{m}[\nu_A..\nu_A + 8] \in \Fp^8$, $\texttt{right}$ = $\textbf{m}[\nu_B..\nu_B + 8] \in \Fp^8$, and $\texttt{res}$ = $\textbf{m}[\nu_C..\nu_C + 8] \in \Fp^8$. AIR constraints, of degree 9, assert that $\texttt{res} = \text{poseidon\_compress}(\texttt{left} | \texttt{right})$. Degree 3 is also an alternative, but with $\approx$ 2x more columns committed.
 
 \subsection{Extension op table}
 

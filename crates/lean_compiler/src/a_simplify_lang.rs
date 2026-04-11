@@ -108,6 +108,12 @@ pub enum SimpleLine {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     CustomHint(CustomHint, Vec<SimpleExpr>),
+    /// Named-hint read: write the next witness entry for `name` into the
+    /// buffer pointed to by `destination`.
+    HintRead {
+        destination: SimpleExpr,
+        name: String,
+    },
     Print {
         line_info: String,
         content: Vec<SimpleExpr>,
@@ -161,6 +167,7 @@ impl SimpleLine {
             | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
+            | Self::HintRead { .. }
             | Self::Print { .. }
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
@@ -186,6 +193,7 @@ impl SimpleLine {
             | Self::Precompile(..)
             | Self::Panic { .. }
             | Self::CustomHint(..)
+            | Self::HintRead { .. }
             | Self::Print { .. }
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
@@ -212,6 +220,7 @@ impl SimpleLine {
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::HintRead { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
@@ -2051,6 +2060,17 @@ fn simplify_lines(
                     };
 
                 match value {
+                    Expression::HintRead { name: hint_name, ptr } => {
+                        if !targets.is_empty() {
+                            return Err(format!("hint_read has no return value, at {location}"));
+                        }
+                        let simplified_ptr = simplify_expr(ctx, state, const_malloc, ptr, &mut res)?;
+                        res.push(SimpleLine::HintRead {
+                            destination: simplified_ptr,
+                            name: hint_name.clone(),
+                        });
+                        continue;
+                    }
                     Expression::FunctionCall {
                         function_name, args, ..
                     } => {
@@ -2394,6 +2414,9 @@ fn simplify_lines(
                                     }
                                     Expression::Lambda { .. } => {
                                         unreachable!("Lambda should be expanded by match_range")
+                                    }
+                                    Expression::HintRead { .. } => {
+                                        unreachable!("HintRead should be handled above")
                                     }
                                 }
                             }
@@ -3112,6 +3135,9 @@ fn simplify_expr(
             unreachable!("len() should have been resolved at parse time for const arrays")
         }
         Expression::Lambda { .. } => Err("Lambda expressions can only be used as arguments to match_range".to_string()),
+        Expression::HintRead { .. } => {
+            Err("hint_read(\"...\") is only valid as the right-hand side of an assignment".to_string())
+        }
     }
 }
 
@@ -3361,7 +3387,7 @@ fn transform_vars_in_expr(expr: &mut Expression, transform: &impl Fn(&Var) -> Va
         Expression::Len { array, .. } => {
             transform(array).apply_to_var(array);
         }
-        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } => {}
+        Expression::MathExpr(_, _) | Expression::FunctionCall { .. } | Expression::HintRead { .. } => {}
         Expression::Lambda { param, .. } => {
             transform(param).apply_to_var(param);
         }
@@ -3886,6 +3912,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         Expression::Lambda { body, .. } => {
             replace_vars_by_const_in_expr(body, map);
         }
+        Expression::HintRead { .. } => {}
     }
 }
 
@@ -3984,6 +4011,9 @@ impl SimpleLine {
                     hint.name(),
                     args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
+            }
+            Self::HintRead { destination, name } => {
+                format!("hint_read(\"{name}\", {destination})")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("{res} = memory[{index} + {shift}]")

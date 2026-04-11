@@ -3,8 +3,8 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
-# memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [private_input ...]
-# `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]... 
+# memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [runtime ...]
+# `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]...
 PUBLIC_INPUT_LEN = DIGEST_LEN
 ZERO_VEC_PTR = PUBLIC_INPUT_LEN
 ZERO_VEC_LEN = 16
@@ -263,12 +263,12 @@ def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
 def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
     # Hint and hash leaf
     leaf_data = Array(num_chunks * DIGEST_LEN)
-    hint_merkle(leaf_data, num_chunks * DIGEST_LEN)
+    hint_read("merkle_leaf", leaf_data)
     leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
 
     # Hint and verify merkle path (processing 4 levels per nibble)
     merkle_path = Array(height * DIGEST_LEN)
-    hint_merkle(merkle_path, height * DIGEST_LEN)
+    hint_read("merkle_path", merkle_path)
 
     states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
 

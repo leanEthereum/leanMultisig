@@ -1,6 +1,6 @@
 use super::value::IntermediateValue;
 use crate::lang::{ConstExpression, MathOperation};
-use lean_vm::{BooleanExpr, CustomHint, Operation, PrecompileArgs, SourceLocation};
+use lean_vm::{BooleanExpr, CustomHint, HintReadDestination, Operation, PrecompileArgs, SourceLocation};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -39,6 +39,10 @@ pub enum IntermediateInstruction {
         size: IntermediateValue, // the hint
     },
     CustomHint(CustomHint, Vec<IntermediateValue>),
+    HintRead {
+        name: String,
+        destination: HintReadDestination<ConstExpression>,
+    },
     /// Deref hint for range checks - records constraint resolved at end of execution
     DerefHint {
         /// Offset of cell containing the address to dereference
@@ -160,6 +164,18 @@ impl Display for IntermediateInstruction {
                     write!(f, "{expr}")?;
                 }
                 write!(f, ")")
+            }
+            Self::HintRead {
+                name,
+                destination: HintReadDestination::Inline { offset },
+            } => {
+                write!(f, "m[fp + {offset} ..] = hint_read(\"{name}\")")
+            }
+            Self::HintRead {
+                name,
+                destination: HintReadDestination::Indirect { ptr_offset },
+            } => {
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_read(\"{name}\")")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print {line_info}: ")?;

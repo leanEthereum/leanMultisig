@@ -10,8 +10,9 @@ use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseido
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, V, W, WOTS_SIG_SIZE_FE, XmssPublicKey, XmssSignature};
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::compilation::bytecode_reduction_sumcheck_proof_size;
 pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
 
 pub mod benchmark;
@@ -43,10 +44,13 @@ const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
-// preamble memory layout: see `build_preamble_memory` in utils.py
+// preamble memory layout: see `build_preamble_memory` in utils.py, plus the XMSS tweak
+// table which sits at the end of the preamble region and is populated via
+// `hint_read("tweak_table", TWEAK_TABLE_ADDR)` at program startup.
 const ZERO_VEC_LEN: usize = 16;
 const NUM_REPEATED_ONES: usize = 16;
-pub const PREAMBLE_MEMORY_LEN: usize = ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES;
+pub const PREAMBLE_MEMORY_LEN: usize =
+    ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES + TWEAK_TABLE_SIZE_FE_PADDED;
 
 #[derive(Debug, Clone)]
 pub struct AggregationTopology {
@@ -166,21 +170,14 @@ pub(crate) fn hash_input_data(data: &[F]) -> [F; DIGEST_LEN] {
 }
 
 fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
-    // The in-memory signature buffer consumed by `hint_wots` is just the WOTS part:
-    // `randomness | chain_tips`. The XMSS merkle path is delivered out-of-band via
-    // `hint_xmss_merkle_node`, see `encode_xmss_merkle_path`.
+    // The in-memory signature buffer consumed by the `wots` named hint is just the
+    // WOTS part: `randomness | chain_tips`. The XMSS merkle path is delivered
+    // separately via the `xmss_merkle_node` named hint (one 4-FE node per call).
     let mut data = vec![];
     data.extend(sig.wots_signature.randomness.to_vec());
     data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
     assert_eq!(data.len(), WOTS_SIG_SIZE_FE);
     data
-}
-
-/// Flatten the merkle path of an XMSS signature into a 4*LOG_LIFETIME flat vec, in the
-/// order it will be consumed by successive `hint_xmss_merkle_node` calls inside
-/// `do_4_merkle_levels` (= the natural leaf-to-root order of the merkle path).
-fn encode_xmss_merkle_path(sig: &XmssSignature) -> Vec<F> {
-    sig.merkle_proof.iter().flat_map(|d| d.to_vec()).collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -370,6 +367,11 @@ pub fn xmss_aggregate(
             sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
             vs.into_raw_proof().transcript
         };
+        assert_eq!(
+            final_sumcheck_proof.len(),
+            bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars),
+            "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
+        );
 
         (claim_output, Some(reduced_point), final_sumcheck_proof)
     } else {
@@ -388,141 +390,123 @@ pub fn xmss_aggregate(
         &bytecode_claim_output,
         &bytecode.hash,
     );
-    let input_data_size_padded = pub_input_data.len();
     let public_input = hash_input_data(&pub_input_data).to_vec();
-    let public_memory_size = public_input.len().next_power_of_two();
 
-    // Build private input
-    // Layout: [public_memory (pow2)][preamble_memory][tweak_table (FIXED size, at the FIXED
-    //          address PRIVATE_INPUT_START = public_memory_size + PREAMBLE_MEMORY_LEN so the
-    //          .py code can address it via the TWEAK_TABLE_ADDR compile-time constant)]
-    //         [input_data_buf (the data that hashes to the public-input digest)]
-    //         [n_recursions, n_dup, ptr_pubkeys, ptr_source_0..n_recursions, ptr_bytecode_sumcheck]
-    //         [global_pubkeys, dup_pubkeys, source_blocks..., bytecode_sumcheck_proof]
-    //
-    // The tweak table address is a compile-time constant; main.py reads
-    // tweak_table = TWEAK_TABLE_ADDR directly. The input data buffer follows
-    // immediately after the tweak table at PRIVATE_INPUT_START + TWEAK_TABLE_SIZE_FE_PADDED.
-    let tweak_table_ptr = public_memory_size + PREAMBLE_MEMORY_LEN;
-    let header_size = n_recursions + 5;
-    let header_start = tweak_table_ptr + TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded;
-    let pubkeys_start = header_start + header_size;
-
-    // Build source blocks (also discovers duplicate pub_keys)
     let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
-    let mut source_blocks: Vec<Vec<F>> = vec![];
 
-    // Build the WOTS-portion signature buffers (one Vec<F> per signature, consumed by
-    // hint_wots). The merkle path of each sig is delivered separately via
-    // hint_xmss_merkle_node; we flatten it here in the order it will be consumed at
-    // runtime.
-    let wots_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
-    let xmss_merkle_nodes: Vec<F> = raw_xmss
+    // Raw XMSS data is split into two named hints — `wots` (randomness | chain_tips,
+    // one entry per signature) and `xmss_merkle_node` (one entry per 4-FE merkle node,
+    // flattened in the order `do_4_merkle_levels` consumes them at runtime).
+    let wots_blobs: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
+    let xmss_merkle_node_blobs: Vec<Vec<F>> = raw_xmss
         .iter()
-        .flat_map(|(_, sig)| encode_xmss_merkle_path(sig))
+        .flat_map(|(_, sig)| sig.merkle_proof.iter().map(|d| d.to_vec()))
         .collect();
 
-    // Source 0: raw XMSS (indices only; signature data goes via hint_wots)
-    {
-        let mut block = vec![F::from_usize(raw_count)];
-        for (pk, _) in &raw_xmss {
-            let pos = global_pub_keys.binary_search(pk).unwrap();
-            block.push(F::from_usize(pos));
-            claimed.insert(pk.clone());
-        }
-        source_blocks.push(block);
-    }
-
-    // Sources 1..n_recursions: recursive children
-    for (i, (child_pub_keys, _child)) in children.iter().enumerate() {
-        let mut block = vec![F::from_usize(child_pub_keys.len())];
-        for key in *child_pub_keys {
-            if claimed.insert(key.clone()) {
-                let pos = global_pub_keys.binary_search(key).unwrap();
-                block.push(F::from_usize(pos));
-            } else {
-                block.push(F::from_usize(n_sigs + dup_pub_keys.len()));
-                dup_pub_keys.push(key.clone());
-            }
-        }
-
-        // bytecode_value_hint (DIM elements)
-        block.extend_from_slice(child_bytecode_evals[i].value.as_basis_coefficients_slice());
-        block.extend_from_slice(&child_input_data[i]);
-
-        // proof_transcript (without Merkle data, delivered via hint_merkle)
-        block.extend_from_slice(&child_raw_proofs[i].transcript);
-
-        source_blocks.push(block);
-    }
-
-    let n_dup = dup_pub_keys.len();
-    let pubkeys_block_size = n_sigs * PUB_KEY_FLAT_SIZE + n_dup * PUB_KEY_FLAT_SIZE;
-
-    // Compute absolute memory addresses for each source block (placed after the pubkeys block).
-    let sources_start = pubkeys_start + pubkeys_block_size;
-    let mut offset = sources_start;
-    let mut source_ptrs: Vec<usize> = vec![];
-    for block in &source_blocks {
-        source_ptrs.push(offset);
-        offset += block.len();
-    }
-    let bytecode_sumcheck_proof_ptr = offset;
-
-    // Tweak table sits at the very start of private input (FIXED address).
-    let mut private_input: Vec<F> =
-        Vec::with_capacity(TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded + header_size);
-    private_input.extend_from_slice(&tweak_table);
-    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED);
-
-    // Input data buffer (the data that hashes to the public-input digest).
-    private_input.extend_from_slice(&pub_input_data);
-    assert_eq!(private_input.len(), TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded);
-
-    // Header (variable-length only via n_recursions; lives right after the input data buffer).
-    private_input.push(F::from_usize(n_recursions));
-    private_input.push(F::from_usize(n_dup));
-    private_input.push(F::from_usize(pubkeys_start));
-    for &ptr in &source_ptrs {
-        private_input.push(F::from_usize(ptr));
-    }
-    private_input.push(F::from_usize(bytecode_sumcheck_proof_ptr));
-    assert_eq!(
-        private_input.len(),
-        TWEAK_TABLE_SIZE_FE_PADDED + input_data_size_padded + header_size
-    );
-
-    // Pubkeys block.
-    for pk in &global_pub_keys {
-        private_input.extend_from_slice(&pk.flaten());
-    }
-    for pk in &dup_pub_keys {
-        private_input.extend_from_slice(&pk.flaten());
-    }
-    // Source blocks (already addressed by source_ptrs above).
-    for block in &source_blocks {
-        private_input.extend_from_slice(block);
-    }
-    private_input.extend_from_slice(&final_sumcheck_transcript);
-
-    // Build Merkle paths from all child proofs (one Vec<F> per hint_merkle call in whir.py)
-    let merkle_paths: Vec<Vec<F>> = child_raw_proofs
+    // Raw XMSS indices.
+    let raw_indices: Vec<F> = raw_xmss
         .iter()
-        .flat_map(|p| p.merkle_openings.iter())
-        .flat_map(|o| {
-            let leaf = o.leaf_data.clone();
-            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
-            [leaf, path]
+        .map(|(pk, _)| {
+            let pos = global_pub_keys.binary_search(pk).unwrap();
+            claimed.insert(pk.clone());
+            F::from_usize(pos)
         })
         .collect();
 
+    let mut sub_indices_blobs = Vec::with_capacity(n_recursions);
+    let mut bytecode_value_hint_blobs = Vec::with_capacity(n_recursions);
+    let mut inner_bytecode_claim_blobs = Vec::with_capacity(n_recursions);
+    let mut proof_transcript_blobs = Vec::with_capacity(n_recursions);
+
+    let claim_offset_in_input = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+    let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
+
+    // Sources 1..n_recursions: recursive children
+    for (i, (child_pub_keys, _)) in children.iter().enumerate() {
+        // sub_indices: [n_sub, idx_0, idx_1, ...] into global_pub_keys + dup_pub_keys
+        let mut sub_indices = vec![F::from_usize(child_pub_keys.len())];
+        for pubkey in *child_pub_keys {
+            if claimed.insert(pubkey.clone()) {
+                let pos = global_pub_keys.binary_search(pubkey).unwrap();
+                sub_indices.push(F::from_usize(pos));
+            } else {
+                sub_indices.push(F::from_usize(n_sigs + dup_pub_keys.len()));
+                dup_pub_keys.push(pubkey.clone());
+            }
+        }
+        sub_indices_blobs.push(sub_indices);
+
+        bytecode_value_hint_blobs.push(child_bytecode_evals[i].value.as_basis_coefficients_slice().to_vec());
+
+        inner_bytecode_claim_blobs.push(child_input_data[i][claim_offset_in_input..][..claim_size_padded].to_vec());
+
+        // Transcript minus Merkle data;
+        proof_transcript_blobs.push(child_raw_proofs[i].transcript.clone());
+    }
+
+    let n_dup = dup_pub_keys.len();
+
+    let mut pubkeys_blob: Vec<F> = Vec::with_capacity((n_sigs + n_dup) * PUB_KEY_FLAT_SIZE);
+    for pk in &global_pub_keys {
+        pubkeys_blob.extend_from_slice(&pk.flaten());
+    }
+    for pk in &dup_pub_keys {
+        pubkeys_blob.extend_from_slice(&pk.flaten());
+    }
+
+    let (merkle_leaf_blobs, merkle_path_blobs): (Vec<Vec<F>>, Vec<Vec<F>>) = child_raw_proofs
+        .iter()
+        .flat_map(|p| p.merkle_openings.iter())
+        .map(|o| {
+            let leaf = o.leaf_data.clone();
+            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
+            (leaf, path)
+        })
+        .unzip();
+
+    let aggregate_sizes: Vec<F> = sub_indices_blobs.iter().map(|b| F::from_usize(b.len())).collect();
+
+    let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
+    hints.insert("input_data".to_string(), vec![pub_input_data]);
+    // [n_recursions, n_dup, pubkeys_len, n_raw_xmss]
+    hints.insert(
+        "meta".to_string(),
+        vec![vec![
+            F::from_usize(n_recursions),
+            F::from_usize(n_dup),
+            F::from_usize(pubkeys_blob.len()),
+            F::from_usize(raw_count),
+        ]],
+    );
+    hints.insert("pubkeys".to_string(), vec![pubkeys_blob]);
+    hints.insert("raw_indices".to_string(), vec![raw_indices]);
+    let fast_path = n_recursions == 1 && raw_count == 0 && dup_pub_keys.is_empty();
+    let sub_indices_for_hints = if fast_path { Vec::new() } else { sub_indices_blobs };
+    hints.insert("sub_indices".to_string(), sub_indices_for_hints);
+    hints.insert("bytecode_value_hint".to_string(), bytecode_value_hint_blobs);
+    hints.insert("inner_bytecode_claim".to_string(), inner_bytecode_claim_blobs);
+    hints.insert(
+        "proof_transcript_size".to_string(),
+        proof_transcript_blobs
+            .iter()
+            .map(|b| vec![F::from_usize(b.len())])
+            .collect(),
+    );
+    hints.insert("proof_transcript".to_string(), proof_transcript_blobs);
+    hints.insert("wots".to_string(), wots_blobs);
+    hints.insert("xmss_merkle_node".to_string(), xmss_merkle_node_blobs);
+    hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
+    hints.insert("merkle_path".to_string(), merkle_path_blobs);
+    hints.insert("aggregate_sizes".to_string(), vec![aggregate_sizes]);
+    hints.insert("tweak_table".to_string(), vec![tweak_table]);
+    if n_recursions > 0 {
+        hints.insert("bytecode_sumcheck_proof".to_string(), vec![final_sumcheck_transcript]);
+    }
+
     let witness = ExecutionWitness {
-        private_input: &private_input,
-        wots_signatures: &wots_signatures,
-        xmss_merkle_nodes: &xmss_merkle_nodes,
-        merkle_paths: &merkle_paths,
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
+        hints,
     };
     let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
 

@@ -421,12 +421,23 @@ from dir.subdir.file import *  # imports dir/subdir/file.py
 The runner places the program's memory as:
 
 ```
-[ public_input | preamble_memory | private_input | runtime ]
+[ public_input | preamble_memory | runtime ]
 ```
 
 - `public_input` lives at `memory[0..public_input.len()]` (zero-padded to a power of two by the runner so it can be evaluated as a multilinear polynomial).
 - `preamble_memory` is a region the runner reserves but does not initialize. The guest program is responsible for writing any constants it needs (e.g. `ZERO_VEC_PTR`, `ONE_EF_PTR`, etc.) in this area.
-- `private_input` is the prover-supplied witness, placed immediately after the preamble region.
+
+Prover-supplied witness data is fetched on demand with `hint_read("name")`, where the string literal
+names an entry in the witness's `hints: HashMap<String, Vec<Vec<F>>>` map.
+Each call fetches the next unused `Vec<F>` under that name (per-name running
+index), allocates runtime memory of that size, copies the data in, and
+returns a pointer to the allocation:
+
+```
+data_buf = hint_read("input_data")   # pointer to first unused `input_data` entry
+n = data_buf[0]
+# ...
+```
 
 
 ## Precompiles

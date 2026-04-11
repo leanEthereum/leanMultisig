@@ -185,7 +185,7 @@ def main():
         .fold(EF::ONE, |acc, x| acc * x);
     public_input[1300..][..DIMENSION].copy_from_slice(poly_eq_ee_result.as_basis_coefficients_slice());
 
-    test_zk_vm_helper(program_str, (&public_input, &[]));
+    test_zk_vm_helper(program_str, &public_input);
 }
 
 #[test]
@@ -198,7 +198,7 @@ def main():
     return
 "#;
 
-    test_zk_vm_helper(program_str, (&[], &[]));
+    test_zk_vm_helper(program_str, &[]);
 }
 
 #[test]
@@ -237,18 +237,15 @@ def fibonacci_const(a, b, n: Const):
 "#;
     let program_str = program_str.replace("FIB_N_PLACEHOLDER", &n.to_string());
 
-    test_zk_vm_helper(&program_str, (&[F::ZERO; 1 << 14], &[]));
+    test_zk_vm_helper(&program_str, &[F::ZERO; 1 << 14]);
 }
 
-fn test_zk_vm_helper(program_str: &str, (public_input, private_input): (&[F], &[F])) {
+fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     utils::init_tracing();
     let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
     let time = std::time::Instant::now();
     let starting_log_inv_rate = 1;
-    let witness = ExecutionWitness {
-        private_input,
-        ..ExecutionWitness::default()
-    };
+    let witness = ExecutionWitness::default();
     let proof = prove_execution(
         &bytecode,
         public_input,

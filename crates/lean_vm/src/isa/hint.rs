@@ -4,11 +4,11 @@ use crate::execution::ExecutionHistory;
 use crate::execution::memory::MemoryAccess;
 use crate::isa::operands::{MemOrConstant, MemOrFpOrConstant};
 use backend::*;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::{WOTS_SIG_SIZE_FE, XMSS_DIGEST_LEN};
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -69,6 +69,29 @@ pub enum Hint {
         /// End value of the loop: either `m[fp + offset]` (runtime) or a constant.
         end_value: MemOrConstant,
     },
+    HintRead {
+        name: String,
+        destination: HintReadDestination<usize>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HintReadDestination<T> {
+    /// Write directly at `m[fp + fp_offset ..]
+    Inline { offset: T },
+    /// Load the destination address from `m[fp + ptr_offset]` and write there
+    Indirect { ptr_offset: T },
+}
+
+impl<T> HintReadDestination<T> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> HintReadDestination<U> {
+        match self {
+            Self::Inline { offset } => HintReadDestination::Inline { offset: f(offset) },
+            Self::Indirect { ptr_offset } => HintReadDestination::Indirect {
+                ptr_offset: f(ptr_offset),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,26 +106,14 @@ pub enum CustomHint {
     DecomposeBits,
     LessThan,
     Log2Ceil,
-    /// Hint the in-memory part of an XMSS signature: `randomness | chain_tips` (the WOTS
-    /// part). The XMSS merkle path is hinted separately via `XmssMerkleNode`.
-    Wots,
-    /// Pull the next 4-element XMSS merkle node from the prover's flat queue and write
-    /// it at a runtime-chosen buf address. Lets `do_4_merkle_levels` place each
-    /// merkle path neighbour directly into the merkle hash buffer at the right slot,
-    /// avoiding the per-level copy from a contiguous merkle path array.
-    XmssMerkleNode,
-    Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 5] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
-    CustomHint::Wots,
-    CustomHint::XmssMerkleNode,
-    CustomHint::Merkle,
 ];
 
 impl CustomHint {
@@ -113,9 +124,6 @@ impl CustomHint {
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
-            Self::Wots => "hint_wots",
-            Self::XmssMerkleNode => "hint_xmss_merkle_node",
-            Self::Merkle => "hint_merkle",
         }
     }
 
@@ -126,16 +134,13 @@ impl CustomHint {
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
-            Self::Wots => 1,
-            Self::XmssMerkleNode => 1,
-            Self::Merkle => 2,
         }
     }
 
     pub fn execute<M: MemoryAccess>(
         &self,
         args: &[MemOrFpOrConstant],
-        ctx: &mut HintExecutionContext<'_, '_, M>,
+        ctx: &mut HintExecutionContext<'_, '_, '_, M>,
     ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
@@ -206,51 +211,6 @@ impl CustomHint {
                 let res_ptr = args[1].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
             }
-            Self::Wots => {
-                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.wots_hint_index;
-                assert!(
-                    index < ctx.hints.wots_signatures.len(),
-                    "hint_wots: not enough WOTS signatures (index={})",
-                    index
-                );
-                let sig = &ctx.hints.wots_signatures[index];
-                assert_eq!(sig.len(), WOTS_SIG_SIZE_FE);
-                ctx.memory.set_slice(buf_ptr, sig)?;
-                *ctx.hints.wots_hint_index += 1;
-            }
-            Self::XmssMerkleNode => {
-                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.xmss_merkle_node_index;
-                let start = index * XMSS_DIGEST_LEN;
-                assert!(
-                    start + XMSS_DIGEST_LEN <= ctx.hints.xmss_merkle_nodes.len(),
-                    "hint_xmss_merkle_node: not enough merkle nodes (index={index})"
-                );
-                ctx.memory
-                    .set_slice(buf_ptr, &ctx.hints.xmss_merkle_nodes[start..start + XMSS_DIGEST_LEN])?;
-                *ctx.hints.xmss_merkle_node_index += 1;
-            }
-            Self::Merkle => {
-                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.merkle_hint_index;
-                assert!(
-                    index < ctx.hints.merkle_paths.len(),
-                    "hint_merkle: not enough Merkle paths (index={})",
-                    index
-                );
-                let path = &ctx.hints.merkle_paths[index];
-                assert_eq!(
-                    path.len(),
-                    n,
-                    "hint_merkle: path length mismatch (expected={}, got={})",
-                    n,
-                    path.len()
-                );
-                ctx.memory.set_slice(buf_ptr, path)?;
-                *ctx.hints.merkle_hint_index += 1;
-            }
         }
         Ok(())
     }
@@ -284,25 +244,27 @@ pub struct DiagnosticState<'a> {
     pub checkpoint_ap: &'a mut usize,
 }
 
-#[derive(Debug)]
-pub struct HintState<'a> {
-    pub diagnostics: Option<DiagnosticState<'a>>,
-    /// In-memory part of each XMSS signature: `randomness | chain_tips`. Consumed by
-    /// `hint_wots`. The merkle path lives in `xmss_merkle_nodes`.
-    pub wots_signatures: &'a [Vec<F>],
-    pub wots_hint_index: &'a mut usize,
-    /// Flat queue of XMSS merkle path nodes, 4 FE per node, ordered by the runtime
-    /// consumption order of `hint_xmss_merkle_node` calls. The prover provides one
-    /// node per call; each call writes 4 FE at a runtime-chosen buf address.
-    pub xmss_merkle_nodes: &'a [F],
-    pub xmss_merkle_node_index: &'a mut usize,
-    pub merkle_paths: &'a [Vec<F>],
-    pub merkle_hint_index: &'a mut usize,
+#[derive(Debug, Clone, Copy)]
+pub struct NamedHintCursor<'a> {
+    pub entries: &'a [Vec<F>],
+    pub index: usize,
+}
+
+impl<'a> NamedHintCursor<'a> {
+    pub fn new(entries: &'a [Vec<F>]) -> Self {
+        Self { entries, index: 0 }
+    }
 }
 
 #[derive(Debug)]
-pub struct HintExecutionContext<'a, 'h, M: MemoryAccess> {
-    pub hints: &'a mut HintState<'h>,
+pub struct HintState<'a, 'h> {
+    pub diagnostics: Option<DiagnosticState<'a>>,
+    pub named_hints: &'a mut HashMap<String, NamedHintCursor<'h>>,
+}
+
+#[derive(Debug)]
+pub struct HintExecutionContext<'a, 'h, 'hh, M: MemoryAccess> {
+    pub hints: &'a mut HintState<'h, 'hh>,
     pub memory: &'a mut M,
     pub fp: usize,
     pub ap: &'a mut usize,
@@ -313,7 +275,10 @@ pub struct HintExecutionContext<'a, 'h, M: MemoryAccess> {
 impl Hint {
     /// Execute this hint within the given execution context
     #[inline(always)]
-    pub fn execute_hint<M: MemoryAccess>(&self, ctx: &mut HintExecutionContext<'_, '_, M>) -> Result<(), RunnerError> {
+    pub fn execute_hint<M: MemoryAccess>(
+        &self,
+        ctx: &mut HintExecutionContext<'_, '_, '_, M>,
+    ) -> Result<(), RunnerError> {
         match self {
             Self::RequestMemory { offset, size } => {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -400,9 +365,32 @@ impl Hint {
             }
             // Handled by the runner's parallel dispatch; no-op in sequential mode.
             Self::ParallelBatchStart { .. } => {}
+            Self::HintRead { name, destination } => {
+                let data = consume_next_hint_entry(ctx.hints.named_hints, name);
+                let dest_addr = match destination {
+                    HintReadDestination::Inline { offset } => ctx.fp + *offset,
+                    HintReadDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
+                };
+                ctx.memory.set_slice(dest_addr, data)?;
+            }
         }
         Ok(())
     }
+}
+
+fn consume_next_hint_entry<'h>(named_hints: &mut HashMap<String, NamedHintCursor<'h>>, name: &str) -> &'h [F] {
+    let cursor = named_hints.get_mut(name).unwrap_or_else(|| {
+        panic!("hint_read: no hint named '{name}'");
+    });
+    let entries = cursor.entries;
+    let index = cursor.index;
+    assert!(
+        index < entries.len(),
+        "hint_read: exhausted entries for '{name}' (index={index}, len={})",
+        entries.len()
+    );
+    cursor.index += 1;
+    &entries[index]
 }
 
 impl Display for Hint {
@@ -452,6 +440,18 @@ impl Display for Hint {
             },
             Self::ParallelBatchStart { n_args, end_value } => {
                 write!(f, "parallel_batch_start(n_args={n_args}, end={end_value})")
+            }
+            Self::HintRead {
+                name,
+                destination: HintReadDestination::Inline { offset },
+            } => {
+                write!(f, "m[fp + {offset} ..] = hint_read(\"{name}\")")
+            }
+            Self::HintRead {
+                name,
+                destination: HintReadDestination::Indirect { ptr_offset },
+            } => {
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_read(\"{name}\")")
             }
         }
     }
