@@ -107,13 +107,11 @@ pub enum SimpleLine {
     /// and ai < 4, b < 2^7 - 1
     /// The decomposition is unique, and always exists (except for x = -1)
     CustomHint(CustomHint, Vec<SimpleExpr>),
-    /// Named-hint read: binds `var` to a pointer to memory populated with the next `Vec<F>` entry from `named_hints[name]`.
-    /// When `const_size` is `None` the data is dynamically allocated at runtime (at `ap`).
-    /// When `const_size` is `Some(..)` the data is allocated in the current stack frame.
+    /// Named-hint read: write the next witness entry for `name` into the
+    /// buffer pointed to by `destination`.
     HintRead {
-        var: Var,
+        destination: SimpleExpr,
         name: String,
-        const_size: Option<HintReadConstSize>,
     },
     Print {
         line_info: String,
@@ -139,14 +137,6 @@ pub enum SimpleLine {
         val: SimpleExpr,
         bound: SimpleExpr,
     },
-}
-
-/// Payload for `SimpleLine::HintRead { const_size: Some(..) }`: the hint is
-/// reserved inline in the frame as a const-malloc slot of compile-time size.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct HintReadConstSize {
-    pub size: ConstExpression,
-    pub label: ConstMallocLabel,
 }
 
 impl SimpleLine {
@@ -229,10 +219,10 @@ impl SimpleLine {
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::HintRead { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::HintRead { .. }
             | Self::Panic { .. } => vec![],
         }
     }
@@ -2069,35 +2059,14 @@ fn simplify_lines(
                     };
 
                 match value {
-                    Expression::HintRead { name: hint_name, size } => {
-                        if targets.len() != 1 {
-                            return Err(format!(
-                                "hint_read expects exactly 1 return target, got {}, at {location}",
-                                targets.len()
-                            ));
+                    Expression::HintRead { name: hint_name, ptr } => {
+                        if !targets.is_empty() {
+                            return Err(format!("hint_read has no return value, at {location}"));
                         }
-                        let AssignmentTarget::Var { var, is_mutable } = &targets[0] else {
-                            return Err(format!(
-                                "hint_read does not support array access as return target, at {location}"
-                            ));
-                        };
-                        let target_var = get_target_var_name(state, var, *is_mutable)?;
-                        let const_size = if let Some(size_expr) = size {
-                            let simplified_size = simplify_expr(ctx, state, const_malloc, size_expr, &mut res)?;
-                            let SimpleExpr::Constant(size) = simplified_size else {
-                                return Err(format!("hint_read size must be a compile-time constant, at {location}"));
-                            };
-                            let label = const_malloc.counter;
-                            const_malloc.counter += 1;
-                            const_malloc.map.insert(target_var.clone(), label);
-                            Some(HintReadConstSize { size, label })
-                        } else {
-                            None
-                        };
+                        let simplified_ptr = simplify_expr(ctx, state, const_malloc, ptr, &mut res)?;
                         res.push(SimpleLine::HintRead {
-                            var: target_var,
+                            destination: simplified_ptr,
                             name: hint_name.clone(),
-                            const_size,
                         });
                         continue;
                     }
@@ -4016,19 +3985,8 @@ impl SimpleLine {
                     args.iter().map(|expr| format!("{expr}")).collect::<Vec<_>>().join(", ")
                 )
             }
-            Self::HintRead {
-                var,
-                name,
-                const_size: None,
-            } => {
-                format!("{var} = hint_read(\"{name}\")")
-            }
-            Self::HintRead {
-                var,
-                name,
-                const_size: Some(HintReadConstSize { size, .. }),
-            } => {
-                format!("{var} = hint_read(\"{name}\", {size})")
+            Self::HintRead { destination, name } => {
+                format!("hint_read(\"{name}\", {destination})")
             }
             Self::RawAccess { res, index, shift } => {
                 format!("{res} = memory[{index} + {shift}]")

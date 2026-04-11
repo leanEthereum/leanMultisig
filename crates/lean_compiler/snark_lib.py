@@ -155,7 +155,6 @@ def hint_log2_ceil(n):
     return log2_ceil(n)
 
 
-def hint_read(name):
-    """Returns a pointer to memory populated with the witness (prover)"""
-    _ = name
-    return 0
+def hint_read(name, destination):
+    """Write the next witness entry for `name` into `destination`."""
+    _ = (name, destination)

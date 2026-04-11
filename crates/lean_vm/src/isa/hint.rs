@@ -69,17 +69,29 @@ pub enum Hint {
         /// End value of the loop: either `m[fp + offset]` (runtime) or a constant.
         end_value: MemOrConstant,
     },
-    /// fetch the next `Vec<F>` entry from `named_hints[name]`.
-    ///
-    /// When `size` is `None`, the data is dynamically written at the allocation pointer `ap`
-    /// and a pointer to it is stored at `m[fp + offset]`.
-    ///
-    /// When `size` is `Some(n)`, the data is copied directly into `m[fp + offset .. fp + offset + n]`
     HintRead {
         name: String,
-        offset: usize,
-        size: Option<usize>,
+        destination: HintReadDestination<usize>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HintReadDestination<T> {
+    /// Write directly at `m[fp + fp_offset ..]
+    Inline { offset: T },
+    /// Load the destination address from `m[fp + ptr_offset]` and write there
+    Indirect { ptr_offset: T },
+}
+
+impl<T> HintReadDestination<T> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> HintReadDestination<U> {
+        match self {
+            Self::Inline { offset } => HintReadDestination::Inline { offset: f(offset) },
+            Self::Indirect { ptr_offset } => HintReadDestination::Indirect {
+                ptr_offset: f(ptr_offset),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -353,39 +365,32 @@ impl Hint {
             }
             // Handled by the runner's parallel dispatch; no-op in sequential mode.
             Self::ParallelBatchStart { .. } => {}
-            Self::HintRead { name, offset, size } => {
-                let cursor = ctx.hints.named_hints.get_mut(name).unwrap_or_else(|| {
-                    panic!("hint_read: no hint named '{name}'");
-                });
-                assert!(
-                    cursor.index < cursor.entries.len(),
-                    "hint_read: exhausted entries for '{name}' (index={}, len={})",
-                    cursor.index,
-                    cursor.entries.len()
-                );
-                let data = &cursor.entries[cursor.index];
-                cursor.index += 1;
-                match size {
-                    None => {
-                        let allocation_start_addr = *ctx.ap;
-                        ctx.memory.set_slice(allocation_start_addr, data)?;
-                        *ctx.ap += data.len();
-                        ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
-                    }
-                    Some(expected_size) => {
-                        assert_eq!(
-                            data.len(),
-                            *expected_size,
-                            "hint_read: size mismatch for '{name}' (expected={expected_size}, got={})",
-                            data.len()
-                        );
-                        ctx.memory.set_slice(ctx.fp + *offset, data)?;
-                    }
-                }
+            Self::HintRead { name, destination } => {
+                let data = consume_next_hint_entry(ctx.hints.named_hints, name);
+                let dest_addr = match destination {
+                    HintReadDestination::Inline { offset } => ctx.fp + *offset,
+                    HintReadDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
+                };
+                ctx.memory.set_slice(dest_addr, data)?;
             }
         }
         Ok(())
     }
+}
+
+fn consume_next_hint_entry<'h>(named_hints: &mut HashMap<String, NamedHintCursor<'h>>, name: &str) -> &'h [F] {
+    let cursor = named_hints.get_mut(name).unwrap_or_else(|| {
+        panic!("hint_read: no hint named '{name}'");
+    });
+    let entries = cursor.entries;
+    let index = cursor.index;
+    assert!(
+        index < entries.len(),
+        "hint_read: exhausted entries for '{name}' (index={index}, len={})",
+        entries.len()
+    );
+    cursor.index += 1;
+    &entries[index]
 }
 
 impl Display for Hint {
@@ -438,17 +443,15 @@ impl Display for Hint {
             }
             Self::HintRead {
                 name,
-                offset,
-                size: None,
+                destination: HintReadDestination::Inline { offset },
             } => {
-                write!(f, "m[fp + {offset}] = hint_read(\"{name}\")")
+                write!(f, "m[fp + {offset} ..] = hint_read(\"{name}\")")
             }
             Self::HintRead {
                 name,
-                offset,
-                size: Some(size),
+                destination: HintReadDestination::Indirect { ptr_offset },
             } => {
-                write!(f, "m[fp + {offset} .. +{size}] = hint_read(\"{name}\", {size})")
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_read(\"{name}\")")
             }
         }
     }

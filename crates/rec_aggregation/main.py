@@ -13,6 +13,7 @@ INPUT_DATA_SIZE_PADDED = INPUT_DATA_SIZE_PADDED_PLACEHOLDER
 INPUT_DATA_NUM_CHUNKS = INPUT_DATA_SIZE_PADDED / DIGEST_LEN
 BYTECODE_CLAIM_OFFSET = 1 + DIGEST_LEN + MESSAGE_LEN + 2 + N_MERKLE_CHUNKS
 BYTECODE_HASH_DOMSEP_OFFSET = BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE_PADDED
+BYTECODE_SUMCHECK_PROOF_SIZE = BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER
 
 
 def main():
@@ -20,7 +21,8 @@ def main():
     pub_mem = 0 # See hashing.py for the memory layout
     build_preamble_memory()
 
-    data_buf = hint_read("input_data", INPUT_DATA_SIZE_PADDED)
+    data_buf = Array(INPUT_DATA_SIZE_PADDED)
+    hint_read("input_data", data_buf)
     n_sigs = data_buf[0]
     assert n_sigs != 0
     assert n_sigs - 1 < MAX_N_SIGS
@@ -33,38 +35,39 @@ def main():
     bytecode_claim_output = data_buf + BYTECODE_CLAIM_OFFSET
     bytecode_hash_domsep = data_buf + BYTECODE_HASH_DOMSEP_OFFSET
 
-    meta = hint_read("meta", 2)
+    # meta = [n_recursions, n_dup, pubkeys_len, n_raw_xmss]
+    meta = Array(4)
+    hint_read("meta", meta)
     n_recursions = meta[0]
     assert n_recursions <= MAX_RECURSIONS
 
     n_dup = meta[1]
     assert n_dup < MAX_N_SIGS  # TODO increase
-    all_pubkeys = hint_read("pubkeys")
 
-    raw_xmss_block = hint_read("raw_indices")
-    n_raw_xmss = raw_xmss_block[0]
-    raw_indices = raw_xmss_block + 1
+    all_pubkeys = Array(meta[2])
+    hint_read("pubkeys", all_pubkeys)
+    n_raw_xmss = meta[3]
+    raw_indices = Array(n_raw_xmss)
+    hint_read("raw_indices", raw_indices)
+
+    aggregate_sizes = Array(n_recursions)
+    hint_read("aggregate_sizes", aggregate_sizes)
 
     # 1->1 optimization
     if n_recursions == 1:
         assert n_dup == 0
         if n_raw_xmss == 0:
-            sub_indices_blob = hint_read("sub_indices")
-            n_sub = sub_indices_blob[0]
-            assert n_sub == n_sigs
-            inner_bytecode_claim = hint_read("inner_bytecode_claim", BYTECODE_CLAIM_SIZE_PADDED)
-            bytecode_sumcheck_proof = hint_read("bytecode_sumcheck_proof")
-
             inner_data_buf = build_inner_data_buf(
-                n_sub, pubkeys_hash_expected, message, slot_lo, slot_hi,
-                merkle_chunks_for_slot, bytecode_hash_domsep, inner_bytecode_claim,
+                n_sigs, pubkeys_hash_expected, message, slot_lo, slot_hi,
+                merkle_chunks_for_slot, bytecode_hash_domsep,
             )
+           
             inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
             copy_8(slice_hash_with_iv(inner_data_buf, INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
             bytecode_claims = Array(2)
-            bytecode_claims[0] = inner_bytecode_claim
+            bytecode_claims[0] = inner_data_buf + BYTECODE_CLAIM_OFFSET
             bytecode_claims[1] = recursion(inner_pub_mem, bytecode_hash_domsep)
-            reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output, bytecode_sumcheck_proof)
+            reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output)
             # All fields of `data_buf` are now written: hash it and assert the digest
             # matches the (single-element) public input by writing into public memory.
             outer_hash = slice_hash_with_iv(data_buf, INPUT_DATA_NUM_CHUNKS)
@@ -95,12 +98,12 @@ def main():
     bytecode_claims = Array(n_bytecode_claims)
 
     for rec_idx in range(0, n_recursions):
-        sub_indices_blob = hint_read("sub_indices")
+        sub_indices_blob = Array(aggregate_sizes[rec_idx])
+        hint_read("sub_indices", sub_indices_blob)
         n_sub = sub_indices_blob[0]
         assert n_sub != 0
         assert n_sub < MAX_N_SIGS
         sub_indices_arr = sub_indices_blob + 1
-        inner_bytecode_claim = hint_read("inner_bytecode_claim", BYTECODE_CLAIM_SIZE_PADDED)
 
         idx0 = sub_indices_arr[0]
         assert idx0 < n_total
@@ -122,13 +125,12 @@ def main():
 
         inner_data_buf = build_inner_data_buf(
             n_sub, running_hash, message, slot_lo, slot_hi,
-            merkle_chunks_for_slot, bytecode_hash_domsep, inner_bytecode_claim,
+            merkle_chunks_for_slot, bytecode_hash_domsep,
         )
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
         copy_8(slice_hash_with_iv(inner_data_buf, INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
 
-        bytecode_claims[2 * rec_idx] = inner_bytecode_claim
-
+        bytecode_claims[2 * rec_idx] = inner_data_buf + BYTECODE_CLAIM_OFFSET
         # Verify recursive proof - returns the second bytecode claim
         bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, bytecode_hash_domsep)
 
@@ -143,8 +145,7 @@ def main():
         for k in unroll(1, DIM):
             bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM + k] = 0
     else:
-        bytecode_sumcheck_proof = hint_read("bytecode_sumcheck_proof")
-        reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof)
+        reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output)
 
     # All fields of `data_buf` are now written: hash it and assert the digest
     # matches the (single-element) public input by writing into public memory.
@@ -152,7 +153,7 @@ def main():
     copy_8(outer_hash, pub_mem)
     return
 
-def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output, bytecode_sumcheck_proof):
+def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output):
     bytecode_claims_hash: Mut = ZERO_VEC_PTR
     for i in range(0, n_bytecode_claims):
         claim_ptr = bytecode_claims[i]
@@ -163,6 +164,8 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
         poseidon16_compress(bytecode_claims_hash, claim_hash, new_hash)
         bytecode_claims_hash = new_hash
 
+    bytecode_sumcheck_proof = Array(BYTECODE_SUMCHECK_PROOF_SIZE)
+    hint_read("bytecode_sumcheck_proof", bytecode_sumcheck_proof)
     reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
     reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
     copy_8(bytecode_claims_hash, received_claims_hash)
@@ -196,7 +199,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     return
 
 @inline
-def build_inner_data_buf(n_sub, pubkeys_hash, message, slot_lo, slot_hi, merkle_chunks_for_slot, bytecode_hash_domsep, inner_bytecode_claim):
+def build_inner_data_buf(n_sub, pubkeys_hash, message, slot_lo, slot_hi, merkle_chunks_for_slot, bytecode_hash_domsep):
     inner_data_buf = Array(INPUT_DATA_SIZE_PADDED)
     inner_data_buf[0] = n_sub
     copy_8(pubkeys_hash, inner_data_buf + 1)
@@ -207,8 +210,7 @@ def build_inner_data_buf(n_sub, pubkeys_hash, message, slot_lo, slot_hi, merkle_
     inner_msg[MESSAGE_LEN + 1] = slot_hi
     for k in unroll(0, N_MERKLE_CHUNKS):
         inner_msg[MESSAGE_LEN + 2 + k] = merkle_chunks_for_slot[k]
-    for k in unroll(0, BYTECODE_CLAIM_SIZE_PADDED):
-        inner_data_buf[BYTECODE_CLAIM_OFFSET + k] = inner_bytecode_claim[k]
+    hint_read("inner_bytecode_claim", inner_data_buf + BYTECODE_CLAIM_OFFSET)
     copy_8(bytecode_hash_domsep, inner_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
     for k in unroll(BYTECODE_HASH_DOMSEP_OFFSET + DIGEST_LEN, INPUT_DATA_SIZE_PADDED):
         inner_data_buf[k] = 0

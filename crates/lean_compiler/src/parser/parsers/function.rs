@@ -391,6 +391,16 @@ impl AssignmentParser {
             Expression::FunctionCall {
                 function_name, args, ..
             } => Self::handle_function_call(location, function_name.clone(), args.clone(), targets),
+            Expression::HintRead { .. } => {
+                if !targets.is_empty() {
+                    return Err(SemanticError::new("Cannot assign the result of a hint_read to a variable").into());
+                }
+                Ok(Line::Statement {
+                    targets,
+                    value: expr,
+                    location,
+                })
+            }
             _ => {
                 if targets.is_empty() {
                     return Err(SemanticError::new("Expression statement has no effect").into());

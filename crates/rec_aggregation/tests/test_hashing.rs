@@ -14,12 +14,11 @@ fn test_slice_hashing() {
     for len in [1, 2, 6, 7, 8, 9, 15, 16, 17, 24, 100, 1000, 12345] {
         let mut rng = StdRng::seed_from_u64(0);
         let data: Vec<F> = (0..len).map(|_| rng.random()).collect();
-        let hash = poseidon_compress_slice(&data, true);
-        let public_input: Vec<F> = hash.to_vec();
-        let mut input_blob: Vec<F> = vec![F::from_usize(len)];
-        input_blob.extend(&data);
-        let mut hints = HashMap::new();
-        hints.insert("input".to_string(), vec![input_blob]);
+        let public_input = poseidon_compress_slice(&data, true).to_vec();
+        let hints = HashMap::from([
+            ("input_size".to_string(), vec![vec![F::from_usize(len)]]),
+            ("input".to_string(), vec![data]),
+        ]);
         let witness = ExecutionWitness {
             preamble_memory_len: PREAMBLE_MEMORY_LEN,
             hints,
