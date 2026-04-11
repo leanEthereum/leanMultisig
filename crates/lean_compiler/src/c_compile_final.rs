@@ -10,7 +10,7 @@ impl IntermediateInstruction {
             Self::RequestMemory { .. }
             | Self::Print { .. }
             | Self::CustomHint { .. }
-            | Self::HintRead { .. }
+            | Self::HintWitness { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert { .. }
@@ -312,9 +312,12 @@ fn compile_block(
                 };
                 hints.entry(pc).or_default().push(hint);
             }
-            IntermediateInstruction::HintRead { name, destination } => {
+            IntermediateInstruction::HintWitness { name, destination } => {
                 let destination = destination.map(|offset| eval_const_expression_usize(&offset, compiler));
-                hints.entry(pc).or_default().push(Hint::HintRead { name, destination });
+                hints
+                    .entry(pc)
+                    .or_default()
+                    .push(Hint::HintWitness { name, destination });
             }
             IntermediateInstruction::Print { line_info, content } => {
                 let hint = Hint::Print {

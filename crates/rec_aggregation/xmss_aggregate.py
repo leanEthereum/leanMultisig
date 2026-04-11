@@ -20,7 +20,7 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
     # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
     signature = Array(SIG_SIZE)
-    hint_read("xmss_signature", signature)
+    hint_witness("xmss_signature", signature)
     randomness = signature
     chain_starts = signature + RANDOMNESS_LEN
     merkle_path = chain_starts + V * DIGEST_LEN

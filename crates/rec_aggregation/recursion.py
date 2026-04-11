@@ -43,9 +43,9 @@ PUB_INPUT_SIZE = DIGEST_LEN  # the public input is a single digest
 
 def recursion(inner_public_memory, bytecode_hash_domsep):
     proof_transcript_size_buf = Array(1)
-    hint_read("proof_transcript_size", proof_transcript_size_buf)
+    hint_witness("proof_transcript_size", proof_transcript_size_buf)
     proof_transcript = Array(proof_transcript_size_buf[0])
-    hint_read("proof_transcript", proof_transcript)
+    hint_witness("proof_transcript", proof_transcript)
     fs: Mut = fs_new(proof_transcript)
 
     fs = fs_observe(fs, inner_public_memory, PUB_INPUT_SIZE)  # observe public input (the data digest)
@@ -130,7 +130,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
         bytecode_claim + LOG_GUEST_BYTECODE_LEN * DIM,
         log2_ceil(N_INSTRUCTION_COLUMNS),
     )
-    hint_read("bytecode_value_hint", bytecode_claim + BYTECODE_POINT_N_VARS * DIM)
+    hint_witness("bytecode_value_hint", bytecode_claim + BYTECODE_POINT_N_VARS * DIM)
     for k in unroll(BYTECODE_CLAIM_SIZE, BYTECODE_CLAIM_SIZE_PADDED):
         bytecode_claim[k] = 0
     bytecode_value = bytecode_claim + BYTECODE_POINT_N_VARS * DIM

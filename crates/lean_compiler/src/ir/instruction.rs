@@ -1,6 +1,6 @@
 use super::value::IntermediateValue;
 use crate::lang::{ConstExpression, MathOperation};
-use lean_vm::{BooleanExpr, CustomHint, HintReadDestination, Operation, PrecompileArgs, SourceLocation};
+use lean_vm::{BooleanExpr, CustomHint, HintWitnessDestination, Operation, PrecompileArgs, SourceLocation};
 use std::fmt::{Display, Formatter};
 
 /// Core instruction type for the intermediate representation.
@@ -39,9 +39,9 @@ pub enum IntermediateInstruction {
         size: IntermediateValue, // the hint
     },
     CustomHint(CustomHint, Vec<IntermediateValue>),
-    HintRead {
+    HintWitness {
         name: String,
-        destination: HintReadDestination<ConstExpression>,
+        destination: HintWitnessDestination<ConstExpression>,
     },
     /// Deref hint for range checks - records constraint resolved at end of execution
     DerefHint {
@@ -165,17 +165,17 @@ impl Display for IntermediateInstruction {
                 }
                 write!(f, ")")
             }
-            Self::HintRead {
+            Self::HintWitness {
                 name,
-                destination: HintReadDestination::Inline { offset },
+                destination: HintWitnessDestination::Inline { offset },
             } => {
-                write!(f, "m[fp + {offset} ..] = hint_read(\"{name}\")")
+                write!(f, "m[fp + {offset} ..] = hint_witness(\"{name}\")")
             }
-            Self::HintRead {
+            Self::HintWitness {
                 name,
-                destination: HintReadDestination::Indirect { ptr_offset },
+                destination: HintWitnessDestination::Indirect { ptr_offset },
             } => {
-                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_read(\"{name}\")")
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_witness(\"{name}\")")
             }
             Self::Print { line_info, content } => {
                 write!(f, "print {line_info}: ")?;

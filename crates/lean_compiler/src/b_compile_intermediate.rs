@@ -592,20 +592,20 @@ fn compile_lines(
                     .collect::<Vec<_>>();
                 instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
             }
-            SimpleLine::HintRead { destination, name } => {
+            SimpleLine::HintWitness { destination, name } => {
                 let SimpleExpr::Memory(VarOrConstMallocAccess::Var(ptr_var)) = destination else {
-                    panic!("hint_read: destination must be a plain variable, got {destination}")
+                    panic!("hint_witness: destination must be a plain variable, got {destination}")
                 };
                 let hint_destination = if let Some(IntermediateValue::FpRelative { offset }) =
                     try_precompile_fp_relative(destination, compiler)
                 {
-                    HintReadDestination::Inline { offset }
+                    HintWitnessDestination::Inline { offset }
                 } else {
-                    HintReadDestination::Indirect {
+                    HintWitnessDestination::Indirect {
                         ptr_offset: compiler.get_offset(&ptr_var.clone().into()),
                     }
                 };
-                instructions.push(IntermediateInstruction::HintRead {
+                instructions.push(IntermediateInstruction::HintWitness {
                     name: name.clone(),
                     destination: hint_destination,
                 });
@@ -932,7 +932,7 @@ fn collect_use_info(
             }
         }
 
-        if let SimpleLine::HintRead { destination, .. } = line
+        if let SimpleLine::HintWitness { destination, .. } = line
             && let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = destination
             && fp_rel_capable.contains(v)
         {

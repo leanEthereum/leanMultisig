@@ -69,25 +69,25 @@ pub enum Hint {
         /// End value of the loop: either `m[fp + offset]` (runtime) or a constant.
         end_value: MemOrConstant,
     },
-    HintRead {
+    HintWitness {
         name: String,
-        destination: HintReadDestination<usize>,
+        destination: HintWitnessDestination<usize>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum HintReadDestination<T> {
+pub enum HintWitnessDestination<T> {
     /// Write directly at `m[fp + fp_offset ..]
     Inline { offset: T },
     /// Load the destination address from `m[fp + ptr_offset]` and write there
     Indirect { ptr_offset: T },
 }
 
-impl<T> HintReadDestination<T> {
-    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> HintReadDestination<U> {
+impl<T> HintWitnessDestination<T> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> HintWitnessDestination<U> {
         match self {
-            Self::Inline { offset } => HintReadDestination::Inline { offset: f(offset) },
-            Self::Indirect { ptr_offset } => HintReadDestination::Indirect {
+            Self::Inline { offset } => HintWitnessDestination::Inline { offset: f(offset) },
+            Self::Indirect { ptr_offset } => HintWitnessDestination::Indirect {
                 ptr_offset: f(ptr_offset),
             },
         }
@@ -365,11 +365,11 @@ impl Hint {
             }
             // Handled by the runner's parallel dispatch; no-op in sequential mode.
             Self::ParallelBatchStart { .. } => {}
-            Self::HintRead { name, destination } => {
+            Self::HintWitness { name, destination } => {
                 let data = consume_next_hint_entry(ctx.hints.named_hints, name);
                 let dest_addr = match destination {
-                    HintReadDestination::Inline { offset } => ctx.fp + *offset,
-                    HintReadDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
+                    HintWitnessDestination::Inline { offset } => ctx.fp + *offset,
+                    HintWitnessDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
                 };
                 ctx.memory.set_slice(dest_addr, data)?;
             }
@@ -380,13 +380,13 @@ impl Hint {
 
 fn consume_next_hint_entry<'h>(named_hints: &mut HashMap<String, NamedHintCursor<'h>>, name: &str) -> &'h [F] {
     let cursor = named_hints.get_mut(name).unwrap_or_else(|| {
-        panic!("hint_read: no hint named '{name}'");
+        panic!("hint_witness: no hint named '{name}'");
     });
     let entries = cursor.entries;
     let index = cursor.index;
     assert!(
         index < entries.len(),
-        "hint_read: exhausted entries for '{name}' (index={index}, len={})",
+        "hint_witness: exhausted entries for '{name}' (index={index}, len={})",
         entries.len()
     );
     cursor.index += 1;
@@ -441,17 +441,17 @@ impl Display for Hint {
             Self::ParallelBatchStart { n_args, end_value } => {
                 write!(f, "parallel_batch_start(n_args={n_args}, end={end_value})")
             }
-            Self::HintRead {
+            Self::HintWitness {
                 name,
-                destination: HintReadDestination::Inline { offset },
+                destination: HintWitnessDestination::Inline { offset },
             } => {
-                write!(f, "m[fp + {offset} ..] = hint_read(\"{name}\")")
+                write!(f, "m[fp + {offset} ..] = hint_witness(\"{name}\")")
             }
-            Self::HintRead {
+            Self::HintWitness {
                 name,
-                destination: HintReadDestination::Indirect { ptr_offset },
+                destination: HintWitnessDestination::Indirect { ptr_offset },
             } => {
-                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_read(\"{name}\")")
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_witness(\"{name}\")")
             }
         }
     }
