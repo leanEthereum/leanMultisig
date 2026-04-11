@@ -136,7 +136,11 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         if traces[&table].log_n_rows < p24_log {
             let target = 1usize << p24_log;
             let trace = traces.get_mut(&table).unwrap();
-            let padding = table.padding_row(padding_zero_vec_ptr, null_poseidon_16_hash_ptr, null_poseidon_24_hash_ptr);
+            let padding = table.padding_row(
+                padding_zero_vec_ptr,
+                null_poseidon_16_hash_ptr,
+                null_poseidon_24_hash_ptr,
+            );
             for (col, val) in trace.columns.iter_mut().zip(padding.iter()) {
                 col.resize(target, *val);
             }
