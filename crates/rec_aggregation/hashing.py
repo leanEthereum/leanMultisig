@@ -3,6 +3,18 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
+# memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [private_input ...]
+# `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]... 
+PUBLIC_INPUT_LEN = DIGEST_LEN
+ZERO_VEC_PTR = PUBLIC_INPUT_LEN
+ZERO_VEC_LEN = 16
+SAMPLING_DOMAIN_SEPARATOR_PTR = ZERO_VEC_PTR + ZERO_VEC_LEN
+ONE_EF_PTR = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN
+NUM_REPEATED_ONES = 16
+REPEATED_ONES_PTR = ONE_EF_PTR + DIM
+PREAMBLE_MEMORY_END = REPEATED_ONES_PTR + NUM_REPEATED_ONES
+PREAMBLE_MEMORY_LEN = PREAMBLE_MEMORY_END - PUBLIC_INPUT_LEN
+
 # bit decomposition hint
 LITTLE_ENDIAN = 1
 BIG_ENDIAN = 0

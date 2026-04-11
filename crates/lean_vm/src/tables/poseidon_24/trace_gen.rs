@@ -1,11 +1,8 @@
 use tracing::instrument;
 
 use crate::{
-    F, Poseidon24Mode, ZERO_VEC_PTR,
-    tables::{
-        POSEIDON_24_COL_PRECOMPILE_DATA, POSEIDON_24_OUTPUT_SIZE, POSEIDON_24_PRECOMPILE_DATA_OFFSET, Poseidon1Cols24,
-        WIDTH_24, num_cols_poseidon_24,
-    },
+    F,
+    tables::{POSEIDON_24_OUTPUT_SIZE, Poseidon1Cols24, WIDTH_24},
 };
 use backend::*;
 
@@ -44,29 +41,7 @@ pub fn fill_trace_poseidon_24(trace: &mut [Vec<F>]) {
     }
 }
 
-pub fn default_poseidon_24_row(null_hash_ptr: usize) -> Vec<F> {
-    let mut row = vec![F::ZERO; num_cols_poseidon_24() + 1];
-    let ptrs: Vec<*mut F> = (0..num_cols_poseidon_24())
-        .map(|i| unsafe { row.as_mut_ptr().add(i) })
-        .collect();
-
-    let perm: &mut Poseidon1Cols24<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols24<&mut F>) };
-    perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
-    *perm.flag = F::ZERO;
-    *perm.is_compress_0_9 = F::ONE; // convention
-    *perm.is_permute_0_9 = F::ZERO;
-    *perm.index_input_left = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_input_right = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_res = F::from_usize(null_hash_ptr);
-
-    generate_trace_rows_for_perm_24(perm);
-    // virtual column
-    row[POSEIDON_24_COL_PRECOMPILE_DATA] =
-        F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + Poseidon24Mode::Compress0_9.as_usize()); // ...following the above convention
-    row
-}
-
-fn generate_trace_rows_for_perm_24<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols24<&mut F>) {
+pub(super) fn generate_trace_rows_for_perm_24<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols24<&mut F>) {
     let inputs: [F; WIDTH_24] = std::array::from_fn(|i| *perm.inputs[i]);
     let mut state = inputs;
 

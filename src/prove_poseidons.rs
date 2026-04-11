@@ -5,7 +5,7 @@ use lean_vm::{
     POSEIDON_16_COL_INDEX_INPUT_RIGHT, POSEIDON_16_COL_INPUT_START, POSEIDON_24_COL_INDEX_INPUT_LEFT,
     POSEIDON_24_COL_INDEX_INPUT_RIGHT, POSEIDON_24_COL_INDEX_RES, POSEIDON_24_COL_INPUT_START,
     POSEIDON_24_COL_IS_COMPRESS_0_9, POSEIDON_24_COL_IS_PERMUTE_0_9, Poseidon16Precompile, Poseidon24Precompile,
-    ZERO_VEC_PTR, fill_trace_poseidon_16, fill_trace_poseidon_24, num_cols_poseidon_16, num_cols_poseidon_24,
+    fill_trace_poseidon_16, fill_trace_poseidon_24, num_cols_poseidon_16, num_cols_poseidon_24,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, init_tracing, padd_with_zero_to_next_power_of_two};
@@ -33,8 +33,8 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
     trace[POSEIDON_16_COL_FLAG] = vec![F::ONE; n_rows];
-    trace[POSEIDON_16_COL_INDEX_INPUT_LEFT] = vec![F::from_usize(ZERO_VEC_PTR); n_rows];
-    trace[POSEIDON_16_COL_INDEX_INPUT_RIGHT] = vec![F::from_usize(ZERO_VEC_PTR); n_rows];
+    trace[POSEIDON_16_COL_INDEX_INPUT_LEFT] = vec![F::ZERO; n_rows];
+    trace[POSEIDON_16_COL_INDEX_INPUT_RIGHT] = vec![F::ZERO; n_rows];
     trace[POSEIDON_16_COL_INDEX_INPUT_RES] = vec![F::ZERO; n_rows];
 
     fill_trace_poseidon_16(&mut trace);
@@ -58,8 +58,8 @@ pub fn benchmark_prove_poseidon_24(log_n_rows: usize, tracing: bool) {
     trace[0] = vec![F::ONE; n_rows]; // FLAG
     trace[POSEIDON_24_COL_IS_COMPRESS_0_9] = vec![F::ONE; n_rows]; // compress_0_9 mode for benchmark
     trace[POSEIDON_24_COL_IS_PERMUTE_0_9] = vec![F::ZERO; n_rows];
-    trace[POSEIDON_24_COL_INDEX_INPUT_LEFT] = vec![F::from_usize(ZERO_VEC_PTR); n_rows];
-    trace[POSEIDON_24_COL_INDEX_INPUT_RIGHT] = vec![F::from_usize(ZERO_VEC_PTR); n_rows];
+    trace[POSEIDON_24_COL_INDEX_INPUT_LEFT] = vec![F::ZERO; n_rows];
+    trace[POSEIDON_24_COL_INDEX_INPUT_RIGHT] = vec![F::ZERO; n_rows];
     trace[POSEIDON_24_COL_INDEX_RES] = vec![F::ZERO; n_rows];
 
     fill_trace_poseidon_24(&mut trace);

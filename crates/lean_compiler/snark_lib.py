@@ -67,15 +67,6 @@ class DynArray:
         self._data.pop()
 
 
-# Built-in constants
-ZERO_VEC_PTR = 0
-SAMPLING_DOMAIN_SEPARATOR_PTR = 16
-ONE_EF_PTR = 24
-REPEATED_ONES_PTR = 29
-NUM_REPEATED_ONES_IN_RESERVED_MEMORY = 16
-NONRESERVED_PROGRAM_INPUT_START = 45
-
-
 def poseidon16_compress(left, right, output, mode):
     _ = left, right, output, mode
 

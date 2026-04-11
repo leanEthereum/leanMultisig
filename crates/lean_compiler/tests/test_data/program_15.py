@@ -1,7 +1,10 @@
 from snark_lib import *
 
+ONE_EF_PTR = 1  # right after the (empty-public-input) zero-padded cell at memory[0]
+
 
 def main():
+    init_one_ef()
     x = 1
     y = 2
     i, j, k = func_1(x, y)
@@ -68,4 +71,15 @@ def assert_eq_4(x, y):
 def assert_eq_5(x, y):
     dot_product_ee(x, ONE_EF_PTR, y)
     dot_product_ee(x + 3, ONE_EF_PTR, y + 3)
+    return
+
+
+@inline
+def init_one_ef():
+    one_ef = ONE_EF_PTR
+    one_ef[0] = 1
+    one_ef[1] = 0
+    one_ef[2] = 0
+    one_ef[3] = 0
+    one_ef[4] = 0
     return

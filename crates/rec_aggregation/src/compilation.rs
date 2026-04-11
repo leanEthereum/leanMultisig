@@ -183,15 +183,7 @@ fn compute_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let input_data_size =
         1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    // The actual public input is just a single digest (the hash of the input data).
-    let pub_input_size = DIGEST_LEN;
-    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
-        bytecode_zero_eval,
-        input_data_size_padded,
-    )
+    build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded)
 }
 
 fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
@@ -206,7 +198,6 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 
 fn build_replacements(
     inner_program_log_size: usize,
-    inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
     input_data_size_padded: usize,
 ) -> BTreeMap<String, String> {
@@ -372,14 +363,6 @@ fn build_replacements(
         log_inner_bytecode.to_string(),
     );
     replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
-    replacements.insert(
-        "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
-        NONRESERVED_PROGRAM_INPUT_START.to_string(),
-    );
-    replacements.insert(
-        "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
-        inner_public_memory_log_size.to_string(),
-    );
     replacements.insert(
         "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
         input_data_size_padded.to_string(),

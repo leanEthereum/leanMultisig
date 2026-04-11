@@ -53,7 +53,7 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let public_memory = build_public_memory(public_input);
+    let public_memory = padd_with_zero_to_next_power_of_two(public_input);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
         return Err(ProofError::InvalidProof);

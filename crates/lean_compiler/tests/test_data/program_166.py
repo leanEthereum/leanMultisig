@@ -1,9 +1,11 @@
 from snark_lib import *
 
 DIM = 5
+ONE_EF_PTR = 1  # right after the (empty-public-input) zero-padded cell at memory[0]
 
 
 def main():
+    init_one_ef()
     v = DynArray([1, 2, 3])
     sum1: Mut = 0
     for i in unroll(0, len(v)):
@@ -35,4 +37,15 @@ def main():
 @inline
 def copy_5(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
+    return
+
+
+@inline
+def init_one_ef():
+    one_ef = ONE_EF_PTR
+    one_ef[0] = 1
+    one_ef[1] = 0
+    one_ef[2] = 0
+    one_ef[3] = 0
+    one_ef[4] = 0
     return

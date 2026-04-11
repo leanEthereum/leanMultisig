@@ -123,11 +123,14 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         self.n_columns() + 2 // +2 for COL_ACTIVATION_FLAG and COL_AUX_EXTENSION_OP (non-AIR, used in bus logup)
     }
 
-    fn padding_row(&self) -> Vec<F> {
+    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_16_ptr: usize, _null_hash_24_ptr: usize) -> Vec<F> {
         let mut row = vec![F::ZERO; self.n_columns_total()];
         row[COL_START] = F::ONE;
         row[COL_LEN] = F::ONE;
         row[COL_AUX_EXTENSION_OP] = F::from_usize(EXT_OP_LEN_MULTIPLIER);
+        row[COL_IDX_A] = F::from_usize(zero_vec_ptr);
+        row[COL_IDX_B] = F::from_usize(zero_vec_ptr);
+        row[COL_IDX_RES] = F::from_usize(zero_vec_ptr);
         row
     }
 

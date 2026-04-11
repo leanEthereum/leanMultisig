@@ -3,12 +3,13 @@ from ..utils import *
 
 
 def main():
-    pub_mem = NONRESERVED_PROGRAM_INPUT_START
-    len = pub_mem[0]
+    build_preamble_memory()
+    expected_hash = 0
+    after_preamble: Mut = PREAMBLE_MEMORY_END
+    len = after_preamble[0]
     assert len < 2**15
     debug_assert(0 < len)
-    data = pub_mem + 1
-    expected_hash = pub_mem + 1 + len
+    data: Mut = PREAMBLE_MEMORY_END + 1
     hash = slice_hash_with_iv_dynamic_unroll(data, len, 15)
     copy_8(hash, expected_hash)
     return

@@ -79,8 +79,8 @@ fn mul_kb_24<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
 }
 
 mod trace_gen;
-pub use trace_gen::default_poseidon_24_row;
 pub use trace_gen::fill_trace_poseidon_24;
+use trace_gen::generate_trace_rows_for_perm_24;
 
 pub(super) const WIDTH_24: usize = 24;
 const HALF_INITIAL_FULL_ROUNDS_24: usize = POSEIDON1_HALF_FULL_ROUNDS_24 / 2;
@@ -184,9 +184,26 @@ impl<const BUS: bool> TableT for Poseidon24Precompile<BUS> {
         self.n_columns() + 1 // +1 for POSEIDON_24_POSEIDON_24_COL_PRECOMPILE_DATA
     }
 
-    fn padding_row(&self) -> Vec<F> {
-        // depends on null_poseidon_24_hash_ptr (cf lean_prover/trace_gen.rs)
-        unreachable!()
+    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_16_ptr: usize, null_hash_24_ptr: usize) -> Vec<F> {
+        let mut row = vec![F::ZERO; num_cols_poseidon_24() + 1];
+        let ptrs: Vec<*mut F> = (0..num_cols_poseidon_24())
+            .map(|i| unsafe { row.as_mut_ptr().add(i) })
+            .collect();
+
+        let perm: &mut Poseidon1Cols24<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols24<&mut F>) };
+        perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
+        *perm.flag = F::ZERO;
+        *perm.is_compress_0_9 = F::ONE; // convention
+        *perm.is_permute_0_9 = F::ZERO;
+        *perm.index_input_left = F::from_usize(zero_vec_ptr);
+        *perm.index_input_right = F::from_usize(zero_vec_ptr);
+        *perm.index_res = F::from_usize(null_hash_24_ptr);
+
+        generate_trace_rows_for_perm_24(perm);
+        // virtual column
+        row[POSEIDON_24_COL_PRECOMPILE_DATA] =
+            F::from_usize(POSEIDON_24_PRECOMPILE_DATA_OFFSET + Poseidon24Mode::Compress0_9.as_usize()); // ...following the above convention
+        row
     }
 
     #[inline(always)]

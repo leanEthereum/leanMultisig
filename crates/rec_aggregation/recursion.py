@@ -37,15 +37,14 @@ BYTECODE_POINT_N_VARS = LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS
 BYTECODE_ZERO_EVAL = BYTECODE_ZERO_EVAL_PLACEHOLDER
 BYTECODE_CLAIM_SIZE = (BYTECODE_POINT_N_VARS + 1) * DIM
 BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
-INNER_PUBLIC_MEMORY_LOG_SIZE = INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER
+INNER_PUBLIC_MEMORY_LOG_SIZE = 3 # public input = 1 hash digest = 8 field elements
 PUB_INPUT_SIZE = DIGEST_LEN  # the public input is a single digest
 
 
 def recursion(inner_public_memory, proof_transcript, bytecode_value_hint, bytecode_hash_domsep):
     fs: Mut = fs_new(proof_transcript)
 
-    inner_pub_input = inner_public_memory + NONRESERVED_PROGRAM_INPUT_START
-    fs = fs_observe(fs, inner_pub_input, PUB_INPUT_SIZE)  # observe public input (the data digest)
+    fs = fs_observe(fs, inner_public_memory, PUB_INPUT_SIZE)  # observe public input (the data digest)
     fs = fs_observe(fs, bytecode_hash_domsep, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
     # table dims
