@@ -60,9 +60,6 @@ def xmss_verify(pub_key, message, merkle_chunks):
 
     # Decompose the encoding into chunks of 2*W bits. Each chunk packs the chain step
     # counts of two consecutive WOTS chains: chunk i = step_{2i} + CHAIN_LENGTH * step_{2i+1}.
-    # Compared to the per-W-bit decomposition, this halves the number of `match_range`
-    # dispatch sites in the chain-hash loop (one match per pair, with CHAIN_LENGTH^2
-    # arms, instead of two matches per pair with CHAIN_LENGTH arms each).
     encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
     remaining = Array(NUM_ENCODING_FE)
 
@@ -81,22 +78,8 @@ def xmss_verify(pub_key, message, merkle_chunks):
         assert partial_sum == encoding_fe[i]
 
 
-
-    # 2) Chain hashes -> recover WOTS public key
-    # `wots_public_key` layout: V/2 pairs of stride WOTS_PK_PAIR_STRIDE = 10. Each pair
-    # is `[leading_0(1) | tip_a(4) | tip_b(4) | trailing_0(1)]`. The leading and trailing
-    # zero cells are slack used by `chain_hash_pair`'s copy_5 calls in the n==0 case
-    # (the 5th cell that copy_5 always writes lands in slack, never in the adjacent
-    # chain's slot). The wots_pk_hash absorbs 8 zeros first (matching the Rust side),
-    # then iterates over pairs reading 8 cells `[tip_a | tip_b]` per pair from offset
-    # `i * WOTS_PK_PAIR_STRIDE + 1`. Plus 4 trailing slots so the LAST chain b's
-    # half-output lookup stays in bounds.
-    wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE + 4)
-
-    # Each pair (chain 2*i, chain 2*i+1) is dispatched in a single match_range with
-    # CHAIN_LENGTH^2 arms. The per-pair compile-time chain-step sum is written into
-    # `pair_sum_ptr` by `chain_hash_pair` and accumulated at runtime into `target_sum`.
     debug_assert(V % 2 == 0)
+    wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE)
     target_sum: Mut = 0
     for i in unroll(0, V / 2):
         chain_start_a = chain_starts + (2 * i) * XMSS_DIGEST_LEN
@@ -126,38 +109,16 @@ def xmss_verify(pub_key, message, merkle_chunks):
 
     assert target_sum == TARGET_SUM
 
-    # 3) Hash WOTS public key (the LEFT-input tweak slot is baked in via TWEAK_TABLE_ADDR)
-    expected_leaf = wots_pk_hash(wots_public_key, public_param)
+    merkle_leaf = wots_pk_hash(wots_public_key, public_param)
 
-    # 4) Merkle verification — merkle_tweaks is now a compile-time constant absolute
-    # address, which lets do_4_merkle_levels feed tweak offsets straight into
-    # poseidon16_compress_hardcoded_left_4.
     merkle_tweaks = TWEAK_TABLE_ADDR + TWEAK_MERKLE_OFFSET
-    xmss_merkle_verify(expected_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
+    xmss_merkle_verify(merkle_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
     return
 
 
 @inline
 def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
-    # Chain of n half-output poseidon compressions:
-    #   D_0    = poseidon([tweak_s     | 00 | input(4)],  chain_right)[..4]
-    #   D_j    = poseidon([tweak_{s+j} | 00 | D_{j-1}],   chain_right)[..4]   for j in 1..n-2
-    #   output = poseidon([tweak_{s+n-1} | 00 | D_{n-2}], chain_right)[..4]
-    # where s = starting_step = CHAIN_LENGTH - 1 - n.
-    #
-    # `chain_i_tweaks` is a compile-time constant absolute address into the tweak table,
-    # so each per-step `chain_i_tweaks + k * TWEAK_LEN` is also compile-time. The LEFT
-    # prefix [tweak | 00] is read straight from the tweak slot by the hardcoded_left_4
-    # precompile — no per-hash buffer copies. Every output is consumed as a 4-element
-    # digest, so we use the `_half_` variant.
-    #
-    # Intermediate digests are packed at stride XMSS_DIGEST (= 4) inside `digests`.
-    # The buffer is sized n * XMSS_DIGEST: (n-1) digests at offsets 0, 4, ..., (n-2)*4
-    # plus 4 trailing slots that the last digest's RES lookup reads (vacuously, since
-    # half_output leaves those columns unconstrained — the prover sets them to whatever
-    # is at memory[res+4..res+8], which is 0 in write-once memory).
     starting_step = CHAIN_LENGTH - 1 - n
-
     if n == 1:
         first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
         poseidon16_compress_half_hardcoded_left_4(input, chain_right, output, first_tweak)
@@ -199,36 +160,17 @@ def chain_hash_pair(
     pair_sum_ptr,
 ):
     # Pair-encoded chain hash. `n` is a compile-time constant in [0, CHAIN_LENGTH^2)
-    # supplied by `match_range`. It packs two raw chain step counts:
-    #   raw_a = n % CHAIN_LENGTH    (chain 2*i)
-    #   raw_b = (n - raw_a) / CHAIN_LENGTH    (chain 2*i + 1)
-    # so the inverse is n = raw_a + CHAIN_LENGTH * raw_b, matching the bit layout
-    # produced by `hint_decompose_bits_xmss(..., 2 * W)`.
-    #
-    # We dispatch both chains from a single match arm, halving the number of
-    # match-arm sites compared to the per-chain version. Both chains share the
-    # same RIGHT poseidon input ([pp(4) | zeros(4)] in `chain_right`).
-    #
-    # `pair_sum_ptr[0]` receives the compile-time constant `raw_a + raw_b`, which
-    # the caller accumulates into the runtime `target_sum`.
     raw_a = n % CHAIN_LENGTH
     raw_b = (n - raw_a) / CHAIN_LENGTH
     num_hashes_a = (CHAIN_LENGTH - 1) - raw_a
     num_hashes_b = (CHAIN_LENGTH - 1) - raw_b
 
     if num_hashes_a == 0:
-        # Single-cycle copy_5: writes 5 cells [output_a[-1..4]]. The 5th cell is the
-        # leading-zero slack of this pair (output_a points to pair_start + 1, so
-        # output_a - 1 = pair_start = leading_0). The slack cell receives input_a[-1]
-        # (a signature byte) — harmless because nothing else reads it.
         copy_5(input_a - 1, output_a - 1)
     else:
         chain_hash_pa(input_a, num_hashes_a, output_a, tweaks_a, chain_right)
 
     if num_hashes_b == 0:
-        # Single-cycle copy_5: writes 5 cells [output_b[0..4]]. The 5th cell lands in
-        # the trailing-zero slack of this pair (output_b = pair_start + 5; output_b + 4
-        # = pair_start + 9 = trailing_0). It receives input_b[4] — harmless.
         copy_5(input_b, output_b)
     else:
         chain_hash_pa(input_b, num_hashes_b, output_b, tweaks_b, chain_right)
@@ -239,26 +181,8 @@ def chain_hash_pair(
 
 @inline
 def wots_pk_hash(wots_public_key, public_param):
-    # Sponge-like hash of V public key digests, packed at stride WOTS_PK_PAIR_STRIDE
-    # in `wots_public_key`. Each pair occupies 10 cells:
-    # `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. The 8-FE sponge chunk for
-    # pair i is `[tip_a | tip_b]` at offset `i * WOTS_PK_PAIR_STRIDE + 1` (skipping
-    # the per-pair leading_0 slack).
-    #
-    # IV = [tweak(2) | 00 | pp(4)]. We absorb 8 zeros first via hardcoded_left_4
-    # against `ZERO_VEC_PTR` (matching the Rust side's `WotsPublicKey::hash`), then
-    # iterate over pairs in a uniform `for i in 0..N_CHUNKS` loop. The leading
-    # zero-absorb gives us a uniform loop and lets each pair's slack cells live in
-    # the buffer (used by `chain_hash_pair` copy_5 calls).
-    # V must be even.
     N_CHUNKS = V / 2
-
-    # +1 chunk for the initial zero-absorb output.
     states = Array((N_CHUNKS + 1) * DIGEST_LEN)
-    # Initial absorb of 8 zeros: state[0..8] = poseidon([tweak(2) | 00 | pp(4)], 0(8)).
-    # The precompile reads [tweak(2) | 00] from the wots_pk tweak slot at the
-    # compile-time address `TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET` and `[pp(4)]`
-    # from the runtime `public_param` pointer.
     poseidon16_compress_hardcoded_left_4(
         public_param, ZERO_VEC_PTR, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
     )
