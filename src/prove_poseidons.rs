@@ -71,7 +71,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
         };
 
         let air_claims = prove_air::<EF, _>(&mut prover_state, &air, extra_data, &collect_refs(&trace), None, true);
-        assert!(air_claims.down_point.is_none());
+        assert!(air_claims.evals_down.is_empty());
         assert_eq!(air_claims.evals.len(), air.n_columns());
 
         let betas = prover_state.sample_vec(log2_ceil_usize(num_cols_poseidon_16()));
