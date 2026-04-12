@@ -430,6 +430,85 @@ fn build_replacements(
         stacking_offset += n_rows * n_cols;
     }
 
+    // Hardcoded bit decompositions for multilinear_location_prefix (non-inlined)
+    // n_vars_logup_gkr = 24 (asserted in Python)
+    let n_vars_logup_gkr: usize = 24;
+
+    // PREFIX_4: memory_and_acc_prefix (offset=0, n_vars=24-22=2)
+    insert_prefix_replacement(&mut replacements, 4, n_vars_logup_gkr - inner_log_memory, &decompose_bits_be(0, n_vars_logup_gkr - inner_log_memory));
+
+    // PREFIX_5: bytecode prefix (GKR) (offset=2^22/2^19=8, n_vars=24-19=5)
+    let gkr_bytecode_offset = (1usize << inner_log_memory) >> log_inner_bytecode;
+    insert_prefix_replacement(&mut replacements, 5, n_vars_logup_gkr - log_inner_bytecode, &decompose_bits_be(gkr_bytecode_offset, n_vars_logup_gkr - log_inner_bytecode));
+
+    // PREFIX_6: bytecode padded prefix (GKR) (offset=2^22/2^19=8, n_vars=24-19=5)
+    let gkr_bytecode_padded_offset = (1usize << inner_log_memory) >> inner_log_bytecode_padded;
+    insert_prefix_replacement(&mut replacements, 6, n_vars_logup_gkr - inner_log_bytecode_padded, &decompose_bits_be(gkr_bytecode_padded_offset, n_vars_logup_gkr - inner_log_bytecode_padded));
+
+    // PREFIX_7: prefix_memory (stacked) (offset=0, n_vars=25-22=3)
+    insert_prefix_replacement(&mut replacements, 7, whir_open_n_vars - inner_log_memory, &decompose_bits_be(0, whir_open_n_vars - inner_log_memory));
+
+    // PREFIX_8: prefix_acc_memory (stacked) (offset=1, n_vars=25-22=3)
+    insert_prefix_replacement(&mut replacements, 8, whir_open_n_vars - inner_log_memory, &decompose_bits_be(1, whir_open_n_vars - inner_log_memory));
+
+    // GKR table loop prefixes
+    // Offset entering continue_recursion_ordered = 2^22 + 2^19
+    let mut gkr_offset = (1usize << inner_log_memory) + (1usize << inner_log_bytecode_padded);
+    let gkr_table_order: [(Table, usize); 3] = [
+        (Table::execution(), 19),  // sorted_pos=0
+        (Table::poseidon16(), 17), // sorted_pos=1
+        (Table::extension_op(), 14), // sorted_pos=2
+    ];
+
+    for (sp, (table, log_n_rows)) in gkr_table_order.iter().enumerate() {
+        let n_rows = 1usize << log_n_rows;
+        let n_bits = n_vars_logup_gkr - log_n_rows;
+
+        // Bytecode prefix (execution only, sp=0)
+        if sp == 0 {
+            let bc_offset = gkr_offset / n_rows;
+            insert_prefix_replacement(&mut replacements, 9, n_bits, &decompose_bits_be(bc_offset, n_bits));
+            gkr_offset += n_rows;
+        }
+
+        // Bus prefix
+        let bus_offset = gkr_offset / n_rows;
+        replacements.insert(format!("GKR_BUS_{}_N_BITS_PLACEHOLDER", sp), n_bits.to_string());
+        replacements.insert(
+            format!("GKR_BUS_{}_BITS_PLACEHOLDER", sp),
+            format!("[{}]", decompose_bits_be(bus_offset, n_bits).iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")),
+        );
+        gkr_offset += n_rows;
+
+        // Lookup prefixes (3D: [lookup_f_index][value_index][bit])
+        let lookups = table.lookups();
+        let mut lookup_bits_3d: Vec<Vec<Vec<usize>>> = Vec::new();
+        for lookup in &lookups {
+            let mut values_bits: Vec<Vec<usize>> = Vec::new();
+            for _vi in 0..lookup.values.len() {
+                let lk_offset = gkr_offset / n_rows;
+                values_bits.push(decompose_bits_be(lk_offset, n_bits));
+                gkr_offset += n_rows;
+            }
+            lookup_bits_3d.push(values_bits);
+        }
+        replacements.insert(format!("GKR_LOOKUP_{}_N_BITS_PLACEHOLDER", sp), n_bits.to_string());
+        replacements.insert(
+            format!("GKR_LOOKUP_{}_BITS_PLACEHOLDER", sp),
+            format!(
+                "[{}]",
+                lookup_bits_3d.iter().map(|lf| {
+                    format!(
+                        "[{}]",
+                        lf.iter().map(|vi| {
+                            format!("[{}]", vi.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "))
+                        }).collect::<Vec<_>>().join(", ")
+                    )
+                }).collect::<Vec<_>>().join(", ")
+            ),
+        );
+    }
+
     replacements
 }
 

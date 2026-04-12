@@ -66,6 +66,36 @@ TABLE_PREFIX_1_BITS = TBL_PFX_1_BITS_PLACEHOLDER
 TABLE_PREFIX_2_N_BITS = TBL_PFX_2_N_BITS_PLACEHOLDER
 TABLE_PREFIX_2_BITS = TBL_PFX_2_BITS_PLACEHOLDER
 
+# Hardcoded bit decompositions for multilinear_location_prefix (non-inlined)
+# Simple call sites
+PREFIX_4_N_BITS = PREFIX_4_N_BITS_PLACEHOLDER  # memory_and_acc_prefix (GKR)
+PREFIX_4_BITS = PREFIX_4_BITS_PLACEHOLDER
+PREFIX_5_N_BITS = PREFIX_5_N_BITS_PLACEHOLDER  # bytecode prefix (GKR)
+PREFIX_5_BITS = PREFIX_5_BITS_PLACEHOLDER
+PREFIX_6_N_BITS = PREFIX_6_N_BITS_PLACEHOLDER  # bytecode padded prefix (GKR)
+PREFIX_6_BITS = PREFIX_6_BITS_PLACEHOLDER
+PREFIX_7_N_BITS = PREFIX_7_N_BITS_PLACEHOLDER  # prefix_memory (stacked)
+PREFIX_7_BITS = PREFIX_7_BITS_PLACEHOLDER
+PREFIX_8_N_BITS = PREFIX_8_N_BITS_PLACEHOLDER  # prefix_acc_memory (stacked)
+PREFIX_8_BITS = PREFIX_8_BITS_PLACEHOLDER
+# Bytecode prefix (execution only, GKR table loop)
+PREFIX_9_N_BITS = PREFIX_9_N_BITS_PLACEHOLDER
+PREFIX_9_BITS = PREFIX_9_BITS_PLACEHOLDER
+# Bus prefixes (GKR table loop, per sorted_pos)
+GKR_BUS_0_N_BITS = GKR_BUS_0_N_BITS_PLACEHOLDER
+GKR_BUS_0_BITS = GKR_BUS_0_BITS_PLACEHOLDER
+GKR_BUS_1_N_BITS = GKR_BUS_1_N_BITS_PLACEHOLDER
+GKR_BUS_1_BITS = GKR_BUS_1_BITS_PLACEHOLDER
+GKR_BUS_2_N_BITS = GKR_BUS_2_N_BITS_PLACEHOLDER
+GKR_BUS_2_BITS = GKR_BUS_2_BITS_PLACEHOLDER
+# Lookup prefixes (GKR table loop, 3D: [lookup_f_index][value_index][bit])
+GKR_LOOKUP_0_N_BITS = GKR_LOOKUP_0_N_BITS_PLACEHOLDER
+GKR_LOOKUP_0_BITS = GKR_LOOKUP_0_BITS_PLACEHOLDER
+GKR_LOOKUP_1_N_BITS = GKR_LOOKUP_1_N_BITS_PLACEHOLDER
+GKR_LOOKUP_1_BITS = GKR_LOOKUP_1_BITS_PLACEHOLDER
+GKR_LOOKUP_2_N_BITS = GKR_LOOKUP_2_N_BITS_PLACEHOLDER
+GKR_LOOKUP_2_BITS = GKR_LOOKUP_2_BITS_PLACEHOLDER
+
 
 
 @inline
@@ -199,7 +229,10 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     numerators_value = gkr_claims_num[23]
     denominators_value = gkr_claims_den[23]
 
-    memory_and_acc_prefix = multilinear_location_prefix(0, n_vars_logup_gkr - log_memory, point_gkr)
+    memory_and_acc_prefix_bits = Array(PREFIX_4_N_BITS)
+    for i_b in unroll(0, PREFIX_4_N_BITS):
+        memory_and_acc_prefix_bits[i_b] = PREFIX_4_BITS[i_b]
+    memory_and_acc_prefix = eq_mle_base_extension_inlined(memory_and_acc_prefix_bits, point_gkr, PREFIX_4_N_BITS)
 
     fs, value_acc = fs_receive_ef_inlined(fs, 1)
     fs, value_memory = fs_receive_ef_inlined(fs, 1)
@@ -213,12 +246,14 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     offset: Mut = two_exp(log_memory)
 
     bytecode_and_acc_point = point_gkr + (n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN) * DIM
-    bytecode_multilinear_location_prefix = multilinear_location_prefix(
-        offset / 2**LOG_GUEST_BYTECODE_LEN, n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN, point_gkr
-    )
-    bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
-        offset / two_exp(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
-    )
+    bytecode_mlp_bits = Array(PREFIX_5_N_BITS)
+    for i_b in unroll(0, PREFIX_5_N_BITS):
+        bytecode_mlp_bits[i_b] = PREFIX_5_BITS[i_b]
+    bytecode_multilinear_location_prefix = eq_mle_base_extension_inlined(bytecode_mlp_bits, point_gkr, PREFIX_5_N_BITS)
+    bytecode_padded_mlp_bits = Array(PREFIX_6_N_BITS)
+    for i_b in unroll(0, PREFIX_6_N_BITS):
+        bytecode_padded_mlp_bits[i_b] = PREFIX_6_BITS[i_b]
+    bytecode_padded_multilinear_location_prefix = eq_mle_base_extension_inlined(bytecode_padded_mlp_bits, point_gkr, PREFIX_6_N_BITS)
     # Build padded claim data: [point | value | zero padding]
     bytecode_claim = Array(BYTECODE_CLAIM_SIZE_PADDED)
     copy_many_ef(bytecode_and_acc_point, bytecode_claim, LOG_GUEST_BYTECODE_LEN)
@@ -370,7 +405,10 @@ def continue_recursion_ordered(
 
         if table_index == EXECUTION_TABLE_INDEX:
             # 0] Bytecode lookup
-            bytecode_prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
+            bytecode_prefix_bits = Array(PREFIX_9_N_BITS)
+            for i_b in unroll(0, PREFIX_9_N_BITS):
+                bytecode_prefix_bits[i_b] = PREFIX_9_BITS[i_b]
+            bytecode_prefix = eq_mle_base_extension_inlined(bytecode_prefix_bits, point_gkr, PREFIX_9_N_BITS)
 
             fs, eval_on_pc = fs_receive_ef_inlined(fs, 1)
             pcs_values[EXECUTION_TABLE_INDEX][0][COL_PC].push(eval_on_pc)
@@ -386,7 +424,22 @@ def continue_recursion_ordered(
             )
             offset += n_rows
 
-        prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
+        prefix: Imu
+        if sorted_pos == 0:
+            bus_bits_0 = Array(GKR_BUS_0_N_BITS)
+            for i_b in unroll(0, GKR_BUS_0_N_BITS):
+                bus_bits_0[i_b] = GKR_BUS_0_BITS[i_b]
+            prefix = eq_mle_base_extension_inlined(bus_bits_0, point_gkr, GKR_BUS_0_N_BITS)
+        if sorted_pos == 1:
+            bus_bits_1 = Array(GKR_BUS_1_N_BITS)
+            for i_b in unroll(0, GKR_BUS_1_N_BITS):
+                bus_bits_1[i_b] = GKR_BUS_1_BITS[i_b]
+            prefix = eq_mle_base_extension_inlined(bus_bits_1, point_gkr, GKR_BUS_1_N_BITS)
+        if sorted_pos == 2:
+            bus_bits_2 = Array(GKR_BUS_2_N_BITS)
+            for i_b in unroll(0, GKR_BUS_2_N_BITS):
+                bus_bits_2[i_b] = GKR_BUS_2_BITS[i_b]
+            prefix = eq_mle_base_extension_inlined(bus_bits_2, point_gkr, GKR_BUS_2_N_BITS)
 
         fs, eval_on_selector = fs_receive_ef_inlined(fs, 1)
         retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, eval_on_selector))
@@ -413,7 +466,22 @@ def continue_recursion_ordered(
                 debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
                 pcs_values[table_index][0][col_index].push(value_eval)
 
-                pref = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)  # TODO there is some duplication here
+                pref: Imu
+                if sorted_pos == 0:
+                    lk0_bits = Array(GKR_LOOKUP_0_N_BITS)
+                    for i_b in unroll(0, GKR_LOOKUP_0_N_BITS):
+                        lk0_bits[i_b] = GKR_LOOKUP_0_BITS[lookup_f_index][i][i_b]
+                    pref = eq_mle_base_extension_inlined(lk0_bits, point_gkr, GKR_LOOKUP_0_N_BITS)
+                if sorted_pos == 1:
+                    lk1_bits = Array(GKR_LOOKUP_1_N_BITS)
+                    for i_b in unroll(0, GKR_LOOKUP_1_N_BITS):
+                        lk1_bits[i_b] = GKR_LOOKUP_1_BITS[lookup_f_index][i][i_b]
+                    pref = eq_mle_base_extension_inlined(lk1_bits, point_gkr, GKR_LOOKUP_1_N_BITS)
+                if sorted_pos == 2:
+                    lk2_bits = Array(GKR_LOOKUP_2_N_BITS)
+                    for i_b in unroll(0, GKR_LOOKUP_2_N_BITS):
+                        lk2_bits[i_b] = GKR_LOOKUP_2_BITS[lookup_f_index][i][i_b]
+                    pref = eq_mle_base_extension_inlined(lk2_bits, point_gkr, GKR_LOOKUP_2_N_BITS)
                 retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref)
                 fingerp = fingerprint_2(
                     LOGUP_MEMORY_DOMAINSEP,
@@ -605,14 +673,20 @@ def continue_recursion_ordered(
         memory_and_acc_point,
         log_memory,
     )
-    prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, folding_randomness_global)
+    prefix_memory_bits = Array(PREFIX_7_N_BITS)
+    for i_b in unroll(0, PREFIX_7_N_BITS):
+        prefix_memory_bits[i_b] = PREFIX_7_BITS[i_b]
+    prefix_memory = eq_mle_base_extension_inlined(prefix_memory_bits, folding_randomness_global, PREFIX_7_N_BITS)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
-    prefix_acc_memory = multilinear_location_prefix(1, stacked_n_vars - log_memory, folding_randomness_global)
+    prefix_acc_memory_bits = Array(PREFIX_8_N_BITS)
+    for i_b in unroll(0, PREFIX_8_N_BITS):
+        prefix_acc_memory_bits[i_b] = PREFIX_8_BITS[i_b]
+    prefix_acc_memory = eq_mle_base_extension_inlined(prefix_acc_memory_bits, folding_randomness_global, PREFIX_8_N_BITS)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc_memory), eq_memory_and_acc_point),
