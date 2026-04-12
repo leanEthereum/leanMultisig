@@ -2535,9 +2535,7 @@ fn simplify_lines(
                                     ));
                                 }
                             }
-                            if !matches!(&left, SimpleExpr::Memory(_))
-                                && !matches!(&right, SimpleExpr::Memory(_))
-                            {
+                            if !matches!(&left, SimpleExpr::Memory(_)) && !matches!(&right, SimpleExpr::Memory(_)) {
                                 return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"));
                             }
                             res.push(SimpleLine::AssertEq {
