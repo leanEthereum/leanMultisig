@@ -359,6 +359,9 @@ impl MathOperation {
     pub fn is_unary(&self) -> bool {
         self.num_args() == 1
     }
+    pub const fn supports_runtime(&self) -> bool {
+        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
+    }
     pub fn num_args(&self) -> usize {
         match self {
             Self::Log2Ceil => 1,

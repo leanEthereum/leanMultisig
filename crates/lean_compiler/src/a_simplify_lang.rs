@@ -2406,6 +2406,11 @@ fn simplify_lines(
                                             let result = ConstExpression::MathExpr(*operation, const_args);
                                             res.push(SimpleLine::equality(target_var, SimpleExpr::Constant(result)));
                                         } else {
+                                            if !operation.supports_runtime() {
+                                                return Err(format!(
+                                                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                                                ));
+                                            }
                                             res.push(SimpleLine::Assignment {
                                                 var: target_var.into(),
                                                 operation: *operation,
@@ -2449,6 +2454,11 @@ fn simplify_lines(
                                         let result = ConstExpression::MathExpr(*operation, const_args);
                                         res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
                                     } else {
+                                        if !operation.supports_runtime() {
+                                            return Err(format!(
+                                                "Operation `{operation}` is compile-time only; all operands must be constants"
+                                            ));
+                                        }
                                         assert_eq!(simplified_args.len(), 2);
                                         res.push(SimpleLine::Assignment {
                                             var,
@@ -3061,6 +3071,11 @@ fn simplify_expr(
                 .collect::<Result<Vec<_>, _>>()?;
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
                 return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
+            }
+            if !operation.supports_runtime() {
+                return Err(format!(
+                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                ));
             }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
