@@ -81,20 +81,32 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 
-def eq_mle_extension(a, b, n):
+@inline
+def eq_mle_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
+    match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, dst, i))
+    return
+
+
+def eq_mle_extension(a, b, n):
     res = Array(DIM)
-    match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, res, i))
+    eq_mle_extension_to(a, b, res, n)
     return res
 
 
 @inline
-def eq_mle_base_extension(a, b, n):
+def eq_mle_base_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
+    match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, dst, i))
+    return
+
+
+@inline
+def eq_mle_base_extension(a, b, n):
     res = Array(DIM)
-    match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, res, i))
+    eq_mle_base_extension_to(a, b, res, n)
     return res
 
 
