@@ -789,12 +789,6 @@ def continue_recursion_ordered(
     return
 
 
-def multilinear_location_prefix(offset, n_vars, point):
-    bits = checked_decompose_bits_small_value(offset, n_vars)
-    res = eq_mle_base_extension(bits, point, n_vars)
-    return res
-
-
 def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     buff = Array(DIM * 2)
     copy_5(data_1, buff)

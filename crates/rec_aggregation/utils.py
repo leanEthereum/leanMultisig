@@ -468,42 +468,93 @@ def checked_decompose_bits(a):
     return bits, partial_sums_24
 
 
+
 @inline
-def checked_decompose_bits_and_compute_root_pow_const(a, domain_size):
-    # Hint 6 nibbles (4 bits each) + 1 top-7-bit value = 7 hints
+def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
+    """Fused decomposition + Merkle verification + root power computation.
+    Processes each nibble only once (single match_range dispatch per nibble)."""
+    # Step 1: Decompose and verify
     nibbles = Array(6)
     top7: Imu
     hint_decompose_bits_merkle_whir(nibbles, top7, a, 4)
 
     for i in unroll(0, 6):
         assert nibbles[i] < 16
-
     assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
-
     if top7 == 2**7 - 1:
         assert partial_sum == 0
-
     assert partial_sum + top7 * 2**24 == a
 
-    # Compute domain_generator^index
+    # Step 2: Hint and hash Merkle leaf
+    leaf_data = Array(num_chunks * DIGEST_LEN)
+    hint_witness("merkle_leaf", leaf_data)
+    leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
+
+    merkle_path = Array(domain_size * DIGEST_LEN)
+    hint_witness("merkle_path", merkle_path)
+
+    n_full_nibbles = (domain_size - domain_size % 4) / 4
+    n_nibbles = div_ceil(domain_size, 4)
+    states = Array((n_nibbles - 1) * DIGEST_LEN)
+
+    # Step 3: Fused root power + Merkle (single match_range per nibble)
     prod: Mut = 1
-    for k in unroll(0, (domain_size - domain_size % 4) / 4):
-        nib_pow = match_range(nibbles[k], range(0, 16), lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * k) * v))
+
+    # First nibble: leaf_hash -> states[0]
+    nib_pow = match_range(nibbles[0], range(0, 16),
+        lambda v: whir_do_4_merkle_levels_ret(v, leaf_hash, merkle_path, states,
+            ROOT ** (2 ** (TWO_ADICITY - domain_size) * v)))
+    prod *= nib_pow
+
+    # Middle nibbles: states[k-1] -> states[k]
+    for k in unroll(1, n_nibbles - 1):
+        nib_pow = match_range(nibbles[k], range(0, 16),
+            lambda v: whir_do_4_merkle_levels_ret(v,
+                states + (k - 1) * DIGEST_LEN,
+                merkle_path + 4 * k * DIGEST_LEN,
+                states + k * DIGEST_LEN,
+                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * k) * v)))
         prod *= nib_pow
 
-    if domain_size % 4 != 0:
-        edge_pow = match_range(
-            nibbles[(domain_size - domain_size % 4) / 4],
-            range(0, 16),
-            lambda v: ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * ((domain_size - domain_size % 4) / 4)) * (v % 2 ** (domain_size % 4))),
-        )
-        prod *= edge_pow
+    # Last nibble: states[-1] -> root
+    if domain_size % 4 == 0:
+        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
+            lambda v: whir_do_4_merkle_levels_ret(v,
+                states + (n_nibbles - 2) * DIGEST_LEN,
+                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
+                prev_root,
+                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * (n_nibbles - 1)) * v)))
+        prod *= nib_pow
+    elif domain_size % 4 == 1:
+        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
+            lambda v: whir_do_1_merkle_level_ret(v,
+                states + (n_nibbles - 2) * DIGEST_LEN,
+                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
+                prev_root,
+                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 1))))
+        prod *= nib_pow
+    elif domain_size % 4 == 2:
+        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
+            lambda v: whir_do_2_merkle_levels_ret(v,
+                states + (n_nibbles - 2) * DIGEST_LEN,
+                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
+                prev_root,
+                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 2))))
+        prod *= nib_pow
+    elif domain_size % 4 == 3:
+        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
+            lambda v: whir_do_3_merkle_levels_ret(v,
+                states + (n_nibbles - 2) * DIGEST_LEN,
+                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
+                prev_root,
+                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 3))))
+        prod *= nib_pow
 
-    return nibbles, prod
+    return leaf_data, prod
 
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):

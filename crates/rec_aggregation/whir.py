@@ -333,8 +333,7 @@ def sample_stir_indexes_and_fold_r0(fs: Mut, prev_root, folding_randomness):
     merkle_leaves = Array(WHIR_OPEN_R0_QUERIES)
     circle_values = Array(WHIR_OPEN_R0_QUERIES)
     for i in unroll(0, WHIR_OPEN_R0_QUERIES):
-        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], WHIR_OPEN_R0_FOLDED_DOMAIN_LOG)
-        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, WHIR_OPEN_R0_FOLDED_DOMAIN_LOG, WHIR_OPEN_R0_LEAF_CHUNKS)
+        merkle_leaves[i], circle_values[i] = decompose_and_verify_query_const(sampled[i], WHIR_OPEN_R0_FOLDED_DOMAIN_LOG, prev_root, WHIR_OPEN_R0_LEAF_CHUNKS)
     folds = Array(WHIR_OPEN_R0_QUERIES * DIM)
     poly_eq = poly_eq_extension_inlined(folding_randomness, WHIR_OPEN_R0_FOLD)
     for i in unroll(0, WHIR_OPEN_R0_QUERIES):
@@ -350,8 +349,7 @@ def sample_stir_indexes_and_fold_r1(fs: Mut, prev_root, folding_randomness):
     merkle_leaves = Array(WHIR_OPEN_R1_QUERIES)
     circle_values = Array(WHIR_OPEN_R1_QUERIES)
     for i in unroll(0, WHIR_OPEN_R1_QUERIES):
-        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], WHIR_OPEN_R1_FOLDED_DOMAIN_LOG)
-        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, WHIR_OPEN_R1_FOLDED_DOMAIN_LOG, WHIR_OPEN_R1_LEAF_CHUNKS)
+        merkle_leaves[i], circle_values[i] = decompose_and_verify_query_const(sampled[i], WHIR_OPEN_R1_FOLDED_DOMAIN_LOG, prev_root, WHIR_OPEN_R1_LEAF_CHUNKS)
     folds = Array(WHIR_OPEN_R1_QUERIES * DIM)
     poly_eq = poly_eq_extension_inlined(folding_randomness, WHIR_OPEN_R1_FOLD)
     for i in unroll(0, WHIR_OPEN_R1_QUERIES):
@@ -367,8 +365,7 @@ def sample_stir_indexes_and_fold_final(fs: Mut, prev_root, folding_randomness):
     merkle_leaves = Array(WHIR_OPEN_FINAL_QUERIES)
     circle_values = Array(WHIR_OPEN_FINAL_QUERIES)
     for i in unroll(0, WHIR_OPEN_FINAL_QUERIES):
-        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], WHIR_OPEN_FINAL_FOLDED_DOMAIN_LOG)
-        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, prev_root, WHIR_OPEN_FINAL_FOLDED_DOMAIN_LOG, WHIR_OPEN_FINAL_LEAF_CHUNKS)
+        merkle_leaves[i], circle_values[i] = decompose_and_verify_query_const(sampled[i], WHIR_OPEN_FINAL_FOLDED_DOMAIN_LOG, prev_root, WHIR_OPEN_FINAL_LEAF_CHUNKS)
     folds = Array(WHIR_OPEN_FINAL_QUERIES * DIM)
     poly_eq = poly_eq_extension_inlined(folding_randomness, WHIR_OPEN_FINAL_FOLD)
     for i in unroll(0, WHIR_OPEN_FINAL_QUERIES):

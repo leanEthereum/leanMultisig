@@ -167,8 +167,9 @@ def modulo_8(n, n_bits: Const):
     return partial_sums[2]
 
 
+# Fused Merkle + root power: same Merkle processing but also return a passed-in value
 @inline
-def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
+def whir_do_4_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -176,148 +177,74 @@ def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
     b2 = r2 % 2
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
-
     temps = Array(3 * DIGEST_LEN)
-
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temps)
     else:
         poseidon16_compress(path_chunk, state_in, temps)
-
     if b1 == 0:
         poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
-
     if b2 == 0:
         poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
-
     if b3 == 0:
         poseidon16_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
-    return
+    return ret_val
 
 
 @inline
-def whir_do_3_merkle_levels(b, state_in, path_chunk, state_out):
+def whir_do_3_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
     r2 = (r1 - b1) / 2
     b2 = r2 % 2
-
     temps = Array(2 * DIGEST_LEN)
-
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temps)
     else:
         poseidon16_compress(path_chunk, state_in, temps)
-
     if b1 == 0:
         poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
-
     if b2 == 0:
         poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, state_out)
-    return
+    return ret_val
 
 
 @inline
-def whir_do_2_merkle_levels(b, state_in, path_chunk, state_out):
+def whir_do_2_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
-
     temp = Array(DIGEST_LEN)
-
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temp)
     else:
         poseidon16_compress(path_chunk, state_in, temp)
-
     if b1 == 0:
         poseidon16_compress(temp, path_chunk + DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temp, state_out)
-    return
+    return ret_val
 
 
 @inline
-def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
+def whir_do_1_merkle_level_ret(b, state_in, path_chunk, state_out, ret_val):
     b0 = b % 2
-
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, state_out)
     else:
         poseidon16_compress(path_chunk, state_in, state_out)
-    return
-
-
-@inline
-def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
-    # Hint and hash leaf
-    leaf_data = Array(num_chunks * DIGEST_LEN)
-    hint_witness("merkle_leaf", leaf_data)
-    leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
-
-    # Hint and verify merkle path (processing 4 levels per nibble)
-    merkle_path = Array(height * DIGEST_LEN)
-    hint_witness("merkle_path", merkle_path)
-
-    states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
-
-    # First full nibble: leaf_hash -> states[0]
-    match_range(leaf_position_nibbles[0], range(0, 16), lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
-
-    # Middle nibble chunks: states[k-1] -> states[k]
-    for k in unroll(1, div_ceil(height, 4) - 1):
-        match_range(
-            leaf_position_nibbles[k],
-            range(0, 16),
-            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN),
-        )
-
-    # Last chunk -> root
-    if height % 4 == 0:
-        match_range(
-            leaf_position_nibbles[div_ceil(height, 4) - 1],
-            range(0, 16),
-            lambda b: whir_do_4_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 1:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_1_merkle_level(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 2:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_2_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 3:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_3_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-
-    return leaf_data
+    return ret_val
 
 
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):
