@@ -13,7 +13,6 @@ pub struct ExecutionMetadata {
     pub n_extension_ops: usize,
     pub bytecode_size: usize,
     pub public_input_size: usize,
-    pub private_input_size: usize,
     pub runtime_memory: usize,
     pub memory_usage_percent: f64,
     pub stdout: String,
@@ -47,10 +46,6 @@ impl ExecutionMetadata {
         out.push_str(&format!(
             "Public input size: {}\n",
             pretty_integer(self.public_input_size)
-        ));
-        out.push_str(&format!(
-            "Private input size: {}\n",
-            pretty_integer(self.private_input_size)
         ));
         out.push_str(&format!("Runtime memory: {}\n", pretty_integer(self.runtime_memory)));
         out.push_str(&format!("Memory usage: {:.1}%\n", self.memory_usage_percent));

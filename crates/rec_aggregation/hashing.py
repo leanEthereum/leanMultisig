@@ -3,6 +3,18 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
+# memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [runtime ...]
+# `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]...
+PUBLIC_INPUT_LEN = DIGEST_LEN
+ZERO_VEC_PTR = PUBLIC_INPUT_LEN
+ZERO_VEC_LEN = 16
+SAMPLING_DOMAIN_SEPARATOR_PTR = ZERO_VEC_PTR + ZERO_VEC_LEN
+ONE_EF_PTR = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN
+NUM_REPEATED_ONES = 16
+REPEATED_ONES_PTR = ONE_EF_PTR + DIM
+PREAMBLE_MEMORY_END = REPEATED_ONES_PTR + NUM_REPEATED_ONES
+PREAMBLE_MEMORY_LEN = PREAMBLE_MEMORY_END - PUBLIC_INPUT_LEN
+
 # bit decomposition hint
 LITTLE_ENDIAN = 1
 BIG_ENDIAN = 0
@@ -59,6 +71,16 @@ def slice_hash(data, num_chunks):
     for j in unroll(1, num_chunks - 1):
         poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
+
+
+@inline
+def slice_hash_with_iv(data, num_chunks):
+    debug_assert(0 < num_chunks)
+    states = Array(num_chunks * DIGEST_LEN)
+    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    for j in unroll(1, num_chunks):
+        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    return states + (num_chunks - 1) * DIGEST_LEN
 
 
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
@@ -241,12 +263,12 @@ def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
 def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
     # Hint and hash leaf
     leaf_data = Array(num_chunks * DIGEST_LEN)
-    hint_merkle(leaf_data, num_chunks * DIGEST_LEN)
+    hint_witness("merkle_leaf", leaf_data)
     leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
 
     # Hint and verify merkle path (processing 4 levels per nibble)
     merkle_path = Array(height * DIGEST_LEN)
-    hint_merkle(merkle_path, height * DIGEST_LEN)
+    hint_witness("merkle_path", merkle_path)
 
     states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
 

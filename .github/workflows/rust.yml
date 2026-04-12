@@ -48,8 +48,9 @@ jobs:
       - name: Cache benchmark signers
         uses: actions/cache@v4
         with:
-          path: target/signers-cache
+          path: .signers-cache
           key: benchmark-signers-${{ hashFiles('crates/xmss/**', 'crates/utils/**', 'crates/backend/**') }}
+          restore-keys: benchmark-signers-
       - name: Build
         run: cargo build --release --all --verbose
         env:
@@ -59,6 +60,7 @@ jobs:
         run: cargo test --release --all --verbose
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          SIGNERS_CACHE_DIR: ${{ github.workspace }}/.signers-cache
 
   cargo-clippy:
     runs-on: ubuntu-latest

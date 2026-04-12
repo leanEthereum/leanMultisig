@@ -7,6 +7,28 @@ TWO_ADICITY = 24
 ROOT = 1791270792  # of order 2^TWO_ADICITY
 
 
+@inline
+def build_preamble_memory():
+    zero_vec_w = ZERO_VEC_PTR
+    for i in unroll(0, ZERO_VEC_LEN):
+        zero_vec_w[i] = 0
+
+    sds_w = SAMPLING_DOMAIN_SEPARATOR_PTR
+    sds_w[0] = 1
+    for i in unroll(1, DIGEST_LEN):
+        sds_w[i] = 0
+
+    one_ef_w = ONE_EF_PTR
+    one_ef_w[0] = 1
+    for i in unroll(1, DIM):
+        one_ef_w[i] = 0
+
+    repeated_ones_w = REPEATED_ONES_PTR
+    for i in unroll(0, NUM_REPEATED_ONES):
+        repeated_ones_w[i] = 1
+    return
+
+
 def div_ceil_dynamic(a, b: Const):
     debug_assert(a <= 150)
     res = match_range(a, range(0, 151), lambda i: div_ceil(i, b))
@@ -353,6 +375,12 @@ def copy_8(a, b):
 
 
 @inline
+def copy_9(a, b):
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
+    return
+
+@inline
 def copy_16(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
@@ -513,7 +541,7 @@ def dot_product_ee_ret(a, b, n):
 
 @inline
 def sum_continuous_ef(slice_ef, len):
-    debug_assert(len <= NUM_REPEATED_ONES_IN_RESERVED_MEMORY)
+    debug_assert(len <= NUM_REPEATED_ONES)
     res = Array(DIM)
     dot_product_be_dynamic(REPEATED_ONES_PTR, slice_ef, res, len)
     return res

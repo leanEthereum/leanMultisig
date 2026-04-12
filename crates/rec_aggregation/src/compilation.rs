@@ -28,17 +28,10 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // pub_input layout: n_sigs(1) + slice_hash(8) + slot_low(1) + slot_high(1)
-    //                   + message + merkle_chunks_for_slot + bytecode_claim_padded + bytecode_hash(8)
-    let pub_input_size =
-        1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
-    let inner_public_memory_log_size = log2_ceil_usize(NONRESERVED_PROGRAM_INPUT_START + pub_input_size);
-    let replacements = build_replacements(
-        inner_program_log_size,
-        inner_public_memory_log_size,
-        bytecode_zero_eval,
-        pub_input_size,
-    );
+    let input_data_size =
+        1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
+    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
+    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -70,9 +63,8 @@ fn compile_main_program_self_referential() -> Bytecode {
 
 fn build_replacements(
     inner_program_log_size: usize,
-    inner_public_memory_log_size: usize,
     bytecode_zero_eval: F,
-    pub_input_size: usize,
+    input_data_size_padded: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
     let log_inner_bytecode = inner_program_log_size;
@@ -140,14 +132,14 @@ fn build_replacements(
     );
     replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
     replacements.insert(
-        "NONRESERVED_PROGRAM_INPUT_START_PLACEHOLDER".to_string(),
-        NONRESERVED_PROGRAM_INPUT_START.to_string(),
+        "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
+        input_data_size_padded.to_string(),
     );
+    let bytecode_point_n_vars = log_inner_bytecode + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     replacements.insert(
-        "INNER_PUBLIC_MEMORY_LOG_SIZE_PLACEHOLDER".to_string(),
-        inner_public_memory_log_size.to_string(),
+        "BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER".to_string(),
+        bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars).to_string(),
     );
-    replacements.insert("PUB_INPUT_SIZE_PLACEHOLDER".to_string(), pub_input_size.to_string());
 
     let mut lookup_indexes_str = vec![];
     let mut lookup_values_str = vec![];
@@ -376,6 +368,11 @@ fn build_replacements(
     );
 
     replacements
+}
+
+pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
+    let per_round = (3 * DIMENSION).next_multiple_of(DIGEST_LEN);
+    DIGEST_LEN + bytecode_point_n_vars * per_round
 }
 
 fn all_air_evals_in_zk_dsl() -> String {

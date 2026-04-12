@@ -31,40 +31,6 @@ pub const STARTING_PC: usize = 1;
 /// Ending program counter (the final block is a looping block of 1 instruction)
 pub const ENDING_PC: usize = 0;
 
-/// Memory layout:
-///
-/// [memory] = [public_data] [private_data]
-///       
-/// public_data: shared between prover and verifier
-/// private_data: witness, committed by the prover
-///
-/// [public_data] = [reserved_area] [program_input]
-///
-/// reserved_area: reserved for special constants (size = 40 field elements)
-/// program_input: the input of the program we want to prove
-///
-/// [reserved_area] = [00000000] [00000000] [10000000] [10000] [111..111 (16 FE)] [2 -1 -1 1]
-///
-/// pointing to 16 zeros
-pub const ZERO_VEC_PTR: usize = 0;
-
-/// pointing to [10000000]
-pub const SAMPLING_DOMAIN_SEPARATOR_PTR: usize = ZERO_VEC_PTR + 2 * DIGEST_LEN;
-
-/// pointing to [10000] (the multiplicative identity of EF, as DIMENSION base field elements)
-pub const ONE_EF_PTR: usize = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN;
-
-/// POINTING TO 111..111 (`NUM_REPEATED_ONES_IN_RESERVED_MEMORY` times)
-pub const NUM_REPEATED_ONES_IN_RESERVED_MEMORY: usize = 16;
-pub const REPEATED_ONES_PTR: usize = ONE_EF_PTR + DIMENSION;
-
-/// [2, -1, -1, 1] is useful to compute (xy + (1-x)(1-y)) = 2xy - x - y + 1 = dot_product([xy, x, y, 1], [2, -1, -1, 1])
-pub const EQ_MLE_COEFFS_LEN: usize = 4;
-pub const EQ_MLE_COEFFS_PTR: usize = REPEATED_ONES_PTR + NUM_REPEATED_ONES_IN_RESERVED_MEMORY;
-
-/// Normal pointer to start of program input
-pub const NONRESERVED_PROGRAM_INPUT_START: usize = (EQ_MLE_COEFFS_PTR + EQ_MLE_COEFFS_LEN).next_multiple_of(DIMENSION);
-
 #[cfg(test)]
 mod tests {
     use backend::*;

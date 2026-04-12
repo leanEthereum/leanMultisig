@@ -9,7 +9,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{CUSTOM_HINTS, EXT_OP_FUNCTIONS, Table, TableT};
+use lean_vm::{CUSTOM_HINTS, ExtensionOpMode, POSEIDON16_NAME};
 
 /// Reserved function names that users cannot define.
 pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
@@ -35,11 +35,10 @@ fn is_reserved_function_name(name: &str) -> bool {
         return true;
     }
     // Check precompile names (poseidon16, extension_op functions)
-    if Table::poseidon16().name() == name {
+    if name == POSEIDON16_NAME {
         return true;
     }
-    // Extension op function names
-    if EXT_OP_FUNCTIONS.iter().any(|(fn_name, _)| *fn_name == name) {
+    if ExtensionOpMode::from_name(name).is_some() {
         return true;
     }
     false
@@ -197,7 +196,7 @@ impl Parse<AssignmentTarget> for AssignmentTargetParser {
                 let array = next_inner_pair(&mut inner_pairs, "array name")?.as_str().to_string();
                 let index = ExpressionParser.parse(next_inner_pair(&mut inner_pairs, "array index")?, ctx)?;
                 Ok(AssignmentTarget::ArrayAccess {
-                    array,
+                    array: array.into(),
                     index: Box::new(index),
                 })
             }
@@ -358,11 +357,15 @@ impl AssignmentParser {
                     .map(|idx_pair| ExpressionParser.parse(idx_pair, ctx))
                     .collect::<ParseResult<Vec<_>>>()?;
 
+                let array_expr: SimpleExpr = array.into();
                 let target = AssignmentTarget::ArrayAccess {
-                    array: array.clone(),
+                    array: array_expr.clone(),
                     index: Box::new(indices[0].clone()),
                 };
-                let lhs_expr = Expression::ArrayAccess { array, index: indices };
+                let lhs_expr = Expression::ArrayAccess {
+                    array: array_expr,
+                    index: indices,
+                };
                 Ok((target, lhs_expr))
             }
             Rule::identifier => {
@@ -388,6 +391,16 @@ impl AssignmentParser {
             Expression::FunctionCall {
                 function_name, args, ..
             } => Self::handle_function_call(location, function_name.clone(), args.clone(), targets),
+            Expression::HintWitness { .. } => {
+                if !targets.is_empty() {
+                    return Err(SemanticError::new("Cannot assign the result of a hint_witness to a variable").into());
+                }
+                Ok(Line::Statement {
+                    targets,
+                    value: expr,
+                    location,
+                })
+            }
             _ => {
                 if targets.is_empty() {
                     return Err(SemanticError::new("Expression statement has no effect").into());

@@ -1,8 +1,4 @@
 use backend::*;
-use lean_vm::{
-    EQ_MLE_COEFFS_PTR, NONRESERVED_PROGRAM_INPUT_START, NUM_REPEATED_ONES_IN_RESERVED_MEMORY, ONE_EF_PTR,
-    REPEATED_ONES_PTR, SAMPLING_DOMAIN_SEPARATOR_PTR, ZERO_VEC_PTR,
-};
 
 use super::expression::ExpressionParser;
 use super::{ConstArrayValue, Parse, ParseContext, ParsedConstant, next_inner_pair};
@@ -102,8 +98,7 @@ pub fn evaluate_const_expr(expr: &crate::lang::Expression, ctx: &ParseContext) -
             SimpleExpr::Memory(VarOrConstMallocAccess::ConstMallocAccess { .. }) => None,
         },
         &|arr, index| {
-            // Support const array access in expressions
-            let array = ctx.get_const_array(arr)?;
+            let array = ctx.get_const_array(arr.as_var()?)?;
             array.navigate(&index)?.as_scalar()
         },
     )
@@ -129,48 +124,30 @@ impl Parse<SimpleExpr> for VarOrConstantParser {
 
 impl VarOrConstantParser {
     fn parse_identifier_or_constant(text: &str, ctx: &ParseContext) -> ParseResult<SimpleExpr> {
-        match text {
-            // Special built-in constants
-            "NONRESERVED_PROGRAM_INPUT_START" => Ok(SimpleExpr::Constant(ConstExpression::from(
-                NONRESERVED_PROGRAM_INPUT_START,
-            ))),
-            "ZERO_VEC_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ZERO_VEC_PTR))),
-            "ONE_EF_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(ONE_EF_PTR))),
-            "REPEATED_ONES_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(REPEATED_ONES_PTR))),
-            "NUM_REPEATED_ONES_IN_RESERVED_MEMORY" => Ok(SimpleExpr::Constant(ConstExpression::from(
-                NUM_REPEATED_ONES_IN_RESERVED_MEMORY,
-            ))),
-            "SAMPLING_DOMAIN_SEPARATOR_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(
-                SAMPLING_DOMAIN_SEPARATOR_PTR,
-            ))),
-            "EQ_MLE_COEFFS_PTR" => Ok(SimpleExpr::Constant(ConstExpression::from(EQ_MLE_COEFFS_PTR))),
-            _ => {
-                // Check if it's a const array (error case - can't use array as value)
-                if ctx.get_const_array(text).is_some() {
-                    return Err(SemanticError::with_context(
-                        format!("Cannot use const array '{text}' as a value directly (use indexing or len())"),
-                        "variable reference",
-                    )
-                    .into());
-                }
+        // Check if it's a const array (error case - can't use array as value)
+        if ctx.get_const_array(text).is_some() {
+            return Err(SemanticError::with_context(
+                format!("Cannot use const array '{text}' as a value directly (use indexing or len())"),
+                "variable reference",
+            )
+            .into());
+        }
 
-                // Try to resolve as defined constant
-                if let Some(value) = ctx.get_constant(text) {
-                    Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
-                        value,
-                    ))))
-                }
-                // Try to parse as numeric literal
-                else if let Ok(value) = text.parse::<usize>() {
-                    Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
-                        F::from_usize(value),
-                    ))))
-                }
-                // Otherwise treat as variable reference
-                else {
-                    Ok(VarOrConstMallocAccess::Var(text.to_string()).into())
-                }
-            }
+        // Try to resolve as defined constant
+        if let Some(value) = ctx.get_constant(text) {
+            Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
+                value,
+            ))))
+        }
+        // Try to parse as numeric literal
+        else if let Ok(value) = text.parse::<usize>() {
+            Ok(SimpleExpr::Constant(ConstExpression::Value(ConstantValue::Scalar(
+                F::from_usize(value),
+            ))))
+        }
+        // Otherwise treat as variable reference
+        else {
+            Ok(VarOrConstMallocAccess::Var(text.to_string()).into())
         }
     }
 }
@@ -185,24 +162,16 @@ impl Parse<F> for ConstExprParser {
         match inner.as_rule() {
             Rule::constant_value => {
                 let text = inner.as_str();
-                match text {
-                    "NONRESERVED_PROGRAM_INPUT_START" => Err(SemanticError::new(
-                        "NONRESERVED_PROGRAM_INPUT_START cannot be used as match pattern",
+                if let Some(value) = ctx.get_constant(text) {
+                    Ok(value)
+                } else if let Ok(value) = text.parse::<usize>() {
+                    Ok(F::from_usize(value))
+                } else {
+                    Err(SemanticError::with_context(
+                        format!("Invalid constant expression in match pattern: {text}"),
+                        "match pattern",
                     )
-                    .into()),
-                    _ => {
-                        if let Some(value) = ctx.get_constant(text) {
-                            Ok(value)
-                        } else if let Ok(value) = text.parse::<usize>() {
-                            Ok(F::from_usize(value))
-                        } else {
-                            Err(SemanticError::with_context(
-                                format!("Invalid constant expression in match pattern: {text}"),
-                                "match pattern",
-                            )
-                            .into())
-                        }
-                    }
+                    .into())
                 }
             }
             _ => Err(SemanticError::with_context(

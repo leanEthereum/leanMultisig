@@ -69,19 +69,18 @@ impl TableT for Table {
     fn bus(&self) -> Bus {
         delegate_to_inner!(self, bus)
     }
-    fn padding_row(&self) -> Vec<PF<EF>> {
-        delegate_to_inner!(self, padding_row)
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<PF<EF>> {
+        delegate_to_inner!(self, padding_row, zero_vec_ptr, null_hash_ptr)
     }
     fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
-        delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, aux_1, aux_2, ctx)
+        delegate_to_inner!(self, execute, arg_a, arg_b, arg_c, args, ctx)
     }
     fn n_columns_total(&self) -> usize {
         delegate_to_inner!(self, n_columns_total)

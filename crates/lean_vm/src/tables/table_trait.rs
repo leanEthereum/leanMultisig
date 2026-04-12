@@ -1,5 +1,5 @@
 use crate::execution::memory::MemoryAccess;
-use crate::{EF, F, InstructionContext, RunnerError, Table};
+use crate::{EF, F, InstructionContext, PrecompileCompTimeArgs, RunnerError, Table};
 use backend::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -112,14 +112,13 @@ pub trait TableT: Air {
     fn table(&self) -> Table;
     fn lookups(&self) -> Vec<LookupIntoMemory>;
     fn bus(&self) -> Bus;
-    fn padding_row(&self) -> Vec<F>;
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F>;
     fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError>;
 

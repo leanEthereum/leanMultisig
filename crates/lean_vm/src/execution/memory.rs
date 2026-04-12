@@ -36,6 +36,30 @@ pub trait MemoryAccess {
     fn get_continuous_slice_of_ef_elements(&self, index: usize, len: usize) -> Result<Vec<EF>, RunnerError> {
         (0..len).map(|i| self.get_ef_element(index + i * DIMENSION)).collect()
     }
+
+    fn make_slices_equal_and_defined(&mut self, ptr_0: usize, ptr_1: usize, len: usize) -> Result<(), RunnerError> {
+        for i in 0..len {
+            match (self.get(ptr_0 + i), self.get(ptr_1 + i)) {
+                (Ok(v0), Ok(v1)) => {
+                    if v0 != v1 {
+                        return Err(RunnerError::NotEqual(v0, v1));
+                    }
+                }
+                (Ok(v), Err(_)) => {
+                    self.set(ptr_1 + i, v)?;
+                }
+                (Err(_), Ok(v)) => {
+                    self.set(ptr_0 + i, v)?;
+                }
+                (Err(_), Err(_)) => {
+                    // Both are unknown, we set to zeros (arbitrary, maybe we need to revisit this later)
+                    self.set(ptr_0 + i, F::ZERO)?;
+                    self.set(ptr_1 + i, F::ZERO)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default)]

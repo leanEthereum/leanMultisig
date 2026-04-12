@@ -1,8 +1,8 @@
 use tracing::instrument;
 
 use crate::{
-    F, ZERO_VEC_PTR,
-    tables::{Poseidon1Cols16, WIDTH, num_cols_poseidon_16},
+    F,
+    tables::{Poseidon1Cols16, WIDTH},
 };
 use backend::*;
 
@@ -41,24 +41,7 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
     }
 }
 
-pub fn default_poseidon_16_row(null_hash_ptr: usize) -> Vec<F> {
-    let mut row = vec![F::ZERO; num_cols_poseidon_16()];
-    let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
-        .map(|i| unsafe { row.as_mut_ptr().add(i) })
-        .collect();
-
-    let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
-    perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
-    *perm.flag = F::ZERO;
-    *perm.index_a = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_b = F::from_usize(ZERO_VEC_PTR);
-    *perm.index_res = F::from_usize(null_hash_ptr);
-
-    generate_trace_rows_for_perm(perm);
-    row
-}
-
-fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols16<&mut F>) {
+pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols16<&mut F>) {
     let inputs: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
     let mut state = inputs;
 
