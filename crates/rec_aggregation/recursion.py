@@ -45,6 +45,11 @@ INNER_LOG_MEMORY = 22
 INNER_LOG_BYTECODE_PADDED = 19
 INNER_LOG_N_CYCLES = 19
 
+# Hardcoded bit decompositions for multilinear_location_prefix_inlined
+# Call site 0: prefix_pub_mem (offset=0, n_vars=25-INNER_PUBLIC_MEMORY_LOG_SIZE)
+PREFIX_0_N_BITS = PREFIX_0_N_BITS_PLACEHOLDER
+PREFIX_0_BITS = PREFIX_0_BITS_PLACEHOLDER
+
 
 
 @inline
@@ -610,7 +615,10 @@ def continue_recursion_ordered(
         public_memory_random_point,
         INNER_PUBLIC_MEMORY_LOG_SIZE,
     )
-    prefix_pub_mem = multilinear_location_prefix_inlined(0, 25 - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
+    prefix_pub_mem_bits = Array(PREFIX_0_N_BITS)
+    for i in unroll(0, PREFIX_0_N_BITS):
+        prefix_pub_mem_bits[i] = PREFIX_0_BITS[i]
+    prefix_pub_mem = eq_mle_base_extension_inlined(prefix_pub_mem_bits, folding_randomness_global, PREFIX_0_N_BITS)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem),

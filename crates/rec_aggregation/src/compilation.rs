@@ -367,7 +367,25 @@ fn build_replacements(
         bytecode_zero_eval.as_canonical_u64().to_string(),
     );
 
+    // Hardcoded bit decompositions for multilinear_location_prefix_inlined
+    // Call site 0: prefix_pub_mem (offset=0, n_vars=25-3)
+    let inner_public_memory_log_size: usize = 3;
+    let prefix_0_n_bits = whir_open_n_vars - inner_public_memory_log_size;
+    let prefix_0_bits = decompose_bits_be(0, prefix_0_n_bits);
+    replacements.insert("PREFIX_0_N_BITS_PLACEHOLDER".into(), prefix_0_n_bits.to_string());
+    replacements.insert(
+        "PREFIX_0_BITS_PLACEHOLDER".into(),
+        format!(
+            "[{}]",
+            prefix_0_bits.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")
+        ),
+    );
+
     replacements
+}
+
+fn decompose_bits_be(value: usize, n_bits: usize) -> Vec<usize> {
+    (0..n_bits).map(|i| (value >> (n_bits - 1 - i)) & 1).collect()
 }
 
 pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
