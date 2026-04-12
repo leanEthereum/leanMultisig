@@ -80,7 +80,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
 
         whir_config.prove(
             &mut prover_state,
-            vec![SparseStatement::dense(packed_point, packed_eval)],
+            Evaluation::new(packed_point, packed_eval),
             witness,
             &committed_pol.by_ref(),
         );
@@ -112,7 +112,7 @@ pub fn benchmark_prove_poseidon_16(log_n_rows: usize, tracing: bool) {
             .verify(
                 &mut verifier_state,
                 &parsed_commitment,
-                vec![SparseStatement::dense(packed_point, packed_eval)],
+                Evaluation::new(packed_point, packed_eval),
             )
             .unwrap();
     }

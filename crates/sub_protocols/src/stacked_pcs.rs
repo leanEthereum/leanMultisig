@@ -9,6 +9,51 @@ use tracing::instrument;
 use utils::VarCount;
 use utils::ansi::Colorize;
 
+#[derive(Clone, Debug)]
+pub struct SparseStatement<EF> {
+    pub total_num_variables: usize,
+    pub point: MultilinearPoint<EF>,
+    pub values: Vec<SparseValue<EF>>,
+}
+
+impl<EF> SparseStatement<EF> {
+    pub fn new(total_num_variables: usize, point: MultilinearPoint<EF>, values: Vec<SparseValue<EF>>) -> Self {
+        Self {
+            total_num_variables,
+            point,
+            values,
+        }
+    }
+
+    pub fn unique_value(total_num_variables: usize, index: usize, value: EF) -> Self {
+        Self {
+            total_num_variables,
+            point: MultilinearPoint(vec![]),
+            values: vec![SparseValue { selector: index, value }],
+        }
+    }
+
+    pub fn selector_num_variables(&self) -> usize {
+        self.total_num_variables - self.inner_num_variables()
+    }
+
+    pub fn inner_num_variables(&self) -> usize {
+        self.point.len()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SparseValue<EF> {
+    pub selector: usize,
+    pub value: EF,
+}
+
+impl<EF> SparseValue<EF> {
+    pub fn new(selector: usize, value: EF) -> Self {
+        Self { selector, value }
+    }
+}
+
 /*
 Stacking of various (multilinear) polynomials into a single -big- (multilinear) polynomial, which is committed via WHIR.
 [------------------------------ Memory ------------------------------]
@@ -192,7 +237,7 @@ pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
     compute_stacked_n_vars(MIN_LOG_MEMORY_SIZE, log_bytecode, &min_tables_log_heights)
 }
 
-pub fn total_whir_statements() -> usize {
+pub fn total_sparse_statements() -> usize {
     6 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
      + ALL_TABLES
         .iter()
