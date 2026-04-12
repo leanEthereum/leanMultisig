@@ -368,24 +368,51 @@ fn build_replacements(
     );
 
     // Hardcoded bit decompositions for multilinear_location_prefix_inlined
-    // Call site 0: prefix_pub_mem (offset=0, n_vars=25-3)
+    // Fixed inner proof dimensions (verified by assertions at runtime)
+    let inner_log_memory: usize = 22;
     let inner_public_memory_log_size: usize = 3;
+
+    // Call site 0: prefix_pub_mem (offset=0, n_vars=25-3)
     let prefix_0_n_bits = whir_open_n_vars - inner_public_memory_log_size;
     let prefix_0_bits = decompose_bits_be(0, prefix_0_n_bits);
-    replacements.insert("PREFIX_0_N_BITS_PLACEHOLDER".into(), prefix_0_n_bits.to_string());
-    replacements.insert(
-        "PREFIX_0_BITS_PLACEHOLDER".into(),
-        format!(
-            "[{}]",
-            prefix_0_bits.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")
-        ),
-    );
+    insert_prefix_replacement(&mut replacements, 0, prefix_0_n_bits, &prefix_0_bits);
+
+    // Call site 1: prefix_bytecode_acc (offset=2^(log_memory+1) / 2^log_bytecode, n_vars=25-log_bytecode)
+    let prefix_1_offset = (1usize << (inner_log_memory + 1)) >> log_inner_bytecode;
+    let prefix_1_n_bits = whir_open_n_vars - log_inner_bytecode;
+    let prefix_1_bits = decompose_bits_be(prefix_1_offset, prefix_1_n_bits);
+    insert_prefix_replacement(&mut replacements, 1, prefix_1_n_bits, &prefix_1_bits);
+
+    // Call site 2: prefix_pc_start
+    let inner_log_bytecode_padded: usize = 19;
+    let inner_log_n_cycles: usize = 19;
+    let mut stacking_offset = 1usize << (inner_log_memory + 1); // memory + acc_memory
+    stacking_offset += 1 << inner_log_bytecode_padded; // bytecode
+    let prefix_2_offset = stacking_offset + COL_PC * (1 << inner_log_n_cycles);
+    let prefix_2_n_bits = whir_open_n_vars;
+    insert_prefix_replacement(&mut replacements, 2, prefix_2_n_bits, &decompose_bits_be(prefix_2_offset, prefix_2_n_bits));
+
+    // Call site 3: prefix_pc_end
+    let prefix_3_offset = stacking_offset + (COL_PC + 1) * (1 << inner_log_n_cycles) - 1;
+    let prefix_3_n_bits = whir_open_n_vars;
+    insert_prefix_replacement(&mut replacements, 3, prefix_3_n_bits, &decompose_bits_be(prefix_3_offset, prefix_3_n_bits));
 
     replacements
 }
 
 fn decompose_bits_be(value: usize, n_bits: usize) -> Vec<usize> {
     (0..n_bits).map(|i| (value >> (n_bits - 1 - i)) & 1).collect()
+}
+
+fn insert_prefix_replacement(replacements: &mut BTreeMap<String, String>, index: usize, n_bits: usize, bits: &[usize]) {
+    replacements.insert(
+        format!("PREFIX_{}_N_BITS_PLACEHOLDER", index),
+        n_bits.to_string(),
+    );
+    replacements.insert(
+        format!("PREFIX_{}_BITS_PLACEHOLDER", index),
+        format!("[{}]", bits.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")),
+    );
 }
 
 pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {

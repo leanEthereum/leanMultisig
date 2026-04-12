@@ -49,6 +49,15 @@ INNER_LOG_N_CYCLES = 19
 # Call site 0: prefix_pub_mem (offset=0, n_vars=25-INNER_PUBLIC_MEMORY_LOG_SIZE)
 PREFIX_0_N_BITS = PREFIX_0_N_BITS_PLACEHOLDER
 PREFIX_0_BITS = PREFIX_0_BITS_PLACEHOLDER
+# Call site 1: prefix_bytecode_acc (offset=2^(log_memory+1)/2^log_bytecode, n_vars=25-log_bytecode)
+PREFIX_1_N_BITS = PREFIX_1_N_BITS_PLACEHOLDER
+PREFIX_1_BITS = PREFIX_1_BITS_PLACEHOLDER
+# Call site 2: prefix_pc_start
+PREFIX_2_N_BITS = PREFIX_2_N_BITS_PLACEHOLDER
+PREFIX_2_BITS = PREFIX_2_BITS_PLACEHOLDER
+# Call site 3: prefix_pc_end
+PREFIX_3_N_BITS = PREFIX_3_N_BITS_PLACEHOLDER
+PREFIX_3_BITS = PREFIX_3_BITS_PLACEHOLDER
 
 
 
@@ -632,11 +641,10 @@ def continue_recursion_ordered(
         bytecode_and_acc_point,
         LOG_GUEST_BYTECODE_LEN,
     )
-    prefix_bytecode_acc = multilinear_location_prefix_inlined(
-        offset / 2**LOG_GUEST_BYTECODE_LEN,
-        25 - LOG_GUEST_BYTECODE_LEN,
-        folding_randomness_global,
-    )
+    prefix_bytecode_acc_bits = Array(PREFIX_1_N_BITS)
+    for i in unroll(0, PREFIX_1_N_BITS):
+        prefix_bytecode_acc_bits[i] = PREFIX_1_BITS[i]
+    prefix_bytecode_acc = eq_mle_base_extension_inlined(prefix_bytecode_acc_bits, folding_randomness_global, PREFIX_1_N_BITS)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
@@ -644,19 +652,17 @@ def continue_recursion_ordered(
     curr_randomness += DIM
     offset += two_exp(log_bytecode_padded)
 
-    prefix_pc_start = multilinear_location_prefix_inlined(
-        offset + COL_PC * two_exp(log_n_cycles),
-        25,
-        folding_randomness_global,
-    )
+    prefix_pc_start_bits = Array(PREFIX_2_N_BITS)
+    for i in unroll(0, PREFIX_2_N_BITS):
+        prefix_pc_start_bits[i] = PREFIX_2_BITS[i]
+    prefix_pc_start = eq_mle_base_extension_inlined(prefix_pc_start_bits, folding_randomness_global, PREFIX_2_N_BITS)
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start))
     curr_randomness += DIM
 
-    prefix_pc_end = multilinear_location_prefix_inlined(
-        offset + (COL_PC + 1) * two_exp(log_n_cycles) - 1,
-        25,
-        folding_randomness_global,
-    )
+    prefix_pc_end_bits = Array(PREFIX_3_N_BITS)
+    for i in unroll(0, PREFIX_3_N_BITS):
+        prefix_pc_end_bits[i] = PREFIX_3_BITS[i]
+    prefix_pc_end = eq_mle_base_extension_inlined(prefix_pc_end_bits, folding_randomness_global, PREFIX_3_N_BITS)
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
     curr_randomness += DIM
 
