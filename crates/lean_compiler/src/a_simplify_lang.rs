@@ -1471,7 +1471,13 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 location: _,
             } => {
                 check_condition_scoping(condition, ctx);
-                for branch in [then_branch, else_branch] {
+                let compile_time_value = condition.eval_with(&|expr| expr.as_scalar());
+                let branches_to_check: Vec<&Vec<Line>> = match compile_time_value {
+                    Some(true) => vec![then_branch],
+                    Some(false) => vec![else_branch],
+                    None => vec![then_branch, else_branch],
+                };
+                for branch in branches_to_check {
                     ctx.scopes.push(Scope { vars: BTreeSet::new() });
                     check_block_scoping(branch, ctx);
                     ctx.scopes.pop();
