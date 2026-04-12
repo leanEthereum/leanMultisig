@@ -58,6 +58,13 @@ PREFIX_2_BITS = PREFIX_2_BITS_PLACEHOLDER
 # Call site 3: prefix_pc_end
 PREFIX_3_N_BITS = PREFIX_3_N_BITS_PLACEHOLDER
 PREFIX_3_BITS = PREFIX_3_BITS_PLACEHOLDER
+# Table loop prefix bits: per sorted_pos, indexed by column j
+TABLE_PREFIX_0_N_BITS = TBL_PFX_0_N_BITS_PLACEHOLDER
+TABLE_PREFIX_0_BITS = TBL_PFX_0_BITS_PLACEHOLDER
+TABLE_PREFIX_1_N_BITS = TBL_PFX_1_N_BITS_PLACEHOLDER
+TABLE_PREFIX_1_BITS = TBL_PFX_1_BITS_PLACEHOLDER
+TABLE_PREFIX_2_N_BITS = TBL_PFX_2_N_BITS_PLACEHOLDER
+TABLE_PREFIX_2_BITS = TBL_PFX_2_BITS_PLACEHOLDER
 
 
 
@@ -690,11 +697,20 @@ def continue_recursion_ordered(
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix: Imu
                     if sorted_pos == 0:
-                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 19, folding_randomness_global)
+                        tp0_bits = Array(TABLE_PREFIX_0_N_BITS)
+                        for k in unroll(0, TABLE_PREFIX_0_N_BITS):
+                            tp0_bits[k] = TABLE_PREFIX_0_BITS[j][k]
+                        prefix = eq_mle_base_extension_inlined(tp0_bits, folding_randomness_global, TABLE_PREFIX_0_N_BITS)
                     if sorted_pos == 1:
-                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 17, folding_randomness_global)
+                        tp1_bits = Array(TABLE_PREFIX_1_N_BITS)
+                        for k in unroll(0, TABLE_PREFIX_1_N_BITS):
+                            tp1_bits[k] = TABLE_PREFIX_1_BITS[j][k]
+                        prefix = eq_mle_base_extension_inlined(tp1_bits, folding_randomness_global, TABLE_PREFIX_1_N_BITS)
                     if sorted_pos == 2:
-                        prefix = multilinear_location_prefix_inlined(offset / n_rows + j, 25 - 14, folding_randomness_global)
+                        tp2_bits = Array(TABLE_PREFIX_2_N_BITS)
+                        for k in unroll(0, TABLE_PREFIX_2_N_BITS):
+                            tp2_bits[k] = TABLE_PREFIX_2_BITS[j][k]
+                        prefix = eq_mle_base_extension_inlined(tp2_bits, folding_randomness_global, TABLE_PREFIX_2_N_BITS)
                     s = add_extension_ret(
                         s,
                         mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor),

@@ -397,6 +397,39 @@ fn build_replacements(
     let prefix_3_n_bits = whir_open_n_vars;
     insert_prefix_replacement(&mut replacements, 3, prefix_3_n_bits, &decompose_bits_be(prefix_3_offset, prefix_3_n_bits));
 
+    // Table loop prefix bits (sorted_pos 0,1,2)
+    // Hardcoded table ordering: execution(19), poseidon16(17), extension_op(14)
+    let table_order: [(Table, usize); 3] = [
+        (Table::execution(), 19),
+        (Table::poseidon16(), 17),
+        (Table::extension_op(), 14),
+    ];
+    for (sp, (table, log_n_rows)) in table_order.iter().enumerate() {
+        let n_rows = 1usize << log_n_rows;
+        let n_cols = table.n_columns();
+        let n_bits = whir_open_n_vars - log_n_rows;
+        let offset_base = stacking_offset / n_rows;
+        let bits_2d: Vec<Vec<usize>> = (0..n_cols)
+            .map(|j| decompose_bits_be(offset_base + j, n_bits))
+            .collect();
+        replacements.insert(
+            format!("TBL_PFX_{}_N_BITS_PLACEHOLDER", sp),
+            n_bits.to_string(),
+        );
+        replacements.insert(
+            format!("TBL_PFX_{}_BITS_PLACEHOLDER", sp),
+            format!(
+                "[{}]",
+                bits_2d
+                    .iter()
+                    .map(|row| format!("[{}]", row.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+        stacking_offset += n_rows * n_cols;
+    }
+
     replacements
 }
 
