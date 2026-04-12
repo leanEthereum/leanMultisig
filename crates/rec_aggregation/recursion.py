@@ -81,13 +81,6 @@ def eq_mle_base_extension_inlined(a, b, n):
     poly_eq_be(a, b, res, n)
     return res
 
-
-@inline
-def multilinear_location_prefix_inlined(offset, n_vars, point):
-    bits = checked_decompose_bits_small_value_const(offset, n_vars)
-    return eq_mle_base_extension_inlined(bits, point, n_vars)
-
-
 @inline
 def sumcheck_verify_unrolled(start_fs, n_steps, start_claimed_sum, degree):
     fs: Mut = start_fs
