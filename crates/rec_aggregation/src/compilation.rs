@@ -367,10 +367,36 @@ fn build_replacements(
         bytecode_zero_eval.as_canonical_u64().to_string(),
     );
 
-    // Hardcoded bit decompositions for multilinear_location_prefix_inlined
     // Fixed inner proof dimensions (verified by assertions at runtime)
     let inner_log_memory: usize = 22;
+    let inner_log_bytecode_padded: usize = 19;
+    let inner_log_n_cycles: usize = 19;
     let inner_public_memory_log_size: usize = 3;
+    // Sorted table log heights (descending): execution, poseidon16, extension_op
+    let inner_sorted_log_rows: [usize; 3] = [19, 17, 14];
+
+    replacements.insert("INNER_LOG_MEMORY_PLACEHOLDER".into(), inner_log_memory.to_string());
+    replacements.insert("INNER_LOG_BYTECODE_PADDED_PLACEHOLDER".into(), inner_log_bytecode_padded.to_string());
+    replacements.insert("INNER_LOG_N_CYCLES_PLACEHOLDER".into(), inner_log_n_cycles.to_string());
+
+    for (sp, &log_rows) in inner_sorted_log_rows.iter().enumerate() {
+        replacements.insert(format!("INNER_SORTED_LOG_ROWS_{}_PLACEHOLDER", sp), log_rows.to_string());
+    }
+
+    // Sorted AIR sumcheck degrees (= degree_air + 1 for the zerocheck eq factor)
+    let sorted_tables = [Table::execution(), Table::poseidon16(), Table::extension_op()];
+    for (sp, table) in sorted_tables.iter().enumerate() {
+        replacements.insert(
+            format!("INNER_SORTED_AIR_DEGREE_{}_PLACEHOLDER", sp),
+            (table.degree_air() + 1).to_string(),
+        );
+    }
+
+    // GKR n_vars (log2_ceil of total GKR surface)
+    let n_vars_logup_gkr: usize = 24;
+    replacements.insert("N_VARS_LOGUP_GKR_PLACEHOLDER".into(), n_vars_logup_gkr.to_string());
+
+    // Hardcoded bit decompositions for multilinear_location_prefix_inlined
 
     // Call site 0: prefix_pub_mem (offset=0, n_vars=25-3)
     let prefix_0_n_bits = whir_open_n_vars - inner_public_memory_log_size;
@@ -384,8 +410,6 @@ fn build_replacements(
     insert_prefix_replacement(&mut replacements, 1, prefix_1_n_bits, &prefix_1_bits);
 
     // Call site 2: prefix_pc_start
-    let inner_log_bytecode_padded: usize = 19;
-    let inner_log_n_cycles: usize = 19;
     let mut stacking_offset = 1usize << (inner_log_memory + 1); // memory + acc_memory
     stacking_offset += 1 << inner_log_bytecode_padded; // bytecode
     let prefix_2_offset = stacking_offset + COL_PC * (1 << inner_log_n_cycles);

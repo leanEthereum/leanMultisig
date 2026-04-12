@@ -40,10 +40,20 @@ BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
 INNER_PUBLIC_MEMORY_LOG_SIZE = 3 # public input = 1 hash digest = 8 field elements
 PUB_INPUT_SIZE = DIGEST_LEN  # the public input is a single digest
 
-# Hardcoded inner proof dims — assertions verify at runtime
-INNER_LOG_MEMORY = 22
-INNER_LOG_BYTECODE_PADDED = 19
-INNER_LOG_N_CYCLES = 19
+# Inner proof dims (filled by Rust, assertions verify at runtime)
+INNER_LOG_MEMORY = INNER_LOG_MEMORY_PLACEHOLDER
+INNER_LOG_BYTECODE_PADDED = INNER_LOG_BYTECODE_PADDED_PLACEHOLDER
+INNER_LOG_N_CYCLES = INNER_LOG_N_CYCLES_PLACEHOLDER
+# Sorted table log heights (sorted by descending height: exec, poseidon, extop)
+INNER_SORTED_LOG_ROWS_0 = INNER_SORTED_LOG_ROWS_0_PLACEHOLDER
+INNER_SORTED_LOG_ROWS_1 = INNER_SORTED_LOG_ROWS_1_PLACEHOLDER
+INNER_SORTED_LOG_ROWS_2 = INNER_SORTED_LOG_ROWS_2_PLACEHOLDER
+# Sorted AIR degrees
+INNER_SORTED_AIR_DEGREE_0 = INNER_SORTED_AIR_DEGREE_0_PLACEHOLDER
+INNER_SORTED_AIR_DEGREE_1 = INNER_SORTED_AIR_DEGREE_1_PLACEHOLDER
+INNER_SORTED_AIR_DEGREE_2 = INNER_SORTED_AIR_DEGREE_2_PLACEHOLDER
+# GKR vars
+N_VARS_LOGUP_GKR = N_VARS_LOGUP_GKR_PLACEHOLDER
 
 # Hardcoded bit decompositions for multilinear_location_prefix_inlined
 # Call site 0: prefix_pub_mem (offset=0, n_vars=25-INNER_PUBLIC_MEMORY_LOG_SIZE)
@@ -209,23 +219,23 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     n_vars_logup_gkr = compute_total_gkr_n_vars(log_memory, log_bytecode_padded, table_heights)
     # Will fail if dimensions change — update GKR and AIR constants below
-    assert n_vars_logup_gkr == 24
+    assert n_vars_logup_gkr == N_VARS_LOGUP_GKR
 
-    # verify_gkr_quotient inlined (n_vars=24)
+    # verify_gkr_quotient inlined
     fs, gkr_nums = fs_receive_ef_inlined(fs, 2)
     fs, gkr_denoms = fs_receive_ef_inlined(fs, 2)
     quotient_gkr = add_extension_ret(div_extension_ret(gkr_nums, gkr_denoms), div_extension_ret(gkr_nums + DIM, gkr_denoms + DIM))
     set_to_5_zeros(quotient_gkr)
-    gkr_points = Array(24)
-    gkr_claims_num = Array(24)
-    gkr_claims_den = Array(24)
+    gkr_points = Array(N_VARS_LOGUP_GKR)
+    gkr_claims_num = Array(N_VARS_LOGUP_GKR)
+    gkr_claims_den = Array(N_VARS_LOGUP_GKR)
     fs, gkr_points[0] = fs_sample_ef(fs)
     gkr_point_poly_eq = poly_eq_extension_inlined(gkr_points[0], 1)
     gkr_claims_num[0] = dot_product_ee_ret(gkr_nums, gkr_point_poly_eq, 2)
     gkr_claims_den[0] = dot_product_ee_ret(gkr_denoms, gkr_point_poly_eq, 2)
-    for i in unroll(1, 24):
+    for i in unroll(1, N_VARS_LOGUP_GKR):
         fs, gkr_points[i], gkr_claims_num[i], gkr_claims_den[i] = verify_gkr_quotient_step(fs, i, gkr_points[i - 1], gkr_claims_num[i - 1], gkr_claims_den[i - 1])
-    point_gkr = gkr_points[23]
+    point_gkr = gkr_points[N_VARS_LOGUP_GKR - 1]
     numerators_value = gkr_claims_num[23]
     denominators_value = gkr_claims_den[23]
 
@@ -537,18 +547,17 @@ def continue_recursion_ordered(
 
         zerocheck_challenges = pcs_points[table_index][0]
 
-        # Hardcoded AIR sumcheck: sorted_pos 0=exec(19,6), 1=poseidon(17,10), 2=extop(14,7)
         outer_point: Imu
         outer_eval: Imu
         if sorted_pos == 0:
-            assert log_n_rows == 19
-            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 19, bus_final_value, 6)
+            assert log_n_rows == INNER_SORTED_LOG_ROWS_0
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_0, bus_final_value, INNER_SORTED_AIR_DEGREE_0)
         if sorted_pos == 1:
-            assert log_n_rows == 17
-            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 17, bus_final_value, 10)
+            assert log_n_rows == INNER_SORTED_LOG_ROWS_1
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_1, bus_final_value, INNER_SORTED_AIR_DEGREE_1)
         if sorted_pos == 2:
-            assert log_n_rows == 14
-            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, 14, bus_final_value, 7)
+            assert log_n_rows == INNER_SORTED_LOG_ROWS_2
+            fs, outer_point, outer_eval = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_2, bus_final_value, INNER_SORTED_AIR_DEGREE_2)
 
         n_up_columns = N_AIR_COLUMNS[table_index]
         n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
@@ -557,11 +566,11 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
         zerocheck_eq: Imu
         if sorted_pos == 0:
-            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 19)
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, INNER_SORTED_LOG_ROWS_0)
         if sorted_pos == 1:
-            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 17)
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, INNER_SORTED_LOG_ROWS_1)
         if sorted_pos == 2:
-            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, 14)
+            zerocheck_eq = eq_mle_extension_inlined(zerocheck_challenges, outer_point, INNER_SORTED_LOG_ROWS_2)
         expected_outer_eval = mul_extension_ret(air_constraints_eval, zerocheck_eq)
         copy_5(expected_outer_eval, outer_eval)
 
@@ -574,17 +583,17 @@ def continue_recursion_ordered(
             inner_point: Imu
             inner_value: Imu
             if sorted_pos == 0:
-                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 19, inner_sum, 2)
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_0, inner_sum, 2)
             if sorted_pos == 1:
-                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 17, inner_sum, 2)
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_1, inner_sum, 2)
             if sorted_pos == 2:
-                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 14, inner_sum, 2)
+                fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, INNER_SORTED_LOG_ROWS_2, inner_sum, 2)
 
             matrix_down_sc_eval: Imu
             if sorted_pos == 0:
-                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, 19)
+                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, INNER_SORTED_LOG_ROWS_0)
             if sorted_pos == 2:
-                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, 14)
+                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, INNER_SORTED_LOG_ROWS_2)
 
             fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns)
             batched_col_down_sc_eval: Mut = dot_product_ee_ret(evals_f_on_down_columns, batching_scalar_powers, n_down_columns)
@@ -759,11 +768,11 @@ def continue_recursion_ordered(
             point = pcs_points[table_index][i]
             eq_factor: Imu
             if sorted_pos == 0:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 19) * DIM, 19)
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_0) * DIM, INNER_SORTED_LOG_ROWS_0)
             if sorted_pos == 1:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 17) * DIM, 17)
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_1) * DIM, INNER_SORTED_LOG_ROWS_1)
             if sorted_pos == 2:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (25 - 14) * DIM, 14)
+                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_2) * DIM, INNER_SORTED_LOG_ROWS_2)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix: Imu
@@ -813,8 +822,7 @@ def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):
-    # Hardcoded for n_vars_logup_gkr=24
-    assert n_vars == 24
+    assert n_vars == N_VARS_LOGUP_GKR
     fs, nums = fs_receive_ef_inlined(fs, 2)
     fs, denoms = fs_receive_ef_inlined(fs, 2)
 
@@ -822,9 +830,9 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     q2 = div_extension_ret(nums + DIM, denoms + DIM)
     quotient = add_extension_ret(q1, q2)
 
-    points = Array(24)
-    claims_num = Array(24)
-    claims_den = Array(24)
+    points = Array(N_VARS_LOGUP_GKR)
+    claims_num = Array(N_VARS_LOGUP_GKR)
+    claims_den = Array(N_VARS_LOGUP_GKR)
 
     fs, points[0] = fs_sample_ef(fs)
 
@@ -835,15 +843,15 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     claims_num[0] = first_claim_num
     claims_den[0] = first_claim_den
 
-    for i in unroll(1, 24):
+    for i in unroll(1, N_VARS_LOGUP_GKR):
         fs, points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(fs, i, points[i - 1], claims_num[i - 1], claims_den[i - 1])
 
     return (
         fs,
         quotient,
-        points[23],
-        claims_num[23],
-        claims_den[23],
+        points[N_VARS_LOGUP_GKR - 1],
+        claims_num[N_VARS_LOGUP_GKR - 1],
+        claims_den[N_VARS_LOGUP_GKR - 1],
     )
 
 
