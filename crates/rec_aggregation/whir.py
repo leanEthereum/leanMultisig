@@ -447,7 +447,7 @@ def whir_round_1(fs: Mut, prev_root, claimed_sum):
 @inline
 def polynomial_sum_at_0_and_1(coeffs, degree):
     debug_assert(1 < degree)
-    debug_assert(degree + 1 <= NUM_REPEATED_ONES_IN_RESERVED_MEMORY)
+    debug_assert(degree + 1 <= NUM_REPEATED_ONES)
     res = Array(DIM)
     dot_product_be(REPEATED_ONES_PTR, coeffs, res, degree + 1)
     return add_extension_ret(res, coeffs)
