@@ -277,12 +277,16 @@ def continue_recursion_ordered(
     for i in unroll(0, N_TABLES):
         pcs_points.push(DynArray([]))
     pcs_values = DynArray([])  # [[[[] or [_]; num cols]; N]; N_TABLES]
+    pcs_values_down = DynArray([])  # same structure, for next_mle-weighted column evals
     for i in unroll(0, N_TABLES):
         pcs_values.push(DynArray([]))
         pcs_values[i].push(DynArray([]))
+        pcs_values_down.push(DynArray([]))
+        pcs_values_down[i].push(DynArray([]))
         total_num_cols = NUM_COLS_AIR[i]
         for _ in unroll(0, total_num_cols):
             pcs_values[i][0].push(DynArray([]))
+            pcs_values_down[i][0].push(DynArray([]))
 
     for sorted_pos in unroll(0, N_TABLES):
         table_index: Imu
@@ -413,39 +417,19 @@ def continue_recursion_ordered(
         )
         copy_5(expected_outer_eval, outer_eval)
 
-        if len(AIR_DOWN_COLUMNS[table_index]) != 0:
-            fs, batching_scalar = fs_sample_ef(fs)
-            batching_scalar_powers = powers_const(batching_scalar, n_down_columns)
-            evals_down = inner_evals + n_up_columns * DIM
-            inner_sum: Mut = dot_product_ee_ret(evals_down, batching_scalar_powers, n_down_columns)
-
-            fs, inner_point, inner_value = sumcheck_verify(fs, log_n_rows, inner_sum, 2)
-
-            matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
-
-            fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns)
-            batched_col_down_sc_eval: Mut = dot_product_ee_ret(evals_f_on_down_columns, batching_scalar_powers, n_down_columns)
-
-            copy_5(
-                inner_value,
-                mul_extension_ret(batched_col_down_sc_eval, matrix_down_sc_eval),
-            )
-
-            pcs_points[table_index].push(inner_point)
-            pcs_values[table_index].push(DynArray([]))
-            last_index = len(pcs_values[table_index]) - 1
-            for _ in unroll(0, total_num_cols):
-                pcs_values[table_index][last_index].push(DynArray([]))
-            for i in unroll(0, n_down_columns):
-                pcs_values[table_index][last_index][AIR_DOWN_COLUMNS[table_index][i]].push(evals_f_on_down_columns + i * DIM)
-
         pcs_points[table_index].push(outer_point)
         pcs_values[table_index].push(DynArray([]))
-        last_index_2 = len(pcs_values[table_index]) - 1
+        pcs_values_down[table_index].push(DynArray([]))
+        last_index = len(pcs_values[table_index]) - 1
         for _ in unroll(0, total_num_cols):
-            pcs_values[table_index][last_index_2].push(DynArray([]))
+            pcs_values[table_index][last_index].push(DynArray([]))
+            pcs_values_down[table_index][last_index].push(DynArray([]))
         for i in unroll(0, n_up_columns):
-            pcs_values[table_index][last_index_2][i].push(inner_evals + i * DIM)
+            pcs_values[table_index][last_index][i].push(inner_evals + i * DIM)
+        if len(AIR_DOWN_COLUMNS[table_index]) != 0:
+            evals_down = inner_evals + n_up_columns * DIM
+            for i in unroll(0, n_down_columns):
+                pcs_values_down[table_index][last_index][AIR_DOWN_COLUMNS[table_index][i]].push(evals_down + i * DIM)
 
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
@@ -484,6 +468,15 @@ def continue_recursion_ordered(
             table_index = third_table
         debug_assert(len(pcs_points[table_index]) == len(pcs_values[table_index]))
         for i in unroll(0, len(pcs_values[table_index])):
+            # next_mle-weighted (down) values come first
+            for j in unroll(0, len(pcs_values_down[table_index][i])):
+                if len(pcs_values_down[table_index][i][j]) == 1:
+                    whir_sum = add_extension_ret(
+                        mul_extension_ret(pcs_values_down[table_index][i][j][0], curr_randomness),
+                        whir_sum,
+                    )
+                    curr_randomness += DIM
+            # eq-weighted (up) values
             for j in unroll(0, len(pcs_values[table_index][i])):
                 debug_assert(len(pcs_values[table_index][i][j]) < 2)
                 if len(pcs_values[table_index][i][j]) == 1:
@@ -588,11 +581,27 @@ def continue_recursion_ordered(
         total_num_cols = NUM_COLS_AIR[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
-            eq_factor = eq_mle_extension(
-                point,
-                folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM,
-                log_n_rows,
-            )
+            inner_folding = folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM
+            n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
+            # TODO: cache prefixes for down columns to avoid recomputing them in the eq pass below
+            
+            # next_mle (down) values
+            if n_down_columns != 0:
+                next_factor = next_mle(point, inner_folding, log_n_rows)
+                for j in unroll(0, total_num_cols):
+                    if len(pcs_values_down[table_index][i][j]) == 1:
+                        prefix = multilinear_location_prefix(
+                            offset / n_rows + j,
+                            stacked_n_vars - log_n_rows,
+                            folding_randomness_global,
+                        )
+                        s = add_extension_ret(
+                            s,
+                            mul_extension_ret(mul_extension_ret(curr_randomness, prefix), next_factor),
+                        )
+                        curr_randomness += DIM
+            # eq (up) values
+            eq_factor = eq_mle_extension(point, inner_folding, log_n_rows)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix = multilinear_location_prefix(

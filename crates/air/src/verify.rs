@@ -1,6 +1,6 @@
 use backend::*;
 
-use crate::{AirClaims, utils::next_mle};
+use crate::AirClaims;
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -42,55 +42,13 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    open_columns(verifier_state, air, log_n_rows, &inner_evals, &outer_statement.point)
-}
-
-fn open_columns<A: Air, EF: ExtensionField<PF<EF>>>(
-    verifier_state: &mut impl FSVerifier<EF>,
-    air: &A,
-    log_n_rows: usize,
-    inner_evals: &[EF],
-    outer_sumcheck_challenge: &[EF],
-) -> ProofResult<AirClaims<EF>> {
     let n_columns_up = air.n_columns();
     let n_columns_down = air.n_down_columns();
     assert_eq!(inner_evals.len(), n_columns_up + n_columns_down);
 
-    let evals_up = inner_evals[..n_columns_up].to_vec();
-    let evals_down = inner_evals[n_columns_up..].to_vec();
-
-    if n_columns_down == 0 {
-        return Ok(AirClaims {
-            point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
-            evals: evals_up,
-            down_point: None,
-            evals_on_down_columns: vec![],
-        });
-    }
-
-    let batching_scalar = verifier_state.sample();
-    let batching_scalar_powers = batching_scalar.powers().collect_n(n_columns_down);
-
-    let inner_sum: EF = dot_product(evals_down.into_iter(), batching_scalar_powers.iter().copied());
-
-    let inner_sumcheck_stement = sumcheck_verify(verifier_state, log_n_rows, 2, inner_sum, None)?;
-
-    let matrix_down_sc_eval = next_mle(outer_sumcheck_challenge, &inner_sumcheck_stement.point);
-
-    let evals_on_down_columns = verifier_state.next_extension_scalars_vec(n_columns_down)?;
-    let batched_col_down_sc_eval = dot_product::<EF, _, _>(
-        batching_scalar_powers.iter().copied(),
-        evals_on_down_columns.iter().copied(),
-    );
-
-    if inner_sumcheck_stement.value != matrix_down_sc_eval * batched_col_down_sc_eval {
-        return Err(ProofError::InvalidProof);
-    }
-
     Ok(AirClaims {
-        point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
-        evals: evals_up,
-        down_point: Some(inner_sumcheck_stement.point.clone()),
-        evals_on_down_columns,
+        point: outer_statement.point,
+        evals: inner_evals[..n_columns_up].to_vec(),
+        evals_down: inner_evals[n_columns_up..].to_vec(),
     })
 }

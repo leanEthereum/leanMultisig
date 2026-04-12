@@ -126,6 +126,7 @@ pub fn prove_execution(
             vec![(
                 logup_statements.points[&table].clone(),
                 logup_statements.columns_values[&table].clone(),
+                BTreeMap::new(),
             )],
         );
     }
@@ -216,7 +217,7 @@ fn prove_bus_and_air(
     bus_point: &MultilinearPoint<EF>,
     bus_numerator_value: EF,
     bus_denominator_value: EF,
-) -> Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)> {
+) -> Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>)> {
     let bus_final_value = bus_numerator_value
         * match table.bus().direction {
             BusDirection::Pull => EF::NEG_ONE,
@@ -250,21 +251,16 @@ fn prove_bus_and_air(
         delegate_to_inner!(table => prove_air_for_table)
     });
 
-    let mut res = vec![];
-    if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
-        let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
-            down_evals.insert(col_index, *value_f);
-        }
-
-        res.push((down_point, down_evals));
-    }
-
     assert_eq!(air_claims.evals.len(), table.n_columns());
-    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
+    assert_eq!(air_claims.evals_down.len(), table.n_down_columns());
 
-    res.push((air_claims.point.clone(), evals));
+    let evals_eq = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
+    let evals_next = air_claims
+        .evals_down
+        .iter()
+        .zip(table.down_column_indexes())
+        .map(|(&value, col_index)| (col_index, value))
+        .collect::<BTreeMap<_, _>>();
 
-    res
+    vec![(air_claims.point.clone(), evals_eq, evals_next)]
 }
