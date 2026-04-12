@@ -239,7 +239,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     retrieved_numerators_value: Mut = opposite_extension_ret(mul_extension_ret(memory_and_acc_prefix, value_acc))
 
-    value_index = mle_of_01234567_etc(point_gkr + (n_vars_logup_gkr - log_memory) * DIM, log_memory)
+    value_index = mle_of_01234567_etc(point_gkr + (n_vars_logup_gkr - log_memory) * DIM, INNER_LOG_MEMORY)
     fingerprint_memory = fingerprint_2(LOGUP_MEMORY_DOMAINSEP, value_memory, value_index, logup_alphas_eq_poly)
     retrieved_denominators_value: Mut = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory))
 
@@ -580,7 +580,11 @@ def continue_recursion_ordered(
             if sorted_pos == 2:
                 fs, inner_point, inner_value = sumcheck_verify_unrolled(fs, 14, inner_sum, 2)
 
-            matrix_down_sc_eval = next_mle(outer_point, inner_point, log_n_rows)
+            matrix_down_sc_eval: Imu
+            if sorted_pos == 0:
+                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, 19)
+            if sorted_pos == 2:
+                matrix_down_sc_eval = next_mle_const(outer_point, inner_point, 14)
 
             fs, evals_f_on_down_columns = fs_receive_ef_inlined(fs, n_down_columns)
             batched_col_down_sc_eval: Mut = dot_product_ee_ret(evals_f_on_down_columns, batching_scalar_powers, n_down_columns)

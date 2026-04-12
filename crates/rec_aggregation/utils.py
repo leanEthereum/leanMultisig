@@ -637,38 +637,33 @@ def embed_in_ef(f):
     return res
 
 
-def next_mle(x, y, n):
+@inline
+def next_mle_const(x, y, n):
     # x and y are pointers to n elements of extension field
+    # Same as next_mle but with compile-time n (uses unroll instead of range)
 
     # Build eq_prefix[0..n+1] where eq_prefix[i] = prod_{j<i} eq(x[j], y[j])
-    # and eq(a,b) = a*b + (1-a)*(1-b)
     eq_prefix = Array((n + 1) * DIM)
     set_to_one(eq_prefix)
-    for i in range(0, n):
-        xi = x + i * DIM
-        yi = y + i * DIM
+    for i in unroll(0, n):
         eq_i = Array(DIM)
-        poly_eq_ee(xi, yi, eq_i)
+        poly_eq_ee(x + i * DIM, y + i * DIM, eq_i)
         mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
 
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
     low_suffix = Array((n + 1) * DIM)
     set_to_one(low_suffix + n * DIM)
-    for i in range(0, n):
+    for i in unroll(0, n):
         idx = n - 1 - i
-        xi = x + idx * DIM
-        yi = y + idx * DIM
-        one_minus_y = one_minus_self_extension_ret(yi)
-        x_one_minus_y = mul_extension_ret(xi, one_minus_y)
+        one_minus_y = one_minus_self_extension_ret(y + idx * DIM)
+        x_one_minus_y = mul_extension_ret(x + idx * DIM, one_minus_y)
         mul_extension(low_suffix + (idx + 1) * DIM, x_one_minus_y, low_suffix + idx * DIM)
 
     # Compute sum = Σ_{arr=0..n} (eq_prefix[arr] * (1-x[arr]) * y[arr] * low_suffix[arr+1])
     sum: Mut = ZERO_VEC_PTR
-    for arr in range(0, n):
-        x_arr = x + arr * DIM
-        y_arr = y + arr * DIM
-        one_minus_x = one_minus_self_extension_ret(x_arr)
-        carry = mul_extension_ret(one_minus_x, y_arr)
+    for arr in unroll(0, n):
+        one_minus_x = one_minus_self_extension_ret(x + arr * DIM)
+        carry = mul_extension_ret(one_minus_x, y + arr * DIM)
         eq_carry = mul_extension_ret(eq_prefix + arr * DIM, carry)
         term = mul_extension_ret(eq_carry, low_suffix + (arr + 1) * DIM)
         sum = add_extension_ret(sum, term)
@@ -676,13 +671,12 @@ def next_mle(x, y, n):
     # Compute prod = product of all x[i] * product of all y[i]
     prod: Mut = Array(DIM)
     set_to_one(prod)
-    for i in range(0, n):
+    for i in unroll(0, n):
         prod = mul_extension_ret(prod, x + i * DIM)
-    for i in range(0, n):
+    for i in unroll(0, n):
         prod = mul_extension_ret(prod, y + i * DIM)
 
-    result = add_extension_ret(sum, prod)
-    return result
+    return add_extension_ret(sum, prod)
 
 
 def _verify_log2_small(n, partial_sums_24, log2: Const):
