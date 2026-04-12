@@ -145,8 +145,8 @@ impl IfStatementParser {
 /// Parser for conditions.
 pub struct ConditionParser;
 
-impl Parse<Condition> for ConditionParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
+impl ConditionParser {
+    fn parse_atom(pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
         let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
         match inner_pair.as_rule() {
             Rule::assumed_bool_expr => ExpressionParser
@@ -156,8 +156,23 @@ impl Parse<Condition> for ConditionParser {
                 let boolean = ComparisonParser::parse(inner_pair, ctx)?;
                 Ok(Condition::Comparison(boolean))
             }
-            _ => Err(SemanticError::new("Invalid condition").into()),
+            _ => Err(SemanticError::new("Invalid condition atom").into()),
         }
+    }
+}
+
+impl Parse<Condition> for ConditionParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
+        let mut inner = pair.into_inner();
+        let first_atom = next_inner_pair(&mut inner, "condition atom")?;
+        let mut result = Self::parse_atom(first_atom, ctx)?;
+        for atom_pair in inner {
+            if atom_pair.as_rule() == Rule::condition_atom {
+                let rhs = Self::parse_atom(atom_pair, ctx)?;
+                result = Condition::Or(Box::new(result), Box::new(rhs));
+            }
+        }
+        Ok(result)
     }
 }
 

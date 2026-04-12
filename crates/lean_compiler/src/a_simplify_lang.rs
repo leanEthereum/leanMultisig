@@ -1708,6 +1708,10 @@ fn check_condition_scoping(condition: &Condition, ctx: &Context) {
         Condition::Comparison(boolean) => {
             check_boolean_scoping(boolean, ctx);
         }
+        Condition::Or(a, b) => {
+            check_condition_scoping(a, ctx);
+            check_condition_scoping(b, ctx);
+        }
     }
 }
 
@@ -2581,6 +2585,12 @@ fn simplify_lines(
 
                         (condition_simplified, then_branch, else_branch)
                     }
+                    Condition::Or(..) => {
+                        return Err(format!(
+                            "line {}: 'or' condition must be fully resolvable at compile time",
+                            location
+                        ));
+                    }
                 };
 
                 // Snapshot state before processing branches
@@ -3145,14 +3155,28 @@ pub fn find_variable_usage(
     };
 
     let on_new_condition =
-        |condition: &Condition, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| match condition {
-            Condition::Comparison(comp) => {
-                on_new_expr(&comp.left, internal_vars, external_vars);
-                on_new_expr(&comp.right, internal_vars, external_vars);
+        |condition: &Condition, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| {
+            fn walk_condition(
+                condition: &Condition,
+                internal_vars: &BTreeSet<Var>,
+                external_vars: &mut BTreeSet<Var>,
+                on_new_expr: &impl Fn(&Expression, &BTreeSet<Var>, &mut BTreeSet<Var>),
+            ) {
+                match condition {
+                    Condition::Comparison(comp) => {
+                        on_new_expr(&comp.left, internal_vars, external_vars);
+                        on_new_expr(&comp.right, internal_vars, external_vars);
+                    }
+                    Condition::AssumeBoolean(expr) => {
+                        on_new_expr(expr, internal_vars, external_vars);
+                    }
+                    Condition::Or(a, b) => {
+                        walk_condition(a, internal_vars, external_vars, on_new_expr);
+                        walk_condition(b, internal_vars, external_vars, on_new_expr);
+                    }
+                }
             }
-            Condition::AssumeBoolean(expr) => {
-                on_new_expr(expr, internal_vars, external_vars);
-            }
+            walk_condition(condition, internal_vars, external_vars, &on_new_expr);
         };
 
     for line in lines {

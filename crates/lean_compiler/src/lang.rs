@@ -229,6 +229,7 @@ impl From<ConstantValue> for ConstExpression {
 pub enum Condition {
     AssumeBoolean(Expression),
     Comparison(BooleanExpr<Expression>),
+    Or(Box<Condition>, Box<Condition>),
 }
 
 impl Display for Condition {
@@ -236,6 +237,7 @@ impl Display for Condition {
         match self {
             Self::AssumeBoolean(expr) => write!(f, "{expr}"),
             Self::Comparison(cmp) => write!(f, "{cmp}"),
+            Self::Or(a, b) => write!(f, "{a} or {b}"),
         }
     }
 }
@@ -245,6 +247,11 @@ impl Condition {
         match self {
             Self::AssumeBoolean(expr) => vec![expr],
             Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
+            Self::Or(a, b) => {
+                let mut exprs = a.expressions_mut();
+                exprs.extend(b.expressions_mut());
+                exprs
+            }
         }
     }
 
@@ -263,6 +270,10 @@ impl Condition {
                     Boolean::LessThan => left < right,
                     Boolean::LessOrEqual => left <= right,
                 })
+            }
+            Self::Or(a, b) => {
+                let (a, b) = (a.eval_with(eval_expr)?, b.eval_with(eval_expr)?);
+                Some(a || b)
             }
         }
     }
