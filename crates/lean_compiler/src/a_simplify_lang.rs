@@ -5,8 +5,8 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
-    SourceLocation, Table, TableT,
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, Poseidon24Mode, PrecompileArgs,
+    PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2193,8 +2193,13 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon precompiles
+                        let is_p16 = function_name == "poseidon16_compress";
+                        let is_p24_compress_0_9 = function_name == "poseidon24_compress_0_9";
+                        let is_p24_permute_0_9 = function_name == "poseidon24_permute_0_9";
+                        let is_p24_permute_9_18 = function_name == "poseidon24_permute_9_18";
+                        let is_p24 = is_p24_compress_0_9 || is_p24_permute_0_9 || is_p24_permute_9_18;
+                        if is_p16 || is_p24 {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2210,11 +2215,20 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            let data = if is_p16 {
+                                PrecompileCompTimeArgs::Poseidon16
+                            } else if is_p24_compress_0_9 {
+                                PrecompileCompTimeArgs::Poseidon24(Poseidon24Mode::Compress0_9)
+                            } else if is_p24_permute_0_9 {
+                                PrecompileCompTimeArgs::Poseidon24(Poseidon24Mode::Permute0_9)
+                            } else {
+                                PrecompileCompTimeArgs::Poseidon24(Poseidon24Mode::Permute9_18)
+                            };
                             res.push(SimpleLine::Precompile(PrecompileArgs {
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data,
                             }));
                             continue;
                         }

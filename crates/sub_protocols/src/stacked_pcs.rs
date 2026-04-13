@@ -207,7 +207,7 @@ pub fn total_whir_statements() -> usize {
      + ALL_TABLES
         .iter()
         .map(|table| {
-            // AIR
+            // AIR 
             table.n_columns()
             + table.n_down_columns()
             // Lookups into memory

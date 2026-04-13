@@ -2,7 +2,7 @@ use tracing::instrument;
 
 use crate::{
     F,
-    tables::{Poseidon1Cols16, WIDTH},
+    tables::{Poseidon1Cols16, WIDTH_16},
 };
 use backend::*;
 
@@ -42,7 +42,7 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
 }
 
 pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols16<&mut F>) {
-    let inputs: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
+    let inputs: [F; WIDTH_16] = std::array::from_fn(|i| *perm.inputs[i]);
     let mut state = inputs;
 
     // No initial linear layer for Poseidon1 (unlike Poseidon2)
@@ -63,8 +63,8 @@ pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &
     }
     let m_i = poseidon1_sparse_m_i();
     let input_for_mi = state;
-    for i in 0..WIDTH {
-        let row: [F; WIDTH] = m_i[i].map(F::from);
+    for i in 0..WIDTH_16 {
+        let row: [F; WIDTH_16] = m_i[i].map(F::from);
         state[i] = F::dot_product(&input_for_mi, &row);
     }
 
@@ -82,10 +82,10 @@ pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &
         }
         // Sparse matrix
         let old_s0 = state[0];
-        let row: [F; WIDTH] = first_rows[round].map(F::from);
+        let row: [F; WIDTH_16] = first_rows[round].map(F::from);
         let new_s0 = F::dot_product(&state, &row);
         state[0] = new_s0;
-        for i in 1..WIDTH {
+        for i in 1..WIDTH_16 {
             state[i] += old_s0 * v_vecs[round][i - 1];
         }
     }
@@ -111,10 +111,10 @@ pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &
 
 #[inline]
 fn generate_2_full_round<F: Algebra<KoalaBear> + Copy>(
-    state: &mut [F; WIDTH],
-    post_full_round: &mut [&mut F; WIDTH],
-    round_constants_1: &[KoalaBear; WIDTH],
-    round_constants_2: &[KoalaBear; WIDTH],
+    state: &mut [F; WIDTH_16],
+    post_full_round: &mut [&mut F; WIDTH_16],
+    round_constants_1: &[KoalaBear; WIDTH_16],
+    round_constants_2: &[KoalaBear; WIDTH_16],
 ) {
     for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
         *state_i += *const_i;
@@ -135,11 +135,11 @@ fn generate_2_full_round<F: Algebra<KoalaBear> + Copy>(
 
 #[inline]
 fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
-    state: &mut [F; WIDTH],
-    inputs: &[F; WIDTH],
-    outputs: &mut [&mut F; WIDTH / 2],
-    round_constants_1: &[KoalaBear; WIDTH],
-    round_constants_2: &[KoalaBear; WIDTH],
+    state: &mut [F; WIDTH_16],
+    inputs: &[F; WIDTH_16],
+    outputs: &mut [&mut F; WIDTH_16 / 2],
+    round_constants_1: &[KoalaBear; WIDTH_16],
+    round_constants_2: &[KoalaBear; WIDTH_16],
 ) {
     for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
         *state_i += *const_i;

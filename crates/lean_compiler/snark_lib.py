@@ -71,6 +71,16 @@ def poseidon16_compress(left, right, output, mode):
     _ = left, right, output, mode
 
 
+def poseidon24_compress_0_9(left, right, output):
+    _ = left, right, output
+
+def poseidon24_permute_0_9(left, right, output):
+    _ = left, right, output
+
+def poseidon24_permute_9_18(left, right, output):
+    _ = left, right, output
+
+
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 

@@ -1,7 +1,7 @@
 // Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
 use field::{Algebra, InjectiveMonomial};
-use koala_bear::{KoalaBear, Poseidon1KoalaBear16};
+use koala_bear::{KoalaBear, Poseidon1KoalaBear16, Poseidon1KoalaBear24};
 
 pub trait Compression<T: Clone>: Clone + Sync {
     #[inline(always)]
@@ -17,6 +17,14 @@ impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Compr
     for Poseidon1KoalaBear16
 {
     fn compress_mut(&self, input: &mut [R; 16]) {
+        self.compress_in_place(input);
+    }
+}
+
+impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Compression<[R; 24]>
+    for Poseidon1KoalaBear24
+{
+    fn compress_mut(&self, input: &mut [R; 24]) {
         self.compress_in_place(input);
     }
 }

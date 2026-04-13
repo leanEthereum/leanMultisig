@@ -8,12 +8,12 @@ workspace = true
 
 [features]
 prox-gaps-conjecture = ["lean_prover/prox-gaps-conjecture"]
+test-config = ["leansig_wrapper/test-config"]
 
 [dependencies]
 utils.workspace = true
-xmss.workspace = true
 rand.workspace = true
-
+leansig_wrapper.workspace = true
 tracing.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
@@ -23,3 +23,7 @@ backend.workspace = true
 postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
+sha3.workspace = true
+
+[build-dependencies]
+sha3.workspace = true
