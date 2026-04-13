@@ -1,7 +1,7 @@
 use crate::SourceLocation;
 
 /// Structured label for bytecode locations
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Label {
     /// Function entry point: @function_{name}
     Function(String),
@@ -26,7 +26,7 @@ pub enum Label {
     Custom(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum IfKind {
     /// @if_{id}
     If,
@@ -36,7 +36,7 @@ pub enum IfKind {
     End,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum AuxKind {
     /// @aux_var_{id}
     AuxVar,

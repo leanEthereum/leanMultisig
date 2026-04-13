@@ -5,7 +5,7 @@ use backend::*;
 mod air;
 pub use air::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ExecutionTable<const BUS: bool>;
 
 impl<const BUS: bool> TableT for ExecutionTable<BUS> {
@@ -55,7 +55,7 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
         }
     }
 
-    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_ptr: usize) -> Vec<F> {
+    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_16_ptr: usize, _null_hash_24_ptr: usize) -> Vec<F> {
         let mut padding_row = vec![F::ZERO; N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS];
         padding_row[COL_PC] = F::from_usize(ENDING_PC);
         padding_row[COL_JUMP] = F::ONE;

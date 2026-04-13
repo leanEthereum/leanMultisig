@@ -6,7 +6,7 @@ use backend::*;
 use std::fmt::{Display, Formatter};
 
 /// Memory, frame pointer, or constant operand
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum MemOrFpOrConstant {
     /// memory[fp + offset]
     MemoryAfterFp { offset: usize },

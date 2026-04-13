@@ -443,13 +443,23 @@ n = data_buf[0]
 ## Precompiles
 
 ### poseidon16_compress
-Always in "compression" mode
+Width-16 Poseidon compression: `output = Poseidon(left || right) + (left || right)` (feedforward).
 ```
-poseidon16_compress(left, right, output)
+poseidon16_compress(left, right, output) # result = output[0..8] (first 8 elements of output)
 ```
 - `left`: pointer to 8 field elements
 - `right`: pointer to 8 field elements
 - `res`: pointer to result (8 elements)
+
+### poseidon24_compress
+Width-24 Poseidon compression: `output = (Poseidon(left || right) + (left || right))` (feedforward).
+```
+poseidon24_compress_0_9(left, right, res) # result = output[0..9] (first 9 elements of output)
+poseidon24_compress_9_18(left, right, res) # result = output[9..23] (...)
+```
+- `left`: pointer to 9 field elements (capacity)
+- `right`: pointer to 15 field elements (rate)
+- `res`: pointer to result (9 elements)
 
 ### Extension Operations
 

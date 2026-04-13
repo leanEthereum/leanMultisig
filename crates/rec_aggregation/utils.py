@@ -39,10 +39,10 @@ def div_ceil_dynamic(a, b: Const):
 def powers(alpha, n):
     # alpha: EF
     # n: F
-    assert n < 400
+    assert n < 512
     assert 0 < n
     # 2**log2_ceil(i) is not really necessary but helps reduce byetcode size (traedoff cycles / bytecode size)
-    res = match_range(n, range(1, 400), lambda i: powers_const(alpha, 2**log2_ceil(i)))
+    res = match_range(n, range(1, 512), lambda i: powers_const(alpha, 2**log2_ceil(i)))
     return res
 
 
@@ -372,6 +372,14 @@ def set_to_8_zeros(a):
 
 
 @inline
+def set_to_9_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, zero_ptr)
+    return
+
+
+@inline
 def copy_8(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
@@ -383,6 +391,15 @@ def copy_9(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
     return
+
+
+@inline
+def copy_15(a, b):
+    copy_5(a, b)
+    copy_5(a + 5, b + 5)
+    copy_5(a + 10, b + 10)
+    return
+
 
 @inline
 def copy_16(a, b):

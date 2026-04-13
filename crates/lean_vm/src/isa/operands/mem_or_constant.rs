@@ -5,7 +5,7 @@ use backend::*;
 use std::fmt::{Display, Formatter};
 
 /// Represents a value that can be either a constant or memory location
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum MemOrConstant {
     /// Direct constant value
     Constant(F),

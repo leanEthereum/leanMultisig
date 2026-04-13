@@ -5,7 +5,7 @@ use backend::*;
 use std::fmt::{Display, Formatter};
 
 /// Basic arithmetic operations supported by the VM
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Operation {
     Add,
     Mul,

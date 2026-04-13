@@ -32,6 +32,29 @@ impl<PMP: PackedMontyParameters> InternalLayer16<PMP> {
     }
 }
 
+/// A specialized representation of the Poseidon state for a width of 24.
+///
+/// Same split as `InternalLayer16` but for width 24.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct InternalLayer24<PMP: PackedMontyParameters> {
+    pub(crate) s0: PackedMontyField31Neon<PMP>,
+    pub(crate) s_hi: [uint32x4_t; 23],
+}
+
+impl<PMP: PackedMontyParameters> InternalLayer24<PMP> {
+    #[inline]
+    pub(crate) unsafe fn to_packed_field_array(self) -> [PackedMontyField31Neon<PMP>; 24] {
+        unsafe { transmute(self) }
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn from_packed_field_array(vector: [PackedMontyField31Neon<PMP>; 24]) -> Self {
+        unsafe { transmute(vector) }
+    }
+}
+
 /// Converts a scalar constant into a packed NEON vector in "negative form" (`c - P`).
 #[inline(always)]
 pub(crate) fn convert_to_vec_neg_form_neon<MP: MontyParameters>(input: i32) -> int32x4_t {

@@ -5,9 +5,10 @@ use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
+use leansig_wrapper::*;
 use tracing::instrument;
+use utils::poseidon24_compress_0_9;
 use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -17,8 +18,12 @@ pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode
 
 pub mod benchmark;
 mod compilation;
+pub mod signatures_cache;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
+const _: () = {
+    assert!(LOG_LIFETIME.is_multiple_of(MERKLE_LEVELS_PER_CHUNK_FOR_SLOT));
+};
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 // preamble memory layout: see `build_preamble_memory` in utils.py
@@ -39,9 +44,18 @@ pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> u
     topology.raw_xmss + child_count - overlap * n_overlaps
 }
 
+/// Hash pubkeys via Poseidon24 sponge: capacity(9) || root(8) || pp(5) || zeros(2) per key.
 pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
-    let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.merkle_root.iter().copied()).collect();
-    poseidon_compress_slice(&flat, true)
+    let mut capacity = [F::ZERO; 9];
+    for pk in pub_keys {
+        let mut input = [F::ZERO; 24];
+        input[..9].copy_from_slice(&capacity);
+        input[9..17].copy_from_slice(&pubkey_merkle_root(pk));
+        input[17..22].copy_from_slice(&pubkey_public_parameter(pk));
+        // input[22..24] = zeros (padding)
+        capacity = poseidon24_compress_0_9(input);
+    }
+    capacity[..DIGEST_LEN].try_into().unwrap()
 }
 
 fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
@@ -60,11 +74,41 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
     chunks
 }
 
+/// Pre-compute ALL tweaks for a slot:
+/// encoding(2) + chain(V*CHAIN_LENGTH*2) + leaf_tweak(2) + merkle(LOG_LIFETIME*2).
+fn compute_all_tweaks_for_slot(slot: u32) -> Vec<F> {
+    let n = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
+    let mut tweaks = Vec::with_capacity(n);
+    // Encoding tweak: encode_epoch(slot) = ((slot << 8) | TWEAK_SEPARATOR_MSG) in base-p
+    let acc = ((slot as u64) << 8) | 0x02u64;
+    let [t0, t1] = [F::from_u64(acc % F::ORDER_U64), F::from_u64(acc / F::ORDER_U64)];
+    tweaks.extend([t0, t1]);
+    // Chain tweaks
+    for chain_idx in 0..V {
+        for step in 0..BASE {
+            let [t0, t1] = chain_tweak(slot, chain_idx as u32, step as u32);
+            tweaks.extend([t0, t1]);
+        }
+    }
+    // Leaf tweak: tree_tweak(0, slot) for hashing chain ends into a leaf node
+    let [t0, t1] = merkle_tweak(0, slot);
+    tweaks.extend([t0, t1]);
+    // Merkle tweaks: tree_tweak(l+1, slot >> (l+1)) for each level l
+    for level in 0..LOG_LIFETIME {
+        let parent_level = level + 1;
+        let parent_index = if parent_level < 32 { slot >> parent_level } else { 0 };
+        let [t0, t1] = merkle_tweak(parent_level, parent_index);
+        tweaks.extend([t0, t1]);
+    }
+    assert_eq!(tweaks.len(), n);
+    tweaks
+}
+
 /// Builds the (padded) public-input data buffer that ends up being hashed.
 fn build_input_data(
     n_sigs: usize,
     slice_hash: &[F; DIGEST_LEN],
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     bytecode_claim_output: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
@@ -72,11 +116,9 @@ fn build_input_data(
     let mut data = vec![];
     data.push(F::from_usize(n_sigs));
     data.extend_from_slice(slice_hash);
-    data.extend_from_slice(message);
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
-    data.push(slot_lo);
-    data.push(slot_hi);
+    data.extend(xmss_encode_message(message));
     data.extend(compute_merkle_chunks_for_slot(slot));
+    data.extend(compute_all_tweaks_for_slot(slot));
     data.extend_from_slice(bytecode_claim_output);
     // Pad the bytecode claim itself up to DIGEST_LEN
     let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
@@ -94,9 +136,9 @@ pub(crate) fn hash_input_data(data: &[F]) -> [F; DIGEST_LEN] {
 
 fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     let mut data = vec![];
-    data.extend(sig.wots_signature.randomness.to_vec());
-    data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
-    for neighbor in &sig.merkle_proof {
+    data.extend_from_slice(xmss_randomness(sig));
+    data.extend(xmmss_revealed_chain_tips(sig).iter().flat_map(|digest| digest.to_vec()));
+    for neighbor in xmss_merkle_path(sig) {
         data.extend(neighbor.to_vec());
     }
     assert_eq!(data.len(), SIG_SIZE_FE);
@@ -123,7 +165,7 @@ impl AggregatedXMSS {
         postcard::from_bytes(&decompressed).ok()
     }
 
-    pub(crate) fn input_data(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+    pub(crate) fn input_data(&self, pub_keys: &[XmssPublicKey], message: &[u8; MESSAGE_LENGTH], slot: u32) -> Vec<F> {
         let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
@@ -141,7 +183,11 @@ impl AggregatedXMSS {
                 claim
             }
         };
+        let bytecode_claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
         assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
+        // Pad to match the public input layout
+        let mut bytecode_claim_output = bytecode_claim_output;
+        bytecode_claim_output.resize(bytecode_claim_size_padded, F::ZERO);
 
         let slice_hash = hash_pubkeys(pub_keys);
 
@@ -156,21 +202,21 @@ impl AggregatedXMSS {
     }
 
     /// The 1-digest public input that the verifier passes to `verify_execution`.
-    pub fn public_input_hash(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+    pub fn public_input_hash(&self, pub_keys: &[XmssPublicKey], message: &[u8; MESSAGE_LENGTH], slot: u32) -> Vec<F> {
         hash_input_data(&self.input_data(pub_keys, message, slot)).to_vec()
     }
 }
 
 pub fn xmss_verify_aggregation(
-    pub_keys: &[XmssPublicKey],
+    pub_keys: Vec<XmssPublicKey>,
     agg_sig: &AggregatedXMSS,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
 ) -> Result<ProofVerificationDetails, ProofError> {
-    if !pub_keys.is_sorted() {
-        return Err(ProofError::InvalidProof);
-    }
-    let public_input = agg_sig.public_input_hash(pub_keys, message, slot);
+    let mut pub_keys = pub_keys;
+    pub_keys.sort();
+
+    let public_input = agg_sig.public_input_hash(&pub_keys, message, slot);
     let bytecode = get_aggregation_bytecode();
     verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
@@ -180,12 +226,21 @@ pub fn xmss_verify_aggregation(
 pub fn xmss_aggregate(
     children: &[(&[XmssPublicKey], AggregatedXMSS)],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[u8; MESSAGE_LENGTH],
     slot: u32,
     log_inv_rate: usize,
 ) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
-    raw_xmss.dedup_by(|(a, _), (b, _)| a.merkle_root == b.merkle_root);
+    raw_xmss.dedup_by(|(a, _), (b, _)| a == b);
+
+    let children: Vec<(Vec<XmssPublicKey>, &AggregatedXMSS)> = children
+        .iter()
+        .map(|&(pks, ref agg)| {
+            let mut v = pks.to_vec();
+            v.sort();
+            (v, agg)
+        })
+        .collect();
 
     let n_recursions = children.len();
     let raw_count = raw_xmss.len();
@@ -197,9 +252,9 @@ pub fn xmss_aggregate(
 
     // Build global_pub_keys as sorted deduplicated union
     let mut global_pub_keys: Vec<XmssPublicKey> = raw_xmss.iter().map(|(pk, _)| pk.clone()).collect();
-    for (child_pub_keys, _) in children.iter() {
-        assert!(child_pub_keys.is_sorted(), "child pub_keys must be sorted");
-        global_pub_keys.extend_from_slice(child_pub_keys);
+    for (child_pubkeys, _) in children.iter() {
+        assert!(child_pubkeys.is_sorted(), "child pub_keys must be sorted");
+        global_pub_keys.extend_from_slice(child_pubkeys);
     }
     global_pub_keys.sort();
     global_pub_keys.dedup();
@@ -207,22 +262,21 @@ pub fn xmss_aggregate(
 
     // Verify child proofs
     let mut child_input_data = vec![];
-    let mut child_input_hashes = vec![];
     let mut child_bytecode_evals = vec![];
     let mut child_raw_proofs = vec![];
-    for (child_pub_keys, child) in children {
-        let input_data = child.input_data(child_pub_keys, message, slot);
+    for (child_pubkeys, child) in &children {
+        let input_data = child.input_data(child_pubkeys, message, slot);
         let input_data_hash = hash_input_data(&input_data);
         let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);
         child_input_data.push(input_data);
-        child_input_hashes.push(input_data_hash);
         child_raw_proofs.push(raw_proof);
     }
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+        let n_all_tweaks_fe = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_input_data(
@@ -312,7 +366,7 @@ pub fn xmss_aggregate(
 
     let xmss_signatures: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
-    // Raw XMSS indices.
+    // Raw XMSS indices (signature data goes via hint_witness("xmss_signature")).
     let raw_indices: Vec<F> = raw_xmss
         .iter()
         .map(|(pk, _)| {
@@ -327,14 +381,15 @@ pub fn xmss_aggregate(
     let mut inner_bytecode_claim_blobs = Vec::with_capacity(n_recursions);
     let mut proof_transcript_blobs = Vec::with_capacity(n_recursions);
 
-    let claim_offset_in_input = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+    let n_all_tweaks_fe = TWEAK_LEN_FE + V * BASE * TWEAK_LEN_FE + TWEAK_LEN_FE + LOG_LIFETIME * TWEAK_LEN_FE;
+    let claim_offset_in_input = 1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe;
     let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
 
     // Sources 1..n_recursions: recursive children
     for (i, (child_pub_keys, _)) in children.iter().enumerate() {
         // sub_indices: [n_sub, idx_0, idx_1, ...] into global_pub_keys + dup_pub_keys
         let mut sub_indices = vec![F::from_usize(child_pub_keys.len())];
-        for pubkey in *child_pub_keys {
+        for pubkey in child_pub_keys {
             if claimed.insert(pubkey.clone()) {
                 let pos = global_pub_keys.binary_search(pubkey).unwrap();
                 sub_indices.push(F::from_usize(pos));
@@ -355,12 +410,15 @@ pub fn xmss_aggregate(
 
     let n_dup = dup_pub_keys.len();
 
-    let mut pubkeys_blob: Vec<F> = Vec::with_capacity((n_sigs + n_dup) * DIGEST_LEN);
+    let pubkey_fe_size = DIGEST_LEN + PARAMETER_LEN;
+    let mut pubkeys_blob: Vec<F> = Vec::with_capacity((n_sigs + n_dup) * pubkey_fe_size);
     for pk in &global_pub_keys {
-        pubkeys_blob.extend_from_slice(&pk.merkle_root);
+        pubkeys_blob.extend_from_slice(&pubkey_merkle_root(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_public_parameter(pk));
     }
     for pk in &dup_pub_keys {
-        pubkeys_blob.extend_from_slice(&pk.merkle_root);
+        pubkeys_blob.extend_from_slice(&pubkey_merkle_root(pk));
+        pubkeys_blob.extend_from_slice(&pubkey_public_parameter(pk));
     }
 
     let (merkle_leaf_blobs, merkle_path_blobs): (Vec<Vec<F>>, Vec<Vec<F>>) = child_raw_proofs

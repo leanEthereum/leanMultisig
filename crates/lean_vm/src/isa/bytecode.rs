@@ -1,6 +1,7 @@
 //! Bytecode representation and management
 
 use backend::*;
+use serde::{Deserialize, Serialize};
 
 use crate::{CodeAddress, EF, F, FileId, FunctionName, Hint, SourceLocation};
 
@@ -8,12 +9,14 @@ use super::Instruction;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
+    #[serde(skip)]
     pub instructions_multilinear: Vec<F>,
-    pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
-    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,             // pc -> hints
+    #[serde(skip)]
+    pub instructions_multilinear_packed: Vec<EFPacking<EF>>,
+    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,
     pub starting_frame_memory: usize,
     pub hash: [F; DIGEST_ELEMS],
     // debug

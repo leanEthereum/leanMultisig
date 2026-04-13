@@ -12,7 +12,7 @@ use utils::ToUsize;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Hint {
     /// Compute the inverse of a field element
     Inverse {
@@ -75,7 +75,7 @@ pub enum Hint {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum HintWitnessDestination<T> {
     /// Write directly at `m[fp + fp_offset ..]
     Inline { offset: T },
@@ -94,7 +94,7 @@ impl<T> HintWitnessDestination<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CustomHint {
     // Decompose values into their custom representations:
     /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
@@ -144,23 +144,35 @@ impl CustomHint {
     ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
+                // Aborting hypercube decomposition: a_i = Q * d_i + r_i
+                // where d_i = floor(a_i / Q), r_i = a_i mod Q, Q = 127
+                // Then d_i is decomposed into base-w digits (w = 2^chunk_size)
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
+                let q: usize = 127; // Q parameter for aborting hypercube (p = Q * w^z + 1)
+                let base = 1 << chunk_size;
+                let n_chunks = 24 / chunk_size;
                 let mut memory_index_decomposed = decomposed_ptr;
                 let mut memory_index_remaining = remaining_ptr;
                 #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
-                    for i in 0..24 / chunk_size {
-                        let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
-                        ctx.memory.set(memory_index_decomposed, value)?;
+                    let mut d_i = value / q; // floor(a_i / Q)
+                    let r_i = value % q; // a_i mod Q
+                    for _ in 0..n_chunks {
+                        ctx.memory.set(memory_index_decomposed, F::from_usize(d_i % base))?;
+                        d_i /= base;
                         memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
+                    assert_eq!(
+                        d_i, 0,
+                        "d_i does not fit in {n_chunks} base-{base} digits -> invalid XMSS encoding"
+                    );
+                    ctx.memory.set(memory_index_remaining, F::from_usize(r_i))?;
                     memory_index_remaining += 1;
                 }
             }
@@ -220,7 +232,7 @@ impl CustomHint {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Boolean {
     Equal,
     Different,
@@ -228,7 +240,7 @@ pub enum Boolean {
     LessOrEqual,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BooleanExpr<E> {
     pub left: E,
     pub right: E,
