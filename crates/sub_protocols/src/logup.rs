@@ -15,7 +15,7 @@ pub struct GenericLogupStatements {
     pub value_bytecode_acc: EF,
     pub bus_numerators_values: BTreeMap<Table, EF>,
     pub bus_denominators_values: BTreeMap<Table, EF>,
-    pub points: BTreeMap<Table, MultilinearPoint<EF>>,
+    pub gkr_point: Vec<EF>,
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
     pub total_gkr_n_vars: usize,
@@ -253,7 +253,6 @@ pub fn prove_generic_logup(
     // evaluation on bytecode itself can be done directly by the verifier
 
     // ... Rest of the tables:
-    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
@@ -319,7 +318,6 @@ pub fn prove_generic_logup(
             }
         }
 
-        points.insert(*table, inner_point);
         columns_values.insert(*table, table_values);
 
         offset += offset_for_table(table, log_n_rows);
@@ -333,7 +331,7 @@ pub fn prove_generic_logup(
         value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
-        points,
+        gkr_point: claim_point_gkr.0,
         columns_values,
         total_gkr_n_vars,
         bytecode_evaluation: None,
@@ -423,16 +421,12 @@ pub fn verify_generic_logup(
     offset += 1 << log_bytecode_padded;
 
     // ... Rest of the tables:
-    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     for &(table, log_n_rows) in &tables_heights_sorted {
         let n_missing_vars = total_gkr_n_vars - log_n_rows;
-        let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
         let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
-
-        points.insert(table, inner_point.clone());
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == Table::execution() {
@@ -517,7 +511,7 @@ pub fn verify_generic_logup(
         value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
-        points,
+        gkr_point: point_gkr.0,
         columns_values,
         total_gkr_n_vars,
         bytecode_evaluation: Some(Evaluation::new(bytecode_point, bytecode_value)),

@@ -12,15 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "air"
-version = "0.1.0"
-dependencies = [
- "backend",
- "rand",
- "tracing",
-]
-
-[[package]]
 name = "ansi_term"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,7 +471,6 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 name = "lean-multisig"
 version = "0.1.0"
 dependencies = [
- "air",
  "backend",
  "clap",
  "lean_vm",
@@ -496,7 +486,6 @@ dependencies = [
 name = "lean_compiler"
 version = "0.1.0"
 dependencies = [
- "air",
  "backend",
  "lean_vm",
  "pest",
@@ -512,7 +501,6 @@ dependencies = [
 name = "lean_prover"
 version = "0.1.0"
 dependencies = [
- "air",
  "backend",
  "itertools",
  "lean_compiler",
@@ -531,7 +519,6 @@ dependencies = [
 name = "lean_vm"
 version = "0.1.0"
 dependencies = [
- "air",
  "backend",
  "itertools",
  "pest",
@@ -895,7 +882,6 @@ dependencies = [
 name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
- "air",
  "backend",
  "lean_compiler",
  "lean_prover",
