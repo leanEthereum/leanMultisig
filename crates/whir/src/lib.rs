@@ -32,6 +32,8 @@ pub struct SparseStatement<EF> {
     pub total_num_variables: usize,
     pub point: MultilinearPoint<EF>,
     pub values: Vec<SparseValue<EF>>,
+    /// When true, the weight polynomial is `next_mle(point, .)` instead of `eq(point, .)`.
+    pub is_next: bool,
 }
 
 impl<EF> SparseStatement<EF> {
@@ -40,6 +42,16 @@ impl<EF> SparseStatement<EF> {
             total_num_variables,
             point,
             values,
+            is_next: false,
+        }
+    }
+
+    pub fn new_next(total_num_variables: usize, point: MultilinearPoint<EF>, values: Vec<SparseValue<EF>>) -> Self {
+        Self {
+            total_num_variables,
+            point,
+            values,
+            is_next: true,
         }
     }
 
@@ -48,6 +60,7 @@ impl<EF> SparseStatement<EF> {
             total_num_variables,
             point: MultilinearPoint(vec![]),
             values: vec![SparseValue { selector: index, value }],
+            is_next: false,
         }
     }
 
@@ -56,6 +69,7 @@ impl<EF> SparseStatement<EF> {
             total_num_variables: point.len(),
             point,
             values: vec![SparseValue { selector: 0, value }],
+            is_next: false,
         }
     }
 

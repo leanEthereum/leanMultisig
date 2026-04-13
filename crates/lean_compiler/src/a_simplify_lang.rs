@@ -133,6 +133,13 @@ pub enum SimpleLine {
         location: SourceLocation,
     },
     DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
+    /// analysis cannot drop it; both sides are read at execution time.
+    AssertEq {
+        left: SimpleExpr,
+        right: SimpleExpr,
+        location: SourceLocation,
+    },
     /// Range check: assert val <= bound
     RangeCheck {
         val: SimpleExpr,
@@ -173,6 +180,7 @@ impl SimpleLine {
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert(..)
+            | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
     }
@@ -199,6 +207,7 @@ impl SimpleLine {
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert(..)
+            | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
     }
@@ -220,6 +229,7 @@ impl SimpleLine {
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
             | Self::ConstMalloc { .. }
@@ -1126,10 +1136,23 @@ fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeM
 /// Finds mutable variables that are:
 /// 1. Defined OUTSIDE this block (external)
 /// 2. Re-assigned INSIDE this block
-fn find_modified_external_vars(lines: &[Line], const_arrays: &BTreeMap<String, ConstArrayValue>) -> BTreeSet<Var> {
+fn find_modified_external_vars(
+    lines: &[Line],
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    outer_mut_vars: &BTreeSet<Var>,
+) -> BTreeSet<Var> {
     // Use the existing find_variable_usage to get external variables
     // (variables that are read but not defined in this block)
-    let (internal_vars, external_vars) = find_variable_usage(lines, const_arrays);
+    let (mut internal_vars, mut external_vars) = find_variable_usage(lines, const_arrays);
+
+    // Mut vars declared in an enclosing scope are always external, even if only
+    // written (never read) inside this block.
+    for v in outer_mut_vars {
+        if !const_arrays.contains_key(v) {
+            internal_vars.remove(v);
+            external_vars.insert(v.clone());
+        }
+    }
 
     // Now find which external variables are assigned to (modified)
     let mut modified_external_vars = BTreeSet::new();
@@ -1186,7 +1209,7 @@ fn find_assigned_external_vars_helper(
 
 fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut Counter) {
     for func in program.functions.values_mut() {
-        transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter);
+        transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter, &BTreeSet::new());
     }
 }
 
@@ -1194,12 +1217,14 @@ fn transform_mutable_in_loops_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
     counter: &mut Counter,
+    outer_mut_vars: &BTreeSet<Var>,
 ) {
+    let mut local_mut_vars = outer_mut_vars.clone();
     let mut i = 0;
     while i < lines.len() {
         match &mut lines[i] {
             Line::ForLoop { body, loop_kind, .. } if loop_kind.is_unroll() => {
-                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter, &local_mut_vars);
                 i += 1;
             }
             Line::ForLoop {
@@ -1211,8 +1236,8 @@ fn transform_mutable_in_loops_in_lines(
                 location,
             } => {
                 let loop_kind = loop_kind.clone();
-                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
-                let modified_vars = find_modified_external_vars(body, const_arrays);
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter, &local_mut_vars);
+                let modified_vars = find_modified_external_vars(body, const_arrays, &local_mut_vars);
 
                 if modified_vars.is_empty() {
                     // No mutable variables modified, no transformation needed
@@ -1382,7 +1407,15 @@ fn transform_mutable_in_loops_in_lines(
             }
             line @ (Line::IfCondition { .. } | Line::Match { .. }) => {
                 for block in line.nested_blocks_mut() {
-                    transform_mutable_in_loops_in_lines(block, const_arrays, counter);
+                    transform_mutable_in_loops_in_lines(block, const_arrays, counter, &local_mut_vars);
+                }
+                i += 1;
+            }
+            Line::Statement { targets, .. } => {
+                for target in targets {
+                    if let AssignmentTarget::Var { var, is_mutable: true } = target {
+                        local_mut_vars.insert(var.clone());
+                    }
                 }
                 i += 1;
             }
@@ -2400,6 +2433,11 @@ fn simplify_lines(
                                             let result = ConstExpression::MathExpr(*operation, const_args);
                                             res.push(SimpleLine::equality(target_var, SimpleExpr::Constant(result)));
                                         } else {
+                                            if !operation.supports_runtime() {
+                                                return Err(format!(
+                                                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                                                ));
+                                            }
                                             res.push(SimpleLine::Assignment {
                                                 var: target_var.into(),
                                                 operation: *operation,
@@ -2443,6 +2481,11 @@ fn simplify_lines(
                                         let result = ConstExpression::MathExpr(*operation, const_args);
                                         res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
                                     } else {
+                                        if !operation.supports_runtime() {
+                                            return Err(format!(
+                                                "Operation `{operation}` is compile-time only; all operands must be constants"
+                                            ));
+                                        }
                                         assert_eq!(simplified_args.len(), 2);
                                         res.push(SimpleLine::Assignment {
                                             var,
@@ -2502,32 +2545,31 @@ fn simplify_lines(
                             });
                         }
                         Boolean::Equal => {
-                            let (var, other): (VarOrConstMallocAccess, _) = if let Ok(left) = left.clone().try_into() {
-                                (left, right)
-                            } else if let Ok(right) = right.clone().try_into() {
-                                (right, left)
-                            } else {
-                                // Both are constants - evaluate at compile time
-                                if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
-                                    (&left, &right)
-                                    && let (Some(left_val), Some(right_val)) =
-                                        (left_const.naive_eval(), right_const.naive_eval())
-                                {
-                                    if left_val == right_val {
-                                        // Assertion passes at compile time, no code needed
-                                        continue;
-                                    } else {
-                                        return Err(format!(
-                                            "Compile-time assertion failed: {} != {} ({})",
-                                            left_val.to_usize(),
-                                            right_val.to_usize(),
-                                            location
-                                        ));
-                                    }
+                            // Both constants: evaluate at compile time.
+                            if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
+                                (&left, &right)
+                                && let (Some(left_val), Some(right_val)) =
+                                    (left_const.naive_eval(), right_const.naive_eval())
+                            {
+                                if left_val == right_val {
+                                    continue;
+                                } else {
+                                    return Err(format!(
+                                        "Compile-time assertion failed: {} != {} ({})",
+                                        left_val.to_usize(),
+                                        right_val.to_usize(),
+                                        location
+                                    ));
                                 }
+                            }
+                            if !matches!(&left, SimpleExpr::Memory(_)) && !matches!(&right, SimpleExpr::Memory(_)) {
                                 return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"));
-                            };
-                            res.push(SimpleLine::equality(var, other));
+                            }
+                            res.push(SimpleLine::AssertEq {
+                                left,
+                                right,
+                                location: *location,
+                            });
                         }
                         Boolean::LessThan => {
                             // assert left < right is equivalent to assert left <= right - 1
@@ -3054,6 +3096,11 @@ fn simplify_expr(
                 .collect::<Result<Vec<_>, _>>()?;
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
                 return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
+            }
+            if !operation.supports_runtime() {
+                return Err(format!(
+                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                ));
             }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
@@ -4087,6 +4134,9 @@ impl SimpleLine {
             Self::LocationReport { .. } => Default::default(),
             Self::DebugAssert(bool, _) => {
                 format!("debug_assert({bool})")
+            }
+            Self::AssertEq { left, right, .. } => {
+                format!("assert_eq({left} == {right})")
             }
             Self::RangeCheck { val, bound } => {
                 format!("range_check({val} <= {bound})")

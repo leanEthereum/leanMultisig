@@ -41,6 +41,7 @@ But we can get the bost of both worlds (suggested by Lev, TODO implement):
 - Do we need to enforce some values at the first row of the dot-product table?
 - Formal Verification
 - Padd with noop cycles to always ensure memory size >= bytecode size (liveness), and ensure this condition is checked by the verifier (soundness)
+- Rewrite the compiler, it's bad right now.
 
 # Ideas
 

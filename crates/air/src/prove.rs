@@ -1,8 +1,7 @@
 use backend::*;
 use tracing::{info_span, instrument};
-use utils::multilinears_linear_combination;
 
-use crate::{AirClaims, uni_skip_utils::matrix_next_mle_folded, utils::column_shifted};
+use crate::AirClaims;
 
 /*
 
@@ -66,77 +65,16 @@ where
 
     prover_state.add_extension_scalars(&inner_sums);
 
-    open_columns(
-        prover_state,
-        &inner_sums,
-        &air.down_column_indexes(),
-        &columns,
-        &outer_sumcheck_challenge,
-    )
-}
-
-#[instrument(skip_all)]
-fn open_columns<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    inner_evals: &[EF],
-    columns_with_shift: &[usize],
-    columns: &[&[PF<EF>]],
-    outer_sumcheck_challenge: &[EF],
-) -> AirClaims<EF> {
-    let n_columns_up = columns.len();
-    let n_columns_down = columns_with_shift.len();
-    assert_eq!(inner_evals.len(), n_columns_up + n_columns_down);
-
-    let evals_up = inner_evals[..n_columns_up].to_vec();
-    let evals_down = &inner_evals[n_columns_up..];
-
-    if n_columns_down == 0 {
-        return AirClaims {
-            point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
-            evals: evals_up,
-            down_point: None,
-            evals_on_down_columns: vec![],
-        };
-    }
-
-    let batching_scalar = prover_state.sample();
-    let batching_scalar_powers = batching_scalar.powers().collect_n(n_columns_down);
-
-    let columns_shifted = &columns_with_shift.iter().map(|&i| columns[i]).collect::<Vec<_>>();
-
-    let batched_column_down = multilinears_linear_combination(columns_shifted, &batching_scalar_powers);
-
-    let matrix_down = matrix_next_mle_folded(outer_sumcheck_challenge);
-    let inner_mle = info_span!("packing").in_scope(|| {
-        MleGroupOwned::ExtensionPacked(vec![pack_extension(&matrix_down), pack_extension(&batched_column_down)])
-    });
-
-    let inner_sum = dot_product(evals_down.iter().copied(), batching_scalar_powers.iter().copied());
-
-    let (inner_challenges, _, _) = info_span!("structured columns sumcheck").in_scope(|| {
-        sumcheck_prove::<EF, _, _>(
-            inner_mle,
-            &ProductComputation {},
-            &vec![],
-            None,
-            prover_state,
-            inner_sum,
-            false,
-        )
-    });
-
-    let evals_on_down_columns = info_span!("final evals").in_scope(|| {
-        columns_shifted
-            .par_iter()
-            .map(|col| col.evaluate(&inner_challenges))
-            .collect::<Vec<_>>()
-    });
-    prover_state.add_extension_scalars(&evals_on_down_columns);
-
     AirClaims {
         point: MultilinearPoint(outer_sumcheck_challenge.to_vec()),
-        evals: evals_up,
-        down_point: Some(inner_challenges),
-        evals_on_down_columns,
+        evals: inner_sums[..columns.len()].to_vec(),
+        evals_down: inner_sums[columns.len()..].to_vec(),
     }
+}
+
+pub(crate) fn column_shifted<F: Field>(column: &[F]) -> Vec<F> {
+    let mut down = unsafe { uninitialized_vec(column.len()) };
+    parallel_clone(&column[1..], &mut down[..column.len() - 1]);
+    down[column.len() - 1] = column[column.len() - 1];
+    down
 }
