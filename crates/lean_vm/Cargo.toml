@@ -13,6 +13,5 @@ utils.workspace = true
 xmss.workspace = true
 rand.workspace = true
 tracing.workspace = true
-air.workspace = true
 backend.workspace = true
 itertools.workspace = true

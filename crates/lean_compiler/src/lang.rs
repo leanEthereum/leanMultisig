@@ -226,49 +226,6 @@ impl From<ConstantValue> for ConstExpression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Condition {
-    AssumeBoolean(Expression),
-    Comparison(BooleanExpr<Expression>),
-}
-
-impl Display for Condition {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AssumeBoolean(expr) => write!(f, "{expr}"),
-            Self::Comparison(cmp) => write!(f, "{cmp}"),
-        }
-    }
-}
-
-impl Condition {
-    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        match self {
-            Self::AssumeBoolean(expr) => vec![expr],
-            Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
-        }
-    }
-
-    pub fn eval_with(&self, eval_expr: &impl Fn(&Expression) -> Option<F>) -> Option<bool> {
-        match self {
-            Self::AssumeBoolean(expr) => {
-                let val = eval_expr(expr)?;
-                Some(val != F::ZERO)
-            }
-            Self::Comparison(cmp) => {
-                let left = eval_expr(&cmp.left)?;
-                let right = eval_expr(&cmp.right)?;
-                Some(match cmp.kind {
-                    Boolean::Equal => left == right,
-                    Boolean::Different => left != right,
-                    Boolean::LessThan => left < right,
-                    Boolean::LessOrEqual => left <= right,
-                })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
@@ -622,7 +579,7 @@ pub enum Line {
         location: SourceLocation,
     },
     IfCondition {
-        condition: Condition,
+        condition: BooleanExpr<Expression>,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
         location: SourceLocation,
@@ -946,7 +903,7 @@ impl Line {
                 exprs
             }
             Self::Assert { boolean, .. } => vec![&mut boolean.left, &mut boolean.right],
-            Self::IfCondition { condition, .. } => condition.expressions_mut(),
+            Self::IfCondition { condition, .. } => vec![&mut condition.left, &mut condition.right],
             Self::ForLoop {
                 start, end, loop_kind, ..
             } => {

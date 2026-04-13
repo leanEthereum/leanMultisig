@@ -47,8 +47,8 @@ pub struct Digest(pub [F; DIGEST_LEN]);
 // preamble memory layout: see `build_preamble_memory` in utils.py, plus the XMSS tweak
 // table which sits at the end of the preamble region and is populated via
 // `hint_witness("tweak_table", TWEAK_TABLE_ADDR)` at program startup.
-const ZERO_VEC_LEN: usize = 16;
-const NUM_REPEATED_ONES: usize = 16;
+pub const ZERO_VEC_LEN: usize = 16;
+pub const NUM_REPEATED_ONES: usize = 32;
 pub const PREAMBLE_MEMORY_LEN: usize =
     ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES + TWEAK_TABLE_SIZE_FE_PADDED;
 

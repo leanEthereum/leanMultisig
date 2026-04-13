@@ -1,3 +1,6 @@
+mod air_sumcheck;
+pub use air_sumcheck::*;
+
 mod logup;
 pub use logup::*;
 
