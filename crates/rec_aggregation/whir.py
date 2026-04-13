@@ -235,8 +235,7 @@ def decompose_and_verify_merkle_batch_with_height(num_queries, sampled, root, he
 
 def decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height: Const, num_chunks: Const, circle_values, merkle_leaves):
     for i in range(0, num_queries):
-        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], height)
-        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, root, height, num_chunks)
+        merkle_leaves[i], circle_values[i] = decompose_and_verify_merkle_query(sampled[i], height, root, num_chunks)
     return
 
 
