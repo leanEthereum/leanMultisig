@@ -44,31 +44,14 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(load_or_compile);
 }
 
+const PY_SOURCE_FINGERPRINT_HEX: &str = env!("REC_AGGREGATION_PY_FINGERPRINT");
+
 fn compute_source_fingerprint() -> [u8; FINGERPRINT_SIZE] {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    // Collect all .py files in the crate root, sorted by name for determinism.
-    let mut py_files: Vec<(String, String)> = Vec::new();
-    for entry in std::fs::read_dir(manifest_dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "py") {
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            let content = std::fs::read_to_string(&path).unwrap();
-            py_files.push((name, content));
-        }
-    }
-    py_files.sort();
-
     let replacements = compute_replacements(BYTECODE_GUESSED_LOG_SIZE, F::ONE);
 
     let mut hasher = Sha3_256::new();
-    for (name, content) in &py_files {
-        hasher.update(name.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(content.as_bytes());
-        hasher.update(b"\0");
-    }
+    hasher.update(PY_SOURCE_FINGERPRINT_HEX.as_bytes());
+    hasher.update(b"\0");
     for (key, value) in &replacements {
         hasher.update(key.as_bytes());
         hasher.update(b"\0");
