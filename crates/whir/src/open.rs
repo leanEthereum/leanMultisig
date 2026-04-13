@@ -528,14 +528,19 @@ where
     let mut gamma_pow = EF::ONE;
 
     for smt in statements {
-        if smt.values.len() == 1 || smt.inner_num_variables() < packing_log_width::<EF>() {
+        if !smt.is_next && (smt.values.len() == 1 || smt.inner_num_variables() < packing_log_width::<EF>()) {
             for evaluation in &smt.values {
                 compute_sparse_eval_eq_packed::<EF>(evaluation.selector, &smt.point, &mut combined_weights, gamma_pow);
                 combined_sum += evaluation.value * gamma_pow;
                 gamma_pow *= gamma;
             }
         } else {
-            let poly_eq = eval_eq_packed(&smt.point);
+            let inner_poly = if smt.is_next {
+                let next = matrix_next_mle_folded(&smt.point.0);
+                pack_extension(&next)
+            } else {
+                eval_eq_packed(&smt.point)
+            };
             let shift = smt.inner_num_variables() - packing_log_width::<EF>();
             let mut indexed_smt_values = smt.values.iter().enumerate().collect::<Vec<_>>();
             indexed_smt_values.sort_by_key(|(_, e)| e.selector);
@@ -566,9 +571,9 @@ where
                 .for_each(|(out_buff, &(origin_index, _))| {
                     out_buff[..1 << shift]
                         .par_iter_mut()
-                        .zip(&poly_eq)
-                        .for_each(|(out_elem, &poly_eq_elem)| {
-                            *out_elem += poly_eq_elem * next_gamma_powers[origin_index];
+                        .zip(&inner_poly)
+                        .for_each(|(out_elem, &poly_elem)| {
+                            *out_elem += poly_elem * next_gamma_powers[origin_index];
                         });
                 });
             gamma_pow = *next_gamma_powers.last().unwrap() * gamma;

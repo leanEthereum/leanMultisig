@@ -69,11 +69,21 @@ pub fn stacked_pcs_global_statements(
                 EF::from_usize(ENDING_PC),
             ));
         }
-        for (point, col_statements) in &committed_statements[&table] {
+        for (point, eq_values, next_values) in &committed_statements[&table] {
+            if !next_values.is_empty() {
+                global_statements.push(SparseStatement::new_next(
+                    stacked_n_vars,
+                    point.clone(),
+                    next_values
+                        .iter()
+                        .map(|(&col_index, &value)| SparseValue::new((offset >> n_vars) + col_index, value))
+                        .collect(),
+                ));
+            }
             global_statements.push(SparseStatement::new(
                 stacked_n_vars,
                 point.clone(),
-                col_statements
+                eq_values
                     .iter()
                     .map(|(&col_index, &value)| SparseValue::new((offset >> n_vars) + col_index, value))
                     .collect(),

@@ -1,8 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod prove;
-mod uni_skip_utils;
-mod utils;
 mod validity_check;
 mod verify;
 
@@ -15,8 +13,5 @@ pub use verify::*;
 pub struct AirClaims<EF: Field> {
     pub point: MultilinearPoint<EF>,
     pub evals: Vec<EF>,
-
-    // only for columns with a "shift", in case univariate skip == 1
-    pub down_point: Option<MultilinearPoint<EF>>,
-    pub evals_on_down_columns: Vec<EF>,
+    pub evals_down: Vec<EF>, // columns 'shifted down' by one row
 }

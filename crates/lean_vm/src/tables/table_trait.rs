@@ -7,7 +7,9 @@ use utils::VarCount;
 
 pub type ColIndex = usize;
 
-pub type CommittedStatements = BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)>>;
+/// Each entry: (point, eval, eval at 'shifted-down' column).
+pub type CommittedStatements =
+    BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>)>>;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {

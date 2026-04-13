@@ -115,6 +115,8 @@ fn benchmark_prove_poseidons(
             ..Default::default()
         };
         let air_claims = prove_air::<EF, _>(&mut prover_state, air, extra_data, committed_trace, None, true);
+        assert!(air_claims.evals_down.is_empty());
+        assert_eq!(air_claims.evals.len(), air.n_columns());
 
         let betas = MultilinearPoint(
             (0..log2_ceil_usize(n_committed_cols))

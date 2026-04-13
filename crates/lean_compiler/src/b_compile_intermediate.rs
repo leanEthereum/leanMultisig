@@ -630,6 +630,18 @@ fn compile_lines(
                 };
                 instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *location));
             }
+            SimpleLine::AssertEq { left, right, .. } => {
+                let register_if_var = |expr: &SimpleExpr, c: &mut Compiler| {
+                    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = expr {
+                        c.register_var_if_needed(v);
+                    }
+                };
+                register_if_var(left, compiler);
+                register_if_var(right, compiler);
+                let left_iv = IntermediateValue::from_simple_expr(left, compiler);
+                let right_iv = IntermediateValue::from_simple_expr(right, compiler);
+                instructions.push(IntermediateInstruction::equality(left_iv, right_iv));
+            }
             SimpleLine::RangeCheck { val, bound } => {
                 // Range check for val <= bound compiles to:
                 // 1. DEREF: m[fp + aux1] = m[m[fp + val_offset]] - proves val < M
