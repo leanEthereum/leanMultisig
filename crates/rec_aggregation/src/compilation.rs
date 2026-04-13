@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W, XMSS_DIGEST_LEN};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
 
@@ -27,14 +27,17 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
-    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
+    // input_data_buf layout (lives in private memory, hashed to a single digest in public input):
+    //   n_sigs(1) + slice_hash(8) + message + merkle_chunks_for_slot
+    //   + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
     let input_data_size =
-        1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
+        1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size_padded + DIGEST_LEN;
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded);
+    let replacements = build_replacements(program_log_size, bytecode_zero_eval, input_data_size_padded);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -336,16 +339,20 @@ fn build_replacements(
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
-    replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
     replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
     replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());
     replacements.insert(
+        "PUBLIC_PARAM_LEN_FE_PLACEHOLDER".to_string(),
+        PUBLIC_PARAM_LEN_FE.to_string(),
+    );
+    replacements.insert(
         "MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER".to_string(),
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
     );
+    replacements.insert("XMSS_DIGEST_LEN_PLACEHOLDER".to_string(), XMSS_DIGEST_LEN.to_string());
 
     // Bytecode zero eval
     replacements.insert(
