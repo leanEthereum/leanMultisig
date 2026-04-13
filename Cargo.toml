@@ -51,7 +51,6 @@ wildcard_imports = "allow"
 
 [workspace.dependencies]
 # Local
-air = { path = "crates/air" }
 utils = { path = "crates/utils" }
 lean_vm = { path = "crates/lean_vm" }
 sub_protocols = { path = "crates/sub_protocols" }
@@ -86,7 +85,6 @@ test-config = ["rec_aggregation/test-config"]
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
-air.workspace = true
 rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true

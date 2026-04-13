@@ -685,7 +685,7 @@ fn compile_time_transform_in_lines(
                 else_branch,
                 ..
             } => {
-                if let Some(constant_condition) = condition.eval_with(&|expr| expr.as_scalar()) {
+                if let Some(constant_condition) = condition.try_eval(|expr| expr.as_scalar()) {
                     let chosen_branch = if constant_condition { then_branch } else { else_branch }.clone();
                     lines.splice(i..=i, chosen_branch);
                     continue;
@@ -1503,7 +1503,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 else_branch,
                 location: _,
             } => {
-                check_condition_scoping(condition, ctx);
+                check_boolean_scoping(condition, ctx);
                 for branch in [then_branch, else_branch] {
                     ctx.scopes.push(Scope { vars: BTreeSet::new() });
                     check_block_scoping(branch, ctx);
@@ -1731,17 +1731,6 @@ fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
 fn check_boolean_scoping(boolean: &BooleanExpr<Expression>, ctx: &Context) {
     check_expr_scoping(&boolean.left, ctx);
     check_expr_scoping(&boolean.right, ctx);
-}
-
-fn check_condition_scoping(condition: &Condition, ctx: &Context) {
-    match condition {
-        Condition::AssumeBoolean(expr) => {
-            check_expr_scoping(expr, ctx);
-        }
-        Condition::Comparison(boolean) => {
-            check_boolean_scoping(boolean, ctx);
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2610,34 +2599,24 @@ fn simplify_lines(
                 else_branch,
                 location,
             } => {
-                let (condition_simplified, then_branch, else_branch) = match condition {
-                    Condition::Comparison(condition) => {
-                        // Transform if a == b then X else Y into if a != b then Y else X
-
-                        let (left, right, then_branch, else_branch) = match condition.kind {
-                            Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
-                            Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
-                            Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
-                        };
-
-                        let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
-                        let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
-
-                        let diff_var = state.counters.aux_var();
-                        res.push(SimpleLine::Assignment {
-                            var: diff_var.clone().into(),
-                            operation: MathOperation::Sub,
-                            arg0: left_simplified,
-                            arg1: right_simplified,
-                        });
-                        (diff_var.into(), then_branch, else_branch)
-                    }
-                    Condition::AssumeBoolean(condition) => {
-                        let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res)?;
-
-                        (condition_simplified, then_branch, else_branch)
-                    }
+                // Transform if a == b then X else Y into if a != b then Y else X
+                let (left, right, then_branch, else_branch) = match condition.kind {
+                    Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
+                    Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
+                    Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
                 };
+
+                let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
+                let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
+
+                let diff_var = state.counters.aux_var();
+                res.push(SimpleLine::Assignment {
+                    var: diff_var.clone().into(),
+                    operation: MathOperation::Sub,
+                    arg0: left_simplified,
+                    arg1: right_simplified,
+                });
+                let condition_simplified: SimpleExpr = diff_var.into();
 
                 // Snapshot state before processing branches
                 let mut_tracker_snapshot = state.mut_tracker.clone();
@@ -3205,15 +3184,10 @@ pub fn find_variable_usage(
         }
     };
 
-    let on_new_condition =
-        |condition: &Condition, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| match condition {
-            Condition::Comparison(comp) => {
-                on_new_expr(&comp.left, internal_vars, external_vars);
-                on_new_expr(&comp.right, internal_vars, external_vars);
-            }
-            Condition::AssumeBoolean(expr) => {
-                on_new_expr(expr, internal_vars, external_vars);
-            }
+    let on_new_boolean =
+        |boolean: &BooleanExpr<Expression>, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| {
+            on_new_expr(&boolean.left, internal_vars, external_vars);
+            on_new_expr(&boolean.right, internal_vars, external_vars);
         };
 
     for line in lines {
@@ -3259,7 +3233,7 @@ pub fn find_variable_usage(
                 else_branch,
                 ..
             } => {
-                on_new_condition(condition, &internal_vars, &mut external_vars);
+                on_new_boolean(condition, &internal_vars, &mut external_vars);
 
                 let (then_internal, then_external) = find_variable_usage(then_branch, const_arrays);
                 let (else_internal, else_external) = find_variable_usage(else_branch, const_arrays);
@@ -3273,11 +3247,7 @@ pub fn find_variable_usage(
                 );
             }
             Line::Assert { boolean, .. } => {
-                on_new_condition(
-                    &Condition::Comparison(boolean.clone()),
-                    &internal_vars,
-                    &mut external_vars,
-                );
+                on_new_boolean(boolean, &internal_vars, &mut external_vars);
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {

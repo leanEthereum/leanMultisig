@@ -469,6 +469,19 @@ impl Display for Hint {
     }
 }
 
+impl<E> BooleanExpr<E> {
+    pub fn try_eval<T: PartialEq + PartialOrd>(&self, eval: impl Fn(&E) -> Option<T>) -> Option<bool> {
+        let left = eval(&self.left)?;
+        let right = eval(&self.right)?;
+        Some(match self.kind {
+            Boolean::Equal => left == right,
+            Boolean::Different => left != right,
+            Boolean::LessThan => left < right,
+            Boolean::LessOrEqual => left <= right,
+        })
+    }
+}
+
 impl<E: Display> Display for BooleanExpr<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {} {}", self.left, self.kind, self.right)

@@ -17,7 +17,7 @@ use sub_protocols::{min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 
-use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT};
+use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 const BYTECODE_GUESSED_LOG_SIZE: usize = 19;
@@ -423,6 +423,10 @@ fn build_replacements(
         format!("[{}]", air_degrees.join(", ")),
     );
     replacements.insert(
+        "MAX_AIR_FULL_DEGREE_PLACEHOLDER".to_string(),
+        (ALL_TABLES.iter().map(|t| t.degree_air()).max().unwrap() + 1).to_string(),
+    );
+    replacements.insert(
         "N_AIR_COLUMNS_PLACEHOLDER".to_string(),
         format!("[{}]", n_air_columns.join(", ")),
     );
@@ -478,6 +482,11 @@ fn build_replacements(
     replacements.insert(
         "BYTECODE_ZERO_EVAL_PLACEHOLDER".to_string(),
         bytecode_zero_eval.as_canonical_u64().to_string(),
+    );
+    replacements.insert("ZERO_VEC_LEN_PLACEHOLDER".to_string(), ZERO_VEC_LEN.to_string());
+    replacements.insert(
+        "NUM_REPEATED_ONES_PLACEHOLDER".to_string(),
+        NUM_REPEATED_ONES.to_string(),
     );
 
     replacements

@@ -7,7 +7,7 @@ use super::literal::ConstExprParser;
 use super::{Parse, ParseContext, next_inner_pair};
 use crate::{
     SourceLineNumber,
-    lang::{Condition, Expression, Line, LoopKind, SourceLocation, VecLiteral},
+    lang::{Expression, Line, LoopKind, SourceLocation, VecLiteral},
     parser::{
         error::{ParseResult, SemanticError},
         grammar::{ParsePair, Rule},
@@ -57,7 +57,7 @@ impl Parse<Line> for IfStatementParser {
         let condition = ConditionParser.parse(next_inner_pair(&mut inner, "if condition")?, ctx)?;
 
         let mut then_branch: Vec<Line> = Vec::new();
-        let mut elif_branches: Vec<(Condition, Vec<Line>, SourceLineNumber)> = Vec::new();
+        let mut elif_branches: Vec<(BooleanExpr<Expression>, Vec<Line>, SourceLineNumber)> = Vec::new();
         let mut else_branch: Vec<Line> = Vec::new();
 
         for item in inner {
@@ -145,17 +145,11 @@ impl IfStatementParser {
 /// Parser for conditions.
 pub struct ConditionParser;
 
-impl Parse<Condition> for ConditionParser {
-    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<Condition> {
+impl Parse<BooleanExpr<Expression>> for ConditionParser {
+    fn parse(&self, pair: ParsePair<'_>, ctx: &mut ParseContext) -> ParseResult<BooleanExpr<Expression>> {
         let inner_pair = next_inner_pair(&mut pair.into_inner(), "inner expression")?;
         match inner_pair.as_rule() {
-            Rule::assumed_bool_expr => ExpressionParser
-                .parse(next_inner_pair(&mut inner_pair.into_inner(), "inner expression")?, ctx)
-                .map(Condition::AssumeBoolean),
-            Rule::comparison => {
-                let boolean = ComparisonParser::parse(inner_pair, ctx)?;
-                Ok(Condition::Comparison(boolean))
-            }
+            Rule::comparison => ComparisonParser::parse(inner_pair, ctx),
             _ => Err(SemanticError::new("Invalid condition").into()),
         }
     }

@@ -27,8 +27,8 @@ const _: () = {
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 // preamble memory layout: see `build_preamble_memory` in utils.py
-const ZERO_VEC_LEN: usize = 16;
-const NUM_REPEATED_ONES: usize = 16;
+pub const ZERO_VEC_LEN: usize = 16;
+pub const NUM_REPEATED_ONES: usize = 32;
 pub const PREAMBLE_MEMORY_LEN: usize = ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES;
 
 #[derive(Debug, Clone)]

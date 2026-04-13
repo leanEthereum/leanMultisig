@@ -330,7 +330,7 @@ for i in parallel_range(0, n):          # iterations executed in parallel (see b
     ...
 for i in unroll(0, 4):                  # unrolled at compile time
     ...
-for i in dynamic_unroll(5, a, n_bits):  # a must be compile-time known, and a < 2^n_bits
+for i in dynamic_unroll(5, a, n_bits):  # start=5 and n_bits compile-time; a runtime, with (a - start) < 2^n_bits
     ...
 ```
 Use `unroll` when bounds are const or compile-time expansion is needed.
@@ -379,6 +379,8 @@ Only allowed at compile time:
 ```
 log2_ceil(x)              # ceiling of log2
 next_multiple_of(x, n)    # smallest multiple of n >= x
+div_ceil(a, b)            # ceiling division: (a + b - 1) // b
+div_floor(a, b)           # floor division: a // b
 saturating_sub(a, b)      # max(0, a - b)
 len(array)                # length of const array or vector
 ```
@@ -389,6 +391,8 @@ len(array)                # length of const array or vector
 # constraint in proof
 assert x == y
 assert x != y
+assert x < y
+assert x <= y
 # unconditional failure (panic)
 assert False
 assert False, "error message"
@@ -396,6 +400,7 @@ assert False, "error message"
 debug_assert(x == y)
 debug_assert(x != y)
 debug_assert(x < y)
+debug_assert(x <= y)
 ```
 
 ## Comments
@@ -427,17 +432,34 @@ The runner places the program's memory as:
 - `public_input` lives at `memory[0..public_input.len()]` (zero-padded to a power of two by the runner so it can be evaluated as a multilinear polynomial).
 - `preamble_memory` is a region the runner reserves but does not initialize. The guest program is responsible for writing any constants it needs (e.g. `ZERO_VEC_PTR`, `ONE_EF_PTR`, etc.) in this area.
 
-Prover-supplied witness data is fetched on demand with `hint_witness("name")`, where the string literal
-names an entry in the witness's `hints: HashMap<String, Vec<Vec<F>>>` map.
-Each call fetches the next unused `Vec<F>` under that name (per-name running
-index), allocates runtime memory of that size, copies the data in, and
-returns a pointer to the allocation:
+Prover-supplied witness data is fetched on demand with `hint_witness("name", ptr)`, where the string literal
+names an entry in the witness's `hints: HashMap<String, Vec<Vec<F>>>` map and
+`ptr` is a caller-allocated buffer. Each call writes the next unused `Vec<F>`
+under that name (per-name running index) into the buffer at `ptr`. The guest
+is responsible for allocating `ptr` with enough room; the witness's length is
+trusted.
+`hint_witness`
 
 ```
-data_buf = hint_witness("input_data")   # pointer to first unused `input_data` entry
+data_buf = Array(64)
+hint_witness("input_data", data_buf)   # writes next `input_data` entry into data_buf
 n = data_buf[0]
 # ...
 ```
+
+### Built-in Hints
+
+hints = prover-supplied values at runtime (without adding snark constraints). Like `hint_witness`, they are bare statements (no return value) — the caller allocates any destination memory and is responsible for constraining the written values.
+
+| Hint | Signature | Writes |
+|------|-----------|--------|
+| `hint_decompose_bits` | `(to_decompose, ptr, num_bits, endianness)` | `num_bits` field elements at `ptr` (the 0/1 bit decomposition of `to_decompose`); `endianness` is `0` for big-endian, `1` for little-endian |
+| `hint_less_than` | `(a, b, result_ptr)` | `1` at `result_ptr` if `a < b` else `0` |
+| `hint_log2_ceil` | `(n, result_ptr)` | `ceil(log2(n))` at `result_ptr` |
+| `hint_decompose_bits_xmss` | `(decomposed_ptr, remaining_ptr, to_decompose_ptr, num_to_decompose, chunk_size)` | XMSS-specific decomposition (see `crates/lean_vm/src/isa/hint.rs`) |
+| `hint_decompose_bits_merkle_whir` | `(decomposed_ptr, remaining_ptr, value, chunk_size)` | Merkle/WHIR-specific decomposition |
+
+Hints only *suggest* a value; the guest must add appropriate constraints to bind that value to its specification.
 
 
 ## Precompiles

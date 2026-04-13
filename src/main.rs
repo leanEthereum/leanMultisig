@@ -1,8 +1,5 @@
 use clap::Parser;
 use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark};
-mod prove_poseidons;
-
-use crate::prove_poseidons::{benchmark_prove_poseidon_16, benchmark_prove_poseidon_24};
 
 #[derive(Parser)]
 enum Cli {
@@ -21,15 +18,6 @@ enum Cli {
         n: usize,
         #[arg(long, help = "log(1/rate) in WHIR", default_value = "2", short = 'r')]
         log_inv_rate: usize,
-        #[arg(long, help = "Enable tracing")]
-        tracing: bool,
-    },
-    #[command(about = "Prove validity of Poseidon permutations")]
-    Poseidon {
-        #[arg(long, help = "log2(number of Poseidons)", default_value = "20")]
-        log_n_perms: usize,
-        #[arg(long, help = "state width (16 or 24)", default_value = "16")]
-        state_width: usize,
         #[arg(long, help = "Enable tracing")]
         tracing: bool,
     },
@@ -72,15 +60,6 @@ fn main() {
             };
             run_aggregation_benchmark(&topology, 0, tracing);
         }
-        Cli::Poseidon {
-            log_n_perms: log_count,
-            state_width,
-            tracing,
-        } => match state_width {
-            16 => benchmark_prove_poseidon_16(log_count, tracing),
-            24 => benchmark_prove_poseidon_24(log_count, tracing),
-            _ => panic!("unsupported state width: {state_width} (expected 16 or 24)"),
-        },
         Cli::FancyAggregation {} => {
             let topology = AggregationTopology {
                 raw_xmss: 0,

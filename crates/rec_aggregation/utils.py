@@ -63,6 +63,23 @@ def poly_eq_extension_dynamic(point, n):
     return res
 
 
+def product_first_n(values, n):
+    # values: pointer to n EFs
+    # Returns ∏_{i=0}^{n-1} values[i]
+    debug_assert(n < 33)
+    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 33), lambda i: product_first_n_const(values, i))
+    return res
+
+
+@inline
+def product_first_n_const(values, n):
+    debug_assert(n != 0)
+    debug_assert(n <= NUM_REPEATED_ONES)
+    res = Array(DIM)
+    poly_eq_be(REPEATED_ONES_PTR, values, res, n)
+    return res
+
+
 def poly_eq_extension(point, n: Const):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
