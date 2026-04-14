@@ -28,7 +28,7 @@ def main():
     data_buf = Array(INPUT_DATA_SIZE_PADDED)
     hint_witness("input_data", data_buf)
     n_sigs = data_buf[0]
-    assert 1 < n_sigs
+    assert n_sigs != 0
     assert n_sigs - 1 < MAX_N_SIGS
     pubkeys_hash_expected = data_buf + 1
     message = pubkeys_hash_expected + DIGEST_LEN
