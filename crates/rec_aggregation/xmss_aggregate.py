@@ -51,7 +51,8 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
         assert remaining[i] < 2**7 - 1  # ensures uniformity + prevent overflow
 
         partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24 / (2 * W)):
+        partial_sum += encoding[i * (24 / (2 * W))]
+        for j in unroll(1, 24 / (2 * W)):
             partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
         assert partial_sum == encoding_fe[i]
 
