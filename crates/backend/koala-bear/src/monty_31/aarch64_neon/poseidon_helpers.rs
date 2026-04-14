@@ -8,6 +8,9 @@ use core::mem::transmute;
 use super::exp_small;
 use crate::{FieldParameters, MontyParameters, PackedMontyField31Neon, PackedMontyParameters, RelativelyPrimePower};
 
+// Convenience alias to match the naming used for the AVX2/AVX512 helpers.
+pub(crate) use convert_to_vec_neg_form_neon as convert_to_vec_neg_form;
+
 /// A specialized representation of the Poseidon state for a width of 16.
 ///
 /// Splits the state into `s0` (undergoes S-box) and `s_hi` (undergoes only linear transforms),
@@ -54,5 +57,18 @@ where
         let val_plus_rc = aarch64::vaddq_s32(vec_val_s, rc);
         let output = exp_small::<PMP, D>(val_plus_rc);
         *val = PackedMontyField31Neon::<PMP>::from_vector(output);
+    }
+}
+
+/// Applies the S-Box `x -> x^D` to a packed vector. Output is in canonical form.
+#[inline(always)]
+pub(crate) fn sbox<PMP, const D: u64>(val: PackedMontyField31Neon<PMP>) -> PackedMontyField31Neon<PMP>
+where
+    PMP: PackedMontyParameters + FieldParameters + RelativelyPrimePower<D>,
+{
+    unsafe {
+        let signed = val.to_signed_vector();
+        let out = exp_small::<PMP, D>(signed);
+        PackedMontyField31Neon::<PMP>::from_vector(out)
     }
 }
