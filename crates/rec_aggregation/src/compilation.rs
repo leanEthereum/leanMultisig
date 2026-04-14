@@ -4,7 +4,7 @@ use lean_prover::{WHIR_INITIAL_FOLDING_FACTOR, default_whir_config};
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use sub_protocols::total_whir_statements;
 use tracing::instrument;
 use utils::Counter;
@@ -12,26 +12,38 @@ use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRI
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
 
-static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
+static BYTECODES: OnceLock<Mutex<HashMap<usize, &'static Bytecode>>> = OnceLock::new();
 
-pub fn get_aggregation_bytecode() -> &'static Bytecode {
-    BYTECODE
-        .get()
-        .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
+fn bytecodes() -> &'static Mutex<HashMap<usize, &'static Bytecode>> {
+    BYTECODES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub fn init_aggregation_bytecode() {
-    BYTECODE.get_or_init(compile_main_program_self_referential);
+pub fn get_aggregation_bytecode(log_inv_rate: usize) -> &'static Bytecode {
+    bytecodes()
+        .lock()
+        .unwrap()
+        .get(&log_inv_rate)
+        .copied()
+        .unwrap_or_else(|| panic!("call init_aggregation_bytecode({log_inv_rate}) first"))
 }
 
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+pub fn init_aggregation_bytecode(log_inv_rate: usize) {
+    let mut map = bytecodes().lock().unwrap();
+    if map.contains_key(&log_inv_rate) {
+        return;
+    }
+    let bytecode = compile_main_program_self_referential(log_inv_rate);
+    map.insert(log_inv_rate, Box::leak(Box::new(bytecode)));
+}
+
+fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F, log_inv_rate: usize) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
     let input_data_size =
         1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded);
+    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded, log_inv_rate);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -42,11 +54,11 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) ->
 }
 
 #[instrument(skip_all)]
-fn compile_main_program_self_referential() -> Bytecode {
+fn compile_main_program_self_referential(log_inv_rate: usize) -> Bytecode {
     let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
-        let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
+        let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval, log_inv_rate);
         assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
         if actual_log_size == log_size_guess {
@@ -65,6 +77,7 @@ fn build_replacements(
     inner_program_log_size: usize,
     bytecode_zero_eval: F,
     input_data_size_padded: usize,
+    log_inv_rate: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
     let log_inner_bytecode = inner_program_log_size;
@@ -239,9 +252,9 @@ fn build_replacements(
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
     // WHIR open parameters for inner proof verification
-    // n_vars=25 and log_inv_rate=2 are hardcoded for the recursion --n 2 scenario
+    // n_vars=25 is fixed; log_inv_rate is threaded in from the CLI / topology
     let whir_open_n_vars: usize = 25;
-    let whir_open_log_inv_rate: usize = 2;
+    let whir_open_log_inv_rate: usize = log_inv_rate;
     let whir_open_builder = default_whir_config(whir_open_log_inv_rate);
     let whir_open: WhirConfig<EF> = WhirConfig::new(&whir_open_builder, whir_open_n_vars);
     assert_eq!(whir_open.n_rounds(), 2, "WHIR open code assumes exactly 2 rounds");

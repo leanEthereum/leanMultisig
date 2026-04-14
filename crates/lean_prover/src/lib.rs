@@ -61,8 +61,8 @@ mod tests {
 
     #[test]
     fn compute_snark_domain_sep() {
-        init_aggregation_bytecode();
-        let recursion_bytecode_hash = get_aggregation_bytecode().hash;
+        init_aggregation_bytecode(2);
+        let recursion_bytecode_hash = get_aggregation_bytecode(2).hash;
         let name_fe = "leanMultisig-0.6.0"
             .as_bytes()
             .iter()

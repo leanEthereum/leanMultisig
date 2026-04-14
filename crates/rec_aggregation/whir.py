@@ -277,10 +277,13 @@ def whir_open(
     # Round 0 consistency
     my_folding_randomness_0 = folding_randomness_global + WHIR_OPEN_R0_FOLD * DIM
     combination_randomness_powers_r0 = all_combination_randomness_powers[0]
-    # Single OOD point (dot_product_ee with n=1 and powers[0]=1 is identity)
-    expanded_ood_0 = expand_from_univariate_ext_inlined(all_ood_points[0], WHIR_OPEN_R0_N_VARS_REMAINING)
+    # OOD points
+    my_ood_recovered_evals_0 = Array(WHIR_OPEN_R0_OOD * DIM)
+    for j in unroll(0, WHIR_OPEN_R0_OOD):
+        expanded_ood_0 = expand_from_univariate_ext_inlined(all_ood_points[0] + j * DIM, WHIR_OPEN_R0_N_VARS_REMAINING)
+        poly_eq_ee(expanded_ood_0, my_folding_randomness_0, my_ood_recovered_evals_0 + j * DIM, WHIR_OPEN_R0_N_VARS_REMAINING)
     summed_ood_0 = Array(DIM)
-    poly_eq_ee(expanded_ood_0, my_folding_randomness_0, summed_ood_0, WHIR_OPEN_R0_N_VARS_REMAINING)
+    dot_product_ee(my_ood_recovered_evals_0, combination_randomness_powers_r0, summed_ood_0, WHIR_OPEN_R0_OOD)
     # Query checks
     s6s_0 = Array(WHIR_OPEN_R0_QUERIES * DIM)
     circle_value_0 = all_circle_values[0]
@@ -396,11 +399,13 @@ def whir_round_0(fs: Mut, prev_root, claimed_sum):
     fs, combination_randomness_gen = fs_sample_ef(fs)
     combination_randomness_powers = powers_inlined(combination_randomness_gen, WHIR_OPEN_R0_N_COMBINATION)
 
-    # dot_product_ee(ood_evals, powers, res, 1) = ood_evals[0] * powers[0] = ood_evals (powers[0]=1)
+    claimed_sum_0 = Array(DIM)
+    dot_product_ee(ood_evals, combination_randomness_powers, claimed_sum_0, WHIR_OPEN_R0_OOD)
+
     claimed_sum_1 = Array(DIM)
     dot_product_ee(folds, combination_randomness_powers + WHIR_OPEN_R0_OOD * DIM, claimed_sum_1, WHIR_OPEN_R0_QUERIES)
 
-    new_claimed_sum_b = add_extension_ret(ood_evals, claimed_sum_1)
+    new_claimed_sum_b = add_extension_ret(claimed_sum_0, claimed_sum_1)
     final_sum = add_extension_ret(new_claimed_sum_a, new_claimed_sum_b)
 
     return (fs, folding_randomness, ood_points, root, circle_values, combination_randomness_powers, final_sum)

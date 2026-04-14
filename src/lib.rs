@@ -7,12 +7,12 @@ pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss
 pub type F = KoalaBear;
 
 /// Call once before proving. Compiles the aggregation program and precomputes DFT twiddles.
-pub fn setup_prover() {
-    rec_aggregation::init_aggregation_bytecode();
+pub fn setup_prover(log_inv_rate: usize) {
+    rec_aggregation::init_aggregation_bytecode(log_inv_rate);
     precompute_dft_twiddles::<F>(1 << 24);
 }
 
 /// Call once before verifying (not needed if `setup_prover` was already called).
-pub fn setup_verifier() {
-    rec_aggregation::init_aggregation_bytecode();
+pub fn setup_verifier(log_inv_rate: usize) {
+    rec_aggregation::init_aggregation_bytecode(log_inv_rate);
 }
