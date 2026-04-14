@@ -78,9 +78,7 @@ assignment_target = { (identifier ~ mut_annotation) | array_access_expr | identi
 
 if_statement = { "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block ~ elif_clause* ~ else_clause? }
 
-condition = { assumed_bool_expr | "(" ~ comparison ~ ")" | comparison }
-
-assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
+condition = { "(" ~ comparison ~ ")" | comparison }
 
 // Comparisons (shared between conditions and assertions)
 comparison = { add_expr ~ comparison_op ~ add_expr }

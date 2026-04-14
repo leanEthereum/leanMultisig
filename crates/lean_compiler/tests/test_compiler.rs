@@ -274,3 +274,37 @@ def main():
    "#;
     compile_and_run(&ProgramSource::Raw(program.to_string()), &[], false);
 }
+
+#[test]
+#[rustfmt::skip]
+fn test_soundness_suite() {
+    #[allow(clippy::type_complexity)]
+    let cases: &[(&str, &[u32], &[(usize, u32)])] = &[
+        ("soundness_0", &[3, 6, 7, 10, 9, 20, 26, 1], &[(0, 4), (1, 7), (2, 8), (3, 11), (4, 10), (5, 21), (6, 27), (7, 0), (7, 2)]),
+        ("soundness_1", &[5, 10, 6, 7, 42, 9, 5, 4],  &[(0, 6), (1, 11), (2, 7), (3, 8), (4, 43), (5, 10), (6, 6), (7, 5)]),
+        ("soundness_2", &[3, 4, 5, 29, 7, 1, 17, 46], &[(0, 2), (1, 5), (2, 6), (3, 30), (4, 8), (5, 0), (5, 2), (6, 18), (7, 47)]),
+        ("soundness_3", &[4, 2, 14, 120, 5, 10, 50, 55], &[(0, 5), (1, 3), (2, 15), (3, 121), (4, 6), (5, 11), (6, 51), (7, 56)]),
+        ("soundness_4", &[5, 10, 10, 3, 4, 19, 20, 1], &[(0, 6), (1, 11), (2, 11), (3, 4), (4, 5), (5, 20), (6, 50), (7, 0), (7, 2)]),
+        ("soundness_5", &[3, 4, 7, 19, 49, 28, 1, 3],  &[(0, 4), (1, 5), (2, 8), (3, 20), (4, 50), (5, 29), (6, 0), (6, 2), (7, 4)]),
+    ];
+
+    let to_input = |v: &[u32]| v.iter().copied().map(F::new).collect::<Vec<_>>();
+
+    for &(name, valid, perturbations) in cases {
+        let path = format!("{}/{}.py", test_data_dir(), name);
+        let bytecode = compile_program(&ProgramSource::Filepath(path));
+
+        try_execute_bytecode(&bytecode, &to_input(valid), &ExecutionWitness::default(), false)
+            .unwrap_or_else(|err| panic!("{name}: valid input {valid:?} must succeed, got {err:?}"));
+
+        for &(idx, bad_value) in perturbations {
+            let mut input = valid.to_vec();
+            input[idx] = bad_value;
+            let res = try_execute_bytecode(&bytecode, &to_input(&input), &ExecutionWitness::default(), false);
+            assert!(
+                res.is_err(),
+                "{name}: perturbation p[{idx}]={bad_value} (input {input:?}) unexpectedly succeeded",
+            );
+        }
+    }
+}

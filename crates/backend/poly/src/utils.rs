@@ -61,6 +61,10 @@ pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
 }
 
+pub const fn must_unpack_multilinears<EF: Field>(n_vars: usize) -> bool {
+    n_vars <= 1 + packing_log_width::<EF>()
+}
+
 pub fn batch_fold_multilinears<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
@@ -292,4 +296,27 @@ pub fn transmute_array<A, const N: usize, const M: usize>(input: [A; N]) -> [A; 
         // Read the array as a pointer and cast to the output type
         std::ptr::read(&*input as *const [A; N] as *const [A; M])
     }
+}
+
+pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
+    (0..bit_count).rev().map(|i| (value >> i) & 1 == 1).collect()
+}
+
+pub fn to_big_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Vec<F> {
+    (0..bit_count)
+        .rev()
+        .map(|i| F::from_bool((value >> i) & 1 == 1))
+        .collect()
+}
+
+pub fn to_little_endian_bits(value: usize, bit_count: usize) -> Vec<bool> {
+    let mut res = to_big_endian_bits(value, bit_count);
+    res.reverse();
+    res
+}
+
+pub fn to_little_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Vec<F> {
+    let mut res = to_big_endian_in_field::<F>(value, bit_count);
+    res.reverse();
+    res
 }

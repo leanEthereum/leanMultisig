@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
+use utils::ToUsize;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -129,8 +129,8 @@ impl CustomHint {
 
     pub fn n_args(&self) -> usize {
         match self {
-            Self::DecomposeBitsXMSS => 5,
-            Self::DecomposeBitsMerkleWhir => 4,
+            Self::DecomposeBitsXMSS => 4,
+            Self::DecomposeBitsMerkleWhir => 3,
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
@@ -145,13 +145,11 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => {
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let to_decompose_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let num_to_decompose = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
-                let mut memory_index_remaining = remaining_ptr;
                 #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
@@ -160,14 +158,12 @@ impl CustomHint {
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
-                    memory_index_remaining += 1;
                 }
             }
             Self::DecomposeBitsMerkleWhir => {
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let value = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
                 #[allow(clippy::explicit_counter_loop)]
@@ -176,8 +172,6 @@ impl CustomHint {
                     ctx.memory.set(memory_index_decomposed, value)?;
                     memory_index_decomposed += 1;
                 }
-                ctx.memory
-                    .set(args[1].memory_address(ctx.fp)?, F::from_usize(value >> 24))?;
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -454,6 +448,19 @@ impl Display for Hint {
                 write!(f, "m[m[fp + {ptr_offset}] ..] = hint_witness(\"{name}\")")
             }
         }
+    }
+}
+
+impl<E> BooleanExpr<E> {
+    pub fn try_eval<T: PartialEq + PartialOrd>(&self, eval: impl Fn(&E) -> Option<T>) -> Option<bool> {
+        let left = eval(&self.left)?;
+        let right = eval(&self.right)?;
+        Some(match self.kind {
+            Boolean::Equal => left == right,
+            Boolean::Different => left != right,
+            Boolean::LessThan => left < right,
+            Boolean::LessOrEqual => left <= right,
+        })
     }
 }
 

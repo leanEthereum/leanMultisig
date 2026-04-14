@@ -7,7 +7,9 @@ use utils::VarCount;
 
 pub type ColIndex = usize;
 
-pub type CommittedStatements = BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)>>;
+/// Each entry: (point, eval, eval at 'shifted-down' column).
+pub type CommittedStatements =
+    BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>)>>;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -75,6 +77,18 @@ pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     pub bus_beta: EF,
     pub bus_beta_packed: EFPacking<EF>,
     pub alpha_powers: Vec<EF>,
+}
+impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
+    pub fn new(logup_alphas_eq_poly: Vec<EF>, bus_beta: EF, alpha_powers: Vec<EF>) -> Self {
+        let logup_alphas_eq_poly_packed = logup_alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
+        Self {
+            logup_alphas_eq_poly,
+            logup_alphas_eq_poly_packed,
+            bus_beta,
+            bus_beta_packed: EFPacking::<EF>::from(bus_beta),
+            alpha_powers,
+        }
+    }
 }
 
 impl AlphaPowersMut<EF> for ExtraDataForBuses<EF> {

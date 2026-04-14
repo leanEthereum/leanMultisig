@@ -132,6 +132,13 @@ pub enum SimpleLine {
         location: SourceLocation,
     },
     DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
+    /// analysis cannot drop it; both sides are read at execution time.
+    AssertEq {
+        left: SimpleExpr,
+        right: SimpleExpr,
+        location: SourceLocation,
+    },
     /// Range check: assert val <= bound
     RangeCheck {
         val: SimpleExpr,
@@ -172,6 +179,7 @@ impl SimpleLine {
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert(..)
+            | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
     }
@@ -198,6 +206,7 @@ impl SimpleLine {
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert(..)
+            | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
     }
@@ -219,6 +228,7 @@ impl SimpleLine {
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
             | Self::ConstMalloc { .. }
@@ -675,7 +685,7 @@ fn compile_time_transform_in_lines(
                 else_branch,
                 ..
             } => {
-                if let Some(constant_condition) = condition.eval_with(&|expr| expr.as_scalar()) {
+                if let Some(constant_condition) = condition.try_eval(|expr| expr.as_scalar()) {
                     let chosen_branch = if constant_condition { then_branch } else { else_branch }.clone();
                     lines.splice(i..=i, chosen_branch);
                     continue;
@@ -1125,10 +1135,23 @@ fn substitute_const_vars_in_expr(expr: &mut Expression, const_var_exprs: &BTreeM
 /// Finds mutable variables that are:
 /// 1. Defined OUTSIDE this block (external)
 /// 2. Re-assigned INSIDE this block
-fn find_modified_external_vars(lines: &[Line], const_arrays: &BTreeMap<String, ConstArrayValue>) -> BTreeSet<Var> {
+fn find_modified_external_vars(
+    lines: &[Line],
+    const_arrays: &BTreeMap<String, ConstArrayValue>,
+    outer_mut_vars: &BTreeSet<Var>,
+) -> BTreeSet<Var> {
     // Use the existing find_variable_usage to get external variables
     // (variables that are read but not defined in this block)
-    let (internal_vars, external_vars) = find_variable_usage(lines, const_arrays);
+    let (mut internal_vars, mut external_vars) = find_variable_usage(lines, const_arrays);
+
+    // Mut vars declared in an enclosing scope are always external, even if only
+    // written (never read) inside this block.
+    for v in outer_mut_vars {
+        if !const_arrays.contains_key(v) {
+            internal_vars.remove(v);
+            external_vars.insert(v.clone());
+        }
+    }
 
     // Now find which external variables are assigned to (modified)
     let mut modified_external_vars = BTreeSet::new();
@@ -1185,7 +1208,7 @@ fn find_assigned_external_vars_helper(
 
 fn transform_mutable_in_loops_in_program(program: &mut Program, counter: &mut Counter) {
     for func in program.functions.values_mut() {
-        transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter);
+        transform_mutable_in_loops_in_lines(&mut func.body, &program.const_arrays, counter, &BTreeSet::new());
     }
 }
 
@@ -1193,12 +1216,14 @@ fn transform_mutable_in_loops_in_lines(
     lines: &mut Vec<Line>,
     const_arrays: &BTreeMap<String, ConstArrayValue>,
     counter: &mut Counter,
+    outer_mut_vars: &BTreeSet<Var>,
 ) {
+    let mut local_mut_vars = outer_mut_vars.clone();
     let mut i = 0;
     while i < lines.len() {
         match &mut lines[i] {
             Line::ForLoop { body, loop_kind, .. } if loop_kind.is_unroll() => {
-                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter, &local_mut_vars);
                 i += 1;
             }
             Line::ForLoop {
@@ -1210,8 +1235,8 @@ fn transform_mutable_in_loops_in_lines(
                 location,
             } => {
                 let loop_kind = loop_kind.clone();
-                transform_mutable_in_loops_in_lines(body, const_arrays, counter);
-                let modified_vars = find_modified_external_vars(body, const_arrays);
+                transform_mutable_in_loops_in_lines(body, const_arrays, counter, &local_mut_vars);
+                let modified_vars = find_modified_external_vars(body, const_arrays, &local_mut_vars);
 
                 if modified_vars.is_empty() {
                     // No mutable variables modified, no transformation needed
@@ -1381,7 +1406,15 @@ fn transform_mutable_in_loops_in_lines(
             }
             line @ (Line::IfCondition { .. } | Line::Match { .. }) => {
                 for block in line.nested_blocks_mut() {
-                    transform_mutable_in_loops_in_lines(block, const_arrays, counter);
+                    transform_mutable_in_loops_in_lines(block, const_arrays, counter, &local_mut_vars);
+                }
+                i += 1;
+            }
+            Line::Statement { targets, .. } => {
+                for target in targets {
+                    if let AssignmentTarget::Var { var, is_mutable: true } = target {
+                        local_mut_vars.insert(var.clone());
+                    }
                 }
                 i += 1;
             }
@@ -1470,7 +1503,7 @@ fn check_block_scoping(block: &[Line], ctx: &mut Context) {
                 else_branch,
                 location: _,
             } => {
-                check_condition_scoping(condition, ctx);
+                check_boolean_scoping(condition, ctx);
                 for branch in [then_branch, else_branch] {
                     ctx.scopes.push(Scope { vars: BTreeSet::new() });
                     check_block_scoping(branch, ctx);
@@ -1698,17 +1731,6 @@ fn check_simple_expr_scoping(expr: &SimpleExpr, ctx: &Context) {
 fn check_boolean_scoping(boolean: &BooleanExpr<Expression>, ctx: &Context) {
     check_expr_scoping(&boolean.left, ctx);
     check_expr_scoping(&boolean.right, ctx);
-}
-
-fn check_condition_scoping(condition: &Condition, ctx: &Context) {
-    match condition {
-        Condition::AssumeBoolean(expr) => {
-            check_expr_scoping(expr, ctx);
-        }
-        Condition::Comparison(boolean) => {
-            check_boolean_scoping(boolean, ctx);
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2373,6 +2395,11 @@ fn simplify_lines(
                                             let result = ConstExpression::MathExpr(*operation, const_args);
                                             res.push(SimpleLine::equality(target_var, SimpleExpr::Constant(result)));
                                         } else {
+                                            if !operation.supports_runtime() {
+                                                return Err(format!(
+                                                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                                                ));
+                                            }
                                             res.push(SimpleLine::Assignment {
                                                 var: target_var.into(),
                                                 operation: *operation,
@@ -2416,6 +2443,11 @@ fn simplify_lines(
                                         let result = ConstExpression::MathExpr(*operation, const_args);
                                         res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
                                     } else {
+                                        if !operation.supports_runtime() {
+                                            return Err(format!(
+                                                "Operation `{operation}` is compile-time only; all operands must be constants"
+                                            ));
+                                        }
                                         assert_eq!(simplified_args.len(), 2);
                                         res.push(SimpleLine::Assignment {
                                             var,
@@ -2475,32 +2507,31 @@ fn simplify_lines(
                             });
                         }
                         Boolean::Equal => {
-                            let (var, other): (VarOrConstMallocAccess, _) = if let Ok(left) = left.clone().try_into() {
-                                (left, right)
-                            } else if let Ok(right) = right.clone().try_into() {
-                                (right, left)
-                            } else {
-                                // Both are constants - evaluate at compile time
-                                if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
-                                    (&left, &right)
-                                    && let (Some(left_val), Some(right_val)) =
-                                        (left_const.naive_eval(), right_const.naive_eval())
-                                {
-                                    if left_val == right_val {
-                                        // Assertion passes at compile time, no code needed
-                                        continue;
-                                    } else {
-                                        return Err(format!(
-                                            "Compile-time assertion failed: {} != {} ({})",
-                                            left_val.to_usize(),
-                                            right_val.to_usize(),
-                                            location
-                                        ));
-                                    }
+                            // Both constants: evaluate at compile time.
+                            if let (SimpleExpr::Constant(left_const), SimpleExpr::Constant(right_const)) =
+                                (&left, &right)
+                                && let (Some(left_val), Some(right_val)) =
+                                    (left_const.naive_eval(), right_const.naive_eval())
+                            {
+                                if left_val == right_val {
+                                    continue;
+                                } else {
+                                    return Err(format!(
+                                        "Compile-time assertion failed: {} != {} ({})",
+                                        left_val.to_usize(),
+                                        right_val.to_usize(),
+                                        location
+                                    ));
                                 }
+                            }
+                            if !matches!(&left, SimpleExpr::Memory(_)) && !matches!(&right, SimpleExpr::Memory(_)) {
                                 return Err(format!("Unsupported equality assertion: {left:?}, {right:?}"));
-                            };
-                            res.push(SimpleLine::equality(var, other));
+                            }
+                            res.push(SimpleLine::AssertEq {
+                                left,
+                                right,
+                                location: *location,
+                            });
                         }
                         Boolean::LessThan => {
                             // assert left < right is equivalent to assert left <= right - 1
@@ -2554,34 +2585,24 @@ fn simplify_lines(
                 else_branch,
                 location,
             } => {
-                let (condition_simplified, then_branch, else_branch) = match condition {
-                    Condition::Comparison(condition) => {
-                        // Transform if a == b then X else Y into if a != b then Y else X
-
-                        let (left, right, then_branch, else_branch) = match condition.kind {
-                            Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
-                            Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
-                            Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
-                        };
-
-                        let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
-                        let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
-
-                        let diff_var = state.counters.aux_var();
-                        res.push(SimpleLine::Assignment {
-                            var: diff_var.clone().into(),
-                            operation: MathOperation::Sub,
-                            arg0: left_simplified,
-                            arg1: right_simplified,
-                        });
-                        (diff_var.into(), then_branch, else_branch)
-                    }
-                    Condition::AssumeBoolean(condition) => {
-                        let condition_simplified = simplify_expr(ctx, state, const_malloc, condition, &mut res)?;
-
-                        (condition_simplified, then_branch, else_branch)
-                    }
+                // Transform if a == b then X else Y into if a != b then Y else X
+                let (left, right, then_branch, else_branch) = match condition.kind {
+                    Boolean::Equal => (&condition.left, &condition.right, else_branch, then_branch), // switched
+                    Boolean::Different => (&condition.left, &condition.right, then_branch, else_branch),
+                    Boolean::LessThan | Boolean::LessOrEqual => unreachable!(),
                 };
+
+                let left_simplified = simplify_expr(ctx, state, const_malloc, left, &mut res)?;
+                let right_simplified = simplify_expr(ctx, state, const_malloc, right, &mut res)?;
+
+                let diff_var = state.counters.aux_var();
+                res.push(SimpleLine::Assignment {
+                    var: diff_var.clone().into(),
+                    operation: MathOperation::Sub,
+                    arg0: left_simplified,
+                    arg1: right_simplified,
+                });
+                let condition_simplified: SimpleExpr = diff_var.into();
 
                 // Snapshot state before processing branches
                 let mut_tracker_snapshot = state.mut_tracker.clone();
@@ -3028,6 +3049,11 @@ fn simplify_expr(
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
                 return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
             }
+            if !operation.supports_runtime() {
+                return Err(format!(
+                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                ));
+            }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
             lines.push(SimpleLine::Assignment {
@@ -3144,15 +3170,10 @@ pub fn find_variable_usage(
         }
     };
 
-    let on_new_condition =
-        |condition: &Condition, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| match condition {
-            Condition::Comparison(comp) => {
-                on_new_expr(&comp.left, internal_vars, external_vars);
-                on_new_expr(&comp.right, internal_vars, external_vars);
-            }
-            Condition::AssumeBoolean(expr) => {
-                on_new_expr(expr, internal_vars, external_vars);
-            }
+    let on_new_boolean =
+        |boolean: &BooleanExpr<Expression>, internal_vars: &BTreeSet<Var>, external_vars: &mut BTreeSet<Var>| {
+            on_new_expr(&boolean.left, internal_vars, external_vars);
+            on_new_expr(&boolean.right, internal_vars, external_vars);
         };
 
     for line in lines {
@@ -3198,7 +3219,7 @@ pub fn find_variable_usage(
                 else_branch,
                 ..
             } => {
-                on_new_condition(condition, &internal_vars, &mut external_vars);
+                on_new_boolean(condition, &internal_vars, &mut external_vars);
 
                 let (then_internal, then_external) = find_variable_usage(then_branch, const_arrays);
                 let (else_internal, else_external) = find_variable_usage(else_branch, const_arrays);
@@ -3212,11 +3233,7 @@ pub fn find_variable_usage(
                 );
             }
             Line::Assert { boolean, .. } => {
-                on_new_condition(
-                    &Condition::Comparison(boolean.clone()),
-                    &internal_vars,
-                    &mut external_vars,
-                );
+                on_new_boolean(boolean, &internal_vars, &mut external_vars);
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
@@ -4060,6 +4077,9 @@ impl SimpleLine {
             Self::LocationReport { .. } => Default::default(),
             Self::DebugAssert(bool, _) => {
                 format!("debug_assert({bool})")
+            }
+            Self::AssertEq { left, right, .. } => {
+                format!("assert_eq({left} == {right})")
             }
             Self::RangeCheck { val, bound } => {
                 format!("range_check({val} <= {bound})")

@@ -1,7 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, RngExt};
 use serde::{Deserialize, Serialize};
-use utils::{ToUsize, poseidon16_compress_pair, to_little_endian_bits};
+use utils::{ToUsize, poseidon16_compress_pair};
 
 use crate::*;
 
