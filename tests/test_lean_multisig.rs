@@ -1,7 +1,10 @@
 use lean_multisig::{AggregatedXMSS, AggregationTopology, setup_prover, xmss_aggregate, xmss_verify_aggregation};
 use leansig_wrapper::{MESSAGE_LENGTH, xmss_keygen_fast, xmss_sign_fast, xmss_verify};
 use rand::{SeedableRng, rngs::StdRng};
-use rec_aggregation::{benchmark::run_aggregation_benchmark, signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures}};
+use rec_aggregation::{
+    benchmark::run_aggregation_benchmark,
+    signatures_cache::{BENCHMARK_MESSAGE, BENCHMARK_SLOT, get_benchmark_signatures},
+};
 use utils::decode_hex;
 
 fn verify_test_vector(filename: &str) {
