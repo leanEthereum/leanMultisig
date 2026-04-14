@@ -25,26 +25,50 @@ const MDS_CIRC_COL: [KoalaBear; 16] = KoalaBear::new_array([1, 3, 13, 22, 67, 2,
 // Forward twiddles for 16-point FFT: W_k = omega^k
 // =========================================================================
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W1: KoalaBear = KoalaBear::new(0x08dbd69c);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W2: KoalaBear = KoalaBear::new(0x6832fe4a);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W3: KoalaBear = KoalaBear::new(0x27ae21e2);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W4: KoalaBear = KoalaBear::new(0x7e010002);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W5: KoalaBear = KoalaBear::new(0x3a89a025);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W6: KoalaBear = KoalaBear::new(0x174e3650);
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 const W7: KoalaBear = KoalaBear::new(0x27dfce22);
 
 // =========================================================================
 // 16-point FFT / IFFT (radix-2, fully unrolled, in-place)
 // =========================================================================
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 #[inline(always)]
 fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
     let (a, b) = (v[lo], v[hi]);
@@ -52,7 +76,10 @@ fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
     v[hi] = a - b;
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 #[inline(always)]
 fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let a = v[lo];
@@ -61,7 +88,10 @@ fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBea
     v[hi] = a - tb;
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 #[inline(always)]
 fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let (a, b) = (v[lo], v[hi]);
@@ -69,7 +99,10 @@ fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: Koal
     v[hi] = (b - a) * t;
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 #[inline(always)]
 fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 8);
@@ -106,7 +139,10 @@ fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 14, 15);
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
 #[inline(always)]
 fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 0, 1);
@@ -291,7 +327,7 @@ pub fn mds_circ_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(stat
 }
 
 // =========================================================================
-// Sparse matrix decomposition helpers (for NEON partial rounds)
+// Sparse matrix decomposition helpers (for SIMD partial rounds)
 // =========================================================================
 
 /// Dense NxN matrix multiplication: C = A * B.
@@ -507,21 +543,50 @@ struct Precomputed {
     /// Length = POSEIDON1_PARTIAL_ROUNDS - 1.
     sparse_round_constants: Vec<KoalaBear>,
 
-    // --- NEON pre-packed constants ---
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    neon: NeonPrecomputed,
+    // --- SIMD pre-packed constants (NEON / AVX2 / AVX512) ---
+    #[cfg(any(
+        all(target_arch = "aarch64", target_feature = "neon"),
+        all(target_arch = "x86_64", target_feature = "avx2")
+    ))]
+    simd: SimdPrecomputed,
 }
 
+/// Arch-specific raw vector type used for negative-form round constants.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-struct NeonPrecomputed {
-    /// Initial full round constants in negative NEON form (only first 3 rounds;
+type Rc = core::arch::aarch64::int32x4_t;
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+type Rc = core::arch::x86_64::__m256i;
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+type Rc = core::arch::x86_64::__m512i;
+
+/// Common field parameters type used across all architectures.
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
+type FP = crate::KoalaBearParameters;
+
+/// Arch-specific packed KoalaBear type.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+type PackedKB = crate::PackedKoalaBearNeon;
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+type PackedKB = crate::PackedKoalaBearAVX2;
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+type PackedKB = crate::PackedKoalaBearAVX512;
+
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
+struct SimdPrecomputed {
+    /// Initial full round constants in negative form (only first 3 rounds;
     /// the 4th is fused with the partial round entry).
-    packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1],
-    /// Terminal full round constants in negative NEON form.
-    packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS],
-    /// Pre-packed sparse first rows as PackedKoalaBearNeon.
+    packed_initial_rc: [[Rc; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1],
+    /// Terminal full round constants in negative form.
+    packed_terminal_rc: [[Rc; 16]; POSEIDON1_HALF_FULL_ROUNDS],
+    /// Pre-packed sparse first rows.
     packed_sparse_first_row: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS],
-    /// Pre-packed v vectors as PackedKoalaBearNeon.
+    /// Pre-packed v vectors.
     packed_sparse_v: [[PackedKB; 16]; POSEIDON1_PARTIAL_ROUNDS],
     /// Pre-packed scalar round constants for partial rounds 0..RP-2.
     packed_round_constants: [PackedKB; POSEIDON1_PARTIAL_ROUNDS - 1],
@@ -530,23 +595,21 @@ struct NeonPrecomputed {
     packed_fused_mi_mds: [[PackedKB; 16]; 16],
     /// Fused bias: m_i * first_round_constants.
     packed_fused_bias: [PackedKB; 16],
-    /// Last initial round constant in negative NEON form (for fused add_rc_and_sbox).
-    packed_last_initial_rc: [core::arch::aarch64::int32x4_t; 16],
+    /// Last initial round constant in negative form (for fused add_rc_and_sbox).
+    packed_last_initial_rc: [Rc; 16],
     /// Pre-packed eigenvalues * INV16 for FFT MDS (absorbs /16 normalization).
     packed_lambda_over_16: [PackedKB; 16],
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-impl std::fmt::Debug for NeonPrecomputed {
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2")
+))]
+impl std::fmt::Debug for SimdPrecomputed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NeonPrecomputed").finish_non_exhaustive()
+        f.debug_struct("SimdPrecomputed").finish_non_exhaustive()
     }
 }
-
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-type FP = crate::KoalaBearParameters;
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-type PackedKB = crate::PackedKoalaBearNeon;
 
 static PRECOMPUTED: OnceLock<Precomputed> = OnceLock::new();
 
@@ -571,18 +634,20 @@ fn precomputed() -> &'static Precomputed {
             .map(|w| core::array::from_fn(|i| if i == 0 { mds_0_0 } else { w[i - 1] }))
             .collect();
 
-        // --- NEON pre-packed constants ---
-        #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-        let neon = {
-            use crate::PackedMontyField31Neon;
-            use crate::convert_to_vec_neg_form_neon;
+        // --- SIMD pre-packed constants (same layout for NEON / AVX2 / AVX512) ---
+        #[cfg(any(
+            all(target_arch = "aarch64", target_feature = "neon"),
+            all(target_arch = "x86_64", target_feature = "avx2")
+        ))]
+        let simd = {
+            use crate::convert_to_vec_neg_form;
 
-            let pack = |c: KoalaBear| PackedMontyField31Neon::<FP>::from(c);
-            let neg_form = |c: KoalaBear| convert_to_vec_neg_form_neon::<FP>(c.value as i32);
+            let pack = |c: KoalaBear| PackedKB::from(c);
+            let neg_form = |c: KoalaBear| convert_to_vec_neg_form::<FP>(c.value as i32);
 
             // Initial full round constants (only first 3; 4th is fused).
             let init_rc = poseidon1_initial_constants();
-            let packed_initial_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1] =
+            let packed_initial_rc: [[Rc; 16]; POSEIDON1_HALF_FULL_ROUNDS - 1] =
                 core::array::from_fn(|r| init_rc[r].map(neg_form));
 
             // Last initial round constant (for fused add_rc_and_sbox before partial rounds).
@@ -590,7 +655,7 @@ fn precomputed() -> &'static Precomputed {
 
             // Terminal full round constants.
             let term_rc = poseidon1_final_constants();
-            let packed_terminal_rc: [[core::arch::aarch64::int32x4_t; 16]; POSEIDON1_HALF_FULL_ROUNDS] =
+            let packed_terminal_rc: [[Rc; 16]; POSEIDON1_HALF_FULL_ROUNDS] =
                 core::array::from_fn(|r| term_rc[r].map(neg_form));
 
             // Pre-packed sparse constants (fixed-size arrays).
@@ -615,7 +680,7 @@ fn precomputed() -> &'static Precomputed {
             let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
             let packed_lambda_over_16: [PackedKB; 16] = core::array::from_fn(|i| pack(lambda_br[i] * inv16));
 
-            NeonPrecomputed {
+            SimdPrecomputed {
                 packed_initial_rc,
                 packed_terminal_rc,
                 packed_sparse_first_row,
@@ -634,8 +699,11 @@ fn precomputed() -> &'static Precomputed {
             sparse_first_row,
             sparse_v,
             sparse_round_constants: scalar_round_constants,
-            #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-            neon,
+            #[cfg(any(
+                all(target_arch = "aarch64", target_feature = "neon"),
+                all(target_arch = "x86_64", target_feature = "avx2")
+            ))]
+            simd,
         }
     })
 }
@@ -870,26 +938,27 @@ impl Poseidon1KoalaBear16 {
         mds_circ_16(state);
     }
 
-    /// NEON-specific fast path using:
+    /// SIMD fast path (NEON / AVX2 / AVX512) using:
     ///  - Fused AddRC+S-box (`add_rc_and_sbox`) for full rounds
     ///  - `InternalLayer16` split for ILP between S-box and dot product in partial rounds
     ///  - Pre-packed sparse matrix constants
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[cfg(any(
+        all(target_arch = "aarch64", target_feature = "neon"),
+        all(target_arch = "x86_64", target_feature = "avx2")
+    ))]
     #[inline(always)]
-    fn permute_neon(&self, state: &mut [PackedKB; 16]) {
-        use crate::PackedMontyField31Neon;
-        use crate::exp_small;
-        use crate::{InternalLayer16, add_rc_and_sbox};
+    fn permute_simd(&self, state: &mut [PackedKB; 16]) {
+        use crate::{InternalLayer16, add_rc_and_sbox, sbox};
         use core::mem::transmute;
 
-        let neon = &self.pre.neon;
-        let lambda16 = &neon.packed_lambda_over_16;
+        let simd = &self.pre.simd;
+        let lambda16 = &simd.packed_lambda_over_16;
 
         /// FFT MDS: state = C * state.
         /// Uses lambda/16 eigenvalues so no separate /16 step needed.
         /// C * x = DIT_FFT((lambda/16) ⊙ DIF_IFFT(x))
         #[inline(always)]
-        fn mds_fft_neon(state: &mut [PackedKB; 16], lambda16: &[PackedKB; 16]) {
+        fn mds_fft(state: &mut [PackedKB; 16], lambda16: &[PackedKB; 16]) {
             dif_ifft_16_mut(state);
             for i in 0..16 {
                 state[i] *= lambda16[i];
@@ -898,11 +967,11 @@ impl Poseidon1KoalaBear16 {
         }
 
         // --- Initial full rounds (first 3 of 4) ---
-        for round_constants in &neon.packed_initial_rc {
+        for round_constants in &simd.packed_initial_rc {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda16);
+            mds_fft(state, lambda16);
         }
 
         // --- Last initial full round: AddRC + S-box, then fused (m_i * MDS) ---
@@ -910,13 +979,12 @@ impl Poseidon1KoalaBear16 {
         //      = (m_i * MDS) * state + m_i * first_rc
         // Saves one full FFT MDS call.
         {
-            for (s, &rc) in state.iter_mut().zip(neon.packed_last_initial_rc.iter()) {
+            for (s, &rc) in state.iter_mut().zip(simd.packed_last_initial_rc.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
             let input = *state;
             for (i, state_i) in state.iter_mut().enumerate() {
-                *state_i = PackedMontyField31Neon::<FP>::dot_product(&input, &neon.packed_fused_mi_mds[i])
-                    + neon.packed_fused_bias[i];
+                *state_i = PackedKB::dot_product(&input, &simd.packed_fused_mi_mds[i]) + simd.packed_fused_bias[i];
             }
         }
 
@@ -926,29 +994,25 @@ impl Poseidon1KoalaBear16 {
 
             for r in 0..POSEIDON1_PARTIAL_ROUNDS {
                 // PATH A (high latency): S-box on s0 only.
-                unsafe {
-                    let s0_signed = split.s0.to_signed_vector();
-                    let s0_sboxed = exp_small::<FP, 3>(s0_signed);
-                    split.s0 = PackedMontyField31Neon::from_vector(s0_sboxed);
-                }
+                split.s0 = sbox::<FP, 3>(split.s0);
 
                 // Add scalar round constant (except last round).
                 if r < POSEIDON1_PARTIAL_ROUNDS - 1 {
-                    split.s0 += neon.packed_round_constants[r];
+                    split.s0 += simd.packed_round_constants[r];
                 }
 
                 // PATH B (can overlap with S-box): partial dot product on s_hi.
                 let s_hi: &[PackedKB; 15] = unsafe { transmute(&split.s_hi) };
-                let first_row = &neon.packed_sparse_first_row[r];
+                let first_row = &simd.packed_sparse_first_row[r];
                 let first_row_hi: &[PackedKB; 15] = first_row[1..].try_into().unwrap();
-                let partial_dot = PackedMontyField31Neon::<FP>::dot_product(s_hi, first_row_hi);
+                let partial_dot = PackedKB::dot_product(s_hi, first_row_hi);
 
                 // SERIAL: complete s0 = first_row[0] * s0 + partial_dot.
                 let s0_val = split.s0;
                 split.s0 = s0_val * first_row[0] + partial_dot;
 
                 // Rank-1 update: s_hi[j] += s0_old * v[j].
-                let v = &neon.packed_sparse_v[r];
+                let v = &simd.packed_sparse_v[r];
                 let s_hi_mut: &mut [PackedKB; 15] = unsafe { transmute(&mut split.s_hi) };
                 for j in 0..15 {
                     s_hi_mut[j] += s0_val * v[j];
@@ -959,11 +1023,11 @@ impl Poseidon1KoalaBear16 {
         }
 
         // --- Terminal full rounds ---
-        for round_constants in &neon.packed_terminal_rc {
+        for round_constants in &simd.packed_terminal_rc {
             for (s, &rc) in state.iter_mut().zip(round_constants.iter()) {
                 add_rc_and_sbox::<FP, 3>(s, rc);
             }
-            mds_fft_neon(state, lambda16);
+            mds_fft(state, lambda16);
         }
     }
 
@@ -974,7 +1038,7 @@ impl Poseidon1KoalaBear16 {
         state: &mut [R; 16],
     ) {
         let initial = *state;
-        // Use permute_mut for NEON dispatch.
+        // Use permute_mut so the SIMD fast path is dispatched when applicable.
         Permutation::permute_mut(self, state);
         for (s, init) in state.iter_mut().zip(initial) {
             *s += init;
@@ -986,14 +1050,16 @@ impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Permu
     for Poseidon1KoalaBear16
 {
     fn permute_mut(&self, input: &mut [R; 16]) {
-        // On aarch64+neon, dispatch to the NEON fast path when R is PackedKoalaBearNeon.
-        #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+        // On targets with a SIMD fast path, dispatch to it when R is the arch-specific packed type.
+        #[cfg(any(
+            all(target_arch = "aarch64", target_feature = "neon"),
+            all(target_arch = "x86_64", target_feature = "avx2")
+        ))]
         {
             if std::any::TypeId::of::<R>() == std::any::TypeId::of::<PackedKB>() {
-                // SAFETY: We have just confirmed via TypeId that R == PackedKB.
-                // Both types have the same size and alignment (PackedKB is repr(transparent)).
-                let neon_state: &mut [PackedKB; 16] = unsafe { &mut *(input as *mut [R; 16] as *mut [PackedKB; 16]) };
-                self.permute_neon(neon_state);
+                // SAFETY: TypeId confirms R == PackedKB; PackedKB is repr(transparent).
+                let simd_state: &mut [PackedKB; 16] = unsafe { &mut *(input as *mut [R; 16] as *mut [PackedKB; 16]) };
+                self.permute_simd(simd_state);
                 return;
             }
         }
