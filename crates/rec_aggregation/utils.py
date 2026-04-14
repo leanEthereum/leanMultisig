@@ -189,27 +189,16 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     return result
 
 
+@inline
 def dot_product_be_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_be(a, b, res, i))
     return
 
-
-def dot_product_be_const(a, b, res, n: Const):
-    dot_product_be(a, b, res, n)
-    return
-
-
 def dot_product_ee_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_ee(a, b, res, i))
     return
-
-
-def dot_product_ee_const(a, b, res, n: Const):
-    dot_product_ee(a, b, res, n)
-    return
-
 
 def mle_of_01234567_etc(point, n):
     if n == 0:
@@ -642,7 +631,7 @@ def dot_product_ee_ret(a, b, n):
 def sum_continuous_ef(slice_ef, len):
     debug_assert(len <= NUM_REPEATED_ONES)
     res = Array(DIM)
-    dot_product_be_dynamic(REPEATED_ONES_PTR, slice_ef, res, len)
+    dot_product_be(REPEATED_ONES_PTR, slice_ef, res, len)
     return res
 
 
