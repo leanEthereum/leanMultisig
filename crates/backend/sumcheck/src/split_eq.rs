@@ -14,7 +14,7 @@ impl<EF: ExtensionField<PF<EF>>> SplitEq<EF> {
     pub fn new(eq_point: &[EF]) -> Self {
         let n = eq_point.len();
 
-        if n <= packing_log_width::<EF>() * 2 {
+        if must_unpack_multilinears::<EF>(n + 1) {
             return Self {
                 eq_lo: vec![EF::ONE],
                 eq_hi_packed: Vec::new(),
@@ -77,7 +77,7 @@ impl<EF: ExtensionField<PF<EF>>> SplitEq<EF> {
 
     #[inline(always)]
     pub fn get_packed(&self, i: usize) -> EFPacking<EF> {
-        debug_assert!(!self.is_remainder_mode(), "get_packed called in remainder mode");
+        assert!(!self.is_remainder_mode(), "get_packed called in remainder mode");
         let packed_hi = self.eq_hi_packed.len();
         if self.eq_lo.len() > 1 {
             EFPacking::<EF>::from(self.eq_lo[i >> self.log_packed_hi]) * self.eq_hi_packed[i & (packed_hi - 1)]

@@ -79,7 +79,7 @@ where
     }
 
     fn compute_bare_round_poly(&mut self) -> DensePolynomial<EF> {
-        if self.multilinears.is_packed() && self.multilinears.n_vars() <= 1 + packing_log_width::<EF>() {
+        if self.multilinears.is_packed() && must_unpack_multilinears::<EF>(self.multilinears.n_vars()) {
             let old = std::mem::replace(
                 &mut self.multilinears,
                 MleGroup::Owned(MleGroupOwned::Extension(vec![])),
