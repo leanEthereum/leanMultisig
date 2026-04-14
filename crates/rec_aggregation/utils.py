@@ -63,6 +63,23 @@ def poly_eq_extension_dynamic(point, n):
     return res
 
 
+def product_first_n(values, n):
+    # values: pointer to n EFs
+    # Returns ∏_{i=0}^{n-1} values[i]
+    debug_assert(n < 33)
+    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 33), lambda i: product_first_n_const(values, i))
+    return res
+
+
+@inline
+def product_first_n_const(values, n):
+    debug_assert(n != 0)
+    debug_assert(n <= NUM_REPEATED_ONES)
+    res = Array(DIM)
+    poly_eq_be(REPEATED_ONES_PTR, values, res, n)
+    return res
+
+
 def poly_eq_extension(point, n: Const):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
@@ -475,19 +492,21 @@ def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
     Processes each nibble only once (single match_range dispatch per nibble)."""
     # Step 1: Decompose and verify
     nibbles = Array(6)
-    top7: Imu
-    hint_decompose_bits_merkle_whir(nibbles, top7, a, 4)
+    hint_decompose_bits_merkle_whir(nibbles, a, 4)
 
     for i in unroll(0, 6):
         assert nibbles[i] < 16
-    assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
+
+    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
+    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
+    top7 = (partial_sum - a) * 127
+    assert top7 < 2**7
     if top7 == 2**7 - 1:
         assert partial_sum == 0
-    assert partial_sum + top7 * 2**24 == a
 
     # Step 2: Hint and hash Merkle leaf
     leaf_data = Array(num_chunks * DIGEST_LEN)
