@@ -386,17 +386,25 @@ where
             |sc, pf, ed| sc.eval_packed_extension(&pf, ed),
             packing_unpack_sum,
         ),
-        MleGroupRef::BasePacked(multilinears) => sumcheck_compute_core(
-            multilinears,
-            degree,
-            |i| split_eq.map(|seq| seq.get_packed(i)),
-            computation,
-            extra_data,
-            missing_mul_factor,
-            packed_fold_size,
-            |sc, pf, ed| sc.eval_packed_base(&pf, ed),
-            packing_unpack_sum,
-        ),
+        MleGroupRef::BasePacked(multilinears) => {
+            if let Some(seq) = split_eq {
+                assert!(
+                    !seq.is_remainder_mode(),
+                    "BasePacked sumcheck received SplitEq in remainder mode"
+                );
+            }
+            sumcheck_compute_core(
+                multilinears,
+                degree,
+                |i| split_eq.map(|seq| seq.get_packed(i)),
+                computation,
+                extra_data,
+                missing_mul_factor,
+                packed_fold_size,
+                |sc, pf, ed| sc.eval_packed_base(&pf, ed),
+                packing_unpack_sum,
+            )
+        }
         MleGroupRef::Base(multilinears) => sumcheck_compute_core(
             multilinears,
             degree,
@@ -507,6 +515,12 @@ where
             )
         }
         MleGroupRef::BasePacked(multilinears) => {
+            if let Some(seq) = split_eq {
+                assert!(
+                    !seq.is_remainder_mode(),
+                    "BasePacked fold-and-compute received SplitEq in remainder mode"
+                );
+            }
             let prev_folded_size = multilinears[0].len() / 2;
             let prev_folding_factor_packed = EFPacking::<EF>::from(prev_folding_factor);
             sumcheck_fold_and_compute_core(
