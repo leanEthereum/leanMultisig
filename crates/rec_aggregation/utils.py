@@ -719,12 +719,7 @@ def next_mle(x, y, n):
         sum = add_extension_ret(sum, term)
 
     # Compute prod = product of all x[i] * product of all y[i]
-    prod: Mut = Array(DIM)
-    set_to_one(prod)
-    for i in range(0, n):
-        prod = mul_extension_ret(prod, x + i * DIM)
-    for i in range(0, n):
-        prod = mul_extension_ret(prod, y + i * DIM)
+    prod = mul_extension_ret(product_first_n(x, n), product_first_n(y, n))
 
     result = add_extension_ret(sum, prod)
     return result
