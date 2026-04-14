@@ -1,5 +1,6 @@
-use lean_multisig::{AggregatedXMSS, setup_prover, xmss_aggregate, xmss_verify_aggregation};
+use lean_multisig::{AggregatedXMSS, AggregationTopology, setup_prover, xmss_aggregate, xmss_verify_aggregation};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rec_aggregation::benchmark::run_aggregation_benchmark;
 use xmss::{
     signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark},
     xmss_key_gen, xmss_sign, xmss_verify,
@@ -16,6 +17,18 @@ fn test_xmss_signature() {
     let (secret_key, pub_key) = xmss_key_gen(rng.random(), start_slot, end_slot).unwrap();
     let signature = xmss_sign(&mut rng, &secret_key, &msg, slot).unwrap();
     xmss_verify(&pub_key, &msg, &signature, slot).unwrap();
+}
+
+#[test]
+fn test_aggregation() {
+    for n_signatures in [1, 2, 4, 8, 16, 32, 64, 128] {
+        let topology = AggregationTopology {
+            raw_xmss: n_signatures,
+            children: vec![],
+            log_inv_rate: 1,
+        };
+        run_aggregation_benchmark(&topology, 0, false);
+    }
 }
 
 #[test]
