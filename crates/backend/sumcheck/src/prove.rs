@@ -115,11 +115,8 @@ where
 
     let mut challenges = Vec::new();
     for _ in 0..n_rounds {
-        // If Packing is enabled, and there are too little variables, we unpack everything:
-        if multilinears.by_ref().is_packed() && n_vars <= 1 + packing_log_width::<EF>() {
-            // unpack
+        if multilinears.by_ref().is_packed() && must_unpack_multilinears::<EF>(n_vars) {
             multilinears = multilinears.by_ref().unpack().as_owned_or_clone().into();
-            // SplitEq handles unpacking transparently via get_unpacked
         }
 
         let ps = compute_and_send_polynomial(
