@@ -527,22 +527,19 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
 @inline
 def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     nibbles = Array(6)
-    hint_decompose_bits_merkle_whir(nibbles, a, 4)
+    top7: Imu
+    hint_decompose_bits_merkle_whir(nibbles, top7, a, 4)
 
     for i in unroll(0, 6):
         assert nibbles[i] < 16
+    assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
-
-    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
-    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
-    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
-    top7 = (partial_sum - a) * 127
-    assert top7 < 2**7
     if top7 == 2**7 - 1:
         assert partial_sum == 0
+    assert partial_sum + top7 * 2**24 == a
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
