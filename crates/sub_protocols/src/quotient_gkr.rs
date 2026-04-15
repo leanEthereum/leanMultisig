@@ -2,7 +2,7 @@ use std::ops::Mul;
 
 use backend::*;
 
-use crate::MIN_VARS_FOR_PACKING;
+use crate::{MIN_VARS_FOR_PACKING, N_VARS_TO_SEND_GKR_COEFFS};
 
 /*
 GKR to compute sum of fractions.
@@ -13,6 +13,8 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     numerators: &MleRef<'_, EF>,
     denominators: &MleRef<'_, EF>,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
+    assert!(numerators.n_vars() == denominators.n_vars());
+    assert!(numerators.n_vars() > N_VARS_TO_SEND_GKR_COEFFS);
     assert!(numerators.is_packed() == denominators.is_packed());
     let mut layers: Vec<(Mle<'_, EF>, Mle<'_, EF>)> =
         vec![(numerators.soft_clone().into(), denominators.soft_clone().into())];
@@ -26,23 +28,23 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
                 prev_denominators.unpack().as_owned_or_clone().into(),
             )
         }
-        if prev_numerators.n_vars() == 1 {
+        if prev_numerators.n_vars() <= N_VARS_TO_SEND_GKR_COEFFS {
             break;
         }
         let (new_numerators, new_denominators) = sum_quotients(prev_numerators.by_ref(), prev_denominators.by_ref());
         layers.push((new_numerators.into(), new_denominators.into()));
     }
 
-    let (last_numerators, last_denominators) = layers.pop().unwrap();
-    let last_numerators = last_numerators.as_owned().unwrap();
-    let last_numerators = last_numerators.as_extension().unwrap();
-    let last_denominators = last_denominators.as_owned().unwrap();
-    let last_denominators = last_denominators.as_extension().unwrap();
+    let (last_numerators_mle, last_denominators_mle) = layers.pop().unwrap();
+    let last_numerators_owned = last_numerators_mle.unpack().as_owned_or_clone();
+    let last_denominators_owned = last_denominators_mle.unpack().as_owned_or_clone();
+    let last_numerators = last_numerators_owned.as_extension().unwrap();
+    let last_denominators = last_denominators_owned.as_extension().unwrap();
     prover_state.add_extension_scalars(last_numerators);
     prover_state.add_extension_scalars(last_denominators);
-    let quotient = last_numerators[0] / last_denominators[0] + last_numerators[1] / last_denominators[1];
+    let quotient = compute_quotient(last_numerators, last_denominators);
 
-    let mut point = MultilinearPoint(vec![prover_state.sample()]);
+    let mut point = MultilinearPoint(prover_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
     let mut claims = vec![last_numerators.evaluate(&point), last_denominators.evaluate(&point)];
 
     for (nums, denoms) in layers.iter().rev() {
@@ -208,13 +210,15 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut impl FSVerifier<EF>,
     n_vars: usize,
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
-    let last_nums = verifier_state.next_extension_scalars_vec(2)?;
-    let last_dens = verifier_state.next_extension_scalars_vec(2)?;
-    let quotient = last_nums[0] / last_dens[0] + last_nums[1] / last_dens[1];
-    let mut point = MultilinearPoint(vec![verifier_state.sample()]);
+    assert!(n_vars > N_VARS_TO_SEND_GKR_COEFFS);
+    let send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS;
+    let last_nums = verifier_state.next_extension_scalars_vec(send_len)?;
+    let last_dens = verifier_state.next_extension_scalars_vec(send_len)?;
+    let quotient: EF = compute_quotient(&last_nums, &last_dens);
+    let mut point = MultilinearPoint(verifier_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
     let mut claims_num = last_nums.evaluate(&point);
     let mut claims_den = last_dens.evaluate(&point);
-    for i in 1..n_vars {
+    for i in N_VARS_TO_SEND_GKR_COEFFS..n_vars {
         (point, claims_num, claims_den) = verify_gkr_quotient_step(verifier_state, i, &point, claims_num, claims_den)?;
     }
     Ok((quotient, point, claims_num, claims_den))
@@ -289,6 +293,10 @@ where
             *den = denominators[i] * denominators[i + new_n];
         });
     (new_numerators, new_denominators)
+}
+
+fn compute_quotient<EF: ExtensionField<PF<EF>>>(numerators: &[EF], denominators: &[EF]) -> EF {
+    numerators.iter().zip(denominators).map(|(&n, &d)| n / d).sum()
 }
 
 #[cfg(test)]

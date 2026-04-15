@@ -60,21 +60,23 @@ def xmss_verify(pub_key, message, merkle_chunks):
     # Decompose the encoding into chunks of 2*W bits. Each chunk packs the chain step
     # counts of two consecutive WOTS chains: chunk i = step_{2i} + CHAIN_LENGTH * step_{2i+1}.
     encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
-    remaining = Array(NUM_ENCODING_FE)
 
-    hint_decompose_bits_xmss(encoding, remaining, encoding_fe, NUM_ENCODING_FE, 2 * W)
+    hint_decompose_bits_xmss(encoding, encoding_fe, NUM_ENCODING_FE, 2 * W)
 
     # check that the decomposition is correct
     for i in unroll(0, NUM_ENCODING_FE):
         for j in unroll(0, 24 / (2 * W)):
             assert encoding[i * (24 / (2 * W)) + j] < CHAIN_LENGTH**2
 
-        assert remaining[i] < 2**7 - 1
-
-        partial_sum: Mut = remaining[i] * 2**24
-        for j in unroll(0, 24 / (2 * W)):
+        partial_sum: Mut = encoding[i * (24 / (2 * W))]
+        for j in unroll(1, 24 / (2 * W)):
             partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
-        assert partial_sum == encoding_fe[i]
+
+        # p = 2^31 - 2^24 + 1, so inv(2^24) = -127 (mod p).
+        # Deduce remaining_i from partial_sum + remaining_i * 2^24 == encoding_fe[i]:
+        # remaining_i = (encoding_fe[i] - partial_sum) * inv(2^24) = (partial_sum - encoding_fe[i]) * 127
+        remaining_i = (partial_sum - encoding_fe[i]) * 127
+        assert remaining_i < 2**7 - 1  # ensures uniformity + prevent overflow
 
 
     debug_assert(V % 2 == 0)
