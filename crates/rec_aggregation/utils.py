@@ -304,8 +304,13 @@ def mul_base_extension_ret(a, b):
 @inline
 def div_extension_ret(n, d):
     quotient = Array(DIM)
-    dot_product_ee(d, quotient, n)
+    div_extension(n, d, quotient)
     return quotient
+
+@inline
+def div_extension(n, d, res):
+    dot_product_ee(d, res, n)
+    return
 
 
 @inline

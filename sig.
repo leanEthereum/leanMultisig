@@ -1,0 +1,23 @@
+
+pub use leansig::signature::SignatureScheme;
+
+
+#[test]
+fn test_xmss_signature_slow_keygen() {
+    let activation_epoch = 111;
+    let num_active_epochs = 39;
+    let slot = 124;
+    let mut rng: StdRng = StdRng::seed_from_u64(0);
+
+    let (pub_key, secret_key) = LeanSigScheme::key_gen(&mut rng, activation_epoch as usize, num_active_epochs as usize);
+    let n = 1_000;
+    let mut signing_duration = std::time::Duration::default();
+    for _ in 0..n {
+        let msg: [u8; MESSAGE_LENGTH] = rand::RngExt::random(&mut rng);
+        let time = std::time::Instant::now();
+        let signature = LeanSigScheme::sign(&secret_key, slot, &msg).unwrap();
+        signing_duration += time.elapsed();
+        xmss_verify(&pub_key, slot, &msg, &signature).unwrap();
+    }
+    println!("Average signing time: {} ms", signing_duration.as_millis() as f64 / n as f64);
+}
