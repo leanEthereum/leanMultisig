@@ -8,7 +8,7 @@ use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
-use sub_protocols::{min_stacked_n_vars, total_whir_statements};
+use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
@@ -182,6 +182,10 @@ fn build_replacements(
     replacements.insert(
         "MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
         MAX_NUM_VARIABLES_TO_SEND_COEFFS.to_string(),
+    );
+    replacements.insert(
+        "LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
+        N_VARS_TO_SEND_GKR_COEFFS.to_string(),
     );
     replacements.insert(
         "WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER".to_string(),
