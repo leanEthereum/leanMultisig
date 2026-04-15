@@ -9,9 +9,9 @@ use utils::{ToUsize, poseidon16_compress};
 /// For `SymbolicExpression` we use the dense form so the zkDSL generator can
 /// emit `dot_product_be` precompile calls instead of Karatsuba arithmetic.
 #[inline(always)]
-fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
+fn mds_air<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH]) {
     if TypeId::of::<A>() == TypeId::of::<SymbolicExpression<KoalaBear>>() {
-        dense_mat_vec_air_16(mds_dense_16(), state);
+        dense_mat_vec_air(mds_dense_16(), state);
         return;
     }
     macro_rules! dispatch {
@@ -85,9 +85,9 @@ mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_16;
 
 pub(super) const WIDTH: usize = 16;
-const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
+const INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
-const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
+const FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS;
 
 pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon16=1, Poseidon24=2 or 3 or 4, ExtensionOp>=8
 
@@ -204,13 +204,13 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         num_cols_poseidon_16()
     }
     fn degree_air(&self) -> usize {
-        9
+        3
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 76
+        BUS as usize + 140
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
@@ -246,7 +246,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         builder.assert_bool(cols.flag);
 
-        eval_poseidon1_16(builder, &cols)
+        eval_poseidon(builder, &cols)
     }
 }
 
@@ -259,22 +259,21 @@ pub(super) struct Poseidon1Cols16<T> {
     pub index_res: T,
 
     pub inputs: [T; WIDTH],
-    pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
+    pub beginning_full_rounds: [[T; WIDTH]; INITIAL_FULL_ROUNDS],
     pub partial_rounds: [T; PARTIAL_ROUNDS],
-    pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS - 1],
+    pub ending_full_rounds: [[T; WIDTH]; FINAL_FULL_ROUNDS - 1],
     pub outputs: [T; WIDTH / 2],
 }
 
-fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<AB::IF>) {
+fn eval_poseidon<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<AB::IF>) {
     let mut state: [_; WIDTH] = local.inputs;
 
     let initial_constants = poseidon1_initial_constants();
-    for round in 0..HALF_INITIAL_FULL_ROUNDS {
-        eval_2_full_rounds_16(
+    for round in 0..INITIAL_FULL_ROUNDS {
+        eval_full_round(
             &mut state,
             &local.beginning_full_rounds[round],
-            &initial_constants[2 * round],
-            &initial_constants[2 * round + 1],
+            &initial_constants[round],
             builder,
         );
     }
@@ -285,7 +284,7 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
     for (s, &c) in state.iter_mut().zip(frc.iter()) {
         add_kb(s, c);
     }
-    dense_mat_vec_air_16(poseidon1_sparse_m_i(), &mut state);
+    dense_mat_vec_air(poseidon1_sparse_m_i(), &mut state);
 
     let first_rows = poseidon1_sparse_first_row();
     let v_vecs = poseidon1_sparse_v();
@@ -300,26 +299,24 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
             add_kb(&mut state[0], scalar_rc[round]);
         }
         // Sparse matrix: new_s0 = dot(first_row, state), state[i] += old_s0 * v[i-1]
-        sparse_mat_air_16(&mut state, &first_rows[round], &v_vecs[round]);
+        sparse_mat_air(&mut state, &first_rows[round], &v_vecs[round]);
     }
 
     let final_constants = poseidon1_final_constants();
-    for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {
-        eval_2_full_rounds_16(
+    for round in 0..FINAL_FULL_ROUNDS - 1 {
+        eval_full_round(
             &mut state,
             &local.ending_full_rounds[round],
-            &final_constants[2 * round],
-            &final_constants[2 * round + 1],
+            &final_constants[round],
             builder,
         );
     }
 
-    eval_last_2_full_rounds_16(
+    eval_last_full_round(
         &local.inputs,
         &mut state,
         &local.outputs,
-        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
-        &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
+        &final_constants[FINAL_FULL_ROUNDS - 1],
         builder,
     );
 }
@@ -329,23 +326,17 @@ pub const fn num_cols_poseidon_16() -> usize {
 }
 
 #[inline]
-fn eval_2_full_rounds_16<AB: AirBuilder>(
+fn eval_full_round<AB: AirBuilder>(
     state: &mut [AB::IF; WIDTH],
     post_full_round: &[AB::IF; WIDTH],
-    round_constants_1: &[F; WIDTH],
-    round_constants_2: &[F; WIDTH],
+    round_constants: &[F; WIDTH],
     builder: &mut AB,
 ) {
-    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+    for (s, r) in state.iter_mut().zip(round_constants.iter()) {
         add_kb(s, *r);
         *s = s.cube();
     }
-    mds_air_16(state);
-    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
-        add_kb(s, *r);
-        *s = s.cube();
-    }
-    mds_air_16(state);
+    mds_air(state);
     for (state_i, post_i) in state.iter_mut().zip(post_full_round) {
         builder.assert_eq(*state_i, *post_i);
         *state_i = *post_i;
@@ -353,24 +344,18 @@ fn eval_2_full_rounds_16<AB: AirBuilder>(
 }
 
 #[inline]
-fn eval_last_2_full_rounds_16<AB: AirBuilder>(
+fn eval_last_full_round<AB: AirBuilder>(
     initial_state: &[AB::IF; WIDTH],
     state: &mut [AB::IF; WIDTH],
     outputs: &[AB::IF; WIDTH / 2],
-    round_constants_1: &[F; WIDTH],
-    round_constants_2: &[F; WIDTH],
+    round_constants: &[F; WIDTH],
     builder: &mut AB,
 ) {
-    for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
+    for (s, r) in state.iter_mut().zip(round_constants.iter()) {
         add_kb(s, *r);
         *s = s.cube();
     }
-    mds_air_16(state);
-    for (s, r) in state.iter_mut().zip(round_constants_2.iter()) {
-        add_kb(s, *r);
-        *s = s.cube();
-    }
-    mds_air_16(state);
+    mds_air(state);
     // add inputs to outputs (for compression)
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += *init_state_i;
@@ -382,7 +367,7 @@ fn eval_last_2_full_rounds_16<AB: AirBuilder>(
 }
 
 #[inline]
-fn dense_mat_vec_air_16<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 16]; 16], state: &mut [A; WIDTH]) {
+fn dense_mat_vec_air<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 16]; 16], state: &mut [A; WIDTH]) {
     let input = *state;
     for i in 0..WIDTH {
         let mut acc = A::ZERO;
@@ -394,7 +379,7 @@ fn dense_mat_vec_air_16<A: PrimeCharacteristicRing + 'static>(mat: &[[F; 16]; 16
 }
 
 #[inline]
-fn sparse_mat_air_16<A: PrimeCharacteristicRing + 'static>(
+fn sparse_mat_air<A: PrimeCharacteristicRing + 'static>(
     state: &mut [A; WIDTH],
     first_row: &[F; WIDTH],
     v: &[F; WIDTH],
