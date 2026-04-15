@@ -5,7 +5,7 @@ use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
-use sub_protocols::total_whir_statements;
+use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
@@ -99,6 +99,10 @@ fn build_replacements(
     replacements.insert(
         "MAX_WHIR_LOG_INV_RATE_PLACEHOLDER".to_string(),
         MAX_WHIR_LOG_INV_RATE.to_string(),
+    );
+    replacements.insert(
+        "LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
+        N_VARS_TO_SEND_GKR_COEFFS.to_string(),
     );
     replacements.insert(
         "WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER".to_string(),
