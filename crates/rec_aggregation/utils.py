@@ -189,27 +189,16 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     return result
 
 
+@inline
 def dot_product_be_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_be(a, b, res, i))
     return
 
-
-def dot_product_be_const(a, b, res, n: Const):
-    dot_product_be(a, b, res, n)
-    return
-
-
 def dot_product_ee_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_ee(a, b, res, i))
     return
-
-
-def dot_product_ee_const(a, b, res, n: Const):
-    dot_product_ee(a, b, res, n)
-    return
-
 
 def mle_of_01234567_etc(point, n):
     if n == 0:
@@ -315,8 +304,13 @@ def mul_base_extension_ret(a, b):
 @inline
 def div_extension_ret(n, d):
     quotient = Array(DIM)
-    dot_product_ee(d, quotient, n)
+    div_extension(n, d, quotient)
     return quotient
+
+@inline
+def div_extension(n, d, res):
+    dot_product_ee(d, res, n)
+    return
 
 
 @inline
@@ -533,19 +527,22 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
 @inline
 def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     nibbles = Array(6)
-    top7: Imu
-    hint_decompose_bits_merkle_whir(nibbles, top7, a, 4)
+    hint_decompose_bits_merkle_whir(nibbles, a, 4)
 
     for i in unroll(0, 6):
         assert nibbles[i] < 16
-    assert top7 < 2**7
 
     partial_sum: Mut = nibbles[0]
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
+
+    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
+    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
+    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
+    top7 = (partial_sum - a) * 127
+    assert top7 < 2**7
     if top7 == 2**7 - 1:
         assert partial_sum == 0
-    assert partial_sum + top7 * 2**24 == a
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
@@ -656,7 +653,7 @@ def dot_product_ee_ret(a, b, n):
 def sum_continuous_ef(slice_ef, len):
     debug_assert(len <= NUM_REPEATED_ONES)
     res = Array(DIM)
-    dot_product_be_dynamic(REPEATED_ONES_PTR, slice_ef, res, len)
+    dot_product_be(REPEATED_ONES_PTR, slice_ef, res, len)
     return res
 
 
@@ -736,12 +733,7 @@ def next_mle(x, y, n):
         sum = add_extension_ret(sum, term)
 
     # Compute prod = product of all x[i] * product of all y[i]
-    prod: Mut = Array(DIM)
-    set_to_one(prod)
-    for i in range(0, n):
-        prod = mul_extension_ret(prod, x + i * DIM)
-    for i in range(0, n):
-        prod = mul_extension_ret(prod, y + i * DIM)
+    prod = mul_extension_ret(product_first_n(x, n), product_first_n(y, n))
 
     result = add_extension_ret(sum, prod)
     return result

@@ -4,6 +4,9 @@ from hashing import *
 
 N_TABLES = N_TABLES_PLACEHOLDER
 
+LOGUP_GKR_N_VARS_TO_SEND_COEFFS = LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER
+LOGUP_GKR_N_COEFFS_SENT = 2**LOGUP_GKR_N_VARS_TO_SEND_COEFFS
+
 MIN_LOG_N_ROWS_PER_TABLE = MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MAX_LOG_N_ROWS_PER_TABLE = MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER
 MIN_LOG_MEMORY_SIZE = MIN_LOG_MEMORY_SIZE_PLACEHOLDER
@@ -469,7 +472,7 @@ def continue_recursion_ordered(
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
     public_memory_eval = Array(DIM)
-    dot_product_be_const(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
+    dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
     # WHIR BASE
     combination_randomness_gen: Mut
@@ -674,6 +677,7 @@ def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     return res
 
 
+@inline
 def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
     res: Mut = dot_product_ee_ret(instr_evals, logup_alphas_eq_poly, N_INSTRUCTION_COLUMNS)
     res = add_extension_ret(res, mul_extension_ret(eval_on_pc, logup_alphas_eq_poly + N_INSTRUCTION_COLUMNS * DIM))
@@ -685,27 +689,33 @@ def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):
-    fs, nums = fs_receive_ef_inlined(fs, 2)
-    fs, denoms = fs_receive_ef_inlined(fs, 2)
+    fs, nums = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
+    fs, denoms = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
 
-    q1 = div_extension_ret(nums, denoms)
-    q2 = div_extension_ret(nums + DIM, denoms + DIM)
-    quotient = add_extension_ret(q1, q2)
+    initial_quotients = Array(LOGUP_GKR_N_COEFFS_SENT * DIM)
+    for k in unroll(0, LOGUP_GKR_N_COEFFS_SENT):
+        div_extension(nums + k * DIM, denoms + k * DIM, initial_quotients + k * DIM)
+    debug_assert(NUM_REPEATED_ONES <= LOGUP_GKR_N_COEFFS_SENT)
+    debug_assert(LOGUP_GKR_N_COEFFS_SENT % NUM_REPEATED_ONES == 0)
+    quotient: Mut = ZERO_VEC_PTR
+    for k in unroll(0, LOGUP_GKR_N_COEFFS_SENT / NUM_REPEATED_ONES):
+        quotient = add_extension_ret(quotient, sum_continuous_ef(initial_quotients + k * NUM_REPEATED_ONES * DIM, NUM_REPEATED_ONES))
 
     points = Array(n_vars)
     claims_num = Array(n_vars)
     claims_den = Array(n_vars)
 
-    fs, points[0] = fs_sample_ef(fs)
+    fs, initial_point = fs_sample_many_ef(fs, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
+    points[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = initial_point
 
-    point_poly_eq = poly_eq_extension(points[0], 1)
+    point_poly_eq = poly_eq_extension(initial_point, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
 
-    first_claim_num = dot_product_ee_ret(nums, point_poly_eq, 2)
-    first_claim_den = dot_product_ee_ret(denoms, point_poly_eq, 2)
-    claims_num[0] = first_claim_num
-    claims_den[0] = first_claim_den
+    first_claim_num = dot_product_ee_ret(nums, point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
+    first_claim_den = dot_product_ee_ret(denoms, point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
+    claims_num[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = first_claim_num
+    claims_den[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = first_claim_den
 
-    for i in range(1, n_vars):
+    for i in range(LOGUP_GKR_N_VARS_TO_SEND_COEFFS, n_vars):
         fs, points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(fs, i, points[i - 1], claims_num[i - 1], claims_den[i - 1])
 
     return (
