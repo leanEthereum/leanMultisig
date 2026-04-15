@@ -574,14 +574,14 @@ impl<F: Field> Butterfly<F> for EvalsButterfly<F> {
 #[cfg(test)]
 mod tests {
     use field::{PrimeCharacteristicRing, TwoAdicField};
-    use koala_bear::{KoalaBear, QuinticExtensionFieldKB};
+    use goldilocks::{Goldilocks, CubicExtensionFieldGL};
     use poly::*;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use crate::*;
 
-    type F = KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type F = Goldilocks;
+    type EF = CubicExtensionFieldGL;
 
     #[test]
     fn test_eval_dft() {

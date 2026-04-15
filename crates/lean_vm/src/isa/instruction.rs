@@ -2,7 +2,7 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFpOrConstant};
-use crate::POSEIDON16_NAME;
+use crate::POSEIDON8_NAME;
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
@@ -63,21 +63,21 @@ pub struct PrecompileArgs<V, S> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrecompileCompTimeArgs<S> {
-    Poseidon16,
+    Poseidon8,
     ExtensionOp { size: S, mode: ExtensionOpMode },
 }
 
 impl<S> PrecompileCompTimeArgs<S> {
     pub fn table(&self) -> Table {
         match self {
-            Self::Poseidon16 => Table::poseidon16(),
+            Self::Poseidon8 => Table::poseidon8(),
             Self::ExtensionOp { .. } => Table::extension_op(),
         }
     }
 
     pub fn map_size<T>(self, f: impl FnOnce(S) -> T) -> PrecompileCompTimeArgs<T> {
         match self {
-            Self::Poseidon16 => PrecompileCompTimeArgs::Poseidon16,
+            Self::Poseidon8 => PrecompileCompTimeArgs::Poseidon8,
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
     }
@@ -233,8 +233,8 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
             data,
         } = self;
         match data {
-            PrecompileCompTimeArgs::Poseidon16 => {
-                write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
+            PrecompileCompTimeArgs::Poseidon8 => {
+                write!(f, "{POSEIDON8_NAME}({arg_0}, {arg_1}, {res})")
             }
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())

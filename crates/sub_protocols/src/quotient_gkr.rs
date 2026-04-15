@@ -306,8 +306,8 @@ mod tests {
     use std::time::Instant;
     use utils::{build_prover_state, build_verifier_state, init_tracing};
 
-    type F = KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type F = Goldilocks;
+    type EF = CubicExtensionFieldGL;
 
     fn sum_all_quotients(nums: &[F], den: &[EF]) -> EF {
         nums.par_iter().zip(den).map(|(&n, &d)| EF::from(n) / d).sum()

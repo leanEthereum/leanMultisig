@@ -3,19 +3,19 @@ use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{init_tracing, poseidon8_compress};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
     let program_str = r#"
-DIM = 5
+DIM = 3
 N = 11
 M = 3
-DIGEST_LEN = 8
+DIGEST_LEN = 4
 
 def main():
     pub_start = 0
-    poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+    poseidon8_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -55,12 +55,12 @@ def main():
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
 
-    // Poseidon test data
-    let poseidon_16_compress_input: [F; 16] = rng.random();
-    public_input[32..48].copy_from_slice(&poseidon_16_compress_input);
-    public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
-    let poseidon_24_input: [F; 24] = rng.random();
-    public_input[56..80].copy_from_slice(&poseidon_24_input);
+    // Poseidon test data — width 8 / digest 4 for Goldilocks.
+    // DSL uses `pub_start + 4*DIGEST_LEN..6*DIGEST_LEN` (positions 16..24) for the input
+    // and `pub_start + 6*DIGEST_LEN..7*DIGEST_LEN` (positions 24..28) for the output.
+    let poseidon_8_compress_input: [F; 8] = rng.random();
+    public_input[16..24].copy_from_slice(&poseidon_8_compress_input);
+    public_input[24..28].copy_from_slice(&poseidon8_compress(poseidon_8_compress_input));
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();

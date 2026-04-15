@@ -5,10 +5,10 @@ pub const LOGUP_MEMORY_DOMAINSEP: usize = 0;
 pub const LOGUP_PRECOMPILE_DOMAINSEP: usize = 1;
 pub const LOGUP_BYTECODE_DOMAINSEP: usize = 2;
 
-/// Large field = extension field of degree DIMENSION over koala-bear
-pub const DIMENSION: usize = 5;
+/// Large field = extension field of degree DIMENSION over Goldilocks
+pub const DIMENSION: usize = 3;
 
-pub const DIGEST_LEN: usize = 8;
+pub const DIGEST_LEN: usize = 4;
 
 pub const MIN_WHIR_LOG_INV_RATE: usize = 1;
 pub const MAX_WHIR_LOG_INV_RATE: usize = 4;
@@ -22,7 +22,7 @@ pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to 
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
     (Table::execution(), 25),
     (Table::extension_op(), 20),
-    (Table::poseidon16(), 20),
+    (Table::poseidon8(), 20),
 ];
 
 /// Starting program counter

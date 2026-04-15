@@ -43,7 +43,7 @@ pub fn prove_execution(
     }
     let mut prover_state = build_prover_state();
     prover_state.observe_scalars(public_input);
-    prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
+    prover_state.observe_scalars(&poseidon8_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     prover_state.add_base_scalars(
         &[
             vec![

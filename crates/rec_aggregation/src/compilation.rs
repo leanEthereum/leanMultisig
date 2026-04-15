@@ -378,7 +378,7 @@ fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
     res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
-    res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
+    res += &air_eval_in_zk_dsl(Poseidon8Precompile::<false> {});
     res
 }
 
@@ -386,8 +386,8 @@ const AIR_INNER_VALUES_VAR: &str = "inner_evals";
 
 struct AirCodegenCtx {
     expr_cache: HashMap<u32, String>,
-    consts_cache: HashMap<Vec<u32>, String>,
-    ef_const_cache: HashMap<u32, String>,
+    consts_cache: HashMap<Vec<u64>, String>,
+    ef_const_cache: HashMap<u64, String>,
     ctr: Counter,
 }
 
@@ -401,7 +401,7 @@ impl AirCodegenCtx {
         }
     }
 
-    fn write_base_constants(&mut self, values: &[u32], res: &mut String) -> String {
+    fn write_base_constants(&mut self, values: &[u64], res: &mut String) -> String {
         if let Some(name) = self.consts_cache.get(values) {
             return name.clone();
         }
@@ -414,7 +414,7 @@ impl AirCodegenCtx {
         name
     }
 
-    fn write_embedded_constant(&mut self, c: u32, res: &mut String) -> String {
+    fn write_embedded_constant(&mut self, c: u64, res: &mut String) -> String {
         if let Some(name) = self.ef_const_cache.get(&c) {
             return name.clone();
         }
@@ -485,7 +485,7 @@ fn eval_air_constraint(
     res: &mut String,
 ) -> String {
     let v = match expr {
-        SymbolicExpression::Constant(c) => ctx.write_embedded_constant(c.as_canonical_u32(), res),
+        SymbolicExpression::Constant(c) => ctx.write_embedded_constant(c.as_canonical_u64(), res),
         SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
         SymbolicExpression::Operation(idx) => {
             if let Some(v) = ctx.expr_cache.get(&idx) {
@@ -545,7 +545,7 @@ fn try_emit_dot_product_be(idx: u32, dest: Option<&str>, ctx: &mut AirCodegenCtx
                 }
                 let (c, expr) = match (mul.lhs, mul.rhs) {
                     (SymbolicExpression::Constant(c), o) | (o, SymbolicExpression::Constant(c)) => {
-                        (c.as_canonical_u32(), o)
+                        (c.as_canonical_u64(), o)
                     }
                     _ => return None,
                 };
@@ -616,11 +616,11 @@ fn eval_air_binary_op(
     res: &mut String,
 ) -> String {
     let c0 = match lhs {
-        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u64()),
         _ => None,
     };
     let c1 = match rhs {
-        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u64()),
         _ => None,
     };
 
@@ -708,5 +708,5 @@ fn display_all_air_evals_in_zk_dsl() {
 
 #[test]
 fn display_poseidon_air_in_zk_dsl() {
-    println!("{}", air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}));
+    println!("{}", air_eval_in_zk_dsl(Poseidon8Precompile::<false> {}));
 }

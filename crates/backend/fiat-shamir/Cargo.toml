@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 field = { path = "../field", package = "mt-field" }
-koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }
+goldilocks = { path = "../goldilocks", package = "mt-goldilocks" }
 symetric = { path = "../symetric", package = "mt-symetric" }
 utils = { path = "../utils", package = "mt-utils" }
 

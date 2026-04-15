@@ -1,7 +1,7 @@
 // Credits: Plonky3 (https://github.com/Plonky3/Plonky3) (MIT and Apache-2.0 licenses).
 
 use field::{Algebra, InjectiveMonomial};
-use koala_bear::{KoalaBear, Poseidon1KoalaBear16};
+use goldilocks::{Goldilocks, Poseidon1Goldilocks8};
 
 pub trait Compression<T: Clone>: Clone + Sync {
     #[inline(always)]
@@ -13,10 +13,10 @@ pub trait Compression<T: Clone>: Clone + Sync {
     fn compress_mut(&self, input: &mut T);
 }
 
-impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Compression<[R; 16]>
-    for Poseidon1KoalaBear16
+impl<R: Algebra<Goldilocks> + InjectiveMonomial<7> + Copy + Send + Sync + 'static>
+    Compression<[R; 8]> for Poseidon1Goldilocks8
 {
-    fn compress_mut(&self, input: &mut [R; 16]) {
+    fn compress_mut(&self, input: &mut [R; 8]) {
         self.compress_in_place(input);
     }
 }

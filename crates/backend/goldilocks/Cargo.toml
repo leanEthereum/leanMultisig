@@ -1,5 +1,5 @@
 [package]
-name = "mt-poly"
+name = "mt-goldilocks"
 version.workspace = true
 edition.workspace = true
 
@@ -7,10 +7,10 @@ edition.workspace = true
 field = { path = "../field", package = "mt-field" }
 utils = { path = "../utils", package = "mt-utils" }
 
-itertools.workspace = true
-rayon.workspace = true
 rand.workspace = true
+rayon.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
-goldilocks = { path = "../goldilocks", package = "mt-goldilocks" }
+itertools.workspace = true
+tracing.workspace = true
+num-bigint = "*"
+paste = "1"

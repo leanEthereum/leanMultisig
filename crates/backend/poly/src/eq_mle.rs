@@ -1062,12 +1062,12 @@ mod tests {
     use std::time::Instant;
 
     use field::Field;
-    use koala_bear::QuinticExtensionFieldKB;
+    use goldilocks::CubicExtensionFieldGL;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
-    type F = koala_bear::KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type F = goldilocks::Goldilocks;
+    type EF = CubicExtensionFieldGL;
 
     #[test]
     fn test_compute_sparse_eval() {

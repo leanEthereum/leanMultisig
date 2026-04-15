@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::*;
 use std::{array, collections::BTreeMap};
-use utils::{ToUsize, get_poseidon_16_of_zero, transposed_par_iter_mut};
+use utils::{ToUsize, get_poseidon_8_of_zero, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -97,7 +97,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let padding_zero_vec_ptr = memory_padded.len();
     memory_padded.extend(std::iter::repeat_n(F::ZERO, 16));
     let null_poseidon_16_hash_ptr = memory_padded.len();
-    memory_padded.extend_from_slice(get_poseidon_16_of_zero());
+    memory_padded.extend_from_slice(get_poseidon_8_of_zero());
 
     // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
@@ -105,8 +105,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.columns);
+    let poseidon_trace = traces.get_mut(&Table::poseidon8()).unwrap();
+    fill_trace_poseidon_8(&mut poseidon_trace.columns);
 
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);

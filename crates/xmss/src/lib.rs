@@ -1,14 +1,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 pub mod signers_cache;
 mod wots;
-use backend::KoalaBear;
+use backend::Goldilocks;
 pub use wots::*;
 mod xmss;
 pub use xmss::*;
 
-pub(crate) const DIGEST_SIZE: usize = 8;
+pub(crate) const DIGEST_SIZE: usize = 4;
 
-type F = KoalaBear;
+type F = Goldilocks;
 type Digest = [F; DIGEST_SIZE];
 
 // WOTS

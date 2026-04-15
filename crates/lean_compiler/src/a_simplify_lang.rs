@@ -2193,8 +2193,8 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon8 precompile
+                        if function_name == Table::poseidon8().name() {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
@@ -2214,7 +2214,7 @@ fn simplify_lines(
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data: PrecompileCompTimeArgs::Poseidon8,
                             }));
                             continue;
                         }

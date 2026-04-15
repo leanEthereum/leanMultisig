@@ -1,7 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
-use utils::poseidon16_compress_pair;
+use utils::poseidon8_compress_pair;
 
 use crate::*;
 
@@ -58,7 +58,7 @@ pub fn xmss_key_gen(
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    let perm = default_koalabear_poseidon1_16();
+    let perm = default_goldilocks_poseidon1_8();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start..=slot_end)
         .into_par_iter()
@@ -193,9 +193,9 @@ pub fn xmss_verify(
     for (level, neighbour) in signature.merkle_proof.iter().enumerate() {
         let is_left = ((slot >> level) & 1) == 0;
         if is_left {
-            current_hash = poseidon16_compress_pair(&current_hash, neighbour);
+            current_hash = poseidon8_compress_pair(&current_hash, neighbour);
         } else {
-            current_hash = poseidon16_compress_pair(neighbour, &current_hash);
+            current_hash = poseidon8_compress_pair(neighbour, &current_hash);
         }
     }
     if current_hash == pub_key.merkle_root {

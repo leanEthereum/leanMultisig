@@ -6,7 +6,7 @@ use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
-use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{build_prover_state, get_poseidon8, poseidon_compress_slice, poseidon8_compress_pair};
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
 
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ fn build_input_data(
     // Pad the bytecode claim itself up to DIGEST_LEN
     let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
     data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
-    data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
+    data.extend_from_slice(&poseidon8_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
     // Round the whole buffer up to DIGEST_LEN so `slice_hash_with_iv` can absorb it chunk by chunk.
     data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
     data
@@ -277,7 +277,7 @@ pub fn xmss_aggregate(
 
         let final_sumcheck_proof = {
             // Recover the transcript of the final sumcheck (for bytecode claim reduction)
-            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
+            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon8().clone()).unwrap();
             vs.next_base_scalars_vec(claims_hash.len()).unwrap();
             let _: EF = vs.sample();
             sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
@@ -443,7 +443,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
 
         let claim_hash = poseidon_compress_slice(&data, false);
-        running_hash = poseidon16_compress_pair(&running_hash, &claim_hash);
+        running_hash = poseidon8_compress_pair(&running_hash, &claim_hash);
     }
     running_hash
 }

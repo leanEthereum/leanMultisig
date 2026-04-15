@@ -34,10 +34,10 @@ fn cache_footprint(first_pubkey: &XmssPublicKey) -> u128 {
     hasher.update(NUM_BENCHMARK_SIGNERS.to_le_bytes());
     hasher.update(BENCHMARK_SLOT.to_le_bytes());
     for f in message_for_benchmark() {
-        hasher.update(f.as_canonical_u32().to_le_bytes());
+        hasher.update(f.as_canonical_u64().to_le_bytes());
     }
     for f in first_pubkey.merkle_root {
-        hasher.update(f.as_canonical_u32().to_le_bytes());
+        hasher.update(f.as_canonical_u64().to_le_bytes());
     }
     let hash = hasher.finalize();
     u128::from_le_bytes(hash[..16].try_into().unwrap())

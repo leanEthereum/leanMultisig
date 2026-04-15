@@ -4,7 +4,7 @@ use backend::BasedVectorSpace;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::poseidon16_compress;
+use utils::poseidon8_compress;
 
 #[test]
 fn test_poseidon() {
@@ -13,7 +13,7 @@ def main():
     a = 0
     b = a + 8
     c = Array(8)
-    poseidon16_compress(a, b, c)
+    poseidon8_compress(a, b, c)
 
     for i in range(0, 8):
         cc = c[i]
@@ -23,7 +23,7 @@ def main():
     let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
 
-    let _ = dbg!(poseidon16_compress(public_input));
+    let _ = dbg!(poseidon8_compress(public_input));
 }
 
 #[test]
@@ -211,7 +211,7 @@ def main():
 
 @inline
 def func(a, b):
-    poseidon16_compress(a, a, b)
+    poseidon8_compress(a, a, b)
     return
    "#;
     let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));

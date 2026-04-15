@@ -192,7 +192,7 @@ fn compile_block(
         let dest = try_as_mem_or_constant(&dest).expect("Fatal: Could not materialize jump destination");
         let label = match dest {
             MemOrConstant::Constant(dest) => hints
-                .get(&usize::try_from(dest.as_canonical_u32()).unwrap())
+                .get(&usize::try_from(dest.as_canonical_u64()).unwrap())
                 .and_then(|hints: &Vec<Hint>| {
                     hints.iter().find_map(|x| match x {
                         Hint::Label { label } => Some(label),

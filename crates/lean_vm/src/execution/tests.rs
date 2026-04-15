@@ -24,15 +24,23 @@ fn test_memory_already_set_error() {
     // Setting same value should work
     memory.set(0, F::ONE).unwrap();
 
-    // Setting different value should fail
-    assert!(matches!(
-        memory.set(0, F::ZERO),
-        Err(RunnerError::MemoryAlreadySet {
-            address: 0,
-            prev_value: F::ONE,
-            new_value: F::ZERO,
-        })
-    ));
+    // Setting different value should fail.
+    // Goldilocks has two redundant representations for each canonical value
+    // (x and x + ORDER both reduce to x), so it isn't `StructuralPartialEq`
+    // and can't be matched on directly — compare the fields explicitly instead.
+    let err = memory.set(0, F::ZERO).unwrap_err();
+    match err {
+        RunnerError::MemoryAlreadySet {
+            address,
+            prev_value,
+            new_value,
+        } => {
+            assert_eq!(address, 0);
+            assert_eq!(prev_value, F::ONE);
+            assert_eq!(new_value, F::ZERO);
+        }
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }
 
 #[test]
