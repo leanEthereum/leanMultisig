@@ -208,17 +208,32 @@ def decompose_and_verify_merkle_batch(num_queries, sampled, root, height, num_ch
 
 
 def decompose_and_verify_merkle_batch_with_height(num_queries, sampled, root, height: Const, num_chunks, circle_values, answers):
+    # Under Goldilocks (DIGEST_LEN=4, DIM=3) the value `num_chunks = two_pow_folding_factor * {1,DIM} / DIGEST_LEN`
+    # roughly doubles vs KoalaBear (DIGEST_LEN=8). We dispatch the union of both
+    # configurations so the same file compiles for either field.
     if num_chunks == DIM * 2:
         decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, DIM * 2, circle_values, answers)
         return
     if num_chunks == 16:
         decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 16, circle_values, answers)
         return
+    if num_chunks == 32:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 32, circle_values, answers)
+        return
     if num_chunks == 8:
         decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 8, circle_values, answers)
         return
+    if num_chunks == 12:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 12, circle_values, answers)
+        return
     if num_chunks == 20:
         decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 20, circle_values, answers)
+        return
+    if num_chunks == 24:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 24, circle_values, answers)
+        return
+    if num_chunks == 2:
+        decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 2, circle_values, answers)
         return
     if num_chunks == 4:
         decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height, 4, circle_values, answers)

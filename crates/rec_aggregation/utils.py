@@ -2,6 +2,7 @@ from snark_lib import *
 from hashing import *
 
 F_BITS = 64  # Goldilocks (P = 2^64 - 2^32 + 1, values fit in u64)
+HALF_BITS = 32  # Goldilocks splits cleanly at 32:32 for canonical-form checks.
 
 TWO_ADICITY = 32
 ROOT = 1753635133440165772  # = 0x185629dcda58878c, of order 2^TWO_ADICITY
@@ -464,35 +465,34 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     return sum_num, common_den
 
 
-# p = 2^31 - 2^24 + 1
-# in binary: p = 1111111000000000000000000000001
-#        p - 1 = 1111111000000000000000000000000
-#        p - 2 = 1111110111111111111111111111111
-#        p - 3 = 1111110111111111111111111111110
-#        ...
+# Goldilocks: p = 2^64 - 2^32 + 1 = 0xFFFFFFFF_00000001
+#   p - 1 = 0xFFFFFFFF_00000000
+#   p - 2 = 0xFFFFFFFE_FFFFFFFF
+#   ...
 # Any field element (< p) is either:
-# -   1111111    | 00...00
-# - not(1111111) | xx...xx
+#   - high 32 bits = 0xFFFFFFFF and low 32 bits = 0
+#   - high 32 bits < 0xFFFFFFFF and low 32 bits arbitrary
 def checked_decompose_bits(a):
-    # return a pointer to the 31 bits of a
-    # .. and the first 24 partial sums of these bits
+    # Return a pointer to the F_BITS=64 little-endian bits of `a`, plus the
+    # partial sums over the low HALF_BITS=32 bits. Enforces canonicality.
     bits = Array(F_BITS)
     hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
 
     for i in unroll(0, F_BITS):
         assert bits[i] * (1 - bits[i]) == 0
-    partial_sums_24 = Array(24)
-    partial_sums_24[0] = bits[0]
-    for i in unroll(1, 24):
-        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
-    sum_7: Mut = bits[24]
-    for i in unroll(1, 7):
-        sum_7 += bits[24 + i] * 2**i
-    if sum_7 == 127:
-        assert partial_sums_24[23] == 0
+    partial_sums_low = Array(HALF_BITS)
+    partial_sums_low[0] = bits[0]
+    for i in unroll(1, HALF_BITS):
+        partial_sums_low[i] = partial_sums_low[i - 1] + bits[i] * 2**i
+    sum_high: Mut = bits[HALF_BITS]
+    for i in unroll(1, F_BITS - HALF_BITS):
+        sum_high += bits[HALF_BITS + i] * 2**i
+    # If the high 32 bits are all set, the low 32 bits must be zero (only p-1).
+    if sum_high == 2**(F_BITS - HALF_BITS) - 1:
+        assert partial_sums_low[HALF_BITS - 1] == 0
 
-    assert a == partial_sums_24[23] + sum_7 * 2**24
-    return bits, partial_sums_24
+    assert a == partial_sums_low[HALF_BITS - 1] + sum_high * 2**HALF_BITS
+    return bits, partial_sums_low
 
 
 @inline
@@ -521,10 +521,11 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
 
 @inline
 def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
-    # Goldilocks FRI: query indices fit in TWO_ADICITY = 32 bits. Decompose `a`
-    # into 8 × 4-bit nibbles and assert `a == partial_sum`; that single equality
-    # enforces both the decomposition and `a < 2^32` (since partial_sum ≤ 2^32−1).
-    NUM_NIBBLES = 8
+    # Decompose the full 64-bit Goldilocks FE `a` into 16 × 4-bit nibbles so
+    # that `a == partial_sum` holds for any valid field element (no top-bits
+    # restriction). The first `n_nibbles = ceil(domain_size/4)` nibbles encode
+    # the Merkle query index modulo 2^domain_size.
+    NUM_NIBBLES = F_BITS / 4
     nibbles = Array(NUM_NIBBLES)
     hint_decompose_bits_merkle_whir(nibbles, a, NUM_NIBBLES, 4)
 
@@ -748,11 +749,12 @@ def _verify_log2_large(n, log2: Const):
 
 
 def log2_ceil_runtime(n):
-    # requires: 2 < n <= 2^30
+    # requires: 2 < n <= 2^30 (still inside HALF_BITS=32, so `_verify_log2_small`
+    # is always chosen under Goldilocks).
     log2: Imu
     hint_log2_ceil(n, log2)
     assert log2 < 31
     if two_exp(log2) != n:
-        _, partial_sums_24 = checked_decompose_bits(n)
-        match_range(log2, range(2, 24), lambda i: _verify_log2_small(n, partial_sums_24, i), range(24, 31), lambda i: _verify_log2_large(n, i))
+        _, partial_sums_low = checked_decompose_bits(n)
+        match_range(log2, range(2, 31), lambda i: _verify_log2_small(n, partial_sums_low, i))
     return log2
