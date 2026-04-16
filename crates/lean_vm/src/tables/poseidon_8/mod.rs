@@ -3,8 +3,11 @@ use crate::execution::memory::MemoryAccess;
 use backend::*;
 use utils::{ToUsize, poseidon8_compress};
 
+mod sparse;
 mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_8;
+
+use sparse::{get_partial_constants, PARTIAL_ROUNDS as SPARSE_PARTIAL_ROUNDS};
 
 pub(super) const WIDTH: usize = 8;
 pub(super) const DIGEST: usize = DIGEST_LEN; // 4
@@ -32,45 +35,41 @@ pub const POSEIDON8_NAME: &str = "poseidon8_compress";
 
 // ---------- Per-round aux columns ----------
 //
-// Goldilocks Poseidon1 width-8: 30 rounds, x⁷ S-box, circulant MDS row
-// `MDS8_ROW = [7,1,3,8,8,3,4,9]`, Davies-Meyer feed-forward on the first
-// `DIGEST` lanes. Full rounds apply the S-box to every lane; partial rounds
-// apply it only to lane 0.
+// Goldilocks Poseidon1-8 with the Appendix B sparse partial-round decomposition
+// (see `sparse.rs`). For each full round we commit:
+//   - `committed_x3[i]` for every S-box lane  (8 cols)
+//   - `post[i]` = state after MDS              (8 cols)
+// For each partial round — after the one-shot `first_round_constants + m_i`
+// transform — we commit only the lane-0 S-box data:
+//   - `committed_x3`   (1 col)
+//   - `post_sbox`      (1 col, the x⁷ output; lanes 1..W are expressed symbolically
+//                      as rank-1 updates of previous `post_sbox`/committed values)
 //
-// For each round we commit:
-//   - `committed_x3[i] = (state[i] + RC[r][i])^3` for every S-box lane,
-//   - `post[i]` = entire state after MDS multiply.
-//
-// The S-box output expression `(x^3)^2 * x = x^7` stays at degree 3, so the
-// whole constraint system fits under `degree_air = 3`.
+// S-box gate is `committed_x3 = x³` (deg 3) and `post_sbox = committed_x3² · x`
+// (deg 3 equality). Partial-round state[1..W] stays degree-1 via the sparse
+// matmul `cheap_matmul`, so the whole system fits under `degree_air = 3`.
 
-const FULL_ROUND_COLS: usize = WIDTH + WIDTH; // 8 S-box + 8 post-state
-const PARTIAL_ROUND_COLS: usize = 1 + WIDTH; // 1 S-box + 8 post-state
+const FULL_ROUND_COLS: usize = WIDTH + WIDTH; // 8 committed_x3 + 8 post-state
+const PARTIAL_ROUND_COLS: usize = 2; // committed_x3 + post_sbox
 
 pub const fn is_full_round(r: usize) -> bool {
     r < POSEIDON1_HALF_FULL_ROUNDS
         || r >= POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS
 }
 
-/// First column index of round `r`'s data (committed_x3, then post-state).
+/// First column index of round `r`'s data.
 pub const fn round_data_offset(r: usize) -> usize {
     let mut off = POSEIDON_8_COL_ROUND_START;
     let mut i = 0;
     while i < r {
-        off += if is_full_round(i) { FULL_ROUND_COLS } else { PARTIAL_ROUND_COLS };
+        off += if is_full_round(i) {
+            FULL_ROUND_COLS
+        } else {
+            PARTIAL_ROUND_COLS
+        };
         i += 1;
     }
     off
-}
-
-/// Number of S-box (committed x³) columns in round `r`.
-const fn round_sbox_lanes(r: usize) -> usize {
-    if is_full_round(r) { WIDTH } else { 1 }
-}
-
-/// First column index of round `r`'s committed post-state.
-pub const fn round_post_offset(r: usize) -> usize {
-    round_data_offset(r) + round_sbox_lanes(r)
 }
 
 pub const fn num_cols_poseidon_8() -> usize {
@@ -81,54 +80,109 @@ const AUX_COLS_PER_ROW: usize = num_cols_poseidon_8() - POSEIDON_8_COL_ROUND_STA
 
 // ---------- Witness computation ----------
 //
-// Replay the Poseidon1-8 permutation on `input`, returning every intermediate
-// witness column (in trace order: round 0's committed_x3s, round 0's post,
-// round 1's, …) together with the Davies-Meyer `[F; DIGEST]` digest.
+// Replay the Poseidon1-8 permutation on `input`, emitting every committed
+// column value in trace order. The partial phase uses the sparse
+// decomposition so only 2 cols/round are emitted.
 
-fn mds_row_coeff(j: usize, i: usize) -> F {
-    // Circulant matrix: `row_i · sbox_out = Σ_j COEFF[(j - i) mod W] * sbox_out[j]`.
-    F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64)
+fn mds_vec_mul(state: &[F; WIDTH]) -> [F; WIDTH] {
+    let mut out = [F::ZERO; WIDTH];
+    for i in 0..WIDTH {
+        let mut acc = state[0] * F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+        for j in 1..WIDTH {
+            acc = acc + state[j] * F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+        }
+        out[i] = acc;
+    }
+    out
 }
 
 pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGEST]) {
+    let c = get_partial_constants();
     let mut state = input;
     let mut aux = Vec::with_capacity(AUX_COLS_PER_ROW);
 
-    for round in 0..POSEIDON1_N_ROUNDS {
-        // AddRoundConstants.
+    // Initial full rounds.
+    for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
         for i in 0..WIDTH {
             state[i] = state[i] + GOLDILOCKS_POSEIDON1_RC_8[round][i];
         }
-
-        // S-box: commit x³ for each active lane, replace state[i] with x⁷.
-        let sbox_lanes = round_sbox_lanes(round);
-        let mut committed = [F::ZERO; WIDTH];
-        for i in 0..sbox_lanes {
+        for i in 0..WIDTH {
             let x3 = state[i].cube();
-            committed[i] = x3;
             aux.push(x3);
-            state[i] = x3 * x3 * state[i]; // x⁷ = (x³)² · x
+            state[i] = x3 * x3 * state[i]; // x⁷
         }
-
-        // MDS multiply.
-        let mut post = [F::ZERO; WIDTH];
-        for i in 0..WIDTH {
-            let mut acc = state[0] * mds_row_coeff(0, i);
-            for j in 1..WIDTH {
-                acc = acc + state[j] * mds_row_coeff(j, i);
-            }
-            post[i] = acc;
-        }
-        for i in 0..WIDTH {
-            aux.push(post[i]);
+        let post = mds_vec_mul(&state);
+        for v in &post {
+            aux.push(*v);
         }
         state = post;
-
-        let _ = committed; // silence unused-var if WIDTH changes upstream
     }
 
-    // Davies-Meyer feed-forward: output = final_state + input, truncated.
+    // Partial phase: absorb first_round_constants, apply m_i, then sparse rounds.
+    for i in 0..WIDTH {
+        state[i] = state[i] + c.first_round_constants[i];
+    }
+    {
+        let mut after = [F::ZERO; WIDTH];
+        for i in 0..WIDTH {
+            let mut acc = F::ZERO;
+            for j in 0..WIDTH {
+                acc = acc + c.m_i[i][j] * state[j];
+            }
+            after[i] = acc;
+        }
+        state = after;
+    }
+
+    for r in 0..SPARSE_PARTIAL_ROUNDS {
+        let x = state[0];
+        let x3 = x.cube();
+        aux.push(x3);
+        let post_sbox = x3 * x3 * x; // x⁷
+        aux.push(post_sbox);
+
+        // state[0] becomes post_sbox (+ scalar RC, except last round).
+        state[0] = if r < SPARSE_PARTIAL_ROUNDS - 1 {
+            post_sbox + c.round_constants[r]
+        } else {
+            post_sbox
+        };
+
+        // cheap_matmul:
+        //   new_state[0] = Σ_j sparse_first_row[r][j] · state[j]
+        //   new_state[i] = state[i] + v[r][i-1] · old_state[0]    (for i ≥ 1)
+        let old_s0 = state[0];
+        let mut new_s0 = F::ZERO;
+        for j in 0..WIDTH {
+            new_s0 = new_s0 + c.sparse_first_row[r][j] * state[j];
+        }
+        state[0] = new_s0;
+        for i in 1..WIDTH {
+            state[i] = state[i] + c.v[r][i - 1] * old_s0;
+        }
+    }
+
+    // Terminal full rounds.
+    for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
+        let abs = POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS + round;
+        for i in 0..WIDTH {
+            state[i] = state[i] + GOLDILOCKS_POSEIDON1_RC_8[abs][i];
+        }
+        for i in 0..WIDTH {
+            let x3 = state[i].cube();
+            aux.push(x3);
+            state[i] = x3 * x3 * state[i];
+        }
+        let post = mds_vec_mul(&state);
+        for v in &post {
+            aux.push(*v);
+        }
+        state = post;
+    }
+
+    // Davies-Meyer feed-forward.
     let output: [F; DIGEST] = std::array::from_fn(|i| state[i] + input[i]);
+    debug_assert_eq!(aux.len(), AUX_COLS_PER_ROW);
     (aux, output)
 }
 
@@ -183,14 +237,13 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
         row[POSEIDON_8_COL_INDEX_INPUT_RES] = F::from_usize(null_hash_ptr);
         // Inputs stay zero; compute and fill the matching witness + output.
         let (aux, output) = compute_poseidon8_witness([F::ZERO; WIDTH]);
-        debug_assert_eq!(aux.len(), AUX_COLS_PER_ROW);
         for (i, v) in output.iter().enumerate() {
             row[POSEIDON_8_COL_OUTPUT_START + i] = *v;
         }
         for (i, v) in aux.iter().enumerate() {
             row[POSEIDON_8_COL_ROUND_START + i] = *v;
         }
-        // Sanity: pure-Poseidon compress should agree with the Davies-Meyer witness.
+        // Sanity: Davies-Meyer witness must agree with the direct primitive.
         debug_assert_eq!(output, poseidon8_compress([F::ZERO; WIDTH]));
         row
     }
@@ -235,6 +288,20 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
     }
 }
 
+/// Constraint count, computed once at monomorphisation. Must match the number
+/// of `assert_*` / `eval_virtual_column` / `declare_values` calls issued in
+/// `eval()` exactly; used by the proving pipeline for pre-allocation.
+const fn poseidon8_n_constraints(bus: bool) -> usize {
+    // 1 boolean flag.
+    // Initial + terminal full rounds: 8 S-box gates + 8 MDS gates per round.
+    // Partial rounds: 1 S-box gate + 1 post_sbox gate per round.
+    // Davies-Meyer: 4 output gates.
+    // + bus (if enabled).
+    let full_gates = 2 * POSEIDON1_HALF_FULL_ROUNDS * (WIDTH + WIDTH);
+    let partial_gates = POSEIDON1_PARTIAL_ROUNDS * 2;
+    1 + full_gates + partial_gates + DIGEST + bus as usize
+}
+
 impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
     fn n_columns(&self) -> usize {
@@ -247,29 +314,26 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        // 1 boolean flag
-        // + 326 per-round gates: each full round = 8 S-box + 8 post; each partial = 1 + 8
-        // + 4 Davies-Meyer
-        // + bus
-        let mut n = 1 + 4 + BUS as usize;
-        let mut r = 0;
-        while r < POSEIDON1_N_ROUNDS {
-            n += round_sbox_lanes(r) + WIDTH;
-            r += 1;
-        }
-        n
+        poseidon8_n_constraints(BUS)
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        // Phase 1 — snapshot every column read from `up` into owned locals so
-        // we can then use `builder` mutably without fighting the borrow checker.
+        let c = get_partial_constants();
+
+        // Phase 1 — snapshot every `up[…]` column read into owned locals so we
+        // can then use `builder` mutably without fighting the borrow checker.
         let flag;
         let index_a;
         let index_b;
         let index_res;
         let inputs: [AB::IF; WIDTH];
         let outputs: [AB::IF; DIGEST];
-        let mut sbox_commits: Vec<Vec<AB::IF>> = Vec::with_capacity(POSEIDON1_N_ROUNDS);
-        let mut post_states: Vec<[AB::IF; WIDTH]> = Vec::with_capacity(POSEIDON1_N_ROUNDS);
+        // For each full round we need `committed_x3[0..W]` and `post[0..W]`.
+        let mut full_commits: Vec<[AB::IF; WIDTH]> =
+            Vec::with_capacity(2 * POSEIDON1_HALF_FULL_ROUNDS);
+        let mut full_posts: Vec<[AB::IF; WIDTH]> =
+            Vec::with_capacity(2 * POSEIDON1_HALF_FULL_ROUNDS);
+        let mut partial_commits: Vec<AB::IF> = Vec::with_capacity(SPARSE_PARTIAL_ROUNDS);
+        let mut partial_post_sboxes: Vec<AB::IF> = Vec::with_capacity(SPARSE_PARTIAL_ROUNDS);
         {
             let up = builder.up();
             flag = up[POSEIDON_8_COL_FLAG];
@@ -278,12 +342,18 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             index_res = up[POSEIDON_8_COL_INDEX_INPUT_RES];
             inputs = std::array::from_fn(|i| up[POSEIDON_8_COL_INPUT_START + i]);
             outputs = std::array::from_fn(|i| up[POSEIDON_8_COL_OUTPUT_START + i]);
-            for r in 0..POSEIDON1_N_ROUNDS {
-                let data_off = round_data_offset(r);
-                let post_off = round_post_offset(r);
-                let n_sbox = round_sbox_lanes(r);
-                sbox_commits.push((0..n_sbox).map(|i| up[data_off + i]).collect());
-                post_states.push(std::array::from_fn(|i| up[post_off + i]));
+
+            for round in 0..POSEIDON1_N_ROUNDS {
+                let off = round_data_offset(round);
+                if is_full_round(round) {
+                    let commit: [AB::IF; WIDTH] = std::array::from_fn(|i| up[off + i]);
+                    let post: [AB::IF; WIDTH] = std::array::from_fn(|i| up[off + WIDTH + i]);
+                    full_commits.push(commit);
+                    full_posts.push(post);
+                } else {
+                    partial_commits.push(up[off]);
+                    partial_post_sboxes.push(up[off + 1]);
+                }
             }
         }
 
@@ -313,35 +383,108 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
 
         // Phase 3 — Poseidon1-8 permutation constraints with Davies-Meyer feed-forward.
         let mut state: [AB::IF; WIDTH] = inputs;
-        for round in 0..POSEIDON1_N_ROUNDS {
-            let sbox_lanes = round_sbox_lanes(round);
 
-            // AddRoundConstants: x[i] = state[i] + RC[r][i] (expression, degree 1).
+        // ---- Initial full rounds ----
+        for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
             let x: [AB::IF; WIDTH] = std::array::from_fn(|i| {
-                state[i] + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[round][i].as_canonical_u64())
+                state[i]
+                    + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[round][i].as_canonical_u64())
             });
-
-            // S-box lanes: commit committed_x3 = x³ and compute sbox_out = x⁷.
             let mut sbox_out: [AB::IF; WIDTH] = x;
-            for i in 0..sbox_lanes {
-                let committed_x3 = sbox_commits[round][i];
+            for i in 0..WIDTH {
+                let committed_x3 = full_commits[round][i];
                 builder.assert_zero(committed_x3 - x[i] * x[i] * x[i]);
                 sbox_out[i] = committed_x3 * committed_x3 * x[i];
             }
-
-            // MDS: post[i] = Σ_j MDS[(j-i) mod W] * sbox_out[j].
-            let post = post_states[round];
+            let post = full_posts[round];
             for i in 0..WIDTH {
-                let coeff0 = AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
-                let mut acc = sbox_out[0] * coeff0;
+                let mut acc = sbox_out[0]
+                    * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
                 for j in 1..WIDTH {
-                    let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    let coeff =
+                        AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
                     acc = acc + sbox_out[j] * coeff;
                 }
                 builder.assert_zero(post[i] - acc);
             }
+            state = post;
+        }
 
-            // Reset state to the committed post-state for the next round.
+        // ---- Partial phase: first_round_constants, m_i, sparse-matmul loop ----
+        for i in 0..WIDTH {
+            state[i] = state[i]
+                + AB::F::from_u64(c.first_round_constants[i].as_canonical_u64());
+        }
+        {
+            let mut after: [AB::IF; WIDTH] = std::array::from_fn(|i| {
+                let mut acc = state[0] * AB::F::from_u64(c.m_i[i][0].as_canonical_u64());
+                for j in 1..WIDTH {
+                    acc = acc + state[j] * AB::F::from_u64(c.m_i[i][j].as_canonical_u64());
+                }
+                acc
+            });
+            std::mem::swap(&mut state, &mut after);
+        }
+
+        for r in 0..SPARSE_PARTIAL_ROUNDS {
+            let x = state[0];
+            let committed_x3 = partial_commits[r];
+            let post_sbox = partial_post_sboxes[r];
+
+            // committed_x3 = x³.
+            builder.assert_zero(committed_x3 - x * x * x);
+            // post_sbox = committed_x3² · x = x⁷.
+            builder.assert_zero(post_sbox - committed_x3 * committed_x3 * x);
+
+            // state[0] becomes post_sbox (+ scalar RC, except last round).
+            state[0] = if r < SPARSE_PARTIAL_ROUNDS - 1 {
+                post_sbox
+                    + AB::F::from_u64(c.round_constants[r].as_canonical_u64())
+            } else {
+                post_sbox
+            };
+
+            // cheap_matmul.
+            let old_s0 = state[0];
+            let mut new_s0 = state[0]
+                * AB::F::from_u64(c.sparse_first_row[r][0].as_canonical_u64());
+            for j in 1..WIDTH {
+                new_s0 = new_s0
+                    + state[j]
+                        * AB::F::from_u64(c.sparse_first_row[r][j].as_canonical_u64());
+            }
+            state[0] = new_s0;
+            for i in 1..WIDTH {
+                state[i] = state[i]
+                    + old_s0
+                        * AB::F::from_u64(c.v[r][i - 1].as_canonical_u64());
+            }
+        }
+
+        // ---- Terminal full rounds ----
+        for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
+            let abs = POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS + round;
+            let x: [AB::IF; WIDTH] = std::array::from_fn(|i| {
+                state[i]
+                    + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[abs][i].as_canonical_u64())
+            });
+            let mut sbox_out: [AB::IF; WIDTH] = x;
+            for i in 0..WIDTH {
+                let committed_x3 = full_commits[POSEIDON1_HALF_FULL_ROUNDS + round][i];
+                builder.assert_zero(committed_x3 - x[i] * x[i] * x[i]);
+                sbox_out[i] = committed_x3 * committed_x3 * x[i];
+            }
+            let post = full_posts[POSEIDON1_HALF_FULL_ROUNDS + round];
+            for i in 0..WIDTH {
+                let mut acc = sbox_out[0]
+                    * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+                for j in 1..WIDTH {
+                    let coeff =
+                        AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    acc = acc + sbox_out[j] * coeff;
+                }
+                builder.assert_zero(post[i] - acc);
+            }
             state = post;
         }
 
