@@ -6,7 +6,7 @@ use field::PrimeCharacteristicRing;
 use field::{ExtensionField, Field, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
-use sumcheck::{ProductComputation, run_product_sumcheck, sumcheck_prove_many_rounds};
+use sumcheck::{ProductComputation, run_product_sumcheck_at_bit, sumcheck_prove_many_rounds};
 use tracing::{info_span, instrument};
 
 use crate::{config::WhirConfig, *};
@@ -40,13 +40,15 @@ where
         statement: Vec<SparseStatement<EF>>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
+        unpadded_len: usize,
     ) -> MultilinearPoint<EF> {
         assert!(self.validate_parameters());
         assert!(self.validate_witness(&witness, polynomial));
         self.validate_statement(&statement);
 
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial).unwrap();
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial, unpadded_len)
+                .unwrap();
 
         for round in 0..=self.n_rounds() {
             self.round(round, prover_state, &mut round_state).unwrap();
@@ -410,6 +412,7 @@ where
         challenges
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
         statement: &[SparseStatement<EF>],
@@ -417,6 +420,7 @@ where
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
         pow_bits: usize,
+        unpadded_len: usize,
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
@@ -424,13 +428,27 @@ where
 
         let mut evals = evals.pack();
         let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
-        let (challengess, new_sum, new_evals, new_weights) = run_product_sumcheck(
+
+        // Fold LSB-of-the-folded-group first so the polynomial's trailing
+        // zero padding is preserved across the initial sumcheck rounds. The
+        // bit position is constant across rounds because each fold removes
+        // exactly the previous one and the next bit shifts into its slot.
+        let n_vars = evals.by_ref().n_vars();
+        let log_packing = packing_log_width::<EF>();
+        let fold_bit_logical = n_vars - folding_factor;
+        let fold_bit_packed = fold_bit_logical - log_packing;
+        // `unpadded_len` is in logical units; convert to packed units (ceil).
+        let unpadded_len_packed = unpadded_len.div_ceil(1 << log_packing);
+
+        let (challengess, new_sum, new_evals, new_weights) = run_product_sumcheck_at_bit(
             &evals.by_ref(),
             &weights.by_ref(),
             prover_state,
             sum,
             folding_factor,
             pow_bits,
+            fold_bit_packed,
+            unpadded_len_packed,
         );
 
         evals = new_evals.into();
@@ -471,6 +489,7 @@ where
         mut statement: Vec<SparseStatement<EF>>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
+        unpadded_len: usize,
     ) -> ProofResult<Self> {
         let ood_statements = witness
             .ood_points
@@ -495,6 +514,7 @@ where
             prover_state,
             prover.folding_factor.at_round(0),
             prover.starting_folding_pow_bits,
+            unpadded_len,
         );
 
         Ok(Self {

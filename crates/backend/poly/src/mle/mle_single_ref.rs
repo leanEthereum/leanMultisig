@@ -128,4 +128,21 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleRef<'a, EF> {
             Self::ExtensionPacked(pols) => MleOwned::ExtensionPacked(fold_multilinear(pols, alpha, &|a, b| a * b)),
         }
     }
+
+    /// Fold at an arbitrary bit position in the current layout. For packed
+    /// variants `bit` is interpreted in the packed slice's index space, so
+    /// the caller must ensure `bit >= log2(packing_width)`.
+    pub fn fold_at_bit(&self, alpha: EF, bit: usize) -> MleOwned<EF> {
+        match self {
+            Self::Base(pols) => MleOwned::Extension(fold_multilinear_at_bit(pols, alpha, bit, &|a, b| b * a)),
+            Self::Extension(pols) => MleOwned::Extension(fold_multilinear_at_bit(pols, alpha, bit, &|a, b| b * a)),
+            Self::BasePacked(pols) => {
+                let alpha_packed = EFPacking::<EF>::from(alpha);
+                MleOwned::ExtensionPacked(fold_multilinear_at_bit(pols, alpha_packed, bit, &|a, b| b * a))
+            }
+            Self::ExtensionPacked(pols) => {
+                MleOwned::ExtensionPacked(fold_multilinear_at_bit(pols, alpha, bit, &|a, b| a * b))
+            }
+        }
+    }
 }

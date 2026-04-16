@@ -35,6 +35,9 @@ pub struct StackedPcsWitness {
     pub stacked_n_vars: VarCount,
     pub inner_witness: Witness<EF>,
     pub global_polynomial: MleOwned<EF>,
+    /// Unpadded length of `global_polynomial` (trailing entries in
+    /// `[unpadded_len .. 1 << stacked_n_vars)` are zero).
+    pub unpadded_len: usize,
 }
 
 pub fn stacked_pcs_global_statements(
@@ -152,6 +155,7 @@ pub fn stack_polynomials_and_commit(
         stacked_n_vars,
         inner_witness,
         global_polynomial,
+        unpadded_len: offset,
     }
 }
 

@@ -110,13 +110,18 @@ where
         let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
         round_constraints.push((combination_randomness, constraints));
 
-        // Initial sumcheck
-        let folding_randomness = verify_sumcheck_rounds::<F, EF>(
+        // Initial sumcheck. The prover folded LSB-of-the-folded-group first
+        // (so the polynomial's trailing-zero padding survives into more
+        // rounds); the resulting challenges arrive in fold order. Reverse
+        // them so `folding_randomness[0]` binds the outer-group MSB and
+        // matches the downstream MLE-evaluation convention.
+        let mut folding_randomness = verify_sumcheck_rounds::<F, EF>(
             verifier_state,
             &mut claimed_sum,
             self.folding_factor.at_round(0),
             self.starting_folding_pow_bits,
         )?;
+        folding_randomness.0.reverse();
         round_folding_randomness.push(folding_randomness);
 
         for round_index in 0..self.n_rounds() {

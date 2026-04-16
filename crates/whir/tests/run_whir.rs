@@ -112,6 +112,7 @@ fn test_run_whir() {
         statement.clone(),
         witness_clone,
         &polynomial.by_ref(),
+        num_coeffs,
     );
     let pruned_proof = prover_state.into_proof();
     let opening_time_single = time.elapsed();

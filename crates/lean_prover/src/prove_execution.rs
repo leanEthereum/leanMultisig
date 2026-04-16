@@ -245,6 +245,7 @@ pub fn prove_execution(
         global_statements_base,
         stacked_pcs_witness.inner_witness,
         &stacked_pcs_witness.global_polynomial.by_ref(),
+        stacked_pcs_witness.unpadded_len,
     );
 
     ExecutionProof {

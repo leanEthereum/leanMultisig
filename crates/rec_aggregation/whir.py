@@ -302,7 +302,18 @@ def whir_round(
     num_ood,
     folding_grinding_bits,
 ):
-    fs, folding_randomness, new_claimed_sum_a = sumcheck_verify_with_grinding(fs, folding_factor, claimed_sum, 2, folding_grinding_bits)
+    fs, raw_folding_randomness, new_claimed_sum_a = sumcheck_verify_with_grinding(fs, folding_factor, claimed_sum, 2, folding_grinding_bits)
+
+    # On the first WHIR round (`merkle_leaves_in_basefield == 1`), the prover
+    # folded LSB-of-the-folded-group first so the polynomial's trailing-zero
+    # padding survives into more rounds. Reverse the sampled challenges to
+    # recover natural MSB-first order before any downstream use.
+    folding_randomness: Mut = Array(WHIR_INITIAL_FOLDING_FACTOR * DIM)
+    if merkle_leaves_in_basefield == 1:
+        for i in unroll(0, WHIR_INITIAL_FOLDING_FACTOR):
+            copy_5(raw_folding_randomness + (WHIR_INITIAL_FOLDING_FACTOR - 1 - i) * DIM, folding_randomness + i * DIM)
+    else:
+        folding_randomness = raw_folding_randomness
 
     fs, root, ood_points, ood_evals = parse_commitment(fs, num_ood)
 
