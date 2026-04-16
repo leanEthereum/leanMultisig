@@ -24,7 +24,7 @@ pub const POSEIDON1_PARTIAL_ROUNDS: usize = 22;
 pub const POSEIDON1_SBOX_DEGREE: u64 = 7;
 pub const POSEIDON1_DIGEST_LEN: usize = 4;
 
-const POSEIDON1_N_ROUNDS: usize =
+pub const POSEIDON1_N_ROUNDS: usize =
     2 * POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS;
 
 // =========================================================================
@@ -35,7 +35,7 @@ const POSEIDON1_N_ROUNDS: usize =
 // the first column — more convenient for a row-major apply of a circulant
 // since `row_i = cyclic_shift(col, i)`, i.e. `M[i][j] = COL[(j - i + N) mod N]`
 // (equivalently `ROW[(j - i) mod N]`).
-const MDS8_ROW: [i64; 8] = [7, 1, 3, 8, 8, 3, 4, 9];
+pub const MDS8_ROW: [i64; 8] = [7, 1, 3, 8, 8, 3, 4, 9];
 
 /// Apply the width-8 circulant MDS matrix in place, generic over `R`.
 ///
