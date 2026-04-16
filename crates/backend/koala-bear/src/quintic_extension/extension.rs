@@ -527,7 +527,7 @@ impl<F: TwoAdicField + QuinticExtendable> TwoAdicField for QuinticExtensionField
 }
 
 /// Quintic extension field multiplication in F[X]/(X^5 + X^2 - 1).
-#[inline]
+#[inline(always)]
 pub fn quintic_mul<T: Copy + Sub<Output = T>>(
     a: &[T; 5],
     b: &[T; 5],

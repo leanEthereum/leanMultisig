@@ -461,7 +461,7 @@ where
 {
     type Output = Self;
 
-    #[inline]
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
         Self {
             value: super::extension::quintic_mul(&self.value, &rhs.value, PF::dot_product::<5>),
@@ -476,7 +476,7 @@ where
 {
     type Output = Self;
 
-    #[inline]
+    #[inline(always)]
     fn mul(self, rhs: QuinticExtensionField<F>) -> Self {
         let b: [PF; 5] = rhs.value.map(|x| x.into());
         Self {
