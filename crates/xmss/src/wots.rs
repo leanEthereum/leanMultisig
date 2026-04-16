@@ -119,24 +119,29 @@ pub fn wots_encode(
     input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 1] = slot_hi;
     input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 2..].copy_from_slice(truncated_merkle_root);
 
-    let encoding_fe = poseidon_compress_slice(&input, false);
+    // `poseidon_compress_slice` returns 4 FE; we use the first 3 (= NUM_ENCODING_FE).
+    // Assumption (for now): each Goldilocks FE yields ~64 bits of almost-uniform entropy.
+    // We decompose each FE into 21 × W=3 bit chunks (63 bits total), leaving a 1-bit
+    // remainder. The DSL verifier asserts that remainder ∈ {0, 1}, so the low 63 bits
+    // of encoding_fe[i] are canonical. 3 × 21 = 63 total chunks, of which we use the
+    // first V + V_GRINDING = 44 as Winternitz indices.
+    let full_output = poseidon_compress_slice(&input, false);
 
-    if encoding_fe.iter().any(|&fe| fe == -F::ONE) {
-        return None;
-    }
-
-    const CHUNKS_PER_FE: usize = (V + V_GRINDING) / DIGEST_SIZE;
+    const NUM_ENCODING_FE: usize = 3;
+    const CHUNKS_PER_FE: usize = 21;
     const MASK: u64 = (1u64 << W) - 1;
-    debug_assert_eq!(CHUNKS_PER_FE * DIGEST_SIZE, V + V_GRINDING);
+    debug_assert!(CHUNKS_PER_FE * W <= 63); // 1-bit remainder
+    debug_assert!(NUM_ENCODING_FE * CHUNKS_PER_FE >= V + V_GRINDING);
 
-    let mut all_indices = [0u8; V + V_GRINDING];
-    for (i, fe) in encoding_fe.iter().enumerate() {
+    let mut all_indices = [0u8; NUM_ENCODING_FE * CHUNKS_PER_FE];
+    for (i, fe) in full_output.iter().take(NUM_ENCODING_FE).enumerate() {
         let value = fe.as_canonical_u64();
         for j in 0..CHUNKS_PER_FE {
             all_indices[i * CHUNKS_PER_FE + j] = ((value >> (j * W)) & MASK) as u8;
         }
     }
-    is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
+    let used: [u8; V + V_GRINDING] = all_indices[..V + V_GRINDING].try_into().unwrap();
+    is_valid_encoding(&used).then(|| used[..V].try_into().unwrap())
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {

@@ -10,7 +10,13 @@ LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
 SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
-NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))  # 24 should be divisible by W (works for W=2,3,4)
+# Goldilocks encoding: 3 Poseidon8 output FE, each decomposed into CHUNKS_PER_FE
+# chunks of W bits. We assume ~64 bits of uniform entropy per FE and consume
+# CHUNKS_PER_FE*W = 63 bits per FE (1-bit remainder). 3*21 = 63 total chunks,
+# of which the first V+V_GRINDING are the Winternitz indices. Must match
+# `crates/xmss/src/wots.rs::wots_encode`.
+NUM_ENCODING_FE = 3
+CHUNKS_PER_FE = 21
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 
@@ -25,60 +31,71 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
     chain_starts = signature + RANDOMNESS_LEN
     merkle_path = chain_starts + V * DIGEST_LEN
 
-    # 1) We encode message_hash + randomness into the layer of the hypercube with target sum = TARGET_SUM
+    # 1) Hash (message, randomness, slot, merkle_root) into 3 output FE via a
+    #    3-call Poseidon8 sponge chain, mirroring `poseidon_compress_slice` on
+    #    14 input FE in the Rust side.
+    #
+    # Call 1: poseidon8(message[0..4], randomness[0..4]) → a
+    a = Array(DIGEST_LEN)
+    poseidon8_compress(message, randomness, a)
 
-    a_input_right = Array(DIGEST_LEN)
-    b_input = Array(DIGEST_LEN * 2)
-    a_input_right[0] = message[DIGEST_LEN]
-    copy_7(randomness, a_input_right + 1)
-    poseidon8_compress(message, a_input_right, b_input)
-    b_input[DIGEST_LEN] = slot_lo
-    b_input[DIGEST_LEN + 1] = slot_hi
-    copy_6(merkle_root, b_input + DIGEST_LEN + 2)
+    # Call 2: poseidon8(a, [slot_lo, slot_hi, root[0], root[1]]) → b
+    rhs2 = Array(DIGEST_LEN)
+    rhs2[0] = slot_lo
+    rhs2[1] = slot_hi
+    rhs2[2] = merkle_root[0]
+    rhs2[3] = merkle_root[1]
+    b = Array(DIGEST_LEN)
+    poseidon8_compress(a, rhs2, b)
+
+    # Call 3: poseidon8(b, [root[2], root[3], 0, 0]) → encoding_fe (4 FE; we use the first 3)
+    rhs3 = Array(DIGEST_LEN)
+    rhs3[0] = merkle_root[2]
+    rhs3[1] = merkle_root[3]
+    rhs3[2] = 0
+    rhs3[3] = 0
     encoding_fe = Array(DIGEST_LEN)
-    poseidon8_compress(b_input, b_input + DIGEST_LEN, encoding_fe)
+    poseidon8_compress(b, rhs3, encoding_fe)
 
-    encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
+    # 2) Decompose each of the first 3 FE into 21 3-bit chunks = 63 bits per FE
+    #    (1-bit remainder). 3 × 21 = 63 total chunks; first V+V_GRINDING used.
+    encoding = Array(63)
+    hint_decompose_bits_xmss(encoding, encoding_fe, 3, 21, W)
 
-    hint_decompose_bits_xmss(encoding, encoding_fe, NUM_ENCODING_FE, 2 * W)
+    # Each chunk must be a valid W-bit Winternitz index.
+    for i in unroll(0, 63):
+        assert encoding[i] < CHAIN_LENGTH
 
-    # check that the decomposition is correct
-    for i in unroll(0, NUM_ENCODING_FE):
-        for j in unroll(0, 24 / (2 * W)):
-            assert encoding[i * (24 / (2 * W)) + j] < CHAIN_LENGTH**2
+    # For each FE: partial_sum = Σ_j encoding[i*K+j] * 2^(W*j) is the low 63
+    # bits of encoding_fe[i]; the remainder is a single bit. Factorise the
+    # remainder equality so no inverse is needed:
+    #   (encoding_fe[i] − partial_sum) · (encoding_fe[i] − partial_sum − 2^63) == 0
+    for i in unroll(0, 3):
+        partial_sum: Mut = encoding[i * 21]
+        for j in unroll(1, 21):
+            partial_sum += encoding[i * 21 + j] * (CHAIN_LENGTH ** j)
+        diff = encoding_fe[i] - partial_sum
+        assert diff * (diff - 2**63) == 0
 
-        partial_sum: Mut = encoding[i * (24 / (2 * W))]
-        for j in unroll(1, 24 / (2 * W)):
-            partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
+    # Grinding: last V_GRINDING indices must each be CHAIN_LENGTH - 1.
+    for i in unroll(V, V + V_GRINDING):
+        assert encoding[i] == CHAIN_LENGTH - 1
 
-        # p = 2^31 - 2^24 + 1, so inv(2^24) = -127 (mod p).
-        # Deduce remaining_i from partial_sum + remaining_i * 2^24 == encoding_fe[i]:
-        # remaining_i = (encoding_fe[i] - partial_sum) * inv(2^24) = (partial_sum - encoding_fe[i]) * 127
-        remaining_i = (partial_sum - encoding_fe[i]) * 127
-        assert remaining_i < 2**7 - 1  # ensures uniformity + prevent overflow
-
-    # grinding
-    debug_assert(V_GRINDING % 2 == 0)
-    debug_assert(V % 2 == 0)
-    for i in unroll(V / 2, (V + V_GRINDING) / 2):
-        assert encoding[i] == CHAIN_LENGTH**2 - 1
-
+    # 3) Chain-hash each of the V WOTS secret-key tips.
     target_sum: Mut = 0
-
     wots_public_key = Array(V * DIGEST_LEN)
-
     local_zero_buff = Array(DIGEST_LEN)
     set_to_8_zeros(local_zero_buff)
 
-    for i in unroll(0, V / 2):
-        # num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * (DIGEST_LEN * 2)
-        chain_end = wots_public_key + i * (DIGEST_LEN * 2)
-        pair_chain_length_sum_ptr = Array(1)
+    for i in unroll(0, V):
+        chain_start = chain_starts + i * DIGEST_LEN
+        chain_end = wots_public_key + i * DIGEST_LEN
+        chain_length_ptr = Array(1)
         match_range(
-            encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr, local_zero_buff)
+            encoding[i], range(0, CHAIN_LENGTH),
+            lambda n: chain_hash(chain_start, n, chain_end, chain_length_ptr, local_zero_buff),
         )
-        target_sum += pair_chain_length_sum_ptr[0]
+        target_sum += chain_length_ptr[0]
 
     assert target_sum == TARGET_SUM
 
@@ -90,40 +107,25 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
 
 
 @inline
-def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero_buff):
-    debug_assert(n < CHAIN_LENGTH**2)
+def chain_hash(input_ptr, n, output_ptr, chain_length_ptr, local_zero_buff):
+    # Iterate the WOTS chain hash `n_hashes = (CHAIN_LENGTH-1) - n` times, starting
+    # from the signer's chain tip at `input_ptr`, producing `output_ptr`. Records
+    # `n` in `chain_length_ptr[0]` so the caller can accumulate the target sum.
+    debug_assert(n < CHAIN_LENGTH)
 
-    raw_left = n % CHAIN_LENGTH
-    raw_right = (n - raw_left) / CHAIN_LENGTH
-
-    n_left = (CHAIN_LENGTH - 1) - raw_left
-    if n_left == 0:
-        copy_8(input_left, output_left)
-    elif n_left == 1:
-        poseidon8_compress(input_left, local_zero_buff, output_left)
+    n_hashes = (CHAIN_LENGTH - 1) - n
+    if n_hashes == 0:
+        copy_8(input_ptr, output_ptr)
+    elif n_hashes == 1:
+        poseidon8_compress(input_ptr, local_zero_buff, output_ptr)
     else:
-        states_left = Array((n_left - 1) * DIGEST_LEN)
-        poseidon8_compress(input_left, local_zero_buff, states_left)
-        for i in unroll(1, n_left - 1):
-            poseidon8_compress(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
-        poseidon8_compress(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
+        states = Array((n_hashes - 1) * DIGEST_LEN)
+        poseidon8_compress(input_ptr, local_zero_buff, states)
+        for i in unroll(1, n_hashes - 1):
+            poseidon8_compress(states + (i - 1) * DIGEST_LEN, local_zero_buff, states + i * DIGEST_LEN)
+        poseidon8_compress(states + (n_hashes - 2) * DIGEST_LEN, local_zero_buff, output_ptr)
 
-    n_right = (CHAIN_LENGTH - 1) - raw_right
-    debug_assert(raw_right < CHAIN_LENGTH)
-    input_right = input_left + DIGEST_LEN
-    output_right = output_left + DIGEST_LEN
-    if n_right == 0:
-        copy_8(input_right, output_right)
-    elif n_right == 1:
-        poseidon8_compress(input_right, local_zero_buff, output_right)
-    else:
-        states_right = Array((n_right - 1) * DIGEST_LEN)
-        poseidon8_compress(input_right, local_zero_buff, states_right)
-        for i in unroll(1, n_right - 1):
-            poseidon8_compress(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
-        poseidon8_compress(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
-
-    pair_chain_length_sum_ptr[0] = raw_left + raw_right
+    chain_length_ptr[0] = n
 
     return
 

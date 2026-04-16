@@ -523,25 +523,22 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
     return ROOT ** (power_shift * (v % 2))
 
 
-@inline
-def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
-    nibbles = Array(6)
-    hint_decompose_bits_merkle_whir(nibbles, a, 4)
+def decompose_and_verify_merkle_query(a, domain_size: Const, prev_root, num_chunks: Const):
+    # Goldilocks FRI: query indices fit in TWO_ADICITY = 32 bits. Decompose `a`
+    # into 8 × 4-bit nibbles and assert `a == partial_sum`; that single equality
+    # enforces both the decomposition and `a < 2^32` (since partial_sum ≤ 2^32−1).
+    NUM_NIBBLES = 8
+    nibbles = Array(NUM_NIBBLES)
+    hint_decompose_bits_merkle_whir(nibbles, a, NUM_NIBBLES, 4)
 
-    for i in unroll(0, 6):
+    for i in unroll(0, NUM_NIBBLES):
         assert nibbles[i] < 16
 
     partial_sum: Mut = nibbles[0]
-    for i in unroll(1, 6):
+    for i in unroll(1, NUM_NIBBLES):
         partial_sum += nibbles[i] * 16**i
 
-    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
-    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
-    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
-    top7 = (partial_sum - a) * 127
-    assert top7 < 2**7
-    if top7 == 2**7 - 1:
-        assert partial_sum == 0
+    assert a == partial_sum
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
@@ -556,16 +553,15 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     prod: Mut = 1
 
     # First nibble: leaf_hash -> states[0]
-    nib_pow = match_range(
+    prod *= match_range(
         nibbles[0],
         range(0, 16),
         lambda v: whir_4_merkle_step_and_pow(v, leaf_hash, merkle_path, states, 2 ** (TWO_ADICITY - domain_size)),
     )
-    prod *= nib_pow
 
     # Middle nibbles: states[k-1] -> states[k]
     for k in unroll(1, n_nibbles - 1):
-        nib_pow = match_range(
+        prod *= match_range(
             nibbles[k],
             range(0, 16),
             lambda v: whir_4_merkle_step_and_pow(
@@ -576,7 +572,6 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
                 2 ** (TWO_ADICITY - domain_size + 4 * k),
             ),
         )
-        prod *= nib_pow
 
     # Last nibble: states[-1] -> prev_root
     last_k = n_nibbles - 1
@@ -584,33 +579,29 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     last_path = merkle_path + 4 * last_k * DIGEST_LEN
     last_power_shift = 2 ** (TWO_ADICITY - domain_size + 4 * last_k)
     if domain_size % 4 == 0:
-        nib_pow = match_range(
+        prod *= match_range(
             nibbles[last_k],
             range(0, 16),
             lambda v: whir_4_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
         )
-        prod *= nib_pow
     elif domain_size % 4 == 1:
-        nib_pow = match_range(
+        prod *= match_range(
             nibbles[last_k],
             range(0, 16),
             lambda v: whir_1_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
         )
-        prod *= nib_pow
     elif domain_size % 4 == 2:
-        nib_pow = match_range(
+        prod *= match_range(
             nibbles[last_k],
             range(0, 16),
             lambda v: whir_2_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
         )
-        prod *= nib_pow
     elif domain_size % 4 == 3:
-        nib_pow = match_range(
+        prod *= match_range(
             nibbles[last_k],
             range(0, 16),
             lambda v: whir_3_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
         )
-        prod *= nib_pow
 
     return leaf_data, prod
 
