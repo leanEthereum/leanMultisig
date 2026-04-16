@@ -158,7 +158,7 @@ def expand_from_univariate_base_const(alpha, n: Const):
 
 def expand_from_univariate_ext(alpha, n):
     res = Array(n * DIM)
-    copy_5(alpha, res)
+    copy_ef(alpha, res)
     for i in range(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
@@ -352,44 +352,39 @@ def sub_extension_ret(a, b):
     return c
 
 
-# Legacy copy_N / set_to_N_zeros names from the KoalaBear era (DIM=5, DIGEST_LEN=8,
-# MESSAGE_LEN=9) are kept for minimal churn but redefined to Goldilocks sizes
-# (DIM=3, DIGEST_LEN=4, MESSAGE_LEN=4). Semantic roles:
-#   copy_5 / set_to_5_zeros → one extension-field element (DIM entries).
-#   copy_8 / set_to_8_zeros → one digest (DIGEST_LEN entries).
-#   copy_9                  → one message (MESSAGE_LEN = DIGEST_LEN entries now).
-#   set_to_7_zeros          → digest tail after a domain-sep slot: DIGEST_LEN-1
-#                             = DIM entries under Goldilocks.
-#   copy_16                 → a full Poseidon input state (2 × DIGEST_LEN entries).
+# Semantic copy / zero helpers. Sized to Goldilocks (DIM=3, DIGEST_LEN=4,
+# MESSAGE_LEN=4). Each helper is a thin wrapper over `dot_product_ee(_, ONE_EF_PTR, _)`
+# which copies DIM elements via the extension-op precompile.
 
 
 @inline
-def copy_5(a, b):
-    # Copy DIM=3 elements (one extension-field element).
+def copy_ef(a, b):
+    # Copy one extension-field element = DIM entries.
     dot_product_ee(a, ONE_EF_PTR, b)
     return
 
 
 @inline
-def set_to_5_zeros(a):
-    # Zero DIM=3 elements.
+def zero_ef(a):
+    # Zero one extension-field element = DIM entries.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
-def set_to_7_zeros(a):
-    # Zero DIGEST_LEN-1 = 3 elements (= DIM). Used after writing a domain-sep
-    # byte into slot 0 of a digest-sized buffer.
+def zero_digest_tail(a):
+    # Zero DIGEST_LEN-1 entries — typically called on `ptr + 1` after writing a
+    # domain-sep byte into slot 0 of a digest-sized buffer. Under Goldilocks
+    # DIGEST_LEN-1 == DIM so one dot_product_ee suffices.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
-def set_to_8_zeros(a):
-    # Zero DIGEST_LEN=4 elements via two overlapping DIM=3 clears.
+def zero_digest(a):
+    # Zero one digest = DIGEST_LEN entries via two overlapping DIM clears.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, zero_ptr)
@@ -397,8 +392,8 @@ def set_to_8_zeros(a):
 
 
 @inline
-def copy_8(a, b):
-    # Copy DIGEST_LEN=4 elements via two overlapping DIM=3 copies.
+def copy_digest(a, b):
+    # Copy one digest = DIGEST_LEN entries via two overlapping DIM copies.
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return
@@ -406,17 +401,18 @@ def copy_8(a, b):
 
 @inline
 def copy_message(a, b):
-    # Copy MESSAGE_LEN=4 elements (= DIGEST_LEN under Goldilocks).
+    # Copy one message = MESSAGE_LEN entries. Under Goldilocks MESSAGE_LEN ==
+    # DIGEST_LEN, so this is structurally identical to `copy_digest`.
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return
 
 
 @inline
-def copy_16(a, b):
-    # Copy a full Poseidon input block = 2 × DIGEST_LEN = 8 elements.
-    copy_8(a, b)
-    copy_8(a + DIGEST_LEN, b + DIGEST_LEN)
+def copy_poseidon_input(a, b):
+    # Copy a full Poseidon8 input block = 2 × DIGEST_LEN entries.
+    copy_digest(a, b)
+    copy_digest(a + DIGEST_LEN, b + DIGEST_LEN)
     return
 
 

@@ -96,7 +96,7 @@ def whir_open(
             range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1),
             lambda n: univariate_eval_on_base(final_coeffcients, alpha, n),
         )
-        copy_5(final_pol_evaluated_on_circle, final_folds + i * DIM)
+        copy_ef(final_pol_evaluated_on_circle, final_folds + i * DIM)
 
     fs, all_folding_randomness[n_rounds + 1], end_sum = sumcheck_verify(fs, n_final_vars, claimed_sum, 2)
 
@@ -105,10 +105,10 @@ def whir_open(
     start: Mut = folding_randomness_global
     for i in range(0, n_rounds + 1):
         for j in range(0, folding_factors[i]):
-            copy_5(all_folding_randomness[i] + j * DIM, start + j * DIM)
+            copy_ef(all_folding_randomness[i] + j * DIM, start + j * DIM)
         start += folding_factors[i] * DIM
     for j in range(0, n_final_vars):
-        copy_5(all_folding_randomness[n_rounds + 1] + j * DIM, start + j * DIM)
+        copy_ef(all_folding_randomness[n_rounds + 1] + j * DIM, start + j * DIM)
 
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
@@ -159,7 +159,7 @@ def whir_open(
         range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1),
         lambda n: eval_multilinear_coeffs_rev(final_coeffcients, all_folding_randomness[n_rounds + 1], n),
     )
-    # copy_5(mul_extension_ret(s, final_value), end_sum);
+    # copy_ef(mul_extension_ret(s, final_value), end_sum);
 
     return fs, folding_randomness_global, s, final_value, end_sum
 
@@ -174,10 +174,10 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        copy_ef(sum_over_boolean_hypercube, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
-        copy_5(rand, challenges + sc_round * DIM)
+        copy_ef(rand, challenges + sc_round * DIM)
 
     return fs, claimed_sum
 
@@ -187,11 +187,11 @@ def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Co
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        copy_ef(sum_over_boolean_hypercube, claimed_sum)
         fs = fs_grinding(fs, folding_grinding_bits)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
-        copy_5(rand, challenges + sc_round * DIM)
+        copy_ef(rand, challenges + sc_round * DIM)
 
     return fs, challenges, claimed_sum
 

@@ -335,5 +335,5 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
                     states + (j - 1) * DIGEST_LEN,
                     states + j * DIGEST_LEN,
                 )
-    copy_8(states + (height - 1) * DIGEST_LEN, root)
+    copy_digest(states + (height - 1) * DIGEST_LEN, root)
     return

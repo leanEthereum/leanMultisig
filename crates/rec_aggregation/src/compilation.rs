@@ -450,7 +450,7 @@ where
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
         let data_str = eval_air_constraint(*data, None, &mut ctx, &mut res);
-        res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
+        res += &format!("\n    copy_ef({}, buff + DIM * {})", data_str, i);
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
     res += "\n    bus_res_init = Array(DIM)";
@@ -512,7 +512,7 @@ fn eval_air_constraint(
     if let Some(d) = dest
         && v != d
     {
-        res.push_str(&format!("\n    copy_5({}, {})", v, d));
+        res.push_str(&format!("\n    copy_ef({}, {})", v, d));
     }
     v
 }

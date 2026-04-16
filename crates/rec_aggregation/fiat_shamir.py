@@ -8,7 +8,7 @@ from utils import *
 
 def fs_new(transcript_ptr):
     fs_state = Array(9)
-    set_to_8_zeros(fs_state)
+    zero_digest(fs_state)
     fs_state[8] = transcript_ptr
     return fs_state
 
@@ -46,7 +46,7 @@ def fs_grinding(fs, bits):
     if bits == 0:
         return fs  # no grinding
     transcript_ptr = fs[8]
-    set_to_7_zeros(transcript_ptr + 1)
+    zero_digest_tail(transcript_ptr + 1)
 
     new_fs = Array(9)
     poseidon8_compress(fs, transcript_ptr, new_fs)
@@ -67,7 +67,7 @@ def fs_sample_chunks(fs, n_chunks: Const):
     for i in unroll(0, (n_chunks + 1)):
         domain_sep = Array(8)
         domain_sep[0] = i
-        set_to_7_zeros(domain_sep + 1)
+        zero_digest_tail(domain_sep + 1)
         poseidon8_compress(
             domain_sep,
             fs,
@@ -102,7 +102,7 @@ def fs_hint(fs, n):
     # return the updated fiat-shamir, and a pointer to n field elements from the transcript
     transcript_ptr = fs[8]
     new_fs = Array(9)
-    copy_8(fs, new_fs)
+    copy_digest(fs, new_fs)
     new_fs[8] = fs[8] + n  # advance transcript pointer
     return new_fs, transcript_ptr
 
@@ -160,7 +160,7 @@ def fs_sample_data_with_offset(fs, n_chunks: Const, offset):
     for i in unroll(0, n_chunks):
         domain_sep = Array(8)
         domain_sep[0] = offset + i
-        set_to_7_zeros(domain_sep + 1)
+        zero_digest_tail(domain_sep + 1)
         poseidon8_compress(domain_sep, fs, sampled + i * 8)
     return sampled
 
@@ -171,7 +171,7 @@ def fs_finalize_sample(fs, total_n_chunks):
     new_fs = Array(9)
     domain_sep = Array(8)
     domain_sep[0] = total_n_chunks
-    set_to_7_zeros(domain_sep + 1)
+    zero_digest_tail(domain_sep + 1)
     poseidon8_compress(domain_sep, fs, new_fs)
     new_fs[8] = fs[8]  # same transcript pointer
     return new_fs

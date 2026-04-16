@@ -85,7 +85,7 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
     target_sum: Mut = 0
     wots_public_key = Array(V * DIGEST_LEN)
     local_zero_buff = Array(DIGEST_LEN)
-    set_to_8_zeros(local_zero_buff)
+    zero_digest(local_zero_buff)
 
     for i in unroll(0, V):
         chain_start = chain_starts + i * DIGEST_LEN
@@ -115,7 +115,7 @@ def chain_hash(input_ptr, n, output_ptr, chain_length_ptr, local_zero_buff):
 
     n_hashes = (CHAIN_LENGTH - 1) - n
     if n_hashes == 0:
-        copy_8(input_ptr, output_ptr)
+        copy_digest(input_ptr, output_ptr)
     elif n_hashes == 1:
         poseidon8_compress(input_ptr, local_zero_buff, output_ptr)
     else:
