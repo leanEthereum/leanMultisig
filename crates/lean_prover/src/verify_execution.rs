@@ -149,11 +149,18 @@ pub fn verify_execution(
         let constraint_eval = delegate_to_inner!(&vd.table => eval_constraint);
 
         let bus_point = from_end(gkr_point, table_n_vars[&vd.table]);
-        my_air_final_value +=
-            back_loaded_table_contribution(bus_point, &sumcheck_air_point.0, constraint_eval, vd.eta_power);
+        let plan = middle_out_plan(table_n_vars[&vd.table]);
+        let natural_point = natural_point_for_session(&sumcheck_air_point.0, &plan);
+        my_air_final_value += back_loaded_table_contribution(
+            bus_point,
+            &sumcheck_air_point.0,
+            &natural_point,
+            constraint_eval,
+            vd.eta_power,
+        );
 
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &sumcheck_air_point.0, table_n_vars[&vd.table]) }};
+            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_point) }};
         }
         let claim = delegate_to_inner!(&vd.table => split);
 

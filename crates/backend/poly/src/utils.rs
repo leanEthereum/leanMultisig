@@ -89,6 +89,51 @@ pub fn batch_fold_multilinears<
     }
 }
 
+/// Fold a multilinear at an arbitrary bit position (0 = LSB, n-1 = MSB).
+/// Pairs `(i, i | (1<<bit))` for `i` with bit==0 and writes to compact
+/// output index `new_j = (i_hi << bit) | i_lo` where
+/// `i_hi = i >> (bit+1)` and `i_lo = i & ((1<<bit) - 1)`.
+pub fn fold_multilinear_at_bit<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    F: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    m: &[IF],
+    alpha: EF,
+    bit: usize,
+    mul_if_of: &F,
+) -> Vec<OF> {
+    let new_size = m.len() / 2;
+    assert!(m.len() >= 2 * (1 << bit), "bit out of range for slice length");
+    let stride = 1usize << bit;
+    let lo_mask = stride - 1;
+    let mut res = unsafe { uninitialized_vec(new_size) };
+
+    let compute = |new_j: usize| {
+        let i_hi = new_j >> bit;
+        let i_lo = new_j & lo_mask;
+        let i0 = (i_hi << (bit + 1)) | i_lo;
+        let i1 = i0 | stride;
+        mul_if_of(m[i1] - m[i0], alpha) + m[i0]
+    };
+
+    if new_size < PARALLEL_THRESHOLD {
+        for new_j in 0..new_size {
+            res[new_j] = compute(new_j);
+        }
+    } else {
+        (0..new_size)
+            .into_par_iter()
+            .with_min_len(PARALLEL_THRESHOLD)
+            .map(compute)
+            .collect_into_vec(&mut res);
+    }
+    res
+}
+
+/// MSB-first fold: the special case of `fold_multilinear_at_bit` with
+/// `bit = log2(m.len()) - 1`. Pairs `(m[i], m[i + N/2])`.
 pub fn fold_multilinear<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
@@ -99,21 +144,33 @@ pub fn fold_multilinear<
     alpha: EF,
     mul_if_of: &F,
 ) -> Vec<OF> {
-    let new_size = m.len() / 2;
-    let mut res = unsafe { uninitialized_vec(new_size) };
+    let bit = m.len().trailing_zeros() as usize - 1;
+    fold_multilinear_at_bit(m, alpha, bit, mul_if_of)
+}
 
-    if new_size < PARALLEL_THRESHOLD {
-        for i in 0..new_size {
-            res[i] = mul_if_of(m[i + new_size] - m[i], alpha) + m[i];
-        }
+pub fn batch_fold_multilinears_at_bit<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    F: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    polys: &[&[IF]],
+    alpha: EF,
+    bit: usize,
+    mul_if_of: F,
+) -> Vec<Vec<OF>> {
+    let total_size: usize = polys.iter().map(|p| p.len()).sum();
+    if total_size < PARALLEL_THRESHOLD {
+        polys
+            .iter()
+            .map(|poly| fold_multilinear_at_bit(poly, alpha, bit, &mul_if_of))
+            .collect()
     } else {
-        (0..new_size)
-            .into_par_iter()
-            .with_min_len(PARALLEL_THRESHOLD)
-            .map(|i| mul_if_of(m[i + new_size] - m[i], alpha) + m[i])
-            .collect_into_vec(&mut res);
+        polys
+            .par_iter()
+            .map(|poly| fold_multilinear_at_bit(poly, alpha, bit, &mul_if_of))
+            .collect()
     }
-    res
 }
 
 /// Returns a vector of uninitialized elements of type `A` with the specified length.

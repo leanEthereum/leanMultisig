@@ -157,6 +157,7 @@ pub fn prove_execution(
         .collect();
 
     let mut sessions = Vec::with_capacity(tables_sorted.len());
+    let mut session_plans: Vec<Vec<usize>> = Vec::with_capacity(tables_sorted.len());
     for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
         let bus_denominator_value = logup_statements.bus_denominators_values[table];
@@ -175,9 +176,13 @@ pub fn prove_execution(
         up_down.extend(shifted_rows[idx].iter().map(Vec::as_slice));
         let packed = MleGroupRef::<EF>::Base(up_down).pack();
 
+        let non_padded = traces[table].non_padded_n_rows;
+        session_plans.push(middle_out_plan(*log_n_rows));
+
         macro_rules! make_session {
             ($t:expr) => {{
-                let session = AirSumcheckSession::new(packed, eq_suffix, bus_final_value, *$t, extra_data);
+                let session =
+                    AirSumcheckSession::new(packed, eq_suffix, bus_final_value, *$t, extra_data, non_padded);
                 Box::new(session) as Box<dyn OuterSumcheckSession<EF> + '_>
             }};
         }
@@ -187,12 +192,13 @@ pub fn prove_execution(
     let sumcheck_air_point = info_span!("batched AIR sumcheck")
         .in_scope(|| prove_batched_air_sumcheck(&mut prover_state, &mut sessions, air_eta));
 
-    for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
+    for (idx, (table, _)) in tables_sorted.iter().enumerate() {
         let col_evals = sessions[idx].final_column_evals();
         prover_state.add_extension_scalars(&col_evals);
 
+        let natural_point = natural_point_for_session(&sumcheck_air_point.0, &session_plans[idx]);
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &sumcheck_air_point.0, *log_n_rows) }};
+            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_point) }};
         }
         let claim = delegate_to_inner!(table => split);
         committed_statements.get_mut(table).unwrap().push(claim);

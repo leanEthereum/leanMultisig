@@ -71,6 +71,31 @@ def product_first_n(values, n):
     return res
 
 
+def natural_point_for_session(all_challenges, suffix_start, log_n_rows):
+    # Mirrors `natural_point_for_session` in air_sumcheck.rs. Given the overall
+    # sumcheck_air_point (all_challenges) and a session's log_n_rows, rebuild
+    # the session's evaluation point in natural X_1..X_m order by un-permuting
+    # the middle-out fold plan over the last `log_n_rows` challenges.
+    res = Array(log_n_rows * DIM)
+    match_range(log_n_rows, range(1, 33), lambda m: _natural_point_const(all_challenges, suffix_start, res, m))
+    return res
+
+
+def _natural_point_const(all_challenges, suffix_start, dst, m: Const):
+    # middle_out_plan(m) folds rounds [0, half) on bits [pivot..m-1] (from low
+    # stride to high stride), then rounds [half, m) on bits [pivot-1..0] (from
+    # high stride to low). Here half = ceil(m/2) and pivot = m - half.
+    half = div_ceil(m, 2)
+    # Rounds [0, half): challenge t bound bit (pivot + t), landing at
+    # natural-point position (m-1) - (pivot+t) = half-1-t.
+    for t in unroll(0, half):
+        copy_5(all_challenges + (suffix_start + t) * DIM, dst + (half - 1 - t) * DIM)
+    # Rounds [half, m): challenge t bound bit (m-1-t), landing at position t.
+    for t in unroll(half, m):
+        copy_5(all_challenges + (suffix_start + t) * DIM, dst + t * DIM)
+    return
+
+
 @inline
 def product_first_n_const(values, n):
     debug_assert(n != 0)
