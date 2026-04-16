@@ -314,14 +314,6 @@ impl Poseidon1Goldilocks8 {
         }
     }
 
-    /// Pure-permutation compress: apply the permutation in place, return the
-    /// full width-8 state. Callers that want a digest truncate to the first
-    /// `POSEIDON1_DIGEST_LEN = 4` lanes.
-    #[inline]
-    pub fn compress(&self, input: [Goldilocks; POSEIDON1_WIDTH]) -> [Goldilocks; POSEIDON1_WIDTH] {
-        self.permute(input)
-    }
-
     /// Compression-mode in-place permutation: `output = permute(input) + input`.
     ///
     /// Matches the koala-bear `Poseidon1Goldilocks8::compress_in_place` shape

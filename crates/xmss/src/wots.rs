@@ -1,7 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, RngExt};
 use serde::{Deserialize, Serialize};
-use utils::{ToUsize, poseidon8_compress_pair};
+use utils::{poseidon8_compress_pair, poseidon_compress_slice};
 
 use crate::*;
 
@@ -76,17 +76,15 @@ impl WotsSignature {
 
 impl WotsPublicKey {
     pub fn hash(&self) -> Digest {
-        // TODO(goldilocks-migration): re-derive WOTS hashing over width-8 Poseidon /
-        // digest-4. The KoalaBear version chained 8-element digests through a width-16
-        // permutation; the parameter layout doesn't port one-to-one. Stubbed for now
-        // because XMSS isn't exercised by `test_zk_vm_all_precompiles`.
-        unimplemented!("WOTS hash not yet reworked for Goldilocks digest-4")
+        let init = poseidon8_compress_pair(&self.0[0], &self.0[1]);
+        self.0[2..]
+            .iter()
+            .fold(init, |digest, chunk| poseidon8_compress_pair(&digest, chunk))
     }
 }
 
-pub fn iterate_hash(_a: &Digest, _n: usize) -> Digest {
-    // TODO(goldilocks-migration): see `WotsPublicKey::hash`.
-    unimplemented!("WOTS iterate_hash not yet reworked for Goldilocks digest-4")
+pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
+    (0..n).fold(*a, |acc, _| poseidon8_compress_pair(&acc, &Default::default()))
 }
 
 pub fn find_randomness_for_wots_encoding(
@@ -106,17 +104,39 @@ pub fn find_randomness_for_wots_encoding(
 }
 
 pub fn wots_encode(
-    _message: &[F; MESSAGE_LEN_FE],
-    _slot: u32,
-    _truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-    _randomness: &[F; RANDOMNESS_LEN_FE],
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+    randomness: &[F; RANDOMNESS_LEN_FE],
 ) -> Option<[u8; V]> {
-    // TODO(goldilocks-migration): WOTS encoding depends on Poseidon width 16 / digest 8
-    // layout, and on a 24-bit little-endian decomposition of a 31-bit KoalaBear value.
-    // For Goldilocks we need a fresh parameter choice (64-bit lanes, width-8 permutation,
-    // digest-4). Stubbed for now because XMSS isn't exercised by
-    // `test_zk_vm_all_precompiles`.
-    unimplemented!("WOTS encoding not yet reworked for Goldilocks")
+    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
+
+    const INPUT_LEN: usize = MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 2 + TRUNCATED_MERKLE_ROOT_LEN_FE;
+    let mut input = [F::default(); INPUT_LEN];
+    input[..MESSAGE_LEN_FE].copy_from_slice(message);
+    input[MESSAGE_LEN_FE..MESSAGE_LEN_FE + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
+    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE] = slot_lo;
+    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 1] = slot_hi;
+    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 2..].copy_from_slice(truncated_merkle_root);
+
+    let encoding_fe = poseidon_compress_slice(&input, false);
+
+    if encoding_fe.iter().any(|&fe| fe == -F::ONE) {
+        return None;
+    }
+
+    const CHUNKS_PER_FE: usize = (V + V_GRINDING) / DIGEST_SIZE;
+    const MASK: u64 = (1u64 << W) - 1;
+    debug_assert_eq!(CHUNKS_PER_FE * DIGEST_SIZE, V + V_GRINDING);
+
+    let mut all_indices = [0u8; V + V_GRINDING];
+    for (i, fe) in encoding_fe.iter().enumerate() {
+        let value = fe.as_canonical_u64();
+        for j in 0..CHUNKS_PER_FE {
+            all_indices[i * CHUNKS_PER_FE + j] = ((value >> (j * W)) & MASK) as u8;
+        }
+    }
+    is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {

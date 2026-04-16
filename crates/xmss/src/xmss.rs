@@ -58,7 +58,6 @@ pub fn xmss_key_gen(
     if slot_start > slot_end {
         return Err(XmssKeyGenError::InvalidRange);
     }
-    let perm = default_goldilocks_poseidon1_8();
     // Level 0: WOTS leaf hashes for slots in [slot_start, slot_end]
     let leaves: Vec<Digest> = (slot_start..=slot_end)
         .into_par_iter()
@@ -95,7 +94,7 @@ pub fn xmss_key_gen(
                         assert!(right_idx < 1u64 << 32);
                         gen_random_node(&seed, level - 1, right_idx as u32)
                     };
-                    compress(&perm, [left, right])
+                    poseidon8_compress_pair(&left, &right)
                 })
                 .collect()
         };

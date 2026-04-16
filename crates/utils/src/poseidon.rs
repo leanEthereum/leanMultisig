@@ -21,7 +21,9 @@ pub fn get_poseidon_8_of_zero() -> &'static [Goldilocks; 4] {
 
 #[inline(always)]
 pub fn poseidon8_compress(input: [Goldilocks; 8]) -> [Goldilocks; 4] {
-    get_poseidon8().compress(input)[0..4].try_into().unwrap()
+    let mut state = input;
+    get_poseidon8().compress_in_place(&mut state);
+    state[0..4].try_into().unwrap()
 }
 
 pub fn poseidon8_compress_pair(

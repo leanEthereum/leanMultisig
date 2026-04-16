@@ -1153,7 +1153,7 @@ mod tests {
                 println!("EXTENSION PACKED: {:?}", time.elapsed());
 
                 let unpacked_out_2: Vec<EF> =
-                    <EF as ExtensionField<F>>::ExtensionPacking::to_ext_iter_vec(out_2.clone());
+                    <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);
@@ -1161,7 +1161,7 @@ mod tests {
                 compute_eval_eq::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                    .map(<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("EXTENSION PACKED AFTER: {:?}", time.elapsed());
 
@@ -1188,7 +1188,7 @@ mod tests {
                 println!("BASE PACKED: {:?}", time.elapsed());
 
                 let unpacked_out_2: Vec<EF> =
-                    <EF as ExtensionField<F>>::ExtensionPacking::to_ext_iter_vec(out_2.clone());
+                    <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);
@@ -1196,7 +1196,7 @@ mod tests {
                 compute_eval_eq_base::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                    .map(<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("BASE PACKED AFTER: {:?}", time.elapsed());
 
