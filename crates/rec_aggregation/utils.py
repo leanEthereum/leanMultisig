@@ -405,8 +405,8 @@ def copy_8(a, b):
 
 
 @inline
-def copy_9(a, b):
-    # Copy MESSAGE_LEN=4 elements (equal to DIGEST_LEN under Goldilocks).
+def copy_message(a, b):
+    # Copy MESSAGE_LEN=4 elements (= DIGEST_LEN under Goldilocks).
     dot_product_ee(a, ONE_EF_PTR, b)
     dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return

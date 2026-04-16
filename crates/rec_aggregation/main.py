@@ -204,8 +204,7 @@ def build_inner_data_buf(n_sub, pubkeys_hash, message, slot_lo, slot_hi, merkle_
     inner_data_buf[0] = n_sub
     copy_8(pubkeys_hash, inner_data_buf + 1)
     inner_msg = inner_data_buf + 1 + DIGEST_LEN
-    debug_assert(MESSAGE_LEN == 9)
-    copy_9(message, inner_msg)
+    copy_message(message, inner_msg)  # copies MESSAGE_LEN=4 elements under Goldilocks
     inner_msg[MESSAGE_LEN] = slot_lo
     inner_msg[MESSAGE_LEN + 1] = slot_hi
     for k in unroll(0, N_MERKLE_CHUNKS):
