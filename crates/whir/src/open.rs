@@ -410,6 +410,7 @@ where
         challenges
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
         statement: &[SparseStatement<EF>],
