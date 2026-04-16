@@ -1,10 +1,10 @@
 from snark_lib import *
 from hashing import *
 
-F_BITS = 31  # koala-bear = 31 bits
+F_BITS = 64  # Goldilocks (P = 2^64 - 2^32 + 1, values fit in u64)
 
-TWO_ADICITY = 24
-ROOT = 1791270792  # of order 2^TWO_ADICITY
+TWO_ADICITY = 32
+ROOT = 1753635133440165772  # = 0x185629dcda58878c, of order 2^TWO_ADICITY
 
 
 @inline
@@ -352,14 +352,27 @@ def sub_extension_ret(a, b):
     return c
 
 
+# Legacy copy_N / set_to_N_zeros names from the KoalaBear era (DIM=5, DIGEST_LEN=8,
+# MESSAGE_LEN=9) are kept for minimal churn but redefined to Goldilocks sizes
+# (DIM=3, DIGEST_LEN=4, MESSAGE_LEN=4). Semantic roles:
+#   copy_5 / set_to_5_zeros → one extension-field element (DIM entries).
+#   copy_8 / set_to_8_zeros → one digest (DIGEST_LEN entries).
+#   copy_9                  → one message (MESSAGE_LEN = DIGEST_LEN entries now).
+#   set_to_7_zeros          → digest tail after a domain-sep slot: DIGEST_LEN-1
+#                             = DIM entries under Goldilocks.
+#   copy_16                 → a full Poseidon input state (2 × DIGEST_LEN entries).
+
+
 @inline
 def copy_5(a, b):
+    # Copy DIM=3 elements (one extension-field element).
     dot_product_ee(a, ONE_EF_PTR, b)
     return
 
 
 @inline
 def set_to_5_zeros(a):
+    # Zero DIM=3 elements.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
@@ -367,40 +380,43 @@ def set_to_5_zeros(a):
 
 @inline
 def set_to_7_zeros(a):
+    # Zero DIGEST_LEN-1 = 3 elements (= DIM). Used after writing a domain-sep
+    # byte into slot 0 of a digest-sized buffer.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
-    a[5] = 0
-    a[6] = 0
     return
 
 
 @inline
 def set_to_8_zeros(a):
+    # Zero DIGEST_LEN=4 elements via two overlapping DIM=3 clears.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
-    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
 def copy_8(a, b):
+    # Copy DIGEST_LEN=4 elements via two overlapping DIM=3 copies.
     dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return
 
 
 @inline
 def copy_9(a, b):
+    # Copy MESSAGE_LEN=4 elements (equal to DIGEST_LEN under Goldilocks).
     dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return
+
 
 @inline
 def copy_16(a, b):
-    dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
-    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
-    a[15] = b[15]
+    # Copy a full Poseidon input block = 2 × DIGEST_LEN = 8 elements.
+    copy_8(a, b)
+    copy_8(a + DIGEST_LEN, b + DIGEST_LEN)
     return
 
 

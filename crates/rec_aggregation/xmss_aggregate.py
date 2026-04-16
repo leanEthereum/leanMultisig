@@ -31,12 +31,12 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
     b_input = Array(DIGEST_LEN * 2)
     a_input_right[0] = message[DIGEST_LEN]
     copy_7(randomness, a_input_right + 1)
-    poseidon16_compress(message, a_input_right, b_input)
+    poseidon8_compress(message, a_input_right, b_input)
     b_input[DIGEST_LEN] = slot_lo
     b_input[DIGEST_LEN + 1] = slot_hi
     copy_6(merkle_root, b_input + DIGEST_LEN + 2)
     encoding_fe = Array(DIGEST_LEN)
-    poseidon16_compress(b_input, b_input + DIGEST_LEN, encoding_fe)
+    poseidon8_compress(b_input, b_input + DIGEST_LEN, encoding_fe)
 
     encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
 
@@ -100,13 +100,13 @@ def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero
     if n_left == 0:
         copy_8(input_left, output_left)
     elif n_left == 1:
-        poseidon16_compress(input_left, local_zero_buff, output_left)
+        poseidon8_compress(input_left, local_zero_buff, output_left)
     else:
         states_left = Array((n_left - 1) * DIGEST_LEN)
-        poseidon16_compress(input_left, local_zero_buff, states_left)
+        poseidon8_compress(input_left, local_zero_buff, states_left)
         for i in unroll(1, n_left - 1):
-            poseidon16_compress(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
-        poseidon16_compress(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
+            poseidon8_compress(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
+        poseidon8_compress(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
 
     n_right = (CHAIN_LENGTH - 1) - raw_right
     debug_assert(raw_right < CHAIN_LENGTH)
@@ -115,13 +115,13 @@ def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero
     if n_right == 0:
         copy_8(input_right, output_right)
     elif n_right == 1:
-        poseidon16_compress(input_right, local_zero_buff, output_right)
+        poseidon8_compress(input_right, local_zero_buff, output_right)
     else:
         states_right = Array((n_right - 1) * DIGEST_LEN)
-        poseidon16_compress(input_right, local_zero_buff, states_right)
+        poseidon8_compress(input_right, local_zero_buff, states_right)
         for i in unroll(1, n_right - 1):
-            poseidon16_compress(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
-        poseidon16_compress(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
+            poseidon8_compress(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
+        poseidon8_compress(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
 
     pair_chain_length_sum_ptr[0] = raw_left + raw_right
 
@@ -143,27 +143,27 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
 
     # Level 0: state_in -> temps
     if b0 == 0:
-        poseidon16_compress(path_chunk, state_in, temps)
+        poseidon8_compress(path_chunk, state_in, temps)
     else:
-        poseidon16_compress(state_in, path_chunk, temps)
+        poseidon8_compress(state_in, path_chunk, temps)
 
     # Level 1
     if b1 == 0:
-        poseidon16_compress(path_chunk + 1 * DIGEST_LEN, temps, temps + DIGEST_LEN)
+        poseidon8_compress(path_chunk + 1 * DIGEST_LEN, temps, temps + DIGEST_LEN)
     else:
-        poseidon16_compress(temps, path_chunk + 1 * DIGEST_LEN, temps + DIGEST_LEN)
+        poseidon8_compress(temps, path_chunk + 1 * DIGEST_LEN, temps + DIGEST_LEN)
 
     # Level 2
     if b2 == 0:
-        poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
+        poseidon8_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
     else:
-        poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
+        poseidon8_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
 
     # Level 3: -> state_out
     if b3 == 0:
-        poseidon16_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
+        poseidon8_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
     else:
-        poseidon16_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
+        poseidon8_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
     return
 
 
