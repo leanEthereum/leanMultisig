@@ -385,4 +385,29 @@ mod tests {
             assert!(seen.insert(out[0].value), "collision at i={i}");
         }
     }
+
+    /// Plonky3-compatibility known-answer vector.
+    ///
+    /// Reference: `plonky3/goldilocks/src/poseidon1.rs::tests::test_poseidon_goldilocks_width_8`
+    /// — input `[0..8)`, expected output hardcoded from upstream.
+    #[test]
+    fn test_plonky3_compatibility() {
+        use field::PrimeField64;
+
+        let p = default_goldilocks_poseidon1_8();
+        let mut input: [Goldilocks; 8] = [0, 1, 2, 3, 4, 5, 6, 7].map(Goldilocks::new);
+        p.permute_mut(&mut input);
+        let expected: [u64; 8] = [
+            2431226948502761687,
+            9427563026145807618,
+            6827549936272051660,
+            16907684411084503785,
+            10131745626715172913,
+            17448305483431576765,
+            9066501914269485014,
+            12095238468458521303,
+        ];
+        let got: [u64; 8] = input.map(|x| x.as_canonical_u64());
+        assert_eq!(got, expected);
+    }
 }
