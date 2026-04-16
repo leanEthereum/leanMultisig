@@ -47,6 +47,13 @@ def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, nu
 
 
 def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks: Const):
+    # num_chunks=1 is a trivial pass-through: the "hash" of a single digest is
+    # the digest itself. Handled inline here so `slice_hash_rtl` never has to
+    # deal with num_chunks<2 (it would otherwise generate invalid offsets).
+    if num_chunks == 1:
+        for i in range(0, num_queries):
+            all_resulting_hashes[i] = all_data_to_hash[i]
+        return
     for i in range(0, num_queries):
         data = all_data_to_hash[i]
         res = slice_hash_rtl(data, num_chunks)
@@ -56,6 +63,10 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
 
 @inline
 def slice_hash_rtl(data, num_chunks):
+    # Precondition: num_chunks >= 2. Callers must dispatch the num_chunks=1 case
+    # separately (the single chunk is its own hash). Without this the generated
+    # offset `data + (num_chunks-2) * DIGEST_LEN` underflows for num_chunks=1
+    # and confuses @inline expansion.
     states = Array((num_chunks - 1) * DIGEST_LEN)
 
     poseidon8_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
@@ -86,7 +97,7 @@ def slice_hash_with_iv(data, num_chunks):
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
     remainder = modulo_8(len, len_bits)
     num_full_elements = len - remainder
-    num_full_chunks = num_full_elements / 8
+    num_full_chunks = num_full_elements / DIGEST_LEN
 
     if num_full_chunks == 0:
         left = Array(DIGEST_LEN)
@@ -152,7 +163,9 @@ def fill_padded_chunk_const(dst, src, n: Const):
 
 
 def modulo_8(n, n_bits: Const):
-    debug_assert(2 < n_bits)
+    # Name is legacy; returns `n mod DIGEST_LEN`. For DIGEST_LEN=4 (Goldilocks)
+    # this is the low 2 bits of n; for DIGEST_LEN=8 (KoalaBear) it's the low 3.
+    debug_assert(1 < n_bits)
     debug_assert(n < 2**n_bits)
     bits = Array(n_bits)
     hint_decompose_bits(n, bits, n_bits, BIG_ENDIAN)
@@ -164,7 +177,9 @@ def modulo_8(n, n_bits: Const):
         assert b * (1 - b) == 0
         partial_sums[i] = partial_sums[i - 1] + b * 2**i
     assert n == partial_sums[n_bits - 1]
-    return partial_sums[2]
+    # DIGEST_LEN = 2^DIGEST_LEN_BITS; we want partial_sums[DIGEST_LEN_BITS - 1]
+    # (low DIGEST_LEN_BITS bits). log2(4) = 2 → index 1; log2(8) = 3 → index 2.
+    return partial_sums[log2_ceil(DIGEST_LEN) - 1]
 
 
 @inline

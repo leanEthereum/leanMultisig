@@ -2396,6 +2396,7 @@ fn simplify_lines(
                                             res.push(SimpleLine::equality(target_var, SimpleExpr::Constant(result)));
                                         } else {
                                             if !operation.supports_runtime() {
+                                                eprintln!("[COMPILE-TIME-OP DEBUG] operation={operation:?}, args={args_simplified:?}, var={var:?}, target_var={target_var:?}, is_mutable={is_mutable}");
                                                 return Err(format!(
                                                     "Operation `{operation}` is compile-time only; all operands must be constants"
                                                 ));
