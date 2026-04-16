@@ -9,6 +9,7 @@ use rayon::{
     prelude::*,
     slice::{Iter, IterMut},
 };
+use utils::log2_strict_usize;
 
 use crate::{EFPacking, PF, PFPacking};
 
@@ -89,20 +90,16 @@ pub fn batch_fold_multilinears<
     }
 }
 
-/// Fold a multilinear at an arbitrary bit position (0 = LSB, n-1 = MSB).
-/// Pairs `(i, i | (1<<bit))` for `i` with bit==0 and writes to compact
-/// output index `new_j = (i_hi << bit) | i_lo` where
-/// `i_hi = i >> (bit+1)` and `i_lo = i & ((1<<bit) - 1)`.
 pub fn fold_multilinear_at_bit<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
     OF: Copy + Add<IF, Output = OF> + Send + Sync,
-    F: Fn(IF, EF) -> OF + Sync + Send,
+    Mul: Fn(IF, EF) -> OF + Sync + Send,
 >(
     m: &[IF],
     alpha: EF,
     bit: usize,
-    mul_if_of: &F,
+    mul_if_of: &Mul,
 ) -> Vec<OF> {
     let new_size = m.len() / 2;
     assert!(m.len() >= 2 * (1 << bit), "bit out of range for slice length");
@@ -132,8 +129,6 @@ pub fn fold_multilinear_at_bit<
     res
 }
 
-/// MSB-first fold: the special case of `fold_multilinear_at_bit` with
-/// `bit = log2(m.len()) - 1`. Pairs `(m[i], m[i + N/2])`.
 pub fn fold_multilinear<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
@@ -144,7 +139,7 @@ pub fn fold_multilinear<
     alpha: EF,
     mul_if_of: &F,
 ) -> Vec<OF> {
-    let bit = m.len().trailing_zeros() as usize - 1;
+    let bit = log2_strict_usize(m.len()) - 1;
     fold_multilinear_at_bit(m, alpha, bit, mul_if_of)
 }
 

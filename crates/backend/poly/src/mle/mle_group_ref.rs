@@ -118,9 +118,6 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
-    /// Fold at an arbitrary bit position in the current layout.
-    /// For packed variants, the bit is interpreted in the PACKED slice index space,
-    /// so the caller must ensure `bit >= log2(packing_width)` and translate accordingly.
     pub fn fold_at_bit(&self, alpha: EF, bit: usize) -> MleGroupOwned<EF> {
         match self {
             Self::Base(pols) => {
