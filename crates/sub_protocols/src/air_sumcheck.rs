@@ -6,18 +6,17 @@ use lean_vm::ColIndex;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Sumcheck to prove validity of AIR constraints
-/// 
+///
 /// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
-/// 
+///
 /// 2] We fold variables in 2 phases:
 /// - first phase: X_(n/2-1), ..., X_0
 /// - second phase: X_(n/2), ..., X_(n-1)
-/// Example: n=7: X3, X2, X1, X0, X4, X5, X6
-/// Why?
+///   Example: n=7: X3, X2, X1, X0, X4, X5, X6
+///   Why?
 /// - Folding X0, X1, ..., X_(n-1) is SIMD friendly, but not padding friendly (any repeated value, at the end, gets scrambled after the first round)
 /// - Folding X_(n-1), ..., X_0 is padding friendly, but not SIMD friendly
-/// Our approach keeps the best of both worlds in the initial rounds, where most of the computations happen
-
+///   Our approach keeps the best of both worlds in the initial rounds, where most of the computations happen
 pub trait OuterSumcheckSession<EF: ExtensionField<PF<EF>>>: Debug {
     fn initial_n_vars(&self) -> usize;
     fn sum(&self) -> EF;

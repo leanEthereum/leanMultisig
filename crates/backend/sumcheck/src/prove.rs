@@ -115,7 +115,7 @@ where
 
     let mut challenges = Vec::new();
     for _ in 0..n_rounds {
-       multilinears.unpack_if_needed();
+        multilinears.unpack_if_needed();
 
         let ps = compute_and_send_polynomial(
             &mut multilinears,
