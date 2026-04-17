@@ -75,4 +75,10 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
             Self::Ref(r) => r.clone_to_owned(),
         }
     }
+
+    pub fn unpack_if_needed(&mut self) {
+        if self.is_packed() && must_unpack_multilinears::<EF>(self.n_vars()) {
+            *self = self.by_ref().unpack().as_owned_or_clone().into();
+        }
+    }
 }

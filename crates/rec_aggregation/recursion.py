@@ -432,8 +432,8 @@ def continue_recursion_ordered(
 
         bus_point = pcs_points[table_index][0]
         suffix_start = n_max - log_n_rows
-        challenge_suffix = all_challenges + suffix_start * DIM
-        eq_val = eq_mle_extension(bus_point, challenge_suffix, log_n_rows)
+        natural_ordering_point = natural_ordering_point_for_session(all_challenges, suffix_start, log_n_rows)
+        eq_val = eq_mle_extension(bus_point, natural_ordering_point, log_n_rows)
 
         k_t = product_first_n(all_challenges, suffix_start)
 
@@ -443,7 +443,7 @@ def continue_recursion_ordered(
         )
         check_sum = add_extension_ret(check_sum, contribution)
 
-        pcs_points[table_index].push(challenge_suffix)
+        pcs_points[table_index].push(natural_ordering_point)
         pcs_values[table_index].push(DynArray([]))
         pcs_values_down[table_index].push(DynArray([]))
         last_index = len(pcs_values[table_index]) - 1

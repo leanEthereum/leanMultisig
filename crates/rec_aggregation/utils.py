@@ -71,6 +71,21 @@ def product_first_n(values, n):
     return res
 
 
+def natural_ordering_point_for_session(all_challenges, suffix_start, log_n_rows):
+    res = Array(log_n_rows * DIM)
+    match_range(log_n_rows, range(1, 33), lambda m: _natural_ordering_point_const(all_challenges, suffix_start, res, m))
+    return res
+
+
+def _natural_ordering_point_const(all_challenges, suffix_start, dst, m: Const):
+    half = div_ceil(m, 2)
+    for t in unroll(0, half):
+        copy_5(all_challenges + (suffix_start + t) * DIM, dst + (half - 1 - t) * DIM)
+    for t in unroll(half, m):
+        copy_5(all_challenges + (suffix_start + t) * DIM, dst + t * DIM)
+    return
+
+
 @inline
 def product_first_n_const(values, n):
     debug_assert(n != 0)
