@@ -191,12 +191,19 @@ where
                 .collect(),
         );
 
-        let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness.clone());
+        // WHIR sumcheck folds LSB-first, so the cumulative challenges are in reverse polynomial-var
+        // order. eval_constraints_poly expects them in polynomial-var order, so reverse.
+        let folding_randomness_reversed = {
+            let mut v = folding_randomness.0.clone();
+            v.reverse();
+            MultilinearPoint(v)
+        };
+        let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness_reversed);
 
-        // Check the final sumcheck evaluation (coefficient form, reversed point)
-        let mut reversed_point = final_sumcheck_randomness.0.clone();
-        reversed_point.reverse();
-        let final_value = eval_multilinear_coeffs(&final_coefficients, &reversed_point);
+        // Check the final sumcheck evaluation (coefficient form). For LSB-fold, the sumcheck
+        // challenges are already in the order eval_multilinear_coeffs expects (point[0] is the
+        // last variable of the polynomial), so no reversal needed.
+        let final_value = eval_multilinear_coeffs(&final_coefficients, &final_sumcheck_randomness.0);
         if claimed_sum != evaluation_of_weights * final_value {
             return Err(ProofError::InvalidProof);
         }
@@ -263,10 +270,18 @@ where
             0,
         )?;
 
-        // Compute STIR Constraints
+        // Compute STIR Constraints. The leaf is laid out so that bit b of the leaf index is the
+        // polynomial's (n-b-1)-th var (LSB-cols matrix); the LSB-fold sumcheck produced these k
+        // challenges in the same order, so evaluate (which is MSB-first on the leaf vars) needs
+        // the reversed point.
+        let folding_randomness_reversed = {
+            let mut v = folding_randomness.0.clone();
+            v.reverse();
+            MultilinearPoint(v)
+        };
         let folds: Vec<_> = answers
             .into_iter()
-            .map(|answers| answers.evaluate(folding_randomness))
+            .map(|answers| answers.evaluate(&folding_randomness_reversed))
             .collect();
 
         let stir_constraints = stir_challenges_indexes
@@ -350,8 +365,11 @@ where
 
         for (round, (randomness, constraints)) in constraints.iter().enumerate() {
             if round > 0 {
+                // LSB-fold drops the polynomial's high-indexed (last) k vars at each round.
+                // The reversed cumulative point places those at the END.
                 let k = self.folding_factor.at_round(round - 1);
-                point = MultilinearPoint(point[k..].to_vec());
+                let new_len = point.len() - k;
+                point = MultilinearPoint(point[..new_len].to_vec());
             }
             let mut i = 0;
             for smt in constraints {

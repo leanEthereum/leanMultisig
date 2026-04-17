@@ -11,7 +11,6 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing::instrument;
-use utils::log2_strict_usize;
 
 use crate::EvalsDft;
 use crate::RowMajorMatrix;
@@ -135,15 +134,16 @@ fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
     let n_blocks = 1 << folding_factor;
     let full_len = evals.len() << log_inv_rate;
     let block_size = full_len / n_blocks;
-    let log_block_size = log2_strict_usize(block_size);
     let out_len = block_size * dft_n_cols;
 
+    // LSB-cols layout: column = LSB k bits of source index, row's high bits = remaining vars,
+    // row's low log_inv_rate bits = rate-extension dummy (data is constant in those).
     (0..out_len)
         .into_par_iter()
         .map(|i| {
             let block_index = i % dft_n_cols;
             let offset_in_block = i / dft_n_cols;
-            let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+            let src_index = ((offset_in_block >> log_inv_rate) << folding_factor) | block_index;
             unsafe { *evals.get_unchecked(src_index) }
         })
         .collect()
@@ -158,17 +158,16 @@ fn prepare_evals_for_fft_packed_extension<EF: ExtensionField<PF<EF>>>(
     assert!((evals.len() << log_packing).is_multiple_of(1 << folding_factor));
     let n_blocks = 1 << folding_factor;
     let full_len = evals.len() << (log_inv_rate + log_packing);
-    let block_size = full_len / n_blocks;
-    let log_block_size = log2_strict_usize(block_size);
     let n_blocks_mask = n_blocks - 1;
     let packing_mask = (1 << log_packing) - 1;
 
+    // LSB-cols layout: see prepare_evals_for_fft_unpacked.
     (0..full_len)
         .into_par_iter()
         .map(|i| {
             let block_index = i & n_blocks_mask;
             let offset_in_block = i >> folding_factor;
-            let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+            let src_index = ((offset_in_block >> log_inv_rate) << folding_factor) | block_index;
             let packed_src_index = src_index >> log_packing;
             let offset_in_packing = src_index & packing_mask;
             let packed = unsafe { evals.get_unchecked(packed_src_index) };
