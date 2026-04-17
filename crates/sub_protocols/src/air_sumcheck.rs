@@ -5,7 +5,18 @@ use backend::*;
 use lean_vm::ColIndex;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-// back-loaded batched sumcheck (see https://hackmd.io/s/HyxaupAAA)
+/// Sumcheck to prove validity of AIR constraints
+/// 
+/// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
+/// 
+/// 2] We fold variables in 2 phases:
+/// - first phase: X_(n/2-1), ..., X_0
+/// - second phase: X_(n/2), ..., X_(n-1)
+/// Example: n=7: X3, X2, X1, X0, X4, X5, X6
+/// Why?
+/// - Folding X0, X1, ..., X_(n-1) is SIMD friendly, but not padding friendly (any repeated value, at the end, gets scrambled after the first round)
+/// - Folding X_(n-1), ..., X_0 is padding friendly, but not SIMD friendly
+/// Our approach keeps the best of both worlds in the initial rounds, where most of the computations happen
 
 pub trait OuterSumcheckSession<EF: ExtensionField<PF<EF>>>: Debug {
     fn initial_n_vars(&self) -> usize;
@@ -63,6 +74,11 @@ where
         }
     }
 
+    //         folded variable
+    //                v
+    // X0 X1 X2 X3 X4 X5 X6 X7 X8 ...
+    //                 <-------------->
+    //                   "fold_position"
     fn current_fold_position(&self) -> usize {
         let pivot = self.initial_n_vars / 2;
         if self.eq_factor.len() > pivot {
@@ -72,6 +88,11 @@ where
         }
     }
 
+    //         folded variable
+    //                v
+    // X0 X1 X2 X3 X4 X5 X6 X7 X8 ...
+    // <-------------->
+    //  "fold_index"
     fn current_fold_index(&self) -> usize {
         self.eq_factor.len() - 1 - self.current_fold_position()
     }
@@ -95,13 +116,10 @@ where
         }
     }
 
-    fn padding_eq_sum(&self, pos_packed: usize, t_packed: usize) -> EF {
-        let n_upper = self.eq_factor.len() - self.log_packing();
-        let fold_msb_idx = n_upper - 1 - pos_packed;
-        let alphas_msb: Vec<EF> = (0..n_upper)
-            .map(|k| if k == fold_msb_idx { EF::ZERO } else { self.eq_factor[k] })
-            .collect();
-        evaluate_mle_of_zero_then_ones(t_packed, &alphas_msb)
+    fn padding_eq_sum(&self, unpadded_len_packed: usize) -> EF {
+        let mut eq_factor_prefix = self.eq_factor[..self.eq_factor.len() - self.log_packing()].to_vec();
+        eq_factor_prefix[self.current_fold_index()] = EF::ZERO;
+        evaluate_mle_of_zero_then_ones(unpadded_len_packed, &eq_factor_prefix)
     }
 }
 
@@ -130,17 +148,18 @@ where
     fn compute_bare_round_poly(&mut self) -> DensePolynomial<EF> {
         self.multilinears.unpack_if_needed();
 
-        let fold_position = self.current_fold_position();
         let split_eq = self.compute_split_eq();
-        let pos_packed = fold_position - self.log_packing();
 
         let iter_count_no_padding = 1usize << (self.eq_factor.len() - 1 - self.log_packing());
         let current_unpadded_len_packed = self.current_unpadded_len.div_ceil(1usize << self.log_packing());
-        let active_count = compute_activate_count(current_unpadded_len_packed, pos_packed);
+        let active_count = compute_activate_count(
+            current_unpadded_len_packed,
+            self.current_fold_position() - self.log_packing(),
+        );
         assert!(active_count <= iter_count_no_padding);
 
         let padding_contribution = if active_count < iter_count_no_padding {
-            self.constraints_eval_at_padding * self.padding_eq_sum(pos_packed, current_unpadded_len_packed)
+            self.constraints_eval_at_padding * self.padding_eq_sum(current_unpadded_len_packed)
         } else {
             EF::ZERO
         };
@@ -151,7 +170,7 @@ where
             &self.extra_data,
             &split_eq,
             active_count,
-            fold_position,
+            self.current_fold_position(),
             self.log_packing(),
         );
         let mut p_evals: Vec<EF> = p_evals_raw
@@ -436,8 +455,6 @@ pub fn compute_shifted_columns<F: Field>(air_down_column_indexes: &[usize], colu
         .collect()
 }
 
-/// Maps the middle-out fold challenges back to natural MSB-first ordering.
-/// Net effect: take the suffix of length `log_n_rows` and reverse its upper half.
 pub fn natural_ordering_point_for_session<EF: Copy>(sumcheck_air_point: &[EF], log_n_rows: usize) -> Vec<EF> {
     let start = sumcheck_air_point.len() - log_n_rows;
     let half = log_n_rows.div_ceil(2);
