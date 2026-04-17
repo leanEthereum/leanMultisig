@@ -109,15 +109,14 @@ pub fn wots_encode(
     truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
     randomness: &[F; RANDOMNESS_LEN_FE],
 ) -> Option<[u8; V]> {
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
+    let slot_fe = slot_to_field_element(slot);
 
-    const INPUT_LEN: usize = MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 2 + TRUNCATED_MERKLE_ROOT_LEN_FE;
+    const INPUT_LEN: usize = MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 1 + TRUNCATED_MERKLE_ROOT_LEN_FE;
     let mut input = [F::default(); INPUT_LEN];
     input[..MESSAGE_LEN_FE].copy_from_slice(message);
     input[MESSAGE_LEN_FE..MESSAGE_LEN_FE + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE] = slot_lo;
-    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 1] = slot_hi;
-    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 2..].copy_from_slice(truncated_merkle_root);
+    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE] = slot_fe;
+    input[MESSAGE_LEN_FE + RANDOMNESS_LEN_FE + 1..].copy_from_slice(truncated_merkle_root);
 
     // `poseidon_compress_slice` returns 4 FE; we use the first 3 (= NUM_ENCODING_FE).
     // Assumption (for now): each Goldilocks FE yields ~64 bits of almost-uniform entropy.
@@ -163,9 +162,6 @@ fn is_valid_encoding(encoding: &[u8]) -> bool {
     true
 }
 
-pub fn slot_to_field_elements(slot: u32) -> [F; 2] {
-    [
-        F::from_usize((slot & 0xFFFF) as usize),
-        F::from_usize(((slot >> 16) & 0xFFFF) as usize),
-    ]
+pub fn slot_to_field_element(slot: u32) -> F {
+    F::from_usize(slot as usize)
 }

@@ -21,6 +21,6 @@ pub const V_GRINDING: usize = 2;
 pub const LOG_LIFETIME: usize = 32;
 pub const RANDOMNESS_LEN_FE: usize = 4;
 pub const MESSAGE_LEN_FE: usize = 4;
-pub const TRUNCATED_MERKLE_ROOT_LEN_FE: usize = 4;
+pub const TRUNCATED_MERKLE_ROOT_LEN_FE: usize = 3;
 
 pub const SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + (V + LOG_LIFETIME) * DIGEST_SIZE;

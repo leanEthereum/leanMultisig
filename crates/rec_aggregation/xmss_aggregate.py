@@ -22,7 +22,7 @@ N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 
 
 @inline
-def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
+def xmss_verify(merkle_root, message, slot, merkle_chunks):
     # signature: randomness | chain_tips | merkle_path
     # return the hashed xmss public key
     signature = Array(SIG_SIZE)
@@ -31,31 +31,23 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
     chain_starts = signature + RANDOMNESS_LEN
     merkle_path = chain_starts + V * DIGEST_LEN
 
-    # 1) Hash (message, randomness, slot, merkle_root) into 3 output FE via a
-    #    3-call Poseidon8 sponge chain, mirroring `poseidon_compress_slice` on
-    #    14 input FE in the Rust side.
+    # 1) Hash (message, randomness, slot, merkle_root) into the 3 output FE via
+    #    a 2-call Poseidon8 sponge chain, mirroring `poseidon_compress_slice` on
+    #    12 input FE in the Rust side.
     #
     # Call 1: poseidon8(message[0..4], randomness[0..4]) → a
     a = Array(DIGEST_LEN)
     poseidon8_compress(message, randomness, a)
 
-    # Call 2: poseidon8(a, [slot_lo, slot_hi, root[0], root[1]]) → b
+    # Call 2: poseidon8(a, [slot, root[0], root[1], root[2]]) → encoding_fe
+    #         (4 FE; we use the first 3 as the Winternitz encoding).
     rhs2 = Array(DIGEST_LEN)
-    rhs2[0] = slot_lo
-    rhs2[1] = slot_hi
-    rhs2[2] = merkle_root[0]
-    rhs2[3] = merkle_root[1]
-    b = Array(DIGEST_LEN)
-    poseidon8_compress(a, rhs2, b)
-
-    # Call 3: poseidon8(b, [root[2], root[3], 0, 0]) → encoding_fe (4 FE; we use the first 3)
-    rhs3 = Array(DIGEST_LEN)
-    rhs3[0] = merkle_root[2]
-    rhs3[1] = merkle_root[3]
-    rhs3[2] = 0
-    rhs3[3] = 0
+    rhs2[0] = slot
+    rhs2[1] = merkle_root[0]
+    rhs2[2] = merkle_root[1]
+    rhs2[3] = merkle_root[2]
     encoding_fe = Array(DIGEST_LEN)
-    poseidon8_compress(b, rhs3, encoding_fe)
+    poseidon8_compress(a, rhs2, encoding_fe)
 
     # 2) Decompose each of the first 3 FE into 21 3-bit chunks = 63 bits per FE
     #    (1-bit remainder). 3 × 21 = 63 total chunks; first V+V_GRINDING used.

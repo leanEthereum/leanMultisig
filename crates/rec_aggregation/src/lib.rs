@@ -7,7 +7,7 @@ use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
 use utils::{build_prover_state, get_poseidon8, poseidon_compress_slice, poseidon8_compress_pair};
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_elements};
+use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, SIG_SIZE_FE, XmssPublicKey, XmssSignature, slot_to_field_element};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -73,9 +73,7 @@ fn build_input_data(
     data.push(F::from_usize(n_sigs));
     data.extend_from_slice(slice_hash);
     data.extend_from_slice(message);
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
-    data.push(slot_lo);
-    data.push(slot_hi);
+    data.push(slot_to_field_element(slot));
     data.extend(compute_merkle_chunks_for_slot(slot));
     data.extend_from_slice(bytecode_claim_output);
     // Pad the bytecode claim itself up to DIGEST_LEN
@@ -222,7 +220,7 @@ pub fn xmss_aggregate(
 
     // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+        let bytecode_claim_offset = 1 + DIGEST_LEN + 1 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
         let mut claims = vec![];
         for (i, _child) in children.iter().enumerate() {
             let first_claim = extract_bytecode_claim_from_input_data(
@@ -327,7 +325,7 @@ pub fn xmss_aggregate(
     let mut inner_bytecode_claim_blobs = Vec::with_capacity(n_recursions);
     let mut proof_transcript_blobs = Vec::with_capacity(n_recursions);
 
-    let claim_offset_in_input = 1 + DIGEST_LEN + 2 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
+    let claim_offset_in_input = 1 + DIGEST_LEN + 1 + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT;
     let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
 
     // Sources 1..n_recursions: recursive children
