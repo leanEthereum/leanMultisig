@@ -88,7 +88,7 @@ where
         });
 
         let full = 1 << folding_factor_next;
-        let (prover_data, root) = MerkleData::build(folded_matrix, full, full);
+        let (prover_data, root) = MerkleData::build(folded_matrix, full);
 
         prover_state.add_base_scalars(&root);
 

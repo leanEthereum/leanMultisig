@@ -544,7 +544,7 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
-    leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
+    leaf_hash = slice_hash(leaf_data, num_chunks)
 
     merkle_path = Array(domain_size * DIGEST_LEN)
     hint_witness("merkle_path", merkle_path)
