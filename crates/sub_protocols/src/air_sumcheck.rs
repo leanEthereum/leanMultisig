@@ -48,9 +48,8 @@ where
         let initial_n_vars = packed_multilinears.n_vars();
         assert_eq!(eq_factor.len(), initial_n_vars);
         assert!(packed_multilinears.is_packed());
-        let last_point = column_evals_at_logical(&packed_multilinears.by_ref(), (1usize << initial_n_vars) - 1);
-        let constraints_eval_at_padding =
-            <A as SumcheckComputation<EF>>::eval_extension(&computation, &last_point, &extra_data);
+        let last_point = column_evals(&packed_multilinears.by_ref(), (1 << initial_n_vars) - 1);
+        let constraints_eval_at_padding = A::eval_extension(&computation, &last_point, &extra_data);
         Self {
             multilinears: packed_multilinears,
             eq_factor,
@@ -73,12 +72,12 @@ where
         }
     }
 
-    fn current_fold_msb_index(&self) -> usize {
+    fn current_fold_index(&self) -> usize {
         self.eq_factor.len() - 1 - self.current_fold_position()
     }
 
     fn compute_split_eq(&self) -> SplitEq<EF> {
-        let idx = self.current_fold_msb_index();
+        let idx = self.current_fold_index();
         let eq_factor_filtered: Vec<EF> = self
             .eq_factor
             .iter()
@@ -106,35 +105,6 @@ where
     }
 }
 
-/// nb. of integers in `[0, t)` whose bit `bit` is 0 (starting from LSB)
-/// Example: t = 11, b = 1 -> Result = 6
-/// 00[0]0 00[0]1 00[1]0 00[1]1 10[0]0 01[0]1 01[1]0 01[1]1 10[0]0 10[0]1 10[1]0
-///  +1     +1                   +1     +1                   +1     +1
-fn compute_activate_count(t: usize, bit: usize) -> usize {
-    let stride: usize = 1usize << bit;
-    let block = stride << 1;
-    (t / block) * stride + (t % block).min(stride)
-}
-
-/// evaluate the MLE of [0, 0, ..., 0, 1, 1, ..., 1] at `alphas` where there are t zeros
-fn evaluate_mle_of_zero_then_ones<EF: ExtensionField<PF<EF>>>(t: usize, alphas: &[EF]) -> EF {
-    let n = alphas.len();
-    if t == 0 {
-        return EF::ONE;
-    }
-    if t >= 1usize << n {
-        return EF::ZERO;
-    }
-    let half = 1usize << (n - 1);
-    let alpha = alphas[0];
-    let sub = &alphas[1..];
-    if t < half {
-        (EF::ONE - alpha) * evaluate_mle_of_zero_then_ones(t, sub) + alpha
-    } else {
-        alpha * evaluate_mle_of_zero_then_ones(t - half, sub)
-    }
-}
-
 impl<'a, EF, A> OuterSumcheckSession<EF> for AirSumcheckSession<'a, EF, A>
 where
     EF: ExtensionField<PF<EF>>,
@@ -154,17 +124,11 @@ where
     }
 
     fn eq_alpha(&self) -> EF {
-        self.eq_factor[self.current_fold_msb_index()]
+        self.eq_factor[self.current_fold_index()]
     }
 
     fn compute_bare_round_poly(&mut self) -> DensePolynomial<EF> {
-        if self.multilinears.is_packed() && must_unpack_multilinears::<EF>(self.multilinears.n_vars()) {
-            let old = std::mem::replace(
-                &mut self.multilinears,
-                MleGroup::Owned(MleGroupOwned::Extension(vec![])),
-            );
-            self.multilinears = MleGroup::Owned(old.by_ref().unpack().as_owned_or_clone());
-        }
+        self.multilinears.unpack_if_needed();
 
         let fold_position = self.current_fold_position();
         let split_eq = self.compute_split_eq();
@@ -210,27 +174,27 @@ where
     }
 
     fn process_challenge(&mut self, challenge: EF, bare_poly: &DensePolynomial<EF>) {
-        let pos_logical = self.current_fold_position();
+        let fold_position = self.current_fold_position();
         let alpha_fold = self.eq_alpha();
 
         let eq_eval = (EF::ONE - alpha_fold) * (EF::ONE - challenge) + alpha_fold * challenge;
         self.sum = bare_poly.evaluate(challenge) * eq_eval;
         self.missing_mul_factor *= eq_eval;
 
-        let pos_in_storage = pos_logical - self.log_packing();
+        let pos_in_storage = fold_position - self.log_packing();
         let folded = self.multilinears.by_ref().fold_at_bit(challenge, pos_in_storage);
         self.multilinears = MleGroup::Owned(folded);
 
-        self.current_unpadded_len = compute_activate_count(self.current_unpadded_len, pos_logical);
-        self.eq_factor.remove(self.eq_factor.len() - 1 - pos_logical);
+        self.current_unpadded_len = compute_activate_count(self.current_unpadded_len, fold_position);
+        self.eq_factor.remove(self.eq_factor.len() - 1 - fold_position);
     }
 
     fn final_column_evals(&self) -> Vec<EF> {
-        column_evals_at_logical(&self.multilinears.by_ref(), 0)
+        column_evals(&self.multilinears.by_ref(), 0)
     }
 }
 
-fn column_evals_at_logical<EF: ExtensionField<PF<EF>>>(multilinears: &MleGroupRef<'_, EF>, i: usize) -> Vec<EF> {
+fn column_evals<EF: ExtensionField<PF<EF>>>(multilinears: &MleGroupRef<'_, EF>, i: usize) -> Vec<EF> {
     match multilinears {
         MleGroupRef::Base(cols) => cols.iter().map(|c| EF::from(c[i])).collect(),
         MleGroupRef::Extension(cols) => cols.iter().map(|c| c[i]).collect(),
@@ -247,6 +211,17 @@ fn column_evals_at_logical<EF: ExtensionField<PF<EF>>>(multilinears: &MleGroupRe
     }
 }
 
+/// nb. of integers in `[0, t)` whose bit `bit` is 0 (starting from LSB)
+/// Example: t = 11, b = 1 -> Result = 6
+///     0      1        2        3        4        5        6        7        8        9       10
+/// 00[0]0   00[0]1   00[1]0   00[1]1   10[0]0   01[0]1   01[1]0   01[1]1   10[0]0   10[0]1   10[1]0
+///  +1        +1                         +1       +1                         +1       +1
+fn compute_activate_count(t: usize, bit: usize) -> usize {
+    let stride: usize = 1usize << bit;
+    let block = stride << 1;
+    (t / block) * stride + (t % block).min(stride)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_raw_poly<'a, EF, A>(
     multilinears: &MleGroupRef<'a, EF>,
@@ -254,7 +229,7 @@ fn compute_raw_poly<'a, EF, A>(
     extra_data: &A::ExtraData,
     split_eq: &SplitEq<EF>,
     active_count: usize,
-    pos_logical: usize,
+    fold_position: usize,
     log_packing: usize,
 ) -> Vec<EF>
 where
@@ -274,9 +249,9 @@ where
             extra_data,
             split_eq,
             active_count,
-            pos_logical,
+            fold_position,
             log_packing,
-            <A as SumcheckComputation<EF>>::eval_base,
+            A::eval_base,
             fetch_split_eq_unpacked,
             identity,
         ),
@@ -286,9 +261,9 @@ where
             extra_data,
             split_eq,
             active_count,
-            pos_logical,
+            fold_position,
             log_packing,
-            <A as SumcheckComputation<EF>>::eval_extension,
+            A::eval_extension,
             fetch_split_eq_unpacked,
             identity,
         ),
@@ -298,9 +273,9 @@ where
             extra_data,
             split_eq,
             active_count,
-            pos_logical,
+            fold_position,
             log_packing,
-            <A as SumcheckComputation<EF>>::eval_packed_base,
+            A::eval_packed_base,
             fetch_split_eq_packed,
             unpack,
         ),
@@ -310,9 +285,9 @@ where
             extra_data,
             split_eq,
             active_count,
-            pos_logical,
+            fold_position,
             log_packing,
-            <A as SumcheckComputation<EF>>::eval_packed_extension,
+            A::eval_packed_extension,
             fetch_split_eq_packed,
             unpack,
         ),
@@ -326,7 +301,7 @@ fn compute_raw_poly_impl<EF, A, IF, OF>(
     extra_data: &A::ExtraData,
     split_eq: &SplitEq<EF>,
     active_count: usize,
-    pos_logical: usize,
+    fold_position: usize,
     log_packing: usize,
     eval_fn: impl Fn(&A, &[IF], &A::ExtraData) -> OF + Sync + Send,
     fetch_split_eq: impl Fn(&SplitEq<EF>, usize) -> OF + Sync + Send,
@@ -339,9 +314,9 @@ where
     IF: Copy + Send + Sync + std::ops::Sub<Output = IF> + std::ops::AddAssign + PrimeCharacteristicRing,
     OF: PrimeCharacteristicRing + Send + Sync,
 {
-    assert!(pos_logical >= log_packing,);
+    assert!(fold_position >= log_packing,);
     let degree = computation.degree();
-    let pos_packed = pos_logical - log_packing;
+    let pos_packed = fold_position - log_packing;
     let stride_packed = 1usize << pos_packed;
     let lo_mask_packed = stride_packed - 1;
     let n_cols = cols.len();
