@@ -130,16 +130,17 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         ]
     }
 
+    #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
+        let mut data = Vec::with_capacity(4);
+        data.push(BusData::Constant(POSEIDON_PRECOMPILE_DATA));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES));
         Bus {
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
-            data: vec![
-                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES),
-            ],
+            data,
         }
     }
 
