@@ -410,7 +410,7 @@ def continue_recursion_ordered(
 
     n_max = log_n_cycles # extension table is always the biggest
     # Batched AIR sumcheck:
-    fs, all_challenges, batched_air_final_value = sumcheck_verify(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
+    fs, all_challenges, batched_air_final_value = sumcheck_verify_reversed(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
 
     check_sum: Mut = embed_in_ef(0)
     for sorted_pos in unroll(0, N_TABLES):
@@ -431,11 +431,9 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
         bus_point = pcs_points[table_index][0]
-        suffix_start = n_max - log_n_rows
-        natural_ordering_point = natural_ordering_point_for_session(all_challenges, suffix_start, log_n_rows)
-        eq_val = eq_mle_extension(bus_point, natural_ordering_point, log_n_rows)
+        eq_val = eq_mle_extension(bus_point, all_challenges, log_n_rows)
 
-        k_t = product_first_n(all_challenges, suffix_start)
+        k_t = product_first_n(all_challenges + log_n_rows * DIM, n_max - log_n_rows)
 
         contribution = mul_extension_ret(
             mul_extension_ret(eta_powers + sorted_pos * DIM, k_t),
@@ -443,7 +441,7 @@ def continue_recursion_ordered(
         )
         check_sum = add_extension_ret(check_sum, contribution)
 
-        pcs_points[table_index].push(natural_ordering_point)
+        pcs_points[table_index].push(all_challenges)
         pcs_values[table_index].push(DynArray([]))
         pcs_values_down[table_index].push(DynArray([]))
         last_index = len(pcs_values[table_index]) - 1
