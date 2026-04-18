@@ -415,26 +415,34 @@ where
         // collapse to scalar phase or reach the collapse point after `folding_factor` rounds.
         let (mut split, mut sum) = SplitWeights::<EF>::from_statements(statement, combination_randomness);
 
-        // Materialize evals as a plain Vec<EF>: WHIR sumcheck has no SIMD path.
-        let mut evals_ext: Vec<EF> = evals
-            .unpack()
-            .by_ref()
-            .clone_to_owned()
-            .into_extension()
-            .unwrap_or_else(|| {
-                // If the polynomial is base, lift to extension element-by-element.
-                evals
-                    .unpack()
-                    .by_ref()
-                    .as_base()
-                    .expect("WHIR sumcheck input must be base or extension (no packed)")
-                    .iter()
-                    .map(|&v| EF::from(v))
-                    .collect()
-            });
+        // Unpack the input MLE. `.unpack()` is zero-copy for base-field inputs (including
+        // SIMD-packed base) — it reinterprets the underlying slice — and allocates only when
+        // converting extension-packed → extension. Keep the unpacked form alive for the round-0
+        // borrow below.
+        let unpacked_mle = evals.unpack();
+        let unpacked_ref = unpacked_mle.by_ref();
 
         let mut challenges = Vec::with_capacity(folding_factor);
-        for _ in 0..folding_factor {
+        // Round-0 specialization: if `evals` is base-field, stay in F until the first fold.
+        // This avoids both the 2^n EF-lift allocation and the EF·EF arithmetic on the largest
+        // round. For EF5/KoalaBear the per-element product is ~5× cheaper and the temporary
+        // buffer is ~5× smaller. Committed polynomials are typically base-field so this path
+        // is the common one.
+        let mut evals_ext: Vec<EF> = if let Some(base) = unpacked_ref.as_base() {
+            let r = lsb_sumcheck_round_split_base(base, &split, &mut sum, prover_state, pow_bits);
+            challenges.push(r);
+            split.fold(r);
+            lsb_fold_base_to_ext(base, r)
+        } else {
+            // Extension input: materialize as Vec<EF> and take the standard path below for all
+            // `folding_factor` rounds.
+            unpacked_ref
+                .as_extension()
+                .expect("WHIR sumcheck input must be base or extension (no packed)")
+                .to_vec()
+        };
+
+        while challenges.len() < folding_factor {
             let r = lsb_sumcheck_round_split(&evals_ext, &split, &mut sum, prover_state, pow_bits);
             challenges.push(r);
             evals_ext = lsb_fold(&evals_ext, r);
@@ -481,6 +489,69 @@ where
         .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
 }
 
+/// Base-field variant of [`round_coeffs_flat`]: `evals ∈ F^n`, `weights ∈ EF^n`.
+///
+/// Uses `EF · F` multiplications (via `Algebra<F>`) instead of `EF · EF`. For EF5 over
+/// KoalaBear that's 5 base-field multiplies per product instead of 25, and there's no
+/// extension reduction on the product — roughly a 5× per-multiply speed-up on the
+/// round-0 hot loop.
+fn round_coeffs_flat_base<EF>(evals: &[PF<EF>], weights: &[EF]) -> (EF, EF)
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let n = evals.len();
+    assert_eq!(n, weights.len());
+    assert!(n >= 2 && n.is_power_of_two());
+    let half = n / 2;
+    (0..half)
+        .into_par_iter()
+        .map(|i| {
+            let lo_e = evals[2 * i];
+            let hi_e = evals[2 * i + 1];
+            let lo_w = weights[2 * i];
+            let hi_w = weights[2 * i + 1];
+            // Put EF on the left of the mul so `Mul<F> for EF` (from Algebra<F>) is used.
+            let diff_e = hi_e - lo_e; // F
+            let diff_w = hi_w - lo_w; // EF
+            (lo_w * lo_e, diff_w * diff_e)
+        })
+        .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
+}
+
+/// LSB-fold a base-field slice with an extension-field challenge, producing an extension-field
+/// vector: `out[i] = m[2i] + r · (m[2i+1] - m[2i])` with `m ∈ F`, `r ∈ EF`, `out ∈ EF`.
+fn lsb_fold_base_to_ext<EF>(m: &[PF<EF>], r: EF) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let half = m.len() / 2;
+    (0..half)
+        .into_par_iter()
+        .map(|i| {
+            // r · (F - F) is EF · F → EF; then EF + F → EF.
+            r * (m[2 * i + 1] - m[2 * i]) + m[2 * i]
+        })
+        .collect()
+}
+
+/// Finish a sumcheck round given the computed `(c0, c2)`: derive `c1`, send the polynomial over
+/// Fiat-Shamir, grind, sample the challenge, update the running `sum`, and return the challenge.
+fn sumcheck_finish_round<EF: ExtensionField<PF<EF>>>(
+    c0: EF,
+    c2: EF,
+    sum: &mut EF,
+    prover_state: &mut impl FSProver<EF>,
+    pow_bits: usize,
+) -> EF {
+    let c1 = *sum - c0.double() - c2;
+    let poly = DensePolynomial::new(vec![c0, c1, c2]);
+    prover_state.add_sumcheck_polynomial(&poly.coeffs, None);
+    prover_state.pow_grinding(pow_bits);
+    let r: EF = prover_state.sample();
+    *sum = poly.evaluate(r);
+    r
+}
+
 /// Same as `lsb_sumcheck_round`, but reads the weight polynomial from a structured
 /// [`SplitWeights`] representation instead of a flat vector. Computes `(c0, c2)` via
 /// `SplitWeights::round_coeffs_split`, which only materializes the factored components.
@@ -493,13 +564,21 @@ fn lsb_sumcheck_round_split<EF: ExtensionField<PF<EF>>>(
     pow_bits: usize,
 ) -> EF {
     let (c0, c2) = split.round_coeffs_split(evals);
-    let c1 = *sum - c0.double() - c2;
-    let poly = DensePolynomial::new(vec![c0, c1, c2]);
-    prover_state.add_sumcheck_polynomial(&poly.coeffs, None);
-    prover_state.pow_grinding(pow_bits);
-    let r: EF = prover_state.sample();
-    *sum = poly.evaluate(r);
-    r
+    sumcheck_finish_round(c0, c2, sum, prover_state, pow_bits)
+}
+
+/// Base-field variant of [`lsb_sumcheck_round_split`]: `evals ∈ F^n`. Used for round 0 when the
+/// committed polynomial is base-field, so the round-0 inner arithmetic stays at F × EF cost.
+#[instrument(skip_all)]
+fn lsb_sumcheck_round_split_base<EF: ExtensionField<PF<EF>>>(
+    evals: &[PF<EF>],
+    split: &SplitWeights<EF>,
+    sum: &mut EF,
+    prover_state: &mut impl FSProver<EF>,
+    pow_bits: usize,
+) -> EF {
+    let (c0, c2) = split.round_coeffs_split_base(evals);
+    sumcheck_finish_round(c0, c2, sum, prover_state, pow_bits)
 }
 
 /// Compute one LSB-fold sumcheck round for the product `evals * weights`,
@@ -929,6 +1008,97 @@ where
         (c0, c2)
     }
 
+    /// Base-field variant of [`Self::round_coeffs_split`]: `evals ∈ F^{n_remaining}`.
+    ///
+    /// Computes the same `(c0, c2)` coefficients but uses `EF · F` multiplications on the
+    /// evals side. Only used in round 0 when the committed polynomial is base-field; after
+    /// folding by an extension-field challenge the evals become EF and subsequent rounds use
+    /// [`Self::round_coeffs_split`].
+    pub(crate) fn round_coeffs_split_base(&self, evals: &[PF<EF>]) -> (EF, EF) {
+        let n_remaining = evals.len();
+        assert!(n_remaining >= 2 && n_remaining.is_power_of_two());
+        let half = n_remaining / 2;
+
+        let mut c0 = EF::ZERO;
+        let mut c2 = EF::ZERO;
+
+        if let Some(dw) = &self.dense_weights {
+            assert_eq!(dw.len(), n_remaining);
+            let (d0, d2) = round_coeffs_flat_base(evals, dw);
+            c0 += d0;
+            c2 += d2;
+        }
+
+        for group in &self.groups {
+            let eq_len = group.inner_eq.len();
+            if eq_len >= 2 {
+                let selector_len = n_remaining / eq_len;
+                match &group.select_coefs {
+                    SelectCoefs::Sparse(entries) => {
+                        for &(a, coef) in entries {
+                            assert!(a < selector_len);
+                            let base = a * eq_len;
+                            let (g0, g2) = round_coeffs_flat_base(&evals[base..base + eq_len], &group.inner_eq);
+                            c0 += g0 * coef;
+                            c2 += g2 * coef;
+                        }
+                    }
+                    SelectCoefs::Dense(coefs) => {
+                        assert_eq!(coefs.len(), selector_len);
+                        let (g0, g2) = coefs
+                            .par_iter()
+                            .enumerate()
+                            .map(|(a, &coef)| {
+                                let base = a * eq_len;
+                                let (g0, g2) = round_coeffs_flat_base(&evals[base..base + eq_len], &group.inner_eq);
+                                (g0 * coef, g2 * coef)
+                            })
+                            .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
+                        c0 += g0;
+                        c2 += g2;
+                    }
+                }
+            } else {
+                let scalar = group.inner_eq[0];
+                match &group.select_coefs {
+                    SelectCoefs::Sparse(entries) => {
+                        for &(sel, coef) in entries {
+                            assert!(sel < n_remaining);
+                            let i = sel >> 1;
+                            let effective = scalar * coef; // EF · EF, computed once per entry
+                            let diff_e = evals[2 * i + 1] - evals[2 * i]; // F
+                            if sel & 1 == 0 {
+                                // lo_w = effective, hi_w = 0.
+                                c0 += effective * evals[2 * i]; // EF · F
+                                c2 -= effective * diff_e;
+                            } else {
+                                // lo_w = 0, hi_w = effective.
+                                c2 += effective * diff_e;
+                            }
+                        }
+                    }
+                    SelectCoefs::Dense(coefs) => {
+                        assert_eq!(coefs.len(), n_remaining);
+                        let (g0, g2) = (0..half)
+                            .into_par_iter()
+                            .map(|i| {
+                                let lo_e = evals[2 * i];
+                                let hi_e = evals[2 * i + 1];
+                                let lo_w = coefs[2 * i] * scalar;
+                                let hi_w = coefs[2 * i + 1] * scalar;
+                                (lo_w * lo_e, (hi_w - lo_w) * (hi_e - lo_e))
+                            })
+                            .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
+                        c0 += g0;
+                        c2 += g2;
+                    }
+                }
+            }
+        }
+
+        (c0, c2)
+    }
+
     /// Apply one LSB-fold round with challenge `r` to every component of the structured weights.
     ///
     /// Groups in the inner phase (`inner_eq.len() > 1`) fold their `inner_eq`; groups in the
@@ -1185,6 +1355,39 @@ mod split_weights_tests {
             dense_weights: split.dense_weights.clone(),
         };
         cloned.into_flat(target_size)
+    }
+
+    /// Base-field round-0 kernel equivalence: building the same `SplitWeights`, computing
+    /// `(c0, c2)` via `round_coeffs_split_base(base_evals)` must match `round_coeffs_split`
+    /// called on the same evals lifted to EF. Also checks `lsb_fold_base_to_ext` matches the
+    /// EF-lane LSB-fold.
+    #[test]
+    fn split_weights_round0_base_matches_extension() {
+        type F = koala_bear::KoalaBear;
+        let mut rng = StdRng::seed_from_u64(7);
+        let n = 10;
+        let statements = vec![
+            random_statement(&mut rng, n, 3, false, 2),
+            random_statement(&mut rng, n, 6, false, 1),
+            random_statement(&mut rng, n, 4, true, 1),
+            random_statement(&mut rng, n, n, false, 1), // dense
+        ];
+        let gamma: EF = rng.random();
+        let (split, _) = SplitWeights::<EF>::from_statements(&statements, gamma);
+
+        // Random base-field evals.
+        let base_evals: Vec<F> = (0..1 << n).map(|_| rng.random::<F>()).collect();
+        let ext_evals: Vec<EF> = base_evals.iter().map(|&v| EF::from(v)).collect();
+
+        let (c0_base, c2_base) = split.round_coeffs_split_base(&base_evals);
+        let (c0_ext, c2_ext) = split.round_coeffs_split(&ext_evals);
+        assert_eq!(c0_base, c0_ext, "round_coeffs_split_base c0 mismatch");
+        assert_eq!(c2_base, c2_ext, "round_coeffs_split_base c2 mismatch");
+
+        let r: EF = rng.random();
+        let folded_base = lsb_fold_base_to_ext::<EF>(&base_evals, r);
+        let folded_ext = lsb_fold(&ext_evals, r);
+        assert_eq!(folded_base, folded_ext, "lsb_fold_base_to_ext mismatch");
     }
 
     #[test]
