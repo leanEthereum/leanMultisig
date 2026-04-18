@@ -26,10 +26,7 @@ where
 
 /// LTR = Left-to-right
 #[inline(always)]
-pub fn hash_iter<T, Comp, I, const WIDTH: usize, const RATE: usize, const OUT: usize>(
-    comp: &Comp,
-    iter: I,
-) -> [T; OUT]
+pub fn hash_iter<T, Comp, I, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, iter: I) -> [T; OUT]
 where
     T: Default + Copy,
     Comp: Compression<[T; WIDTH]>,
