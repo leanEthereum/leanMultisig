@@ -463,6 +463,139 @@ where
 
         (sumcheck, MultilinearPoint(challenges))
     }
+
+    /// SVO + split-eq variant of [`Self::run_initial_sumcheck_rounds`]. Replaces
+    /// the per-round `(c0, c2)` scan over the weight polynomial with a ternary
+    /// accumulator pipeline (see `svo.rs` / `misc/whir_sumcheck.tex`). The
+    /// Fiat-Shamir transcript is byte-identical to the flat path: same
+    /// `(c0, c1, c2)` values in the same order, so the verifier is
+    /// unaffected.
+    ///
+    /// Falls back to [`Self::run_initial_sumcheck_rounds`] if any statement
+    /// violates the selector-inside-split assumption `s_g <= l - l_0` (the
+    /// sparse-group spill regime).
+    #[instrument(skip_all)]
+    pub(crate) fn run_initial_sumcheck_rounds_svo(
+        evals: &MleRef<'_, EF>,
+        statement: &[SparseStatement<EF>],
+        combination_randomness: EF,
+        prover_state: &mut impl FSProver<EF>,
+        folding_factor: usize,
+        pow_bits: usize,
+    ) -> (Self, MultilinearPoint<EF>) {
+        assert_ne!(folding_factor, 0);
+        let l = statement[0].total_num_variables;
+        let l_0 = folding_factor;
+
+        // Eq-claims: any `s` is fine (non-spill for `s <= l - l_0`, spill
+        // fallback via [`compress_eq_spill_claim`] otherwise).
+        // Next-claims: require `m >= l_0` (the bucketed algorithm's
+        // geometric picture needs a non-empty svo block inside the inner
+        // point). Fall back to the structured flat path if any next-claim
+        // violates this.
+        let svo_ok = statement.iter().all(|e| !e.is_next || e.inner_num_variables() >= l_0);
+        if !svo_ok {
+            return Self::run_initial_sumcheck_rounds(
+                evals,
+                statement,
+                combination_randomness,
+                prover_state,
+                folding_factor,
+                pow_bits,
+            );
+        }
+
+        // Build the structured weight polynomial (same as flat path), to be
+        // folded l_0 times alongside the SVO rounds and then materialized.
+        let (mut split, mut sum) = SplitWeights::<EF>::from_statements(statement, combination_randomness);
+
+        // Unpack evals (zero-copy for base) and build CompressedGroups.
+        let unpacked_mle = evals.unpack();
+        let unpacked_ref = unpacked_mle.by_ref();
+        let f_base_opt = unpacked_ref.as_base();
+        let f_ext_opt = unpacked_ref.as_extension();
+
+        let groups =
+            build_all_compressed_groups::<EF>(statement, combination_randomness, f_base_opt, f_ext_opt, l, l_0);
+        let accs = build_accumulators::<EF>(&groups, l_0);
+
+        let mut challenges: Vec<EF> = Vec::with_capacity(l_0);
+
+        // Fold evals down to size 2^{l - l_0}. Start in base when applicable;
+        // lift to extension on round 0 via `lsb_fold_base_to_ext`.
+        let mut evals_ext: Vec<EF>;
+        if let Some(base) = f_base_opt {
+            let (h0, h1, h2) = round_message(0, &challenges, &accs);
+            let (c0, c2) = values_to_coeffs(h0, h1, h2);
+            let rho = sumcheck_finish_round(c0, c2, &mut sum, prover_state, pow_bits);
+            challenges.push(rho);
+            split.fold(rho);
+            evals_ext = lsb_fold_base_to_ext::<EF>(base, rho);
+        } else {
+            evals_ext = f_ext_opt
+                .expect("WHIR sumcheck input must be base or extension (no packed)")
+                .to_vec();
+        }
+
+        while challenges.len() < l_0 {
+            let r = challenges.len();
+            let (h0, h1, h2) = round_message(r, &challenges, &accs);
+            let (c0, c2) = values_to_coeffs(h0, h1, h2);
+            let rho = sumcheck_finish_round(c0, c2, &mut sum, prover_state, pow_bits);
+            challenges.push(rho);
+            split.fold(rho);
+            evals_ext = lsb_fold(&evals_ext, rho);
+        }
+
+        let weights = split.into_flat(evals_ext.len());
+        let sumcheck = Self {
+            evals: MleOwned::Extension(evals_ext),
+            weights,
+            sum,
+        };
+        (sumcheck, MultilinearPoint(challenges))
+    }
+}
+
+/// Translate `SparseStatement`s into SVO-ready `CompressedGroup`s, preserving
+/// the per-claim `gamma`-power order of [`SplitWeights::from_statements`] (so
+/// the `(c0, c2)` output of the two paths matches exactly).
+fn build_all_compressed_groups<EF>(
+    statement: &[SparseStatement<EF>],
+    gamma: EF,
+    f_base: Option<&[PF<EF>]>,
+    f_ext: Option<&[EF]>,
+    l: usize,
+    l_0: usize,
+) -> Vec<CompressedGroup<EF>>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let mut groups: Vec<CompressedGroup<EF>> = Vec::new();
+    let mut gamma_pow = EF::ONE;
+    for smt in statement {
+        let s = smt.selector_num_variables();
+        let inner_point: Vec<EF> = smt.point.0.clone();
+        let sel_bits: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
+        let mut alpha_powers: Vec<EF> = Vec::with_capacity(smt.values.len());
+        for _ in 0..smt.values.len() {
+            alpha_powers.push(gamma_pow);
+            gamma_pow *= gamma;
+        }
+        if smt.is_next {
+            let g =
+                compress_next_claim_bucketed::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            groups.extend(g);
+        } else if s + l_0 <= l {
+            let g = compress_eq_claim::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            groups.push(g);
+        } else {
+            // Eq-claim spill regime: one CompressedGroup per claim.
+            let g = compress_eq_spill_claim::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            groups.extend(g);
+        }
+    }
+    groups
 }
 
 /// Compute the `(c0, c2)` coefficients of the LSB-fold round polynomial from a flat weight vector.
@@ -657,7 +790,7 @@ where
 
         let combination_randomness_gen: EF = prover_state.sample();
 
-        let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds(
+        let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds_svo(
             polynomial,
             &statement,
             combination_randomness_gen,
@@ -1388,6 +1521,255 @@ mod split_weights_tests {
         let folded_base = lsb_fold_base_to_ext::<EF>(&base_evals, r);
         let folded_ext = lsb_fold(&ext_evals, r);
         assert_eq!(folded_base, folded_ext, "lsb_fold_base_to_ext mismatch");
+    }
+
+    /// Isolated-statement SVO vs flat: one statement at a time, at small n, l_0.
+    /// Helps pinpoint which statement category is broken.
+    #[test]
+    fn svo_vs_flat_single_dense_eq() {
+        svo_vs_flat_single(|rng, n| random_statement(rng, n, n, false, 1), "dense_eq");
+    }
+
+    #[test]
+    fn svo_vs_flat_single_sparse_eq() {
+        svo_vs_flat_single(
+            |rng, n| {
+                let m = rng.random_range(2..n);
+                random_statement(rng, n, m, false, 2)
+            },
+            "sparse_eq",
+        );
+    }
+
+    #[test]
+    fn svo_vs_flat_single_next() {
+        svo_vs_flat_single(
+            |rng, n| {
+                let m = rng.random_range(2..=n);
+                random_statement(rng, n, m, true, 1)
+            },
+            "next",
+        );
+    }
+
+    #[test]
+    fn svo_vs_flat_single_spill() {
+        svo_vs_flat_single(
+            |rng, n| {
+                // s > n - l_0 with l_0 = 2: m < 2, so m in {0, 1}.
+                let m = rng.random_range(0..2);
+                let s = n - m;
+                random_statement(rng, n, m, false, 1.min(1usize << s))
+            },
+            "spill",
+        );
+    }
+
+    fn svo_vs_flat_single<F>(mut gen_smt: F, label: &str)
+    where
+        F: FnMut(&mut StdRng, usize) -> SparseStatement<EF>,
+    {
+        use crate::svo::{build_accumulators, round_message, values_to_coeffs};
+        let mut rng = StdRng::seed_from_u64(2027);
+        let n = 6;
+        let l_0 = 2;
+        let statement = vec![gen_smt(&mut rng, n)];
+        // Ensure next-claim has m >= l_0 (SVO-eligible).
+        if statement[0].is_next && statement[0].inner_num_variables() < l_0 {
+            return;
+        }
+
+        let base_evals: Vec<koala_bear::KoalaBear> = (0..(1u64 << n)).map(|_| rng.random()).collect();
+        let gamma: EF = rng.random();
+        let (mut split, sum0) = SplitWeights::<EF>::from_statements(&statement, gamma);
+
+        let smt = &statement[0];
+        let s = smt.selector_num_variables();
+        let inner: Vec<EF> = smt.point.0.clone();
+        let sel: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
+        let alphas: Vec<EF> = {
+            let mut gp = EF::ONE;
+            sel.iter()
+                .map(|_| {
+                    let v = gp;
+                    gp *= gamma;
+                    v
+                })
+                .collect()
+        };
+        let groups: Vec<crate::svo::CompressedGroup<EF>> = if smt.is_next {
+            crate::svo::compress_next_claim_bucketed::<EF>(Some(&base_evals), None, &sel, &inner, &alphas, n, l_0, s)
+        } else if s + l_0 <= n {
+            vec![crate::svo::compress_eq_claim::<EF>(
+                Some(&base_evals),
+                None,
+                &sel,
+                &inner,
+                &alphas,
+                n,
+                l_0,
+                s,
+            )]
+        } else {
+            crate::svo::compress_eq_spill_claim::<EF>(Some(&base_evals), None, &sel, &inner, &alphas, n, l_0, s)
+        };
+        let accs = build_accumulators::<EF>(&groups, l_0);
+
+        let _ = sum0;
+        let (c0_flat, c2_flat) = split.round_coeffs_split_base(&base_evals);
+        let (h0, h1, h2) = round_message(0, &[], &accs);
+        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
+        assert_eq!(c0_flat, c0_svo, "{label}: c0 mismatch round 0");
+        assert_eq!(c2_flat, c2_svo, "{label}: c2 mismatch round 0");
+
+        // Round 1.
+        let rho0: EF = rng.random();
+        split.fold(rho0);
+        let evals_ext = lsb_fold_base_to_ext::<EF>(&base_evals, rho0);
+        let (c0_flat, c2_flat) = split.round_coeffs_split(&evals_ext);
+        let (h0, h1, h2) = round_message(1, &[rho0], &accs);
+        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
+        assert_eq!(c0_flat, c0_svo, "{label}: c0 mismatch round 1");
+        assert_eq!(c2_flat, c2_svo, "{label}: c2 mismatch round 1");
+    }
+
+    /// End-to-end equivalence: SVO (c0, c2) per round must match the flat
+    /// `round_coeffs_split` path byte-for-byte across l_0 rounds, using the
+    /// same sequence of random challenges.
+    #[test]
+    fn svo_vs_flat_c0_c2_equivalence() {
+        use crate::svo::{build_accumulators, round_message, values_to_coeffs};
+
+        let mut rng = StdRng::seed_from_u64(2026);
+        for n in [6usize, 8, 10] {
+            for l_0 in 1..=(n / 2).min(5) {
+                for trial in 0..3 {
+                    // Build random statement mix (eq + next, various s including spill).
+                    let mut statements: Vec<SparseStatement<EF>> = Vec::new();
+                    // A dense eq (OOD-like).
+                    statements.push(random_statement(&mut rng, n, n, false, 1));
+                    // Sparse eq non-spill (m >= l_0, so s = n - m <= n - l_0).
+                    for _ in 0..3 {
+                        let m = rng.random_range(l_0.max(1)..=n.saturating_sub(1).max(l_0));
+                        let m = m.max(l_0); // ensure non-spill
+                        let s = n - m;
+                        let max_sel = (1usize << s).clamp(1, 3);
+                        let k = rng.random_range(1..=max_sel);
+                        statements.push(random_statement(&mut rng, n, m, false, k));
+                    }
+                    // Next-claim with m >= l_0.
+                    let m = rng.random_range(l_0..=n);
+                    statements.push(random_statement(&mut rng, n, m, true, 1));
+                    // Spill eq (m < l_0): only if n > l_0.
+                    if n > l_0 {
+                        let m = rng.random_range(0..l_0);
+                        // Need at least one selector < 2^s where s = n - m.
+                        let s = n - m;
+                        statements.push(random_statement(&mut rng, n, m, false, 1.min(1usize << s)));
+                    }
+
+                    // Random base-field evals.
+                    let base_evals: Vec<koala_bear::KoalaBear> = (0..(1u64 << n)).map(|_| rng.random()).collect();
+                    let gamma: EF = rng.random();
+
+                    // Flat path.
+                    let (mut split, _sum_flat) = SplitWeights::<EF>::from_statements(&statements, gamma);
+
+                    // SVO path: build compressed groups + accumulators.
+                    let sel_bits_all_spill_safe =
+                        statements.iter().all(|e| !e.is_next || e.inner_num_variables() >= l_0);
+                    if !sel_bits_all_spill_safe {
+                        // Can't run SVO — skip this trial (would fall back).
+                        continue;
+                    }
+                    let mut gamma_pow = EF::ONE;
+                    let mut groups: Vec<crate::svo::CompressedGroup<EF>> = Vec::new();
+                    for smt in &statements {
+                        let s = smt.selector_num_variables();
+                        let inner: Vec<EF> = smt.point.0.clone();
+                        let sel: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
+                        let mut alphas: Vec<EF> = Vec::with_capacity(sel.len());
+                        for _ in 0..sel.len() {
+                            alphas.push(gamma_pow);
+                            gamma_pow *= gamma;
+                        }
+                        if smt.is_next {
+                            groups.extend(crate::svo::compress_next_claim_bucketed::<EF>(
+                                Some(&base_evals),
+                                None,
+                                &sel,
+                                &inner,
+                                &alphas,
+                                n,
+                                l_0,
+                                s,
+                            ));
+                        } else if s + l_0 <= n {
+                            groups.push(crate::svo::compress_eq_claim::<EF>(
+                                Some(&base_evals),
+                                None,
+                                &sel,
+                                &inner,
+                                &alphas,
+                                n,
+                                l_0,
+                                s,
+                            ));
+                        } else {
+                            groups.extend(crate::svo::compress_eq_spill_claim::<EF>(
+                                Some(&base_evals),
+                                None,
+                                &sel,
+                                &inner,
+                                &alphas,
+                                n,
+                                l_0,
+                                s,
+                            ));
+                        }
+                    }
+                    let accs = build_accumulators::<EF>(&groups, l_0);
+
+                    // Round 0: base-field path computes (c0, c2) from split+base, SVO from accs.
+                    let (c0_flat_r0, c2_flat_r0) = split.round_coeffs_split_base(&base_evals);
+                    let mut rhos: Vec<EF> = Vec::new();
+                    let (h0, h1, h2) = round_message(0, &rhos, &accs);
+                    let (c0_svo_r0, c2_svo_r0) = values_to_coeffs(h0, h1, h2);
+                    assert_eq!(
+                        c0_flat_r0, c0_svo_r0,
+                        "n={n} l_0={l_0} trial={trial}: c0 mismatch at round 0"
+                    );
+                    assert_eq!(
+                        c2_flat_r0, c2_svo_r0,
+                        "n={n} l_0={l_0} trial={trial}: c2 mismatch at round 0"
+                    );
+
+                    let rho0: EF = rng.random();
+                    rhos.push(rho0);
+                    split.fold(rho0);
+                    let mut evals_ext: Vec<EF> = lsb_fold_base_to_ext::<EF>(&base_evals, rho0);
+
+                    // Rounds 1..l_0.
+                    for r in 1..l_0 {
+                        let (c0_flat, c2_flat) = split.round_coeffs_split(&evals_ext);
+                        let (h0, h1, h2) = round_message(r, &rhos, &accs);
+                        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
+                        assert_eq!(
+                            c0_flat, c0_svo,
+                            "n={n} l_0={l_0} trial={trial}: c0 mismatch at round {r}"
+                        );
+                        assert_eq!(
+                            c2_flat, c2_svo,
+                            "n={n} l_0={l_0} trial={trial}: c2 mismatch at round {r}"
+                        );
+                        let rho: EF = rng.random();
+                        rhos.push(rho);
+                        split.fold(rho);
+                        evals_ext = lsb_fold(&evals_ext, rho);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
