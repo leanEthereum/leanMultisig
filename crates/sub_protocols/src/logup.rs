@@ -1,4 +1,4 @@
-use crate::{prove_gkr_quotient, verify_gkr_quotient};
+use crate::{ENDIANNESS_PIVOT, prove_gkr_quotient, prove_gkr_quotient_from_packed_br_base, verify_gkr_quotient};
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
@@ -57,157 +57,378 @@ pub fn prove_generic_logup(
     let bytecode_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_BYTECODE_DOMAINSEP));
     let precompile_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP));
 
+    // `prove_gkr_quotient`'s SIMD phase-1 wants its inputs chunk-bit-reversed at
+    // `chunk_log = min(ENDIANNESS_PIVOT, total_gkr_n_vars)`. We can avoid an
+    // explicit ~17 ms bit-reverse pass over the filled buffers by writing each
+    // section directly in bit-reversed layout — but only when the section
+    // offsets *and* lengths are multiples of the chunk size.
+    let log_memory = log2_strict_usize(memory.len());
+    let pivot = ENDIANNESS_PIVOT.min(total_gkr_n_vars);
+    let w_log = packing_log_width::<EF>();
+    let chunk_size = 1usize << pivot;
+    let packed_per_chunk = chunk_size / width;
+    let chunk_shift = usize::BITS as usize - pivot;
+    let use_bitrev = pivot > w_log
+        && total_gkr_n_vars > w_log
+        && log_memory >= pivot
+        && log_bytecode >= pivot
+        && tables_log_heights_sorted
+            .iter()
+            .all(|(_, log_n_rows)| *log_n_rows >= pivot);
+    let max_table_height = 1 << tables_log_heights_sorted[0].1;
+
     let mut offset = 0;
 
-    // Memory: ...
-    assert_eq!(memory.len(), memory_acc.len());
-    numerators[offset..][..memory.len()]
-        .par_iter_mut()
-        .zip(memory_acc)
-        .for_each(|(num, a)| *num = -*a); // Note the negative sign here 
-    denominators_packed[offset / width..][..memory.len() / width]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(chunk_idx, denom_packed)| {
-            let base_i = chunk_idx * width;
-            *denom_packed = c_packed
-                - finger_print_packed::<EF>(
-                    memory_contrib,
-                    &[
-                        PFPacking::<EF>::from_fn(|w| memory[base_i + w]),
-                        PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w)),
-                    ],
-                    &alphas_packed,
-                );
-        });
-    offset += memory.len();
+    if use_bitrev {
+        // ---- BIT-REVERSED FILLS ----
+        // Each packed word at section-packed-index `p` has lane `w` reading
+        // natural source offset `((p % packed_per_chunk) * width + w) bit-
+        // reversed within the chunk`, plus `(p / packed_per_chunk) * chunk_size`.
 
-    // Bytecode
-    assert_eq!(1 << log_bytecode, bytecode_acc.len());
-    numerators[offset..][..bytecode_acc.len()]
-        .par_iter_mut()
-        .zip(bytecode_acc)
-        .for_each(|(num, a)| *num = -*a); // Note the negative sign here
-    {
-        let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
-        denominators_packed[offset / width..][..(1 << log_bytecode) / width]
+        // Numerators: write scalar-by-scalar to scattered storage positions.
+        // Denominators: write packed-word-by-packed-word, scatter-reading
+        //               from natural sources via `storage_to_natural_bitrev`.
+
+        // Memory section.
+        numerators[offset..][..memory.len()]
+            .par_chunks_exact_mut(chunk_size)
+            .enumerate()
+            .for_each(|(c, dst_chunk)| {
+                let src_chunk = &memory_acc[c * chunk_size..][..chunk_size];
+                for (s_within, slot) in dst_chunk.iter_mut().enumerate() {
+                    *slot = -src_chunk[s_within.reverse_bits() >> chunk_shift];
+                }
+            });
+        denominators_packed[offset / width..][..memory.len() / width]
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(p, denom_packed)| {
+                let p_chunk = p / packed_per_chunk;
+                let p_within = p % packed_per_chunk;
+                let chunk_base = p_chunk * chunk_size;
+                *denom_packed = c_packed
+                    - finger_print_packed::<EF>(
+                        memory_contrib,
+                        &[
+                            PFPacking::<EF>::from_fn(|w| {
+                                let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                memory[chunk_base + nat_off]
+                            }),
+                            PFPacking::<EF>::from_fn(|w| {
+                                let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                F::from_usize(chunk_base + nat_off)
+                            }),
+                        ],
+                        &alphas_packed,
+                    );
+            });
+        offset += memory.len();
+
+        // Bytecode section.
+        numerators[offset..][..bytecode_acc.len()]
+            .par_chunks_exact_mut(chunk_size)
+            .enumerate()
+            .for_each(|(c, dst_chunk)| {
+                let src_chunk = &bytecode_acc[c * chunk_size..][..chunk_size];
+                for (s_within, slot) in dst_chunk.iter_mut().enumerate() {
+                    *slot = -src_chunk[s_within.reverse_bits() >> chunk_shift];
+                }
+            });
+        {
+            let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
+            denominators_packed[offset / width..][..(1 << log_bytecode) / width]
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(p, denom_packed)| {
+                    let p_chunk = p / packed_per_chunk;
+                    let p_within = p % packed_per_chunk;
+                    let chunk_base = p_chunk * chunk_size;
+                    let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                    for k in 0..N_INSTRUCTION_COLUMNS {
+                        data[k] = PFPacking::<EF>::from_fn(|w| {
+                            let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                            bytecode_multilinear[(chunk_base + nat_off) * bytecode_stride + k]
+                        });
+                    }
+                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| {
+                        let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                        F::from_usize(chunk_base + nat_off)
+                    });
+                    *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
+                });
+        }
+        if 1 << log_bytecode < max_table_height {
+            // Uniform padding — layout invariant.
+            denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
+                .par_iter_mut()
+                .for_each(|d| *d = EFPacking::<EF>::ONE);
+        }
+        offset += max_table_height.max(1 << log_bytecode);
+
+        for (table, _) in &tables_log_heights_sorted {
+            let trace = &traces[table];
+            let log_n_rows = trace.log_n_rows;
+
+            if *table == Table::execution() {
+                let pc_column = &trace.columns[COL_PC];
+                let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
+                // Numerator = constant ONE — layout invariant.
+                numerators[offset..][..1 << log_n_rows]
+                    .par_iter_mut()
+                    .for_each(|num| *num = F::ONE);
+                denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(p, denom_packed)| {
+                        let p_chunk = p / packed_per_chunk;
+                        let p_within = p % packed_per_chunk;
+                        let chunk_base = p_chunk * chunk_size;
+                        let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                        for k in 0..N_INSTRUCTION_COLUMNS {
+                            data[k] = PFPacking::<EF>::from_fn(|w| {
+                                let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                bytecode_columns[k][chunk_base + nat_off]
+                            });
+                        }
+                        data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| {
+                            let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                            pc_column[chunk_base + nat_off]
+                        });
+                        *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
+                    });
+                offset += 1 << log_n_rows;
+            }
+
+            // I] Bus
+            let bus = table.bus();
+            let selector = &trace.columns[bus.selector];
+            let dir_sign = bus.direction;
+            numerators[offset..][..1 << log_n_rows]
+                .par_chunks_exact_mut(chunk_size)
+                .enumerate()
+                .for_each(|(c, dst_chunk)| {
+                    let src_chunk = &selector[c * chunk_size..][..chunk_size];
+                    for (s_within, slot) in dst_chunk.iter_mut().enumerate() {
+                        let v = src_chunk[s_within.reverse_bits() >> chunk_shift];
+                        *slot = F::from(match dir_sign {
+                            BusDirection::Pull => -v,
+                            BusDirection::Push => v,
+                        });
+                    }
+                });
+            {
+                let bus_data_entries = &bus.data;
+                denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(p, denom_packed)| {
+                        let p_chunk = p / packed_per_chunk;
+                        let p_within = p % packed_per_chunk;
+                        let chunk_base = p_chunk * chunk_size;
+                        let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+                        for (j, entry) in bus_data_entries.iter().enumerate() {
+                            bus_data[j] = match entry {
+                                BusData::Column(col) => PFPacking::<EF>::from_fn(|w| {
+                                    let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                    trace.columns[*col][chunk_base + nat_off]
+                                }),
+                                BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
+                            };
+                        }
+                        *denom_packed = c_packed
+                            + finger_print_packed::<EF>(
+                                precompile_contrib,
+                                &bus_data[..bus_data_entries.len()],
+                                &alphas_packed,
+                            );
+                    });
+            }
+            offset += 1 << log_n_rows;
+
+            // II] Lookup into memory
+            let value_columns = table.lookup_value_columns(trace);
+            let index_columns = table.lookup_index_columns(trace);
+            for (col_index, col_values) in index_columns.iter().zip(&value_columns) {
+                // Numerator = constant ONE — layout invariant.
+                numerators[offset..][..col_values.len() << log_n_rows]
+                    .par_iter_mut()
+                    .for_each(|num| *num = F::ONE);
+                {
+                    let packed_chunk_size = (1 << log_n_rows) / width;
+                    denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
+                        .par_chunks_exact_mut(packed_chunk_size)
+                        .enumerate()
+                        .for_each(|(i, denom_chunk)| {
+                            let i_field = F::from_usize(i);
+                            denom_chunk.par_iter_mut().enumerate().for_each(|(p, denom_packed)| {
+                                let p_chunk = p / packed_per_chunk;
+                                let p_within = p % packed_per_chunk;
+                                let chunk_base = p_chunk * chunk_size;
+                                *denom_packed = c_packed
+                                    - finger_print_packed::<EF>(
+                                        memory_contrib,
+                                        &[
+                                            PFPacking::<EF>::from_fn(|w| {
+                                                let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                                col_values[i][chunk_base + nat_off]
+                                            }),
+                                            PFPacking::<EF>::from_fn(|w| {
+                                                let nat_off = (p_within * width + w).reverse_bits() >> chunk_shift;
+                                                col_index[chunk_base + nat_off] + i_field
+                                            }),
+                                        ],
+                                        &alphas_packed,
+                                    );
+                            });
+                        });
+                }
+                offset += col_values.len() << log_n_rows;
+            }
+        }
+    } else {
+        // ---- NATURAL-ORDER FILLS (unchanged) ----
+        // Memory: ...
+        assert_eq!(memory.len(), memory_acc.len());
+        numerators[offset..][..memory.len()]
+            .par_iter_mut()
+            .zip(memory_acc)
+            .for_each(|(num, a)| *num = -*a); // Note the negative sign here
+        denominators_packed[offset / width..][..memory.len() / width]
             .par_iter_mut()
             .enumerate()
             .for_each(|(chunk_idx, denom_packed)| {
                 let base_i = chunk_idx * width;
-                let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
-                for k in 0..N_INSTRUCTION_COLUMNS {
-                    data[k] = PFPacking::<EF>::from_fn(|w| bytecode_multilinear[(base_i + w) * bytecode_stride + k]);
-                }
-                data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w));
-                *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
+                *denom_packed = c_packed
+                    - finger_print_packed::<EF>(
+                        memory_contrib,
+                        &[
+                            PFPacking::<EF>::from_fn(|w| memory[base_i + w]),
+                            PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w)),
+                        ],
+                        &alphas_packed,
+                    );
             });
-    }
-    let max_table_height = 1 << tables_log_heights_sorted[0].1;
-    if 1 << log_bytecode < max_table_height {
-        // padding
-        denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
-            .par_iter_mut()
-            .for_each(|d| *d = EFPacking::<EF>::ONE);
-    }
-    offset += max_table_height.max(1 << log_bytecode);
-    // ... Rest of the tables:
-    for (table, _) in &tables_log_heights_sorted {
-        let trace = &traces[table];
-        let log_n_rows = trace.log_n_rows;
+        offset += memory.len();
 
-        if *table == Table::execution() {
-            // 0] bytecode lookup
-            let pc_column = &trace.columns[COL_PC];
-            let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
-            numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
-                *num = F::ONE;
-            }); // TODO embedding overhead
-            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+        // Bytecode
+        assert_eq!(1 << log_bytecode, bytecode_acc.len());
+        numerators[offset..][..bytecode_acc.len()]
+            .par_iter_mut()
+            .zip(bytecode_acc)
+            .for_each(|(num, a)| *num = -*a);
+        {
+            let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
+            denominators_packed[offset / width..][..(1 << log_bytecode) / width]
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(chunk_idx, denom_packed)| {
                     let base_i = chunk_idx * width;
                     let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
                     for k in 0..N_INSTRUCTION_COLUMNS {
-                        data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][base_i + w]);
+                        data[k] =
+                            PFPacking::<EF>::from_fn(|w| bytecode_multilinear[(base_i + w) * bytecode_stride + k]);
                     }
-                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[base_i + w]);
+                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w));
                     *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
                 });
-            offset += 1 << log_n_rows;
         }
-
-        // I] Bus for precompiles (data flow between tables)
-        let bus = table.bus();
-        numerators[offset..][..1 << log_n_rows]
-            .par_iter_mut()
-            .zip(&trace.columns[bus.selector])
-            .for_each(|(num, selector)| {
-                *num = F::from(match bus.direction {
-                    BusDirection::Pull => -*selector,
-                    BusDirection::Push => *selector,
-                })
-            }); // TODO embedding overhead
-        {
-            let bus_data_entries = &bus.data;
-            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+        if 1 << log_bytecode < max_table_height {
+            denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
                 .par_iter_mut()
-                .enumerate()
-                .for_each(|(chunk_idx, denom_packed)| {
-                    let base_i = chunk_idx * width;
-                    let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
-                    for (j, entry) in bus_data_entries.iter().enumerate() {
-                        bus_data[j] = match entry {
-                            BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][base_i + w]),
-                            BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
-                        };
-                    }
-                    *denom_packed = c_packed
-                        + finger_print_packed::<EF>(
-                            precompile_contrib,
-                            &bus_data[..bus_data_entries.len()],
-                            &alphas_packed,
-                        );
-                });
+                .for_each(|d| *d = EFPacking::<EF>::ONE);
         }
+        offset += max_table_height.max(1 << log_bytecode);
+        for (table, _) in &tables_log_heights_sorted {
+            let trace = &traces[table];
+            let log_n_rows = trace.log_n_rows;
 
-        offset += 1 << log_n_rows;
-
-        // II] Lookup into memory
-        let value_columns = table.lookup_value_columns(trace);
-        let index_columns = table.lookup_index_columns(trace);
-        for (col_index, col_values) in index_columns.iter().zip(&value_columns) {
-            numerators[offset..][..col_values.len() << log_n_rows]
-                .par_iter_mut()
-                .for_each(|num| {
-                    *num = F::ONE;
-                }); // TODO embedding overhead
-            {
-                let packed_chunk_size = (1 << log_n_rows) / width;
-                denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
-                    .par_chunks_exact_mut(packed_chunk_size)
+            if *table == Table::execution() {
+                let pc_column = &trace.columns[COL_PC];
+                let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
+                numerators[offset..][..1 << log_n_rows]
+                    .par_iter_mut()
+                    .for_each(|num| *num = F::ONE);
+                denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+                    .par_iter_mut()
                     .enumerate()
-                    .for_each(|(i, denom_chunk)| {
-                        let i_field = F::from_usize(i);
-                        denom_chunk
-                            .par_iter_mut()
-                            .enumerate()
-                            .for_each(|(chunk_idx, denom_packed)| {
-                                let base_j = chunk_idx * width;
-                                *denom_packed = c_packed
-                                    - finger_print_packed::<EF>(
-                                        memory_contrib,
-                                        &[
-                                            PFPacking::<EF>::from_fn(|w| col_values[i][base_j + w]),
-                                            PFPacking::<EF>::from_fn(|w| col_index[base_j + w] + i_field),
-                                        ],
-                                        &alphas_packed,
-                                    );
-                            });
+                    .for_each(|(chunk_idx, denom_packed)| {
+                        let base_i = chunk_idx * width;
+                        let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                        for k in 0..N_INSTRUCTION_COLUMNS {
+                            data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][base_i + w]);
+                        }
+                        data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[base_i + w]);
+                        *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
+                    });
+                offset += 1 << log_n_rows;
+            }
+
+            let bus = table.bus();
+            numerators[offset..][..1 << log_n_rows]
+                .par_iter_mut()
+                .zip(&trace.columns[bus.selector])
+                .for_each(|(num, selector)| {
+                    *num = F::from(match bus.direction {
+                        BusDirection::Pull => -*selector,
+                        BusDirection::Push => *selector,
+                    })
+                });
+            {
+                let bus_data_entries = &bus.data;
+                denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(chunk_idx, denom_packed)| {
+                        let base_i = chunk_idx * width;
+                        let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+                        for (j, entry) in bus_data_entries.iter().enumerate() {
+                            bus_data[j] = match entry {
+                                BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][base_i + w]),
+                                BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
+                            };
+                        }
+                        *denom_packed = c_packed
+                            + finger_print_packed::<EF>(
+                                precompile_contrib,
+                                &bus_data[..bus_data_entries.len()],
+                                &alphas_packed,
+                            );
                     });
             }
-            offset += col_values.len() << log_n_rows;
+            offset += 1 << log_n_rows;
+
+            let value_columns = table.lookup_value_columns(trace);
+            let index_columns = table.lookup_index_columns(trace);
+            for (col_index, col_values) in index_columns.iter().zip(&value_columns) {
+                numerators[offset..][..col_values.len() << log_n_rows]
+                    .par_iter_mut()
+                    .for_each(|num| *num = F::ONE);
+                {
+                    let packed_chunk_size = (1 << log_n_rows) / width;
+                    denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
+                        .par_chunks_exact_mut(packed_chunk_size)
+                        .enumerate()
+                        .for_each(|(i, denom_chunk)| {
+                            let i_field = F::from_usize(i);
+                            denom_chunk
+                                .par_iter_mut()
+                                .enumerate()
+                                .for_each(|(chunk_idx, denom_packed)| {
+                                    let base_j = chunk_idx * width;
+                                    *denom_packed = c_packed
+                                        - finger_print_packed::<EF>(
+                                            memory_contrib,
+                                            &[
+                                                PFPacking::<EF>::from_fn(|w| col_values[i][base_j + w]),
+                                                PFPacking::<EF>::from_fn(|w| col_index[base_j + w] + i_field),
+                                            ],
+                                            &alphas_packed,
+                                        );
+                                });
+                        });
+                }
+                offset += col_values.len() << log_n_rows;
+            }
         }
     }
 
@@ -223,15 +444,22 @@ pub fn prove_generic_logup(
         .blue()
     );
 
+    // Final padding: uniform EFPacking::ONE, same value at every storage slot,
+    // so it's layout-invariant.
     denominators_packed[offset / width..]
         .par_iter_mut()
-        .for_each(|d| *d = EFPacking::<EF>::ONE); // padding
+        .for_each(|d| *d = EFPacking::<EF>::ONE);
 
-    let numerators_packed = MleRef::Base(&numerators).pack();
-    let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
-
-    let (sum, claim_point_gkr, numerators_value, denominators_value) =
-        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denom_ref);
+    let (sum, claim_point_gkr, numerators_value, denominators_value) = if use_bitrev {
+        // Data is already chunk-BR.  `numerators` (base field, F) is
+        // scatter-filled in BR; we just pack it without reordering.
+        let nums_br: Vec<PFPacking<EF>> = PFPacking::<EF>::pack_slice(&numerators).to_vec();
+        prove_gkr_quotient_from_packed_br_base::<EF>(prover_state, nums_br, denominators_packed, total_gkr_n_vars)
+    } else {
+        let numerators_packed = MleRef::Base(&numerators).pack();
+        let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
+        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denom_ref)
+    };
 
     let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
 
@@ -256,7 +484,6 @@ pub fn prove_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
     for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
@@ -286,18 +513,28 @@ pub fn prove_generic_logup(
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, *eval_on_instr_col);
             }
-
-            offset += 1 << log_n_rows;
         }
 
         // I] Bus (data flow between tables)
-        let eval_on_selector =
-            trace.columns[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
+        let bus = table.bus();
+        let eval_on_selector = trace.columns[bus.selector].evaluate(&inner_point) * bus.direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data =
-            MleRef::<EF>::ExtensionPacked(&denominators_packed[offset / width..][..(1 << log_n_rows) / width])
-                .evaluate(&inner_point);
+        // `denominators_packed[...]` holds
+        //   c + precompile_contrib + Σ alphas_eq_poly[i] * bus_data[i]
+        // on this table's rows. MLE evaluation is affine in the stored
+        // values, so we reconstruct the eval from the bus-data column evals
+        // instead of reading `denominators_packed` (which won't stay in
+        // natural order once we bit-reverse the fill below).
+        let precompile_contrib_scalar = alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP);
+        let mut eval_on_data = c + precompile_contrib_scalar;
+        for (i, entry) in bus.data.iter().enumerate() {
+            let col_eval: EF = match entry {
+                BusData::Column(col) => trace.columns[*col].evaluate(&inner_point),
+                BusData::Constant(val) => EF::from(F::from_usize(*val)),
+            };
+            eval_on_data += alphas_eq_poly[i] * col_eval;
+        }
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);
@@ -319,8 +556,6 @@ pub fn prove_generic_logup(
         }
 
         columns_values.insert(*table, table_values);
-
-        offset += offset_for_table(table, log_n_rows);
     }
 
     GenericLogupStatements {
