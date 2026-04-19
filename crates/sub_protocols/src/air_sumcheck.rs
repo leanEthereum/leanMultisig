@@ -1,22 +1,36 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::ops::{Add, AddAssign, Mul, Sub};
 
 use backend::*;
 use lean_vm::ColIndex;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use tracing::info_span;
 
-/// Sumcheck to prove validity of AIR constraints
-///
-/// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
-///
-/// 2] We fold variables in 2 phases:
-/// - first phase: X_(n/2-1), ..., X_0
-/// - second phase: X_(n/2), ..., X_(n-1)
-///   Example: n=7: X3, X2, X1, X0, X4, X5, X6
-///   Why?
-/// - Folding X0, X1, ..., X_(n-1) is SIMD friendly, but not padding friendly (any repeated value, at the end, gets scrambled after the first round)
-/// - Folding X_(n-1), ..., X_0 is padding friendly, but not SIMD friendly
-///   Our approach keeps the best of both worlds in the initial rounds, where most of the computations happen
+// Sumcheck to prove validity of AIR constraints
+//
+// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
+//
+// 2] We fold variables 'right-to-left' (X_{L-1}, X_{L-2}, ..., X_0), but
+// use a custom storage layout to keep SIMD on the early rounds (does not
+// impact the verifier):
+//
+// Let L = number of variables, r = current round index (0 ≤ r < L),
+// P = min(ENDIANNESS_PIVOT, L), w = packing_log_width (SIMD lane-index bits),
+// and "storage-index bit" = the bit of the storage index that round r's
+// fold_at_bit targets.
+//
+// We bit-reverse the storage of each column within chunks of 2^P elements (once, at init).
+// The fold schedule has three phases:
+//   - Phase 1, rounds [0, P-w): storage-index bit in [w, P), fully SIMD.
+//   - Phase 2, rounds [P-w, P): storage-index bit in [0, w), within SIMD-lane, so
+//     we unpack before entering this phase.
+//   - Phase 3, rounds [P, L): storage-index bit 0 on unpacked storage
+// Edge case: when L = P (tables at the minimum size) phase 1 ends one round
+// early, at P-w-1, so `SplitEq` stays in packed mode (its eq_point needs length
+// > w; at round P-w-1 the eq_point has length L-(P-w-1)-1 = w).
+
+const ENDIANNESS_PIVOT: usize = 12;
+
 pub trait OuterSumcheckSession<EF: ExtensionField<PF<EF>>>: Debug {
     fn initial_n_vars(&self) -> usize;
     fn sum(&self) -> EF;
@@ -33,7 +47,9 @@ where
     A::ExtraData: AlphaPowers<EF>,
 {
     multilinears: MleGroup<'a, EF>,
-    eq_factor: Vec<EF>, // shrinks by 1 each round when the round's fold slot is removed.
+    eq_factor: Vec<EF>, // The last element is removed at each round
+    /// Active element count in the current storage. Always a multiple of
+    /// `2^{P - r}` while r < P (chunk-aligned), then ceil-halves afterward.
     current_unpadded_len: usize,
     sum: EF,
     missing_mul_factor: EF,
@@ -41,6 +57,7 @@ where
     extra_data: A::ExtraData,
     initial_n_vars: usize,
     constraints_eval_at_padding: EF,
+    rounds_done: usize,
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>, A: Air> AirSumcheckSession<'a, EF, A>
@@ -57,68 +74,129 @@ where
     ) -> Self {
         let initial_n_vars = packed_multilinears.n_vars();
         assert_eq!(eq_factor.len(), initial_n_vars);
-        assert!(packed_multilinears.is_packed());
         let last_point = column_evals(&packed_multilinears.by_ref(), (1 << initial_n_vars) - 1);
         let constraints_eval_at_padding = A::eval_extension(&computation, &last_point, &extra_data);
+
+        let pivot = ENDIANNESS_PIVOT.min(initial_n_vars);
+        let has_packed_phase = pivot > packing_log_width::<EF>();
+
+        let padded_n_rows = non_padded_n_rows
+            .next_multiple_of(1usize << pivot)
+            .min(1usize << initial_n_vars);
+
+        let multilinears = match (packed_multilinears.by_ref(), has_packed_phase) {
+            (MleGroupRef::BasePacked(cols), true) => {
+                let _span = info_span!("chunk-bit-reversing columns").entered();
+                let chunk_size = 1usize << pivot;
+                let shift = usize::BITS as usize - pivot;
+                let bit_reversed = cols
+                    .par_iter()
+                    .map(|&src| {
+                        let mut dst: Vec<PFPacking<EF>> = unsafe { uninitialized_vec(src.len()) };
+                        let src_u = PFPacking::<EF>::unpack_slice(src);
+                        let dst_u = PFPacking::<EF>::unpack_slice_mut(&mut dst);
+                        for (src_chunk, dst_chunk) in
+                            src_u.chunks_exact(chunk_size).zip(dst_u.chunks_exact_mut(chunk_size))
+                        {
+                            for (p, slot) in dst_chunk.iter_mut().enumerate() {
+                                *slot = src_chunk[p.reverse_bits() >> shift];
+                            }
+                        }
+                        dst
+                    })
+                    .collect();
+                MleGroup::Owned(MleGroupOwned::BasePacked(bit_reversed))
+            }
+            _ => unreachable!(),
+        };
+
         Self {
-            multilinears: packed_multilinears,
+            multilinears,
             eq_factor,
-            current_unpadded_len: non_padded_n_rows,
+            current_unpadded_len: padded_n_rows,
             sum,
             missing_mul_factor: EF::ONE,
             computation,
             extra_data,
             initial_n_vars,
             constraints_eval_at_padding,
+            rounds_done: 0,
         }
     }
+}
 
-    //         folded variable
-    //                v
-    // X0 X1 X2 X3 X4 X5 X6 X7 X8 ...
-    //                 <-------------->
-    //                   "fold_position"
-    fn current_fold_position(&self) -> usize {
-        let pivot = self.initial_n_vars / 2;
-        if self.eq_factor.len() > pivot {
-            pivot
-        } else {
-            self.eq_factor.len() - 1
-        }
+impl<'a, EF, A> AirSumcheckSession<'a, EF, A>
+where
+    EF: ExtensionField<PF<EF>>,
+    A: Air + 'static,
+    A::ExtraData: AlphaPowers<EF>,
+{
+    fn pivot(&self) -> usize {
+        ENDIANNESS_PIVOT.min(self.initial_n_vars)
     }
 
-    //         folded variable
-    //                v
-    // X0 X1 X2 X3 X4 X5 X6 X7 X8 ...
-    // <-------------->
-    //  "fold_index"
-    fn current_fold_index(&self) -> usize {
-        self.eq_factor.len() - 1 - self.current_fold_position()
-    }
-
-    fn compute_split_eq(&self) -> SplitEq<EF> {
-        let idx = self.current_fold_index();
-        let eq_factor_filtered: Vec<EF> = self
-            .eq_factor
-            .iter()
-            .enumerate()
-            .filter_map(|(k, &a)| (k != idx).then_some(a))
-            .collect();
-        SplitEq::new(&eq_factor_filtered)
-    }
-
-    fn log_packing(&self) -> usize {
-        if self.multilinears.is_packed() {
-            packing_log_width::<EF>()
+    // example:  folding_bit = 2
+    // storage (RAM): m[0] m[1] m[2] m[3] m[4] m[5] m[6] m[7]  m[8] m[9] m[10] m[11]  m[12]…
+    //                  ╰────┼────┼────┼────╯    │    │    │    ╰──────┼─────┼─────┼─────╯    │
+    //                       ╰────┼────┼─────────╯    │    │           ╰─────┼─────┼──────────╯
+    //                            ╰────┼──────────────╯    │                 ╰─────┼───────...
+    //                                 ╰───────────────────╯                       ╰───────...
+    fn folding_bit(&self) -> usize {
+        let pivot = self.pivot();
+        if self.rounds_done < pivot {
+            pivot - 1 - self.rounds_done
         } else {
             0
         }
     }
 
-    fn padding_eq_sum(&self, unpadded_len_packed: usize) -> EF {
-        let mut eq_factor_prefix = self.eq_factor[..self.eq_factor.len() - self.log_packing()].to_vec();
-        eq_factor_prefix[self.current_fold_index()] = EF::ZERO;
-        evaluate_mle_of_zero_then_ones(unpadded_len_packed, &eq_factor_prefix)
+    // example:  folding_bit_packed = 2, packing_log_width = 3
+    // storage (RAM):  m[0..7] m[8..15] m[16..23] m[24..31] m[32..39] m[40..47] m[48..55] m[56..63]  m[64..71] m[72..79] m[80..87] m[88..95]  m[96]…
+    //                  ╰──────────┼─────────┼─────────┼─────────╯        │        │        │            ╰───────────┼──────────┼──────────┼──────────╯
+    //                             ╰─────────┼─────────┼──────────────────╯        │        │                        ╰──────────┼──────────┼───────...
+    //                                       ╰─────────┼───────────────────────────╯        │                                   ╰──────────┼───────...
+    //                                                 ╰────────────────────────────────────╯                                              ╰───────...
+    fn folding_bit_packed(&self) -> usize {
+        let bit = self.folding_bit();
+        if self.in_phase_1() {
+            bit - packing_log_width::<EF>()
+        } else {
+            bit
+        }
+    }
+
+    fn in_phase_1(&self) -> bool {
+        let w = packing_log_width::<EF>();
+        // (a) the variable being bound sits above the lane bits, and
+        // (b) `SplitEq` can still run in packed mode (`n - r - 1 > w`).
+        self.rounds_done + w < self.pivot() && self.rounds_done + w + 1 < self.initial_n_vars
+    }
+
+    fn active_count_pairs(&self) -> usize {
+        if self.in_phase_1() {
+            (self.current_unpadded_len / 2) >> packing_log_width::<EF>()
+        } else {
+            self.current_unpadded_len.div_ceil(2)
+        }
+    }
+
+    /// `eq_factor` permuted to match our storage convention: entries in
+    /// `[0, n-P)` unchanged, entries in `[n-P, len)` reversed
+    fn permuted_alphas(&self, len: usize) -> Vec<EF> {
+        let head_len = (self.initial_n_vars - self.pivot()).min(len);
+        let base = &self.eq_factor[..len];
+        let mut out = Vec::with_capacity(len);
+        out.extend_from_slice(&base[..head_len]);
+        out.extend(base[head_len..].iter().rev().copied());
+        out
+    }
+
+    /// `C_pad * sum over padded pair positions of partial_eq(new_j)`.
+    fn padding_eq_sum(&self, unpadded_len: usize) -> EF {
+        let len = self.initial_n_vars - self.rounds_done;
+        let mut alphas = self.permuted_alphas(len);
+        alphas[len - 1 - self.folding_bit()] = EF::ZERO;
+        evaluate_mle_of_zero_then_ones(unpadded_len, &alphas)
     }
 }
 
@@ -141,24 +219,22 @@ where
     }
 
     fn eq_alpha(&self) -> EF {
-        self.eq_factor[self.current_fold_index()]
+        *self.eq_factor.last().unwrap()
     }
 
     fn compute_bare_round_poly(&mut self) -> DensePolynomial<EF> {
-        self.multilinears.unpack_if_needed();
+        let split_eq = SplitEq::new(&self.permuted_alphas(self.initial_n_vars - self.rounds_done - 1));
+        let active_count_pairs = self.active_count_pairs();
+        let storage_shift = if self.in_phase_1() {
+            packing_log_width::<EF>()
+        } else {
+            0
+        };
+        let iter_count_pairs = 1usize << (self.initial_n_vars - self.rounds_done - 1 - storage_shift);
+        debug_assert!(active_count_pairs <= iter_count_pairs);
 
-        let split_eq = self.compute_split_eq();
-
-        let iter_count_no_padding = 1usize << (self.eq_factor.len() - 1 - self.log_packing());
-        let current_unpadded_len_packed = self.current_unpadded_len.div_ceil(1usize << self.log_packing());
-        let active_count = compute_activate_count(
-            current_unpadded_len_packed,
-            self.current_fold_position() - self.log_packing(),
-        );
-        assert!(active_count <= iter_count_no_padding);
-
-        let padding_contribution = if active_count < iter_count_no_padding {
-            self.constraints_eval_at_padding * self.padding_eq_sum(current_unpadded_len_packed)
+        let padding_contribution = if active_count_pairs < iter_count_pairs {
+            self.constraints_eval_at_padding * self.padding_eq_sum(self.current_unpadded_len)
         } else {
             EF::ZERO
         };
@@ -168,16 +244,14 @@ where
             &self.computation,
             &self.extra_data,
             &split_eq,
-            active_count,
-            self.current_fold_position(),
-            self.log_packing(),
+            self.folding_bit_packed(),
+            active_count_pairs,
         );
         let mut p_evals: Vec<EF> = p_evals_raw
             .into_iter()
             .map(|v| (v + padding_contribution) * self.missing_mul_factor)
             .collect();
 
-        // Recover p_evals at z=1 from p(0)*(1-alpha) + p(1)*alpha = sum.
         let p_at_1 = (self.sum - (EF::ONE - self.eq_alpha()) * p_evals[0]) / self.eq_alpha();
         p_evals.insert(1, p_at_1);
 
@@ -192,19 +266,24 @@ where
     }
 
     fn process_challenge(&mut self, challenge: EF, bare_poly: &DensePolynomial<EF>) {
-        let fold_position = self.current_fold_position();
         let alpha_fold = self.eq_alpha();
-
         let eq_eval = (EF::ONE - alpha_fold) * (EF::ONE - challenge) + alpha_fold * challenge;
         self.sum = bare_poly.evaluate(challenge) * eq_eval;
         self.missing_mul_factor *= eq_eval;
 
-        let pos_in_storage = fold_position - self.log_packing();
-        let folded = self.multilinears.by_ref().fold_at_bit(challenge, pos_in_storage);
-        self.multilinears = MleGroup::Owned(folded);
+        let was_in_phase_1 = self.in_phase_1();
+        let fold_bit = self.folding_bit_packed();
 
-        self.current_unpadded_len = compute_activate_count(self.current_unpadded_len, fold_position);
-        self.eq_factor.remove(self.eq_factor.len() - 1 - fold_position);
+        self.multilinears = self.multilinears.by_ref().fold_at_bit(challenge, fold_bit).into();
+
+        self.current_unpadded_len = self.current_unpadded_len.div_ceil(2);
+        self.rounds_done += 1;
+        self.eq_factor.pop();
+
+        // Phase 1 → phase 2: unpack
+        if was_in_phase_1 && !self.in_phase_1() {
+            self.multilinears = self.multilinears.by_ref().unpack().as_owned_or_clone().into();
+        }
     }
 
     fn final_column_evals(&self) -> Vec<EF> {
@@ -229,132 +308,105 @@ fn column_evals<EF: ExtensionField<PF<EF>>>(multilinears: &MleGroupRef<'_, EF>, 
     }
 }
 
-/// nb. of integers in `[0, t)` whose bit `bit` is 0 (starting from LSB)
-/// Example: t = 11, b = 1 -> Result = 6
-///     0      1        2        3        4        5        6        7        8        9       10
-/// 00[0]0   00[0]1   00[1]0   00[1]1   10[0]0   01[0]1   01[1]0   01[1]1   10[0]0   10[0]1   10[1]0
-///  +1        +1                         +1       +1                         +1       +1
-fn compute_activate_count(t: usize, bit: usize) -> usize {
-    let stride: usize = 1usize << bit;
-    let block = stride << 1;
-    (t / block) * stride + (t % block).min(stride)
-}
-
-#[allow(clippy::too_many_arguments)]
 fn compute_raw_poly<'a, EF, A>(
     multilinears: &MleGroupRef<'a, EF>,
     computation: &A,
     extra_data: &A::ExtraData,
     split_eq: &SplitEq<EF>,
-    active_count: usize,
-    fold_position: usize,
-    log_packing: usize,
+    fold_bit: usize, // in storage
+    active_count_pairs: usize,
 ) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>>,
     A: Air + 'static,
     A::ExtraData: AlphaPowers<EF>,
 {
-    let identity = |e: EF| e;
-    let unpack = |p: EFPacking<EF>| EFPacking::<EF>::to_ext_iter([p]).sum::<EF>();
-    let fetch_split_eq_unpacked = |s: &SplitEq<EF>, j: usize| s.get_unpacked(j);
-    let fetch_split_eq_packed = |s: &SplitEq<EF>, j: usize| s.get_packed(j);
-
+    let unpack_sum_packed = |s: EFPacking<EF>| -> EF { EFPacking::<EF>::to_ext_iter([s]).sum::<EF>() };
     match multilinears {
-        MleGroupRef::Base(cols) => compute_raw_poly_impl::<EF, A, PF<EF>, EF>(
+        MleGroupRef::BasePacked(cols) => compute_raw_poly_impl::<EF, A, PFPacking<EF>, EFPacking<EF>, _, _>(
             cols,
+            |j| split_eq.get_packed(j),
             computation,
             extra_data,
-            split_eq,
-            active_count,
-            fold_position,
-            log_packing,
-            A::eval_base,
-            fetch_split_eq_unpacked,
-            identity,
-        ),
-        MleGroupRef::Extension(cols) => compute_raw_poly_impl::<EF, A, EF, EF>(
-            cols,
-            computation,
-            extra_data,
-            split_eq,
-            active_count,
-            fold_position,
-            log_packing,
-            A::eval_extension,
-            fetch_split_eq_unpacked,
-            identity,
-        ),
-        MleGroupRef::BasePacked(cols) => compute_raw_poly_impl::<EF, A, PFPacking<EF>, EFPacking<EF>>(
-            cols,
-            computation,
-            extra_data,
-            split_eq,
-            active_count,
-            fold_position,
-            log_packing,
+            fold_bit,
+            active_count_pairs,
             A::eval_packed_base,
-            fetch_split_eq_packed,
-            unpack,
+            unpack_sum_packed,
         ),
-        MleGroupRef::ExtensionPacked(cols) => compute_raw_poly_impl::<EF, A, EFPacking<EF>, EFPacking<EF>>(
+        MleGroupRef::ExtensionPacked(cols) => compute_raw_poly_impl::<EF, A, EFPacking<EF>, EFPacking<EF>, _, _>(
             cols,
+            |j| split_eq.get_packed(j),
             computation,
             extra_data,
-            split_eq,
-            active_count,
-            fold_position,
-            log_packing,
+            fold_bit,
+            active_count_pairs,
             A::eval_packed_extension,
-            fetch_split_eq_packed,
-            unpack,
+            unpack_sum_packed,
+        ),
+        MleGroupRef::Base(cols) => compute_raw_poly_impl::<EF, A, PF<EF>, EF, _, _>(
+            cols,
+            |j| split_eq.get_unpacked(j),
+            computation,
+            extra_data,
+            fold_bit,
+            active_count_pairs,
+            A::eval_base,
+            |s| s,
+        ),
+        MleGroupRef::Extension(cols) => compute_raw_poly_impl::<EF, A, EF, EF, _, _>(
+            cols,
+            |j| split_eq.get_unpacked(j),
+            computation,
+            extra_data,
+            fold_bit,
+            active_count_pairs,
+            A::eval_extension,
+            |s| s,
         ),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compute_raw_poly_impl<EF, A, IF, OF>(
+fn compute_raw_poly_impl<EF, A, IF, EFT, GetEq, UnpackSum>(
     cols: &[&[IF]],
+    get_split_eq: GetEq,
     computation: &A,
     extra_data: &A::ExtraData,
-    split_eq: &SplitEq<EF>,
-    active_count: usize,
-    fold_position: usize,
-    log_packing: usize,
-    eval_fn: impl Fn(&A, &[IF], &A::ExtraData) -> OF + Sync + Send,
-    fetch_split_eq: impl Fn(&SplitEq<EF>, usize) -> OF + Sync + Send,
-    finalize: impl Fn(OF) -> EF,
+    fold_bit: usize,
+    active_count_pairs: usize,
+    eval_fn: impl Fn(&A, &[IF], &A::ExtraData) -> EFT + Sync + Send,
+    unpack_sum: UnpackSum,
 ) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>>,
     A: Air + 'static,
     A::ExtraData: AlphaPowers<EF>,
-    IF: Copy + Send + Sync + std::ops::Sub<Output = IF> + std::ops::AddAssign + PrimeCharacteristicRing,
-    OF: PrimeCharacteristicRing + Send + Sync,
+    IF: Copy + Send + Sync + Sub<Output = IF> + AddAssign + PrimeCharacteristicRing,
+    EFT: Copy + Send + Sync + Add<Output = EFT> + AddAssign + Mul<Output = EFT> + PrimeCharacteristicRing,
+    GetEq: Fn(usize) -> EFT + Sync + Send,
+    UnpackSum: Fn(EFT) -> EF + Sync + Send,
 {
-    assert!(fold_position >= log_packing,);
     let degree = computation.degree();
-    let pos_packed = fold_position - log_packing;
-    let stride_packed = 1usize << pos_packed;
-    let lo_mask_packed = stride_packed - 1;
     let n_cols = cols.len();
+    let stride = 1usize << fold_bit;
+    let lo_mask = stride - 1;
 
-    let acc = (0..active_count)
+    let acc = (0..active_count_pairs)
         .into_par_iter()
         .fold(
             || {
                 (
-                    vec![OF::ZERO; degree],           // evals at z=0, 2, 3, ..., degree (z=1 is recovered)
-                    Vec::<IF>::with_capacity(n_cols), // running column values
-                    Vec::<IF>::with_capacity(n_cols), // diffs (hi - lo)
+                    vec![EFT::ZERO; degree],
+                    Vec::<IF>::with_capacity(n_cols),
+                    Vec::<IF>::with_capacity(n_cols),
                 )
             },
             |(mut acc, mut point, mut diff), new_j| {
-                let i_hi = new_j >> pos_packed;
-                let i_lo = new_j & lo_mask_packed;
-                let i0 = (i_hi << (pos_packed + 1)) | i_lo;
-                let i1 = i0 | stride_packed;
-                let eq = fetch_split_eq(split_eq, new_j);
+                let i_hi = new_j >> fold_bit;
+                let i_lo = new_j & lo_mask;
+                let i0 = (i_hi << (fold_bit + 1)) | i_lo;
+                let i1 = i0 | stride;
+                let partial_eq = get_split_eq(new_j);
                 point.clear();
                 diff.clear();
                 for c in cols {
@@ -363,9 +415,8 @@ where
                     point.push(lo);
                     diff.push(hi - lo);
                 }
-                // z = 0: eval at `point = lo`. Then advance once (unused, lands on z=1),
-                // then eval at z = 2, 3, ..., degree inside the loop.
-                acc[0] += eval_fn(computation, &point, extra_data) * eq;
+                // z = 0 then (skip z = 1) z = 2, 3, …, degree.
+                acc[0] += eval_fn(computation, &point, extra_data) * partial_eq;
                 for k in 0..n_cols {
                     point[k] += diff[k];
                 }
@@ -373,14 +424,14 @@ where
                     for k in 0..n_cols {
                         point[k] += diff[k];
                     }
-                    *acc_z += eval_fn(computation, &point, extra_data) * eq;
+                    *acc_z += eval_fn(computation, &point, extra_data) * partial_eq;
                 }
                 (acc, point, diff)
             },
         )
         .map(|(acc, _, _)| acc)
         .reduce(
-            || vec![OF::ZERO; degree],
+            || vec![EFT::ZERO; degree],
             |mut a, b| {
                 for i in 0..degree {
                     a[i] += b[i];
@@ -389,7 +440,7 @@ where
             },
         );
 
-    acc.into_iter().map(finalize).collect()
+    acc.into_iter().map(unpack_sum).collect()
 }
 
 pub fn prove_batched_air_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
@@ -402,8 +453,6 @@ pub fn prove_batched_air_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     let eta_powers: Vec<EF> = eta.powers().collect_n(sessions.len());
 
     let mut challenges = Vec::with_capacity(n_rounds);
-    // Per-table prefix multiplier K_t.  Grows each round during padding,
-    // freezes once the table enters its active phase.
     let mut k: Vec<EF> = vec![EF::ONE; sessions.len()];
 
     for round in 0..n_rounds {
@@ -447,7 +496,7 @@ pub fn compute_shifted_columns<F: Field>(air_down_column_indexes: &[usize], colu
         .map(|&col_index| {
             let column = columns[col_index];
             let mut down = unsafe { uninitialized_vec(column.len()) };
-            parallel_clone(&column[1..], &mut down[..column.len() - 1]);
+            down[..column.len() - 1].copy_from_slice(&column[1..]);
             down[column.len() - 1] = column[column.len() - 1];
             down
         })
@@ -455,11 +504,11 @@ pub fn compute_shifted_columns<F: Field>(air_down_column_indexes: &[usize], colu
 }
 
 pub fn natural_ordering_point_for_session<EF: Copy>(sumcheck_air_point: &[EF], log_n_rows: usize) -> Vec<EF> {
-    let start = sumcheck_air_point.len() - log_n_rows;
-    let half = log_n_rows.div_ceil(2);
-    let mut out = sumcheck_air_point[start..start + log_n_rows].to_vec();
-    out[..half].reverse();
-    out
+    sumcheck_air_point[sumcheck_air_point.len() - log_n_rows..]
+        .iter()
+        .rev()
+        .copied()
+        .collect()
 }
 
 pub fn columns_evals_up_and_down<EF: ExtensionField<PF<EF>>, A: Air>(

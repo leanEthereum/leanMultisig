@@ -68,8 +68,8 @@ where
         0,
     );
 
+    let final_folds_f = final_folds_f.by_ref().unpack().as_owned_or_clone();
     let final_folds = final_folds_f
-        .by_ref()
         .as_extension()
         .unwrap()
         .iter()

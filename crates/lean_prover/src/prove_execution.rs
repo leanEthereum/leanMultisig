@@ -150,12 +150,13 @@ pub fn prove_execution(
                 .collect()
         })
         .collect();
+    let _span = info_span!("Computing shifted columns for AIR sumcheck").entered();
     let shifted_rows: Vec<Vec<Vec<F>>> = tables_sorted
-        .iter()
+        .par_iter()
         .zip(&column_refs)
         .map(|((table, _), cols)| compute_shifted_columns(&table.down_column_indexes(), cols))
         .collect();
-
+    std::mem::drop(_span);
     let mut sessions = Vec::with_capacity(tables_sorted.len());
     for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
