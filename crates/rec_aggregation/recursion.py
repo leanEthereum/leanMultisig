@@ -717,7 +717,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
-    fs, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
+    fs, postponed_value = sumcheck_verify_reversed_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point)
     fs, inner_evals = fs_receive_ef_inlined(fs, 4)
     a_num = inner_evals
     b_num = inner_evals + DIM
@@ -726,7 +726,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars)
+    eq_factor = eq_mle_extension(point, postponed_point, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
@@ -735,7 +735,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
-    copy_5(beta, postponed_point)
+    copy_5(beta, postponed_point + n_vars * DIM)
 
     return fs, postponed_point, new_claim_num, new_claim_den
 

@@ -184,6 +184,11 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
 
 def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
     challenges = Array(n_steps * DIM)
+    fs, new_claimed_sum = sumcheck_verify_reversed_helper(fs, n_steps, claimed_sum, degree, challenges)
+    return fs, challenges, new_claimed_sum
+
+
+def sumcheck_verify_reversed_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
         sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
@@ -192,7 +197,7 @@ def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + (n_steps - 1 - sc_round) * DIM)
 
-    return fs, challenges, claimed_sum
+    return fs, claimed_sum
 
 
 def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, folding_grinding_bits):

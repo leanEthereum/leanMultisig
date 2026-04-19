@@ -1,11 +1,19 @@
-use std::ops::Mul;
-
 use backend::*;
 
-use crate::{MIN_VARS_FOR_PACKING, N_VARS_TO_SEND_GKR_COEFFS};
+use crate::N_VARS_TO_SEND_GKR_COEFFS;
 
 /*
-GKR to compute sum of fractions.
+GKR to compute a sum of fractions, right-to-left variant.
+
+Conventions (same as crates/sub_protocols/src/air_sumcheck.rs):
+  - MLE storage is lexicographic: for a MultilinearPoint (x_0, ..., x_{L-1}),
+    x_0 is the MSB of the storage index and x_{L-1} is the LSB.
+  - Variables are bound right-to-left: round 0 binds X_{K-1} (the LSB of the
+    storage), round r binds X_{K-1-r}. Accordingly the GKR layer reduction
+    collapses the LSB (pairs (2i, 2i+1)), and the per-layer sumcheck also
+    folds the LSB first.
+  - This implementation is intentionally unoptimized: everything runs on
+    Vec<EF>. No packing, no bit reversal, no SplitEq. Those come back later.
 */
 
 pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
@@ -13,198 +21,206 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     numerators: &MleRef<'_, EF>,
     denominators: &MleRef<'_, EF>,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
-    assert!(numerators.n_vars() == denominators.n_vars());
+    assert_eq!(numerators.n_vars(), denominators.n_vars());
     assert!(numerators.n_vars() > N_VARS_TO_SEND_GKR_COEFFS);
-    assert!(numerators.is_packed() == denominators.is_packed());
-    let mut layers: Vec<(Mle<'_, EF>, Mle<'_, EF>)> =
-        vec![(numerators.soft_clone().into(), denominators.soft_clone().into())];
 
+    let nums0: Vec<EF> = mle_ref_to_vec_ef(numerators);
+    let dens0: Vec<EF> = mle_ref_to_vec_ef(denominators);
+
+    let mut layers: Vec<(Vec<EF>, Vec<EF>)> = vec![(nums0, dens0)];
     loop {
-        let mut prev_numerators: Mle<'_, _> = layers.last().unwrap().0.by_ref().soft_clone().into();
-        let mut prev_denominators: Mle<'_, _> = layers.last().unwrap().1.by_ref().soft_clone().into();
-        if prev_numerators.is_packed() && prev_numerators.n_vars() < MIN_VARS_FOR_PACKING {
-            (prev_numerators, prev_denominators) = (
-                prev_numerators.unpack().as_owned_or_clone().into(),
-                prev_denominators.unpack().as_owned_or_clone().into(),
-            )
-        }
-        if prev_numerators.n_vars() <= N_VARS_TO_SEND_GKR_COEFFS {
+        let (cur_n, cur_d) = layers.last().unwrap();
+        let n_vars = cur_n.len().trailing_zeros() as usize;
+        if n_vars <= N_VARS_TO_SEND_GKR_COEFFS {
             break;
         }
-        let (new_numerators, new_denominators) = sum_quotients(prev_numerators.by_ref(), prev_denominators.by_ref());
-        layers.push((new_numerators.into(), new_denominators.into()));
+        let (nn, nd) = sum_quotients(cur_n, cur_d);
+        layers.push((nn, nd));
     }
 
-    let (last_numerators_mle, last_denominators_mle) = layers.pop().unwrap();
-    let last_numerators_owned = last_numerators_mle.unpack().as_owned_or_clone();
-    let last_denominators_owned = last_denominators_mle.unpack().as_owned_or_clone();
-    let last_numerators = last_numerators_owned.as_extension().unwrap();
-    let last_denominators = last_denominators_owned.as_extension().unwrap();
-    prover_state.add_extension_scalars(last_numerators);
-    prover_state.add_extension_scalars(last_denominators);
-    let quotient = compute_quotient(last_numerators, last_denominators);
+    let (top_nums, top_dens) = layers.pop().unwrap();
+    prover_state.add_extension_scalars(&top_nums);
+    prover_state.add_extension_scalars(&top_dens);
+    let quotient = compute_quotient(&top_nums, &top_dens);
 
     let mut point = MultilinearPoint(prover_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
-    let mut claims = vec![last_numerators.evaluate(&point), last_denominators.evaluate(&point)];
+    let mut claim_num = top_nums.evaluate(&point);
+    let mut claim_den = top_dens.evaluate(&point);
 
-    for (nums, denoms) in layers.iter().rev() {
-        (point, claims) = prove_gkr_quotient_step(prover_state, nums, denoms, &point, claims);
+    for (nums, dens) in layers.iter().rev() {
+        let (next_point, next_num, next_den) =
+            prove_gkr_quotient_step(prover_state, nums, dens, &point, claim_num, claim_den);
+        point = next_point;
+        claim_num = next_num;
+        claim_den = next_den;
     }
-    assert_eq!(claims.len(), 2);
-    (quotient, point, claims[0], claims[1])
+
+    (quotient, point, claim_num, claim_den)
 }
 
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    numerators: &Mle<'_, EF>,
-    denominators: &Mle<'_, EF>,
-    claim_point: &MultilinearPoint<EF>,
-    claims: Vec<EF>,
-) -> (MultilinearPoint<EF>, Vec<EF>) {
+    nums: &[EF], // layer of size 2^{K+1}
+    dens: &[EF],
+    claim_point: &MultilinearPoint<EF>, // K coords, natural order
+    claim_num: EF,
+    claim_den: EF,
+) -> (MultilinearPoint<EF>, EF, EF) {
     let alpha = prover_state.sample();
-    assert_eq!(claims.len(), 2);
-    let sum = claims[0] + claims[1] * alpha;
-    let extra_data: Vec<EF> = alpha.powers().take(2).collect();
+    let expected_sum = claim_num + alpha * claim_den;
 
-    let (mut next_point, inner_evals) = match (numerators.by_ref(), denominators.by_ref()) {
-        (MleRef::BasePacked(nums), MleRef::ExtensionPacked(dens)) => {
-            prove_gkr_quotient_step_base_ext(prover_state, nums, dens, claim_point, &extra_data, sum)
-        }
-        _ => {
-            let ext_nums_unpacked: Vec<EF>;
-            let group = match (numerators.by_ref(), denominators.by_ref()) {
-                (MleRef::ExtensionPacked(numerators), MleRef::ExtensionPacked(denominators)) => {
-                    let (ln, rn) = numerators.split_at(numerators.len() / 2);
-                    let (ld, rd) = denominators.split_at(denominators.len() / 2);
-                    MleGroupRef::ExtensionPacked(vec![ln, rn, ld, rd])
-                }
-                (MleRef::Extension(numerators), MleRef::Extension(denominators)) => {
-                    let (ln, rn) = numerators.split_at(numerators.len() / 2);
-                    let (ld, rd) = denominators.split_at(denominators.len() / 2);
-                    MleGroupRef::Extension(vec![ln, rn, ld, rd])
-                }
-                (MleRef::Base(numerators), MleRef::Extension(denominators)) => {
-                    ext_nums_unpacked = numerators.iter().map(|&x| EF::from(x)).collect();
-                    let (ln, rn) = ext_nums_unpacked.split_at(ext_nums_unpacked.len() / 2);
-                    let (ld, rd) = denominators.split_at(denominators.len() / 2);
-                    MleGroupRef::Extension(vec![ln, rn, ld, rd])
-                }
-                _ => unreachable!(),
-            };
-            let (point, evals, _) = sumcheck_prove::<EF, _, _>(
-                group,
-                &GKRQuotientComputation {},
-                &extra_data,
-                Some(claim_point.0.clone()),
-                prover_state,
-                sum,
-                false,
-            );
-            (point, evals)
-        }
-    };
+    // LSB split of the parent layer.
+    let (num_l, num_r) = even_odd_split(nums);
+    let (den_l, den_r) = even_odd_split(dens);
+
+    let (mut q_natural, inner_evals) = rtl_gkr_quotient_sumcheck_prove(
+        prover_state,
+        num_l,
+        num_r,
+        den_l,
+        den_r,
+        &claim_point.0,
+        alpha,
+        expected_sum,
+    );
 
     prover_state.add_extension_scalars(&inner_evals);
     let beta = prover_state.sample();
 
-    let next_claims = inner_evals
-        .chunks_exact(2)
-        .map(|chunk| chunk.evaluate(&MultilinearPoint(vec![beta])))
-        .collect::<Vec<_>>();
+    let nl_q = inner_evals[0];
+    let nr_q = inner_evals[1];
+    let dl_q = inner_evals[2];
+    let dr_q = inner_evals[3];
 
-    next_point.0.insert(0, beta);
+    let one_minus_beta = EF::ONE - beta;
+    let next_num = one_minus_beta * nl_q + beta * nr_q;
+    let next_den = one_minus_beta * dl_q + beta * dr_q;
 
-    (next_point, next_claims)
+    // q_natural has K coords; new layer's claim point is q || [β] (β is the
+    // new LSB, i.e. the X_K that was just reduced from the parent layer).
+    q_natural.push(beta);
+    (MultilinearPoint(q_natural), next_num, next_den)
 }
 
-fn prove_gkr_quotient_step_base_ext<EF: ExtensionField<PF<EF>>>(
+// Runs a right-to-left sumcheck proving:
+//   expected_sum = Σ_{b ∈ {0,1}^K} eq(b, eq_point)
+//                   · [num_l(b)·den_r(b) + num_r(b)·den_l(b) + α · den_l(b)·den_r(b)]
+//
+// Each of `num_l, num_r, den_l, den_r` is a K-variable MLE stored in
+// lexicographic order (its LSB = X_{K-1}).  We bind the LSB in round 0, the
+// new LSB in round 1, and so on, until K challenges have been sampled.
+//
+// Returns (q, [num_l(q), num_r(q), den_l(q), den_r(q)]) where `q` is in
+// natural order (x_0, ..., x_{K-1}).
+#[allow(clippy::too_many_arguments)]
+fn rtl_gkr_quotient_sumcheck_prove<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    nums: &[PFPacking<EF>],
-    dens: &[EFPacking<EF>],
-    claim_point: &MultilinearPoint<EF>,
-    extra_data: &[EF],
-    sum: EF,
-) -> (MultilinearPoint<EF>, Vec<EF>) {
-    let eq_point = &claim_point.0;
-    let n_vars = eq_point.len();
-    let alpha = extra_data[1];
+    mut num_l: Vec<EF>,
+    mut num_r: Vec<EF>,
+    mut den_l: Vec<EF>,
+    mut den_r: Vec<EF>,
+    eq_point: &[EF],
+    alpha: EF,
+    expected_sum: EF,
+) -> (Vec<EF>, [EF; 4]) {
+    let k = eq_point.len();
+    debug_assert_eq!(num_l.len(), 1 << k);
+    debug_assert_eq!(num_r.len(), 1 << k);
+    debug_assert_eq!(den_l.len(), 1 << k);
+    debug_assert_eq!(den_r.len(), 1 << k);
 
-    let half = nums.len() / 2;
-    let (nl, nr) = nums.split_at(half);
-    let (dl, dr) = dens.split_at(half);
+    // Invariant entering round r:
+    //   sum = mmf · natural_H_r(evaluated via folded arrays)
+    //   mmf = Π_{i<r} eq(α_i, r_i)
+    // The round polynomial we send is mmf · natural_H_r(z); scaling by mmf keeps
+    // the identity sum = (1-α_r)·h_r(0) + α_r·h_r(1) consistent with the
+    // verifier's interpretation of the `Some(α)` back-loaded batching (which
+    // tracks target *= eq(α_r, r_r) each round).
+    let mut sum = expected_sum;
+    let mut mmf = EF::ONE;
+    // q is built in natural order: the first challenge we sample binds X_{K-1}
+    // and so occupies slot K-1 of q; the next binds X_{K-2}, etc.  We prepend
+    // each new challenge.
+    let mut q_natural: Vec<EF> = Vec::with_capacity(k);
 
-    let mut split_eq = SplitEq::new(&eq_point[1..]);
-    let poly_0 =
-        compute_gkr_quotient_sumcheck_polynomial_split_eq(nl, nr, dl, dr, alpha, eq_point[0], &split_eq, EF::ONE, sum);
-    prover_state.add_sumcheck_polynomial(&poly_0.coeffs, Some(eq_point[0]));
-    let challenge_0 = prover_state.sample();
+    // `remaining_eq` shrinks from the back each round — its last entry is the
+    // eq factor associated with the variable currently being bound.
+    let mut remaining_eq: Vec<EF> = eq_point.to_vec();
 
-    let eq_eval_0 = (EF::ONE - eq_point[0]) * (EF::ONE - challenge_0) + eq_point[0] * challenge_0;
-    let sum_1 = poly_0.evaluate(challenge_0) * eq_eval_0;
-    let mmf_1 = eq_eval_0 / (EF::ONE - eq_point.get(1).copied().unwrap_or_default());
+    for _round in 0..k {
+        let eq_alpha = *remaining_eq.last().unwrap();
+        let eq_prefix: &[EF] = &remaining_eq[..remaining_eq.len() - 1];
+        let eq_table: Vec<EF> = if eq_prefix.is_empty() {
+            vec![EF::ONE]
+        } else {
+            eval_eq(eq_prefix)
+        };
 
-    split_eq.truncate_half();
-    let r = challenge_0;
-    let r_packed = EFPacking::<EF>::from(r);
-    let fold_base = |u: &[PFPacking<EF>], i: usize, half: usize, quarter: usize| {
-        let left = r_packed * (u[i + half] - u[i]) + u[i];
-        let right = r_packed * (u[i + half + quarter] - u[i + quarter]) + u[i + quarter];
-        (left, right)
-    };
-    let fold_ext = |u: &[EFPacking<EF>], i: usize, half: usize, quarter: usize| {
-        let left = (u[i + half] - u[i]) * r + u[i];
-        let right = (u[i + half + quarter] - u[i + quarter]) * r + u[i + quarter];
-        (left, right)
-    };
-    let (poly_1, folded) = fold_and_compute_gkr_quotient_split_eq(
-        nl,
-        nr,
-        dl,
-        dr,
-        fold_base,
-        fold_ext,
-        alpha,
-        eq_point[1],
-        &split_eq,
-        mmf_1,
-        sum_1,
-    );
-    prover_state.add_sumcheck_polynomial(&poly_1.coeffs, Some(eq_point[1]));
-    let challenge_1 = prover_state.sample();
+        let half = num_l.len() / 2; // number of LSB pairs
+        debug_assert_eq!(eq_table.len(), half);
 
-    let eq_eval_1 = (EF::ONE - eq_point[1]) * (EF::ONE - challenge_1) + eq_point[1] * challenge_1;
-    let sum_2 = poly_1.evaluate(challenge_1) * eq_eval_1;
-    let mmf_2 = eq_eval_0 * eq_eval_1;
+        // H(z) = Σ_j eq_table[j] · [ NL(j,z) · DR(j,z) + NR(j,z) · DL(j,z)
+        //                           + α · DL(j,z) · DR(j,z) ]
+        // where NL(j,z) = num_l[2j] + z·(num_l[2j+1] - num_l[2j]), etc.
+        // H has degree 2; evaluate at z=0 and z=2, reconstruct z=1 from sum
+        // constraint.
+        let mut h0_raw = EF::ZERO;
+        let mut h2_raw = EF::ZERO;
+        for j in 0..half {
+            let nl0 = num_l[2 * j];
+            let nl1 = num_l[2 * j + 1];
+            let nr0 = num_r[2 * j];
+            let nr1 = num_r[2 * j + 1];
+            let dl0 = den_l[2 * j];
+            let dl1 = den_l[2 * j + 1];
+            let dr0 = den_r[2 * j];
+            let dr1 = den_r[2 * j + 1];
 
-    let group = MleGroupOwned::ExtensionPacked(folded);
+            let inner0 = nl0 * dr0 + nr0 * dl0 + alpha * dl0 * dr0;
 
-    let (remaining_point, final_group, _) = sumcheck_prove_many_rounds(
-        group,
-        Some(challenge_1),
-        &GKRQuotientComputation {},
-        &extra_data.to_vec(),
-        Some(eq_point[2..].to_vec()),
-        prover_state,
-        sum_2,
-        Some(mmf_2),
-        n_vars - 2,
-        false,
-        0,
-    );
+            let nl2 = nl1.double() - nl0;
+            let nr2 = nr1.double() - nr0;
+            let dl2 = dl1.double() - dl0;
+            let dr2 = dr1.double() - dr0;
+            let inner2 = nl2 * dr2 + nr2 * dl2 + alpha * dl2 * dr2;
 
-    let final_group = final_group.by_ref().unpack().as_owned_or_clone();
-    let final_folds = final_group.as_extension().unwrap();
-    let inner_evals: Vec<EF> = final_folds
-        .iter()
-        .map(|m| {
-            assert_eq!(m.len(), 1);
-            m[0]
-        })
-        .collect();
+            h0_raw += eq_table[j] * inner0;
+            h2_raw += eq_table[j] * inner2;
+        }
 
-    let mut point = MultilinearPoint(vec![challenge_0, challenge_1]);
-    point.0.extend(remaining_point.0);
-    (point, inner_evals)
+        let h0 = h0_raw * mmf;
+        let h2 = h2_raw * mmf;
+
+        // sum = (1 - eq_alpha)·h(0) + eq_alpha·h(1)
+        let h1 = (sum - (EF::ONE - eq_alpha) * h0) / eq_alpha;
+
+        let bare = DensePolynomial::lagrange_interpolation(&[
+            (PF::<EF>::ZERO, h0),
+            (PF::<EF>::ONE, h1),
+            (PF::<EF>::from_usize(2), h2),
+        ])
+        .unwrap();
+
+        prover_state.add_sumcheck_polynomial(&bare.coeffs, Some(eq_alpha));
+        let r = prover_state.sample();
+
+        // Next round's sum = full(r) = eq(eq_alpha, r) · h(r).
+        let eq_eval = (EF::ONE - eq_alpha) * (EF::ONE - r) + eq_alpha * r;
+        sum = eq_eval * bare.evaluate(r);
+        mmf *= eq_eval;
+
+        num_l = fold_lsb(&num_l, r);
+        num_r = fold_lsb(&num_r, r);
+        den_l = fold_lsb(&den_l, r);
+        den_r = fold_lsb(&den_r, r);
+
+        q_natural.insert(0, r);
+        remaining_eq.pop();
+    }
+
+    debug_assert_eq!(num_l.len(), 1);
+    let evals = [num_l[0], num_r[0], den_l[0], den_r[0]];
+    (q_natural, evals)
 }
 
 pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
@@ -213,91 +229,133 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
     assert!(n_vars > N_VARS_TO_SEND_GKR_COEFFS);
     let send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS;
-    let last_nums = verifier_state.next_extension_scalars_vec(send_len)?;
-    let last_dens = verifier_state.next_extension_scalars_vec(send_len)?;
-    let quotient: EF = compute_quotient(&last_nums, &last_dens);
+    let top_nums = verifier_state.next_extension_scalars_vec(send_len)?;
+    let top_dens = verifier_state.next_extension_scalars_vec(send_len)?;
+    let quotient = compute_quotient(&top_nums, &top_dens);
+
     let mut point = MultilinearPoint(verifier_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
-    let mut claims_num = last_nums.evaluate(&point);
-    let mut claims_den = last_dens.evaluate(&point);
-    for i in N_VARS_TO_SEND_GKR_COEFFS..n_vars {
-        (point, claims_num, claims_den) = verify_gkr_quotient_step(verifier_state, i, &point, claims_num, claims_den)?;
+    let mut claim_num = top_nums.evaluate(&point);
+    let mut claim_den = top_dens.evaluate(&point);
+
+    for k in N_VARS_TO_SEND_GKR_COEFFS..n_vars {
+        let (next_point, next_num, next_den) =
+            verify_gkr_quotient_step(verifier_state, k, &point, claim_num, claim_den)?;
+        point = next_point;
+        claim_num = next_num;
+        claim_den = next_den;
     }
-    Ok((quotient, point, claims_num, claims_den))
+
+    Ok((quotient, point, claim_num, claim_den))
 }
 
 fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut impl FSVerifier<EF>,
-    n_vars: usize,
-    point: &MultilinearPoint<EF>,
-    claims_num: EF,
-    claims_den: EF,
+    k: usize,
+    claim_point: &MultilinearPoint<EF>,
+    claim_num: EF,
+    claim_den: EF,
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
     let alpha = verifier_state.sample();
-    let expected_sum = claims_num + alpha * claims_den;
-    let postponed = sumcheck_verify(verifier_state, n_vars, 3, expected_sum, Some(&point.0))?;
+    let expected_sum = claim_num + alpha * claim_den;
+
+    let (q_natural, final_target) = rtl_gkr_quotient_sumcheck_verify(verifier_state, k, &claim_point.0, expected_sum)?;
+
     let inner_evals = verifier_state.next_extension_scalars_vec(4)?;
-    if postponed.value
-        != point.eq_poly_outside(&postponed.point)
-            * GKRQuotientComputation::eval_extension(
-                &Default::default(),
-                &inner_evals,
-                &alpha.powers().take(2).collect(),
-            )
-    {
+    let nl_q = inner_evals[0];
+    let nr_q = inner_evals[1];
+    let dl_q = inner_evals[2];
+    let dr_q = inner_evals[3];
+
+    let q_point = MultilinearPoint(q_natural.clone());
+    let eq_factor = claim_point.eq_poly_outside(&q_point);
+    let expected = eq_factor * (nl_q * dr_q + nr_q * dl_q + alpha * dl_q * dr_q);
+    if final_target != expected {
         return Err(ProofError::InvalidProof);
     }
+
     let beta = verifier_state.sample();
-    let next_claims_numerators = (&inner_evals[..2]).evaluate(&MultilinearPoint(vec![beta]));
-    let next_claims_denominators = (&inner_evals[2..]).evaluate(&MultilinearPoint(vec![beta]));
-    let mut next_point = postponed.point.clone();
-    next_point.0.insert(0, beta);
-    Ok((next_point, next_claims_numerators, next_claims_denominators))
+    let one_minus_beta = EF::ONE - beta;
+    let next_num = one_minus_beta * nl_q + beta * nr_q;
+    let next_den = one_minus_beta * dl_q + beta * dr_q;
+
+    let mut next_point = q_natural;
+    next_point.push(beta);
+    Ok((MultilinearPoint(next_point), next_num, next_den))
 }
 
-fn sum_quotients<EF: ExtensionField<PF<EF>>>(
-    numerators: MleRef<'_, EF>,
-    denominators: MleRef<'_, EF>,
-) -> (MleOwned<EF>, MleOwned<EF>) {
-    match (numerators, denominators) {
-        (MleRef::ExtensionPacked(n), MleRef::ExtensionPacked(d)) => {
-            let (nn, nd) = sum_quotients_2_by_2(n, d);
-            (MleOwned::ExtensionPacked(nn), MleOwned::ExtensionPacked(nd))
-        }
-        (MleRef::Extension(n), MleRef::Extension(d)) => {
-            let (nn, nd) = sum_quotients_2_by_2(n, d);
-            (MleOwned::Extension(nn), MleOwned::Extension(nd))
-        }
-        (MleRef::BasePacked(n), MleRef::ExtensionPacked(d)) => {
-            let (nn, nd) = sum_quotients_2_by_2(n, d);
-            (MleOwned::ExtensionPacked(nn), MleOwned::ExtensionPacked(nd))
-        }
-        _ => unreachable!(),
+// Mirror of rtl_gkr_quotient_sumcheck_prove: walks eq_point from the back, one
+// eq_alpha per round. Returns (q_natural, final_running_target) — the target
+// the caller must then cross-check against the inner_evals.
+fn rtl_gkr_quotient_sumcheck_verify<EF: ExtensionField<PF<EF>>>(
+    verifier_state: &mut impl FSVerifier<EF>,
+    k: usize,
+    eq_point: &[EF],
+    initial_sum: EF,
+) -> Result<(Vec<EF>, EF), ProofError> {
+    debug_assert_eq!(eq_point.len(), k);
+    let mut target = initial_sum;
+    let mut q_natural: Vec<EF> = Vec::with_capacity(k);
+    for round in 0..k {
+        let eq_alpha = eq_point[k - 1 - round];
+        let coeffs = verifier_state.next_sumcheck_polynomial(4, target, Some(eq_alpha))?;
+        let pol = DensePolynomial::new(coeffs);
+        let r = verifier_state.sample();
+        target = pol.evaluate(r);
+        q_natural.insert(0, r);
     }
+    Ok((q_natural, target))
 }
 
-fn sum_quotients_2_by_2<N, D>(numerators: &[N], denominators: &[D]) -> (Vec<D>, Vec<D>)
-where
-    N: Copy + Sync + Send,
-    D: PrimeCharacteristicRing + Sync + Send + Copy + Mul<N, Output = D>,
-{
-    let n = numerators.len();
-    assert_eq!(n, denominators.len());
+fn sum_quotients<EF: ExtensionField<PF<EF>>>(nums: &[EF], dens: &[EF]) -> (Vec<EF>, Vec<EF>) {
+    let n = nums.len();
+    assert_eq!(n, dens.len());
     let new_n = n / 2;
-    let mut new_numerators = unsafe { uninitialized_vec(new_n) };
-    let mut new_denominators = unsafe { uninitialized_vec(new_n) };
-    new_numerators
+    let mut new_nums = unsafe { uninitialized_vec(new_n) };
+    let mut new_dens = unsafe { uninitialized_vec(new_n) };
+    new_nums
         .par_iter_mut()
-        .zip(new_denominators.par_iter_mut())
+        .zip(new_dens.par_iter_mut())
         .enumerate()
         .for_each(|(i, (num, den))| {
-            *num = denominators[i + new_n] * numerators[i] + denominators[i] * numerators[i + new_n];
-            *den = denominators[i] * denominators[i + new_n];
+            // LSB pairing: combine storage positions 2i and 2i+1.
+            let n0 = nums[2 * i];
+            let n1 = nums[2 * i + 1];
+            let d0 = dens[2 * i];
+            let d1 = dens[2 * i + 1];
+            *num = d1 * n0 + d0 * n1;
+            *den = d0 * d1;
         });
-    (new_numerators, new_denominators)
+    (new_nums, new_dens)
 }
 
 fn compute_quotient<EF: ExtensionField<PF<EF>>>(numerators: &[EF], denominators: &[EF]) -> EF {
     numerators.iter().zip(denominators).map(|(&n, &d)| n / d).sum()
+}
+
+fn mle_ref_to_vec_ef<EF: ExtensionField<PF<EF>>>(mle: &MleRef<'_, EF>) -> Vec<EF> {
+    match mle {
+        MleRef::Base(v) => v.iter().map(|&x| EF::from(x)).collect(),
+        MleRef::Extension(v) => v.to_vec(),
+        MleRef::BasePacked(pb) => PFPacking::<EF>::unpack_slice(pb).iter().map(|&x| EF::from(x)).collect(),
+        MleRef::ExtensionPacked(ep) => unpack_extension(ep),
+    }
+}
+
+fn even_odd_split<EF: Copy>(v: &[EF]) -> (Vec<EF>, Vec<EF>) {
+    let half = v.len() / 2;
+    let mut l = Vec::with_capacity(half);
+    let mut r = Vec::with_capacity(half);
+    for i in 0..half {
+        l.push(v[2 * i]);
+        r.push(v[2 * i + 1]);
+    }
+    (l, r)
+}
+
+fn fold_lsb<EF: ExtensionField<PF<EF>>>(u: &[EF], r: EF) -> Vec<EF> {
+    (0..u.len() / 2)
+        .map(|j| u[2 * j] + r * (u[2 * j + 1] - u[2 * j]))
+        .collect()
 }
 
 #[cfg(test)]
