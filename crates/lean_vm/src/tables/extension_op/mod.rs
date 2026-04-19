@@ -106,16 +106,17 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         ]
     }
 
+    #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
+        let mut data = Vec::with_capacity(4);
+        data.push(BusData::Column(COL_AUX_EXTENSION_OP));
+        data.push(BusData::Column(COL_IDX_A));
+        data.push(BusData::Column(COL_IDX_B));
+        data.push(BusData::Column(COL_IDX_RES));
         Bus {
             direction: BusDirection::Pull,
             selector: COL_ACTIVATION_FLAG,
-            data: vec![
-                BusData::Column(COL_AUX_EXTENSION_OP),
-                BusData::Column(COL_IDX_A),
-                BusData::Column(COL_IDX_B),
-                BusData::Column(COL_IDX_RES),
-            ],
+            data,
         }
     }
 

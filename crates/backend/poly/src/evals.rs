@@ -346,6 +346,25 @@ where
     }
 }
 
+/// evaluate the MLE of [0, 0, ..., 0, 1, 1, ..., 1] at `alphas` where there are t zeros
+pub fn evaluate_mle_of_zero_then_ones<EF: ExtensionField<PF<EF>>>(t: usize, alphas: &[EF]) -> EF {
+    let n = alphas.len();
+    if t == 0 {
+        return EF::ONE;
+    }
+    if t >= 1usize << n {
+        return EF::ZERO;
+    }
+    let half = 1usize << (n - 1);
+    let alpha = alphas[0];
+    let sub = &alphas[1..];
+    if t < half {
+        (EF::ONE - alpha) * evaluate_mle_of_zero_then_ones(t, sub) + alpha
+    } else {
+        alpha * evaluate_mle_of_zero_then_ones(t - half, sub)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;

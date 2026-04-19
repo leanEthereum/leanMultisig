@@ -20,7 +20,7 @@ use utils::Counter;
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
-const BYTECODE_GUESSED_LOG_SIZE: usize = 19;
+const BYTECODE_GUESSED_LOG_SIZE: usize = 18;
 
 /// Format: `[32 bytes: SHA3-256 fingerprint][lz4(postcard(bytecode))]`
 #[cfg(not(any(feature = "prox-gaps-conjecture", feature = "test-config")))]
