@@ -475,8 +475,10 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br<EF: ExtensionField<PF<EF>>>(
         den_r,
         initial_chunk_log,
         eq_point.to_vec(),
+        Vec::with_capacity(eq_point.len()),
         alpha,
         expected_sum,
+        EF::ONE,
     )
 }
 
@@ -523,6 +525,7 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
 
     let (h0_pkg, h2_pkg) = (0..new_packed_len)
         .into_par_iter()
+        .with_min_len(PARALLEL_THRESHOLD)
         .fold(
             || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
             |(mut acc0, mut acc2), new_j| {
@@ -581,7 +584,7 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     let den_l = fold_multilinear_at_bit(&den_l, r0, bit, &|v, a| v * a);
     let den_r = fold_multilinear_at_bit(&den_r, r0, bit, &|v, a| v * a);
 
-    run_phase1_packed_continue(
+    run_phase1_packed(
         prover_state,
         num_l,
         num_r,
@@ -596,43 +599,12 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     )
 }
 
-/// Run phase-1 rounds starting from unfolded packed-BR arrays (no pending fold).
+/// Run phase-1 rounds. Does non-fused compute on round 0 (no pending fold),
+/// then fuses fold-from-previous + compute-for-current on subsequent rounds.
+/// Transitions to the unpacked loop when chunks shrink to one packed word or
+/// SplitEq can no longer stay in packed mode.
 #[allow(clippy::too_many_arguments)]
 fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    num_l: Vec<EFPacking<EF>>,
-    num_r: Vec<EFPacking<EF>>,
-    den_l: Vec<EFPacking<EF>>,
-    den_r: Vec<EFPacking<EF>>,
-    chunk_log: usize,
-    remaining_eq: Vec<EF>,
-    alpha: EF,
-    expected_sum: EF,
-) -> (Vec<EF>, [EF; 4]) {
-    let k = remaining_eq.len();
-    let mut q_natural: Vec<EF> = Vec::with_capacity(k);
-    run_phase1_packed_continue(
-        prover_state,
-        num_l,
-        num_r,
-        den_l,
-        den_r,
-        chunk_log,
-        remaining_eq,
-        std::mem::take(&mut q_natural),
-        alpha,
-        expected_sum,
-        EF::ONE,
-    )
-}
-
-/// Continue phase-1 rounds from existing (partially-processed) state. Runs
-/// non-fused round 0 (if no earlier rounds have been done), then fuses
-/// fold-from-previous + compute-for-current on subsequent rounds, transitioning
-/// to the unpacked loop when chunks shrink to one packed word or SplitEq can
-/// no longer stay in packed mode.
-#[allow(clippy::too_many_arguments)]
-fn run_phase1_packed_continue<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     mut num_l: Vec<EFPacking<EF>>,
     mut num_r: Vec<EFPacking<EF>>,
@@ -753,6 +725,7 @@ fn compute_round_packed<EF: ExtensionField<PF<EF>>>(
 
     (0..new_packed_len)
         .into_par_iter()
+        .with_min_len(PARALLEL_THRESHOLD)
         .fold(
             || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
             |(mut acc0, mut acc2), new_j| {
@@ -1161,7 +1134,7 @@ fn bit_reverse_chunks_and_pack<EF: ExtensionField<PF<EF>>>(v: &[EF], chunk_log: 
 /// un-bit-reverse each chunk of size 2^chunk_log, giving a natural-order
 /// Vec<EF>. When `chunk_log == 0`, this is just an unpack.
 fn unpack_and_unreverse<EF: ExtensionField<PF<EF>>>(v: &[EFPacking<EF>], chunk_log: usize) -> Vec<EF> {
-    let unpacked: Vec<EF> = unpack_extension(v);
+    let unpacked: Vec<EF> = unpack_extension_fast::<EF>(v);
     if chunk_log == 0 {
         return unpacked;
     }
