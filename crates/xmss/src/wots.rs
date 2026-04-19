@@ -21,18 +21,20 @@ pub struct WotsSignature {
         bound(serialize = "F: Serialize", deserialize = "F: Deserialize<'de>")
     )]
     pub chain_tips: [Digest; V],
-    pub randomness: [F; RANDOMNESS_LEN_FE],
+    pub randomness: Randomness,
 }
 
 impl WotsSecretKey {
-    pub fn random(rng: &mut impl CryptoRng) -> Self {
-        Self::new(rng.random())
+    pub fn random(rng: &mut impl CryptoRng, public_param: PublicParam, slot: u32) -> Self {
+        Self::new(rng.random(), public_param, slot)
     }
 
-    pub fn new(pre_images: [Digest; V]) -> Self {
+    pub fn new(pre_images: [Digest; V], public_param: PublicParam, slot: u32) -> Self {
         Self {
             pre_images,
-            public_key: WotsPublicKey(std::array::from_fn(|i| iterate_hash(&pre_images[i], CHAIN_LENGTH - 1))),
+            public_key: WotsPublicKey(std::array::from_fn(|i| {
+                iterate_hash(&pre_images[i], CHAIN_LENGTH - 1, public_param, slot, i, 0)
+            })),
         }
     }
 
@@ -44,16 +46,24 @@ impl WotsSecretKey {
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-        randomness: [F; RANDOMNESS_LEN_FE],
+        xmss_pub_key: &XmssPublicKey,
+        randomness: Randomness,
     ) -> WotsSignature {
-        let encoding = wots_encode(message, slot, truncated_merkle_root, &randomness).unwrap();
-        self.sign_with_encoding(randomness, &encoding)
+        let encoding = wots_encode(message, slot, xmss_pub_key, &randomness).unwrap();
+        self.sign_with_encoding(randomness, &encoding, xmss_pub_key.public_param, slot)
     }
 
-    fn sign_with_encoding(&self, randomness: [F; RANDOMNESS_LEN_FE], encoding: &[u8; V]) -> WotsSignature {
+    fn sign_with_encoding(
+        &self,
+        randomness: Randomness,
+        encoding: &[u8; V],
+        public_param: PublicParam,
+        slot: u32,
+    ) -> WotsSignature {
         WotsSignature {
-            chain_tips: std::array::from_fn(|i| iterate_hash(&self.pre_images[i], encoding[i] as usize)),
+            chain_tips: std::array::from_fn(|i| {
+                iterate_hash(&self.pre_images[i], encoding[i] as usize, public_param, slot, i, 0)
+            }),
             randomness,
         }
     }
@@ -64,40 +74,76 @@ impl WotsSignature {
         &self,
         message: &[F; MESSAGE_LEN_FE],
         slot: u32,
-        truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+        xmss_pub_key: &XmssPublicKey,
         signature: &Self,
     ) -> Option<WotsPublicKey> {
-        let encoding = wots_encode(message, slot, truncated_merkle_root, &signature.randomness)?;
+        let encoding = wots_encode(message, slot, xmss_pub_key, &signature.randomness)?;
         Some(WotsPublicKey(std::array::from_fn(|i| {
-            iterate_hash(&self.chain_tips[i], CHAIN_LENGTH - 1 - encoding[i] as usize)
+            iterate_hash(
+                &self.chain_tips[i],
+                CHAIN_LENGTH - 1 - encoding[i] as usize,
+                xmss_pub_key.public_param,
+                slot,
+                i,
+                encoding[i] as usize,
+            )
         })))
     }
 }
 
 impl WotsPublicKey {
-    pub fn hash(&self) -> Digest {
-        let init = poseidon16_compress_pair(&self.0[0], &self.0[1]);
-        self.0[2..]
-            .iter()
-            .fold(init, |digest, chunk| poseidon16_compress_pair(&digest, chunk))
+    // We use a T-Sponge with replacement, i.e. we use Poseidon in compression mode + replace (instead of modular addition) when ingesting 8 new field elements.
+    pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
+        // IV: [tweak(2) | 00 | pp(4)]
+        let tweak = make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot);
+        let mut state = [F::default(); 8];
+        state[..TWEAK_LEN].copy_from_slice(&tweak);
+        // state[2..4] = 00 (default)
+        state[4..4 + PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
+
+        let zeros = [F::ZERO; 8]; // for snark-friendliless (not necessary for security)
+        state = poseidon16_compress_pair(&state, &zeros);
+
+        for i in (0..V).step_by(2) {
+            let mut chunk = [F::default(); 8];
+            chunk[..XMSS_DIGEST_LEN].copy_from_slice(&self.0[i]);
+            chunk[XMSS_DIGEST_LEN..].copy_from_slice(&self.0[i + 1]);
+            state = poseidon16_compress_pair(&state, &chunk);
+        }
+        state[..XMSS_DIGEST_LEN].try_into().unwrap()
     }
 }
 
-pub fn iterate_hash(a: &Digest, n: usize) -> Digest {
-    (0..n).fold(*a, |acc, _| poseidon16_compress_pair(&acc, &Default::default()))
+pub fn iterate_hash(
+    a: &Digest,
+    n: usize,
+    public_param: PublicParam,
+    slot: u32,
+    chain_index: usize,
+    start_step: usize,
+) -> Digest {
+    // Chain hash layout: left = [tweak (2) | zeros (2) | data (4)], right = [public_param(4) | zeros(4)].
+    let right = build_right_chain_input(&public_param);
+    (0..n).fold(*a, |acc, j| {
+        let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
+        let left = build_left_chain_input(tweak, &acc);
+        poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
+            .try_into()
+            .unwrap()
+    })
 }
 
 pub fn find_randomness_for_wots_encoding(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
+    xmss_pub_key: &XmssPublicKey,
     rng: &mut impl CryptoRng,
-) -> ([F; RANDOMNESS_LEN_FE], [u8; V], usize) {
+) -> (Randomness, [u8; V], usize) {
     let mut num_iters = 0;
     loop {
         num_iters += 1;
         let randomness = rng.random();
-        if let Some(encoding) = wots_encode(message, slot, truncated_merkle_root, &randomness) {
+        if let Some(encoding) = wots_encode(message, slot, xmss_pub_key, &randomness) {
             return (randomness, encoding, num_iters);
         }
     }
@@ -106,24 +152,18 @@ pub fn find_randomness_for_wots_encoding(
 pub fn wots_encode(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    truncated_merkle_root: &[F; TRUNCATED_MERKLE_ROOT_LEN_FE],
-    randomness: &[F; RANDOMNESS_LEN_FE],
+    xmss_pub_key: &XmssPublicKey,
+    randomness: &Randomness,
 ) -> Option<[u8; V]> {
-    // Encode slot as 2 field elements (16 bits each)
-    let [slot_lo, slot_hi] = slot_to_field_elements(slot);
+    let first_input_left = message;
+    let mut first_input_right = [F::default(); DIGEST_LEN_FE];
+    first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
+    first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
+    let pre_compressed = poseidon16_compress_pair(first_input_left, &first_input_right);
 
-    // A = poseidon(message (9 fe), randomness (7 fe))
-    let mut a_input_right = [F::default(); 8];
-    a_input_right[0] = message[8];
-    a_input_right[1..1 + RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    let a = poseidon16_compress_pair(message[..8].try_into().unwrap(), &a_input_right);
-
-    // B = poseidon(A (8 fe), slot (2 fe), truncated_merkle_root (6 fe))
-    let mut b_input_right = [F::default(); 8];
-    b_input_right[0] = slot_lo;
-    b_input_right[1] = slot_hi;
-    b_input_right[2..8].copy_from_slice(truncated_merkle_root);
-    let compressed = poseidon16_compress_pair(&a, &b_input_right);
+    let mut second_input_right = [F::default(); DIGEST_LEN_FE];
+    second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
+    let compressed = poseidon16_compress_pair(&pre_compressed, &second_input_right);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding
@@ -134,7 +174,7 @@ pub fn wots_encode(
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .collect::<Vec<_>>()
         .chunks_exact(W)
-        .take(V + V_GRINDING)
+        .take(V)
         .map(|chunk| {
             chunk
                 .iter()
@@ -146,27 +186,14 @@ pub fn wots_encode(
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {
-    if encoding.len() != V + V_GRINDING {
+    if encoding.len() != V {
         return false;
     }
-    // All indices must be < CHAIN_LENGTH
     if !encoding.iter().all(|&x| (x as usize) < CHAIN_LENGTH) {
         return false;
     }
-    // First V indices must sum to TARGET_SUM
-    if encoding[..V].iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
-        return false;
-    }
-    // Last V_GRINDING indices must all be CHAIN_LENGTH-1 (grinding constraint)
-    if !encoding[V..].iter().all(|&x| x as usize == CHAIN_LENGTH - 1) {
+    if encoding.iter().map(|&x| x as usize).sum::<usize>() != TARGET_SUM {
         return false;
     }
     true
-}
-
-pub fn slot_to_field_elements(slot: u32) -> [F; 2] {
-    [
-        F::from_usize((slot & 0xFFFF) as usize),
-        F::from_usize(((slot >> 16) & 0xFFFF) as usize),
-    ]
 }

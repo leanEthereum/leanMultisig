@@ -31,7 +31,7 @@ Machine: M4 Max 48GB (CPU only)
 ### XMSS aggregation
 
 ```bash
-cargo run --release -- xmss --n-signatures 1400
+cargo run --release -- xmss --n-signatures 1500
 ```
 
 | WHIR rate \ regime | Proven               | Conjectured          |
