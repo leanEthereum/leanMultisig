@@ -192,6 +192,7 @@ fn prove_gkr_quotient_step_base_ext<EF: ExtensionField<PF<EF>>>(
         0,
     );
 
+    let final_group = final_group.by_ref().unpack().as_owned_or_clone();
     let final_folds = final_group.as_extension().unwrap();
     let inner_evals: Vec<EF> = final_folds
         .iter()
