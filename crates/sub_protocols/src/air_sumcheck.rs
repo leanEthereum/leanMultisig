@@ -6,14 +6,14 @@ use backend::*;
 use lean_vm::ColIndex;
 use tracing::info_span;
 
-/// Sumcheck to prove validity of AIR constraints
-///
-/// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
-///
-/// 2] We fold variables 'right-to-left' (X_{L-1}, X_{L-2}, ..., X_0), but
-/// use a custom storage layout to keep SIMD on the early rounds (does not
-/// impact the verifier):
-///
+// Sumcheck to prove validity of AIR constraints
+//
+// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
+//
+// 2] We fold variables 'right-to-left' (X_{L-1}, X_{L-2}, ..., X_0), but
+// use a custom storage layout to keep SIMD on the early rounds (does not
+// impact the verifier):
+//
 // Let L = number of variables, r = current round index (0 ≤ r < L),
 // P = min(ENDIANNESS_PIVOT, L), w = packing_log_width (SIMD lane-index bits),
 // and "storage-index bit" = the bit of the storage index that round r's
@@ -98,9 +98,8 @@ where
                         for (src_chunk, dst_chunk) in
                             src_u.chunks_exact(chunk_size).zip(dst_u.chunks_exact_mut(chunk_size))
                         {
-                            for p in 0..chunk_size {
-                                let q = p.reverse_bits() >> shift;
-                                dst_chunk[p] = src_chunk[q];
+                            for (p, slot) in dst_chunk.iter_mut().enumerate() {
+                                *slot = src_chunk[p.reverse_bits() >> shift];
                             }
                         }
                         dst
@@ -367,6 +366,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_raw_poly_impl<EF, A, IF, EFT, GetEq, UnpackSum>(
     cols: &[&[IF]],
     get_split_eq: GetEq,
