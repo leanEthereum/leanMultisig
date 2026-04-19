@@ -11,7 +11,7 @@ use tracing::info_span;
 /// 1] We use back-loaded batching (see https://hackmd.io/s/HyxaupAAA)
 ///
 /// 2] We fold variables 'right-to-left' (X_{L-1}, X_{L-2}, ..., X_0), but
-/// use a custom storage loayout to keep SIMD on the early rounds (does not
+/// use a custom storage layout to keep SIMD on the early rounds (does not
 /// impact the verifier):
 ///
 // Let L = number of variables, r = current round index (0 ≤ r < L),
@@ -20,13 +20,11 @@ use tracing::info_span;
 // fold_at_bit targets.
 //
 // We bit-reverse the storage of each column within chunks of 2^P elements (once, at init).
-// Under this layout X_{L-1-r} sits at storage-index bit P-1-r, so the fold schedule has three phases:
-//   - Phase 1, rounds [0, P-w): storage-index bit in [w, P) — across whole
-//     packed vecs, fully SIMD (the biggest rounds).
-//   - Phase 2, rounds [P-w, P): storage-index bit in [0, w) — within-lane, so
+// The fold schedule has three phases:
+//   - Phase 1, rounds [0, P-w): storage-index bit in [w, P), fully SIMD.
+//   - Phase 2, rounds [P-w, P): storage-index bit in [0, w), within SIMD-lane, so
 //     we unpack before entering this phase.
-//   - Phase 3, rounds [P, L): storage-index bit 0 on unpacked storage — the
-//     baseline LSB-first loop.
+//   - Phase 3, rounds [P, L): storage-index bit 0 on unpacked storage
 // Edge case: when L = P (tables at the minimum size) phase 1 ends one round
 // early, at P-w-1, so `SplitEq` stays in packed mode (its eq_point needs length
 // > w; at round P-w-1 the eq_point has length L-(P-w-1)-1 = w).
@@ -51,8 +49,7 @@ where
     multilinears: MleGroup<'a, EF>,
     eq_factor: Vec<EF>, // The last element is removed at each round
     /// Active element count in the current storage. Always a multiple of
-    /// `2^{P - r}` through phases 1 and 2 (chunk-aligned), then ceil-halves
-    /// in phase 3.
+    /// `2^{P - r}` while r < P (chunk-aligned), then ceil-halves afterward.
     current_unpadded_len: usize,
     sum: EF,
     missing_mul_factor: EF,
@@ -92,7 +89,7 @@ where
                 let _span = info_span!("chunk-bit-reversing columns").entered();
                 let chunk_size = 1usize << pivot;
                 let shift = usize::BITS as usize - pivot;
-                let owned: Vec<Vec<PFPacking<EF>>> = cols
+                let bit_reversed = cols
                     .par_iter()
                     .map(|&src| {
                         let mut dst: Vec<PFPacking<EF>> = unsafe { uninitialized_vec(src.len()) };
@@ -109,7 +106,7 @@ where
                         dst
                     })
                     .collect();
-                MleGroup::Owned(MleGroupOwned::BasePacked(owned))
+                MleGroup::Owned(MleGroupOwned::BasePacked(bit_reversed))
             }
             _ => unreachable!(),
         };
@@ -499,7 +496,7 @@ pub fn compute_shifted_columns<F: Field>(air_down_column_indexes: &[usize], colu
         .map(|&col_index| {
             let column = columns[col_index];
             let mut down = unsafe { uninitialized_vec(column.len()) };
-            parallel_clone(&column[1..], &mut down[..column.len() - 1]);
+            down[..column.len() - 1].copy_from_slice(&column[1..]);
             down[column.len() - 1] = column[column.len() - 1];
             down
         })

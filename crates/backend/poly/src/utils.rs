@@ -193,21 +193,6 @@ pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
     }
 }
 
-pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
-    if src.len() < PARALLEL_THRESHOLD {
-        // sequential copy
-        dst.clone_from_slice(src);
-    } else {
-        assert_eq!(src.len(), dst.len());
-        let chunk_size = src.len() / rayon::current_num_threads().max(1);
-        dst.par_chunks_mut(chunk_size)
-            .zip(src.par_chunks(chunk_size))
-            .for_each(|(d, s)| {
-                d.clone_from_slice(s);
-            });
-    }
-}
-
 pub fn split_at_many<'a, A>(slice: &'a [A], indices: &[usize]) -> Vec<&'a [A]> {
     for i in 0..indices.len() {
         if i > 0 {
