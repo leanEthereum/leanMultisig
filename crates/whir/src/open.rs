@@ -505,9 +505,12 @@ where
             );
         }
 
-        // Build the structured weight polynomial (same as flat path), to be
-        // folded l_0 times alongside the SVO rounds and then materialized.
-        let (mut split, mut sum) = SplitWeights::<EF>::from_statements(statement, combination_randomness);
+        // Phase 3: compute the initial running sum directly from the
+        // statements (Σ γ^i · value_i) — we do not need the structured
+        // `SplitWeights` representation during the SVO rounds. The post-SVO
+        // weight vector is built once, at the end, via
+        // [`build_post_svo_weights`].
+        let mut sum = build_initial_sum(statement, combination_randomness);
 
         // Unpack evals (zero-copy for base) and build CompressedGroups.
         let unpacked_mle = evals.unpack();
@@ -521,33 +524,32 @@ where
 
         let mut challenges: Vec<EF> = Vec::with_capacity(l_0);
 
-        // Fold evals down to size 2^{l - l_0}. Start in base when applicable;
-        // lift to extension on round 0 via `lsb_fold_base_to_ext`.
-        let mut evals_ext: Vec<EF>;
-        if let Some(base) = f_base_opt {
-            let (h0, h1, h2) = round_message(0, &challenges, &accs);
-            let (c0, c2) = values_to_coeffs(h0, h1, h2);
-            let rho = sumcheck_finish_round(c0, c2, &mut sum, prover_state, pow_bits);
-            challenges.push(rho);
-            split.fold(rho);
-            evals_ext = lsb_fold_base_to_ext::<EF>(base, rho);
-        } else {
-            evals_ext = f_ext_opt
-                .expect("WHIR sumcheck input must be base or extension (no packed)")
-                .to_vec();
-        }
-
+        // Run all l_0 SVO rounds using only the accumulator pipeline — no
+        // per-round fold of `f`. Challenges are collected in natural sampling
+        // order (ρ_0, ρ_1, .., ρ_{l_0 - 1}). A persistent Lagrange tensor is
+        // extended once per round instead of rebuilt from scratch.
+        let mut lagrange: Vec<EF> = vec![EF::ONE];
         while challenges.len() < l_0 {
             let r = challenges.len();
-            let (h0, h1, h2) = round_message(r, &challenges, &accs);
+            let (h0, h1, h2) = round_message_with_tensor(r, &lagrange, &accs);
             let (c0, c2) = values_to_coeffs(h0, h1, h2);
             let rho = sumcheck_finish_round(c0, c2, &mut sum, prover_state, pow_bits);
             challenges.push(rho);
-            split.fold(rho);
-            evals_ext = lsb_fold(&evals_ext, rho);
+            lagrange_tensor_extend(&mut lagrange, rho);
         }
 
-        let weights = split.into_flat(evals_ext.len());
+        // Single-pass tensor fold of `f` down to size 2^{l - l_0}. Base-field
+        // input stays at `EF · F` cost per multiply (instead of promoting to
+        // EF after round 0, which would force `EF · EF` on subsequent rounds).
+        let evals_ext: Vec<EF> = if let Some(base) = f_base_opt {
+            fold_base_by_tensor::<EF>(base, &challenges)
+        } else {
+            let ext = f_ext_opt.expect("WHIR sumcheck input must be base or extension (no packed)");
+            fold_ext_by_tensor::<EF>(ext, &challenges)
+        };
+
+        let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
+        debug_assert_eq!(weights.len(), evals_ext.len());
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),
             weights,
@@ -555,6 +557,144 @@ where
         };
         (sumcheck, MultilinearPoint(challenges))
     }
+}
+
+/// Initial running sum `Σ γ^i · value_i` matching
+/// [`SplitWeights::from_statements`]'s `combined_sum` output.
+fn build_initial_sum<EF>(statements: &[SparseStatement<EF>], gamma: EF) -> EF
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let mut combined_sum = EF::ZERO;
+    let mut gamma_pow = EF::ONE;
+    for smt in statements {
+        for v in &smt.values {
+            combined_sum += v.value * gamma_pow;
+            gamma_pow *= gamma;
+        }
+    }
+    combined_sum
+}
+
+/// Build the post-SVO weight vector of size `2^{n - l_0}` directly from the
+/// sparse statements and the sampled `rhos = (ρ_0, .., ρ_{l_0 - 1})`.
+///
+/// Equivalent to `SplitWeights::from_statements(statement, γ).fold(ρ_0)...
+/// .fold(ρ_{l_0-1}).into_flat(2^{n - l_0})`, but skips the per-round
+/// `Θ(2^{n - r})` fold of the dense buffer (see Phase 3 in
+/// `whir_sumcheck_optim.md`).
+///
+/// For each statement group, the contribution to the post-SVO weight slice at
+/// selector `sel_j` is:
+/// - **eq, `m >= l_0`:** `α_j · scalar_eq · eval_eq(p[..m - l_0])` where
+///   `scalar_eq = Π_{k=0}^{l_0 - 1} eq(p[m - 1 - k], ρ_k)`.
+/// - **eq, `m < l_0` (spill):** a single scalar deposited at residual index
+///   `sel_j >> (l_0 - m)`, scaled by the inner and spill eq factors.
+/// - **nxt, `m >= l_0`:** `α_j · next_folded`, where `next_folded` is
+///   `matrix_next_mle_folded(p)` folded `l_0` times by the `ρ`s.
+///
+/// Panics for `nxt` with `m < l_0` — this is the eligibility precondition of
+/// the SVO path.
+fn build_post_svo_weights<EF>(statements: &[SparseStatement<EF>], gamma: EF, rhos: &[EF]) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let n = statements[0].total_num_variables;
+    let l_0 = rhos.len();
+    assert!(l_0 <= n);
+    let target_size = 1usize << (n - l_0);
+    let mut out = EF::zero_vec(target_size);
+    let mut gamma_pow = EF::ONE;
+
+    for smt in statements {
+        let m = smt.inner_num_variables();
+        let p = &smt.point.0;
+
+        let k = smt.values.len();
+        let mut alpha_powers: Vec<EF> = Vec::with_capacity(k);
+        for _ in 0..k {
+            alpha_powers.push(gamma_pow);
+            gamma_pow *= gamma;
+        }
+
+        if m >= l_0 {
+            if smt.is_next {
+                // Materialize and fold `l_0` times. The saving vs the old
+                // structured path is that the dense `2^n` buffer for OOD never
+                // gets folded — the nxt inner poly is always size `2^m ≤ 2^n`.
+                let mut buf = matrix_next_mle_folded(p);
+                for &r in rhos {
+                    let half = buf.len() / 2;
+                    buf = (0..half)
+                        .into_par_iter()
+                        .map(|i| buf[2 * i] + r * (buf[2 * i + 1] - buf[2 * i]))
+                        .collect();
+                }
+                debug_assert_eq!(buf.len(), 1usize << (m - l_0));
+                let tail_len = buf.len();
+                for (v, &alpha_j) in smt.values.iter().zip(alpha_powers.iter()) {
+                    let sel_j = v.selector;
+                    let base = sel_j * tail_len;
+                    let slice = &mut out[base..base + tail_len];
+                    slice
+                        .par_iter_mut()
+                        .zip(buf.par_iter())
+                        .for_each(|(o, &b)| *o += alpha_j * b);
+                }
+            } else {
+                // scalar_eq = Π_{k=0}^{l_0-1} eq(p[m-1-k], ρ_k).
+                let mut scalar_eq = EF::ONE;
+                for k in 0..l_0 {
+                    let p_k = p[m - 1 - k];
+                    let r_k = rhos[k];
+                    scalar_eq *= p_k * r_k + (EF::ONE - p_k) * (EF::ONE - r_k);
+                }
+                let tail = &p[..m - l_0];
+                let tail_eval: Vec<EF> = if tail.is_empty() {
+                    vec![scalar_eq]
+                } else {
+                    eval_eq_scaled(tail, scalar_eq)
+                };
+                let tail_len = tail_eval.len();
+                for (v, &alpha_j) in smt.values.iter().zip(alpha_powers.iter()) {
+                    let sel_j = v.selector;
+                    let base = sel_j * tail_len;
+                    let slice = &mut out[base..base + tail_len];
+                    slice
+                        .par_iter_mut()
+                        .zip(tail_eval.par_iter())
+                        .for_each(|(o, &t)| *o += alpha_j * t);
+                }
+            }
+        } else {
+            // Spill regime: m < l_0 (and !is_next, enforced above).
+            assert!(!smt.is_next, "nxt spill not supported in SVO path");
+            // Inner-phase folds (m of them) fix the last m coords of `p`:
+            //   inner_scalar = Π_{i=0}^{m-1} eq(p[m - 1 - i], ρ_i).
+            let mut inner_scalar = EF::ONE;
+            for i in 0..m {
+                let p_i = p[m - 1 - i];
+                let r_i = rhos[i];
+                inner_scalar *= p_i * r_i + (EF::ONE - p_i) * (EF::ONE - r_i);
+            }
+            // Scalar-phase folds (l_0 - m of them) collapse `sel_j` one LSB at
+            // a time; bit k of the original `sel_j` is folded at round `m + k`
+            // with scalar `(1 - ρ_{m+k})` if the bit is 0 else `ρ_{m+k}`.
+            for (v, &alpha_j) in smt.values.iter().zip(alpha_powers.iter()) {
+                let mut spill_scalar = EF::ONE;
+                let mut sel_rem = v.selector;
+                for k in 0..(l_0 - m) {
+                    let r_k = rhos[m + k];
+                    let bit = sel_rem & 1;
+                    spill_scalar *= if bit == 0 { EF::ONE - r_k } else { r_k };
+                    sel_rem >>= 1;
+                }
+                out[sel_rem] += alpha_j * inner_scalar * spill_scalar;
+            }
+        }
+    }
+
+    out
 }
 
 /// Translate `SparseStatement`s into SVO-ready `CompressedGroup`s, preserving
@@ -663,6 +803,70 @@ where
         .map(|i| {
             // r · (F - F) is EF · F → EF; then EF + F → EF.
             r * (m[2 * i + 1] - m[2 * i]) + m[2 * i]
+        })
+        .collect()
+}
+
+/// Fold a base-field evaluation table by `l_0` LSB-fold challenges in a
+/// single pass via the eq-tensor `eval_eq([ρ_{l_0-1}, .., ρ_0])`.
+///
+/// Equivalent to iterating `lsb_fold_base_to_ext(base, ρ_0)` followed by
+/// `lsb_fold(.., ρ_k)` for k = 1..l_0, but reads each `base` entry exactly
+/// once and stays in `EF · F` arithmetic throughout (vs iterated fold which
+/// promotes to `EF · EF` after round 0).
+fn fold_base_by_tensor<EF>(base: &[PF<EF>], rhos: &[EF]) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let l_0 = rhos.len();
+    assert!(base.len() >= 1 << l_0);
+    let width = 1usize << l_0;
+    let out_len = base.len() >> l_0;
+    if l_0 == 0 {
+        return base.iter().map(|&v| EF::from(v)).collect();
+    }
+    let rhos_rev: Vec<EF> = rhos.iter().rev().copied().collect();
+    let tensor = eval_eq(&rhos_rev);
+    debug_assert_eq!(tensor.len(), width);
+
+    (0..out_len)
+        .into_par_iter()
+        .map(|j| {
+            let offset = j * width;
+            let mut acc = EF::ZERO;
+            for k in 0..width {
+                acc += tensor[k] * base[offset + k];
+            }
+            acc
+        })
+        .collect()
+}
+
+/// Extension-field variant of [`fold_base_by_tensor`]. `EF · EF` products.
+fn fold_ext_by_tensor<EF>(ext: &[EF], rhos: &[EF]) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let l_0 = rhos.len();
+    assert!(ext.len() >= 1 << l_0);
+    let width = 1usize << l_0;
+    let out_len = ext.len() >> l_0;
+    if l_0 == 0 {
+        return ext.to_vec();
+    }
+    let rhos_rev: Vec<EF> = rhos.iter().rev().copied().collect();
+    let tensor = eval_eq(&rhos_rev);
+    debug_assert_eq!(tensor.len(), width);
+
+    (0..out_len)
+        .into_par_iter()
+        .map(|j| {
+            let offset = j * width;
+            let mut acc = EF::ZERO;
+            for k in 0..width {
+                acc += tensor[k] * ext[offset + k];
+            }
+            acc
         })
         .collect()
 }
@@ -1821,5 +2025,54 @@ mod split_weights_tests {
             statements.push(random_statement(&mut rng, n, m, is_next, n_sel));
         }
         check_equivalence(statements);
+    }
+
+    /// Parity test for Phase 3 (`build_post_svo_weights` vs folded
+    /// `SplitWeights::into_flat`): exercises eq non-spill, eq spill, nxt
+    /// (m >= l_0), and dense OOD statements.
+    #[test]
+    fn post_svo_weight_matches_split_into_flat() {
+        let mut rng = StdRng::seed_from_u64(2028);
+        for n in [6usize, 8, 10] {
+            for l_0 in 1..=(n / 2).min(5) {
+                for trial in 0..3 {
+                    let mut statements: Vec<SparseStatement<EF>> = Vec::new();
+                    statements.push(random_statement(&mut rng, n, n, false, 1));
+                    for _ in 0..3 {
+                        let m = rng.random_range(l_0.max(1)..=n);
+                        let s = n - m;
+                        let max_sel = (1usize << s).clamp(1, 3);
+                        let k = rng.random_range(1..=max_sel);
+                        statements.push(random_statement(&mut rng, n, m, false, k));
+                    }
+                    let m_nxt = rng.random_range(l_0..=n);
+                    statements.push(random_statement(&mut rng, n, m_nxt, true, 1));
+                    if n > l_0 {
+                        let m = rng.random_range(0..l_0);
+                        let s = n - m;
+                        statements.push(random_statement(&mut rng, n, m, false, 1.min(1usize << s)));
+                    }
+
+                    let gamma: EF = rng.random();
+                    let rhos: Vec<EF> = (0..l_0).map(|_| rng.random()).collect();
+
+                    // Oracle: SplitWeights folded l_0 times then into_flat.
+                    let (mut split, _) = SplitWeights::<EF>::from_statements(&statements, gamma);
+                    for &r in &rhos {
+                        split.fold(r);
+                    }
+                    let target_size = 1usize << (n - l_0);
+                    let oracle = split.into_flat(target_size);
+
+                    let ours = build_post_svo_weights(&statements, gamma, &rhos);
+                    assert_eq!(
+                        ours.len(),
+                        oracle.len(),
+                        "n={n} l_0={l_0} trial={trial}: length mismatch"
+                    );
+                    assert_eq!(ours, oracle, "n={n} l_0={l_0} trial={trial}: weight mismatch");
+                }
+            }
+        }
     }
 }
