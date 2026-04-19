@@ -31,7 +31,7 @@ use tracing::info_span;
 // early, at P-w-1, so `SplitEq` stays in packed mode (its eq_point needs length
 // > w; at round P-w-1 the eq_point has length L-(P-w-1)-1 = w).
 
-const ENDIANNESS_PIVOT: usize = 9;
+const ENDIANNESS_PIVOT: usize = 12;
 
 pub trait OuterSumcheckSession<EF: ExtensionField<PF<EF>>>: Debug {
     fn initial_n_vars(&self) -> usize;
