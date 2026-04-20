@@ -2,7 +2,7 @@ use crate::{ENDIANNESS_PIVOT_GKR, prove_gkr_quotient, prove_gkr_quotient_br, ver
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
-use tracing::{instrument};
+use tracing::instrument;
 use utils::ansi::Colorize;
 use utils::*;
 
@@ -249,12 +249,7 @@ pub fn prove_generic_logup(
         // Data is already chunk-BR.  Borrow `denominators_packed` so we can
         // still evaluate slices of it after GKR for the bus-denominator evals.
         let nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
-        prove_gkr_quotient_br::<EF>(
-            prover_state,
-            nums_br_slice,
-            &denominators_packed,
-            total_gkr_n_vars,
-        )
+        prove_gkr_quotient_br::<EF>(prover_state, nums_br_slice, &denominators_packed, total_gkr_n_vars)
     } else {
         let numerators_packed = MleRef::Base(&numerators).pack();
         let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);

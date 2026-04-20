@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    ops::{Add, Mul},
-};
+use std::borrow::Cow;
 
 use backend::*;
 use tracing::instrument;
@@ -299,9 +296,9 @@ fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
             let dl1 = den_l[2 * j + 1];
             let dr0 = den_r[2 * j];
             let dr1 = den_r[2 * j + 1];
-            let (c0_s, c2_s) = pair_coeffs(dl0, dl1, dr0, dr1);
-            let (c0_a, c2_a) = pair_coeffs(nl0, nl1, dr0, dr1);
-            let (c0_b, c2_b) = pair_coeffs(nr0, nr1, dl0, dl1);
+            let (c0_s, c2_s) = sumcheck_quadratic(((&dl0, &dl1), (&dr0, &dr1)));
+            let (c0_a, c2_a) = sumcheck_quadratic(((&nl0, &nl1), (&dr0, &dr1)));
+            let (c0_b, c2_b) = sumcheck_quadratic(((&nr0, &nr1), (&dl0, &dl1)));
             let eq = eq_table[j];
             c0_s_raw += eq * c0_s;
             c2_s_raw += eq * c2_s;
@@ -323,10 +320,11 @@ fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
         sum = eq_eval * bare.evaluate(r);
         mmf *= eq_eval;
 
-        num_l = fold_lsb(&num_l, r);
-        num_r = fold_lsb(&num_r, r);
-        den_l = fold_lsb(&den_l, r);
-        den_r = fold_lsb(&den_r, r);
+        let fold = |v: &[EF]| fold_multilinear_lsb(v, r, &|diff, a| a * diff);
+        num_l = fold(&num_l);
+        num_r = fold(&num_r);
+        den_l = fold(&den_l);
+        den_r = fold(&den_r);
 
         q_natural.insert(0, r);
         remaining_eq.pop();
@@ -618,7 +616,7 @@ fn compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
     eq_within: &[EFPacking<EF>],
 ) -> Coeffs4<EF>
 where
-    N: Copy + Send + Sync + std::ops::Sub<Output = N>,
+    N: PrimeCharacteristicRing + Copy + Send + Sync,
     EFPacking<EF>: Algebra<N>,
 {
     let w = packing_log_width::<EF>();
@@ -645,9 +643,9 @@ where
                 let dr0 = d_c[inner + half];
                 let dr1 = d_c[inner + half + quarter];
 
-                let (c0_s, c2_s) = pair_coeffs(dl0, dl1, dr0, dr1);
-                let (c0_a, c2_a) = pair_coeffs(nl0, nl1, dr0, dr1);
-                let (c0_b, c2_b) = pair_coeffs(nr0, nr1, dl0, dl1);
+                let (c0_s, c2_s) = sumcheck_quadratic(((&dl0, &dl1), (&dr0, &dr1)));
+                let (c0_a, c2_a) = sumcheck_quadratic(((&nl0, &nl1), (&dr0, &dr1)));
+                let (c0_b, c2_b) = sumcheck_quadratic(((&nr0, &nr1), (&dl0, &dl1)));
                 let eq_w = eq_within[inner];
                 local.0 += c0_s * eq_w;
                 local.1 += c2_s * eq_w;
@@ -699,7 +697,7 @@ fn fold_and_compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
     EFPacking<EF>,
 )
 where
-    N: Copy + Send + Sync + std::ops::Sub<Output = N>,
+    N: PrimeCharacteristicRing + Copy + Send + Sync,
     EFPacking<EF>: Algebra<N>,
 {
     let w = packing_log_width::<EF>();
@@ -762,9 +760,9 @@ where
                 nd_c[i + out_half + out_quarter] = fr_dr;
 
                 let eq_w = eq_within[i];
-                let (c0_s, c2_s) = pair_coeffs(fl_dl, fr_dl, fl_dr, fr_dr);
-                let (c0_a, c2_a) = pair_coeffs(fl_nl, fr_nl, fl_dr, fr_dr);
-                let (c0_b, c2_b) = pair_coeffs(fl_nr, fr_nr, fl_dl, fr_dl);
+                let (c0_s, c2_s) = sumcheck_quadratic(((&fl_dl, &fr_dl), (&fl_dr, &fr_dr)));
+                let (c0_a, c2_a) = sumcheck_quadratic(((&fl_nl, &fr_nl), (&fl_dr, &fr_dr)));
+                let (c0_b, c2_b) = sumcheck_quadratic(((&fl_nr, &fr_nr), (&fl_dl, &fr_dl)));
                 local.0 += c0_s * eq_w;
                 local.1 += c2_s * eq_w;
                 local.2 += (c0_a + c0_b) * eq_w;
@@ -796,18 +794,6 @@ fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
     let h1_mmf = (sum - (EF::ONE - eq_alpha) * c0_mmf) / eq_alpha;
     let c1_mmf = h1_mmf - c0_mmf - c2_mmf;
     DensePolynomial::new(vec![c0_mmf, c1_mmf, c2_mmf])
-}
-
-/// z⁰ and z² coefficients of `(u·v)(z)` where `u(z) = u0 + z·(u1-u0)` and
-/// similarly for v. Generic over the types so the same helper serves the
-/// all-extension and base×extension cases (output type always follows `V`).
-#[inline(always)]
-fn pair_coeffs<U, V>(u0: U, u1: U, v0: V, v1: V) -> (V, V)
-where
-    U: Copy + std::ops::Sub<Output = U>,
-    V: Copy + std::ops::Sub<Output = V> + std::ops::Mul<U, Output = V>,
-{
-    (v0 * u0, (v1 - v0) * (u1 - u0))
 }
 
 /// Fold a base-field-packed array at `bit`, producing an extension-field
@@ -895,10 +881,6 @@ fn even_odd_split<EF: Copy>(v: &[EF]) -> (Vec<EF>, Vec<EF>) {
         v.iter().step_by(2).copied().collect(),
         v.iter().skip(1).step_by(2).copied().collect(),
     )
-}
-
-fn fold_lsb<EF: ExtensionField<PF<EF>>>(u: &[EF], r: EF) -> Vec<EF> {
-    u.chunks_exact(2).map(|c| c[0] + r * (c[1] - c[0])).collect()
 }
 
 /// Bit-reverse each `2^chunk_log`-sized chunk of `v` (unpacked, any element
