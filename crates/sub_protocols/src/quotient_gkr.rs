@@ -33,6 +33,25 @@ enum LayerStorage<'a, EF: ExtensionField<PF<EF>>> {
     },
 }
 
+impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
+    fn unpack_and_unreverse(&self) -> (Vec<EF>, Vec<EF>) {
+        match self {
+            LayerStorage::Initial { nums, dens, chunk_log } => {
+                let n_nat: Vec<EF> = bit_reverse_chunks(PFPacking::<EF>::unpack_slice(nums.as_ref()), *chunk_log)
+                    .into_iter()
+                    .map(EF::from)
+                    .collect();
+                (n_nat, unpack_and_unreverse_slice(dens.as_ref(), *chunk_log))
+            }
+            LayerStorage::PackedBr { nums, dens, chunk_log } => (
+                unpack_and_unreverse_slice(nums.as_ref(), *chunk_log),
+                unpack_and_unreverse_slice(dens.as_ref(), *chunk_log),
+            ),
+            LayerStorage::Natural { nums, dens } => (nums.to_vec(), dens.to_vec()),
+        }
+    }
+}
+
 pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     numerators: &MleRef<'_, EF>,
@@ -114,7 +133,7 @@ fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
     }
 
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
-        let (n_nat, d_nat) = unpack_and_unreverse_layer(layers.last().unwrap());
+        let (n_nat, d_nat) = layers.last().unwrap().unpack_and_unreverse();
         let (nn, nd) = sum_quotients(&n_nat, &d_nat);
         layers.push(LayerStorage::Natural {
             nums: Cow::Owned(nn),
@@ -124,7 +143,7 @@ fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
     }
 
     let top = layers.pop().unwrap();
-    let (top_nums, top_dens) = unpack_and_unreverse_layer(&top);
+    let (top_nums, top_dens) = top.unpack_and_unreverse();
     prover_state.add_extension_scalars(&top_nums);
     prover_state.add_extension_scalars(&top_dens);
     let quotient = compute_quotient(&top_nums, &top_dens);
@@ -181,7 +200,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         _ => {
-            let (n_nat, d_nat) = unpack_and_unreverse_layer(layer);
+            let (n_nat, d_nat) = layer.unpack_and_unreverse();
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
             rtl_gkr_quotient_sumcheck_prove(
@@ -918,35 +937,29 @@ fn fold_lsb<EF: ExtensionField<PF<EF>>>(u: &[EF], r: EF) -> Vec<EF> {
     u.chunks_exact(2).map(|c| c[0] + r * (c[1] - c[0])).collect()
 }
 
-fn unpack_and_unreverse_layer<EF: ExtensionField<PF<EF>>>(layer: &LayerStorage<'_, EF>) -> (Vec<EF>, Vec<EF>) {
-    match layer {
-        LayerStorage::Initial { nums, dens, chunk_log } => {
-            let n_nat: Vec<EF> = bit_reverse_chunks(PFPacking::<EF>::unpack_slice(nums.as_ref()), *chunk_log)
-                .into_iter()
-                .map(EF::from)
-                .collect();
-            (n_nat, unpack_and_unreverse_slice(dens.as_ref(), *chunk_log))
-        }
-        LayerStorage::PackedBr { nums, dens, chunk_log } => (
-            unpack_and_unreverse_slice(nums.as_ref(), *chunk_log),
-            unpack_and_unreverse_slice(dens.as_ref(), *chunk_log),
-        ),
-        LayerStorage::Natural { nums, dens } => (nums.to_vec(), dens.to_vec()),
-    }
-}
-
 /// Bit-reverse each `2^chunk_log`-sized chunk of `v` (unpacked, any element
 /// type). Bit-reversal is an involution, so this is also its own inverse.
 fn bit_reverse_chunks<T: Copy + Send + Sync>(v: &[T], chunk_log: usize) -> Vec<T> {
     let n = v.len();
     debug_assert!(n.is_power_of_two());
     debug_assert!(chunk_log <= n.trailing_zeros() as usize);
+    let mut out: Vec<T> = unsafe { uninitialized_vec(n) };
+    bit_reverse_chunks_into(v, chunk_log, &mut out);
+    out
+
+}
+
+fn bit_reverse_chunks_into<T: Copy + Send + Sync>(v: &[T], chunk_log: usize, out: &mut [T]) {
+    let n = v.len();
+    assert_eq!(n, out.len());
+    debug_assert!(n.is_power_of_two());
+    debug_assert!(chunk_log <= n.trailing_zeros() as usize);
     if chunk_log == 0 {
-        return v.to_vec();
+        out.copy_from_slice(v);
+        return;
     }
     let chunk_size = 1usize << chunk_log;
     let shift = usize::BITS as usize - chunk_log;
-    let mut out: Vec<T> = unsafe { uninitialized_vec(n) };
     out.par_chunks_exact_mut(chunk_size)
         .zip(v.par_chunks_exact(chunk_size))
         .for_each(|(dst, src)| {
@@ -954,7 +967,6 @@ fn bit_reverse_chunks<T: Copy + Send + Sync>(v: &[T], chunk_log: usize) -> Vec<T
                 *slot = src[p.reverse_bits() >> shift];
             }
         });
-    out
 }
 
 /// Natural-order extension-field slice → chunk-bit-reversed + packed.
@@ -967,17 +979,18 @@ pub fn bit_reverse_chunks_and_pack_base<EF: ExtensionField<PF<EF>>>(
     v: &[PF<EF>],
     chunk_log: usize,
 ) -> Vec<PFPacking<EF>> {
-    let width = packing_width::<EF>();
-    bit_reverse_chunks(v, chunk_log)
-        .par_chunks_exact(width)
-        .map(|c| *PFPacking::<EF>::from_slice(c))
-        .collect()
+    let width: usize = packing_width::<EF>();
+    let mut res = unsafe { uninitialized_vec::<PFPacking<EF>>(v.len() / width) };
+    let unpacked = PFPacking::<EF>::unpack_slice_mut(&mut res);
+    bit_reverse_chunks_into(v, chunk_log, unpacked);
+    res
 }
 
 /// Inverse of `bit_reverse_chunks_and_pack` for ext-packed slices.
 fn unpack_and_unreverse_slice<EF: ExtensionField<PF<EF>>>(v: &[EFPacking<EF>], chunk_log: usize) -> Vec<EF> {
     bit_reverse_chunks(&unpack_extension::<EF>(v), chunk_log)
 }
+
 fn sum_quotients_packed_br<EF: ExtensionField<PF<EF>>, N>(
     nums: &[N],
     dens: &[EFPacking<EF>],
