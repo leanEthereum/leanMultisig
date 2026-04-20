@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use backend::*;
 use tracing::{info_span, instrument};
 
@@ -511,17 +513,19 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br<EF: ExtensionField<PF<EF>>>(
     debug_assert!(parent_chunk_log > w + 1);
     debug_assert_eq!(packed_nums.len(), packed_dens.len());
 
-    // Hand off the combined layer directly — no L/R split allocation.
+    // Hand off the combined layer directly — borrow the layer's slices; we
+    // only allocate when the first fused round produces new arrays.
     run_phase1_packed(
         prover_state,
-        packed_nums.to_vec(),
-        packed_dens.to_vec(),
+        Cow::Borrowed(packed_nums),
+        Cow::Borrowed(packed_dens),
         parent_chunk_log,
         eq_point.to_vec(),
         Vec::with_capacity(eq_point.len()),
         alpha,
         expected_sum,
         EF::ONE,
+        None,
     )
 }
 
@@ -585,16 +589,19 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     let nums_ext = fold_base_to_ext_at_bit::<EF>(packed_nums, r0, fold_bit);
     let dens_ext = fold_multilinear_at_bit(packed_dens, r0, fold_bit, &|v, a| v * a);
 
+    // Pass through the eq_outer we already built for round 0 — it's invariant
+    // across the whole phase-1 (`remaining_eq[..head_len]` doesn't change).
     run_phase1_packed(
         prover_state,
-        nums_ext,
-        dens_ext,
+        Cow::Owned(nums_ext),
+        Cow::Owned(dens_ext),
         parent_chunk_log - 1,
         remaining_eq,
         q_natural,
         alpha,
         sum,
         mmf,
+        Some(eq_outer),
     )
 }
 
@@ -607,22 +614,33 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
 /// chunk-MSB, so the first half of each parent chunk is L, the second half is
 /// R.  No `split_packed_br_by_chunk_msb` allocation.
 #[allow(clippy::too_many_arguments)]
-fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
+fn run_phase1_packed<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    mut nums: Vec<EFPacking<EF>>,
-    mut dens: Vec<EFPacking<EF>>,
+    mut nums: Cow<'a, [EFPacking<EF>]>,
+    mut dens: Cow<'a, [EFPacking<EF>]>,
     mut layer_chunk_log: usize,
     mut remaining_eq: Vec<EF>,
     mut q_natural: Vec<EF>,
     alpha: EF,
     mut sum: EF,
     mut mmf: EF,
+    precomputed_eq_outer: Option<Vec<EF>>,
 ) -> (Vec<EF>, [EF; 4]) {
     let w = packing_log_width::<EF>();
     let k_initial = remaining_eq.len();
     // Outer bits (above `layer_chunk_log`, plus the sibling bit which lives
     // intra-chunk in combined view): head_len = K+1 − layer_chunk_log.
     let head_len = (k_initial + 1).saturating_sub(layer_chunk_log);
+
+    // eq_outer is derived from `remaining_eq[..head_len]`, which is INVARIANT
+    // across phase-1 rounds (we only pop the tail each round). Build once.
+    let eq_outer: Vec<EF> = precomputed_eq_outer.unwrap_or_else(|| {
+        if head_len == 0 {
+            vec![EF::ONE]
+        } else {
+            eval_eq(&remaining_eq[..head_len])
+        }
+    });
 
     // Fused fold + compute loop.  Round 0 falls back to unfused compute (no
     // `pending_r` yet); subsequent rounds fuse the prev fold with the current
@@ -637,24 +655,27 @@ fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
     let mut pending_r: Option<EF> = None;
     while layer_chunk_log > w + 1 && remaining_eq.len() > w + 1 {
         let eq_alpha = *remaining_eq.last().unwrap();
-        let eq_prefix: &[EF] = &remaining_eq[..remaining_eq.len() - 1];
-        let (eq_outer, eq_within) = build_outer_within_eq::<EF>(eq_prefix, head_len);
+        // eq_within shrinks by one variable each round; rebuild it (small,
+        // fits in one packed word at small layer_chunk_log).
+        let within_pt: Vec<EF> =
+            remaining_eq[head_len..remaining_eq.len() - 1].iter().rev().copied().collect();
+        let eq_within = eval_eq_packed(&within_pt);
 
         let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) = if let Some(prev_r) = pending_r.take() {
             // Input is still at the pre-fold `layer_chunk_log + 1`.
             let (new_nums, new_dens, c0s, c2s, c0d, c2d) = fold_and_compute_round_packed(
-                &nums,
-                &dens,
+                nums.as_ref(),
+                dens.as_ref(),
                 layer_chunk_log + 1,
                 prev_r,
                 &eq_outer,
                 &eq_within,
             );
-            nums = new_nums;
-            dens = new_dens;
+            nums = Cow::Owned(new_nums);
+            dens = Cow::Owned(new_dens);
             (c0s, c2s, c0d, c2d)
         } else {
-            compute_round_packed(&nums, &dens, layer_chunk_log, &eq_outer, &eq_within)
+            compute_round_packed(nums.as_ref(), dens.as_ref(), layer_chunk_log, &eq_outer, &eq_within)
         };
 
         // α is applied once per round here, not per pair.
@@ -678,16 +699,16 @@ fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
     // bit, storage bit `layer_chunk_log - 1`, packed bit `layer_chunk_log-1-w`.
     if let Some(prev_r) = pending_r.take() {
         let prev_bit = layer_chunk_log - 1 - w;
-        nums = fold_multilinear_at_bit(&nums, prev_r, prev_bit, &|v, a| v * a);
-        dens = fold_multilinear_at_bit(&dens, prev_r, prev_bit, &|v, a| v * a);
+        nums = Cow::Owned(fold_multilinear_at_bit(nums.as_ref(), prev_r, prev_bit, &|v, a| v * a));
+        dens = Cow::Owned(fold_multilinear_at_bit(dens.as_ref(), prev_r, prev_bit, &|v, a| v * a));
     }
 
     // Transition to phase 2: unpack + un-bit-reverse the combined array, then
     // even/odd-split to produce L/R sides.  Sib bit in packed-BR is natural
     // LSB (storage chunk-MSB ↔ natural bit 0), so L = even-indexed,
     // R = odd-indexed in natural order.
-    let nums_nat = unpack_and_unreverse::<EF>(&nums, layer_chunk_log);
-    let dens_nat = unpack_and_unreverse::<EF>(&dens, layer_chunk_log);
+    let nums_nat = unpack_and_unreverse::<EF>(nums.as_ref(), layer_chunk_log);
+    let dens_nat = unpack_and_unreverse::<EF>(dens.as_ref(), layer_chunk_log);
     let (num_l_nat, num_r_nat) = even_odd_split(&nums_nat);
     let (den_l_nat, den_r_nat) = even_odd_split(&dens_nat);
 
