@@ -16,41 +16,43 @@ pub const PARALLEL_THRESHOLD: usize = 1 << 9;
 
 pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking<EF>> {
     let width = packing_width::<EF>();
+    let n_packed = slice.len() / width;
+    let mut out: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(n_packed) };
+    let write = |slot: &mut EFPacking<EF>, chunk: &[EF]| {
+        *slot = EFPacking::<EF>::from_ext_slice(chunk);
+    };
     if slice.len() < PARALLEL_THRESHOLD {
-        slice
-            .chunks_exact(width)
-            .map(EFPacking::<EF>::from_ext_slice)
-            .collect::<Vec<_>>()
+        for (slot, chunk) in out.iter_mut().zip(slice.chunks_exact(width)) {
+            write(slot, chunk);
+        }
     } else {
-        slice
-            .par_chunks_exact(width)
-            .map(EFPacking::<EF>::from_ext_slice)
-            .collect::<Vec<_>>()
+        out.par_iter_mut()
+            .zip(slice.par_chunks_exact(width))
+            .for_each(|(slot, chunk)| write(slot, chunk));
     }
+    out
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
     let width = packing_width::<EF>();
-    let total_elements = vec.len() * width;
-    if total_elements < PARALLEL_THRESHOLD {
-        vec.iter()
-            .flat_map(|x| {
-                let packed_coeffs = x.as_basis_coefficients_slice();
-                (0..width)
-                    .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+    let total = vec.len() * width;
+    let mut out: Vec<EF> = unsafe { uninitialized_vec(total) };
+    let write = |out_chunk: &mut [EF], x: &EFPacking<EF>| {
+        let packed_coeffs = x.as_basis_coefficients_slice();
+        for (lane, slot) in out_chunk.iter_mut().enumerate() {
+            *slot = EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[lane]);
+        }
+    };
+    if total < PARALLEL_THRESHOLD {
+        for (chunk, x) in out.chunks_exact_mut(width).zip(vec.iter()) {
+            write(chunk, x);
+        }
     } else {
-        vec.par_iter()
-            .flat_map(|x| {
-                let packed_coeffs = x.as_basis_coefficients_slice();
-                (0..width)
-                    .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+        out.par_chunks_exact_mut(width)
+            .zip(vec.par_iter())
+            .for_each(|(chunk, x)| write(chunk, x));
     }
+    out
 }
 
 pub const fn packing_log_width<EF: Field>() -> usize {
@@ -368,4 +370,90 @@ pub fn to_little_endian_in_field<F: Field>(value: usize, bit_count: usize) -> Ve
     let mut res = to_big_endian_in_field::<F>(value, bit_count);
     res.reverse();
     res
+}
+
+#[cfg(test)]
+mod bench_tests {
+    use std::time::{Duration, Instant};
+
+    use koala_bear::QuinticExtensionFieldKB;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    use super::*;
+
+    type EF = QuinticExtensionFieldKB;
+
+    const LOG_SIZES: [usize; 6] = [8, 12, 16, 20, 22, 24];
+    const REPETITIONS: usize = 10;
+
+    fn print_header(name: &str) {
+        println!(
+            "\nBenchmarking {} (packing_width = {}, repetitions = {})",
+            name,
+            packing_width::<EF>(),
+            REPETITIONS
+        );
+        println!(
+            "{:>10} | {:>14} | {:>14} | {:>14} | {:>14}",
+            "log_n", "n_ext_elems", "avg (ms)", "min (ms)", "max (ms)"
+        );
+    }
+
+    fn measure<R>(mut f: impl FnMut() -> R) -> (Duration, Duration, Duration) {
+        let mut total = Duration::ZERO;
+        let mut min_t = Duration::MAX;
+        let mut max_t = Duration::ZERO;
+        for _ in 0..REPETITIONS {
+            let t = Instant::now();
+            let out = f();
+            let d = t.elapsed();
+            std::hint::black_box(out);
+            total += d;
+            if d < min_t {
+                min_t = d;
+            }
+            if d > max_t {
+                max_t = d;
+            }
+        }
+        (total / REPETITIONS as u32, min_t, max_t)
+    }
+
+    fn print_row(log_n: usize, n: usize, avg: Duration, min_t: Duration, max_t: Duration) {
+        println!(
+            "{:>10} | {:>14} | {:>14.3} | {:>14.3} | {:>14.3}",
+            log_n,
+            n,
+            avg.as_secs_f64() * 1000.0,
+            min_t.as_secs_f64() * 1000.0,
+            max_t.as_secs_f64() * 1000.0,
+        );
+    }
+
+    #[test]
+    fn bench_unpack_extension() {
+        let mut rng = StdRng::seed_from_u64(0);
+        print_header("unpack_extension");
+        for &log_n in &LOG_SIZES {
+            let n = 1usize << log_n;
+            let ext_vec: Vec<EF> = (0..n).map(|_| rng.random()).collect();
+            let packed = pack_extension(&ext_vec);
+            let _ = unpack_extension::<EF>(&packed); // warmup
+            let (avg, min_t, max_t) = measure(|| unpack_extension::<EF>(&packed));
+            print_row(log_n, n, avg, min_t, max_t);
+        }
+    }
+
+    #[test]
+    fn bench_pack_extension() {
+        let mut rng = StdRng::seed_from_u64(0);
+        print_header("pack_extension");
+        for &log_n in &LOG_SIZES {
+            let n = 1usize << log_n;
+            let ext_vec: Vec<EF> = (0..n).map(|_| rng.random()).collect();
+            let _ = pack_extension::<EF>(&ext_vec); // warmup
+            let (avg, min_t, max_t) = measure(|| pack_extension::<EF>(&ext_vec));
+            print_row(log_n, n, avg, min_t, max_t);
+        }
+    }
 }
