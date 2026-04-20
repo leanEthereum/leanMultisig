@@ -298,6 +298,13 @@ fn build_aggregation(
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
+    // Tell macOS this is a user-initiated, latency-critical computation and
+    // should not be throttled / App-Napped. Held for the entire benchmark;
+    // dropped via `endActivity:` when the token falls out of scope. See
+    // `macos_activity` below for the full explanation.
+    #[cfg(target_os = "macos")]
+    let _activity = macos_activity::Activity::begin("lean-multisig benchmark");
+
     if tracing {
         utils::init_tracing();
     }
@@ -337,6 +344,49 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     )
     .unwrap();
     time
+}
+
+// =============================================================================
+// macOS: opt out of coalition / App-Nap throttling
+// =============================================================================
+//
+// A CPU-bound, I/O-silent process on Apple silicon gets throttled onto
+// efficiency cores after a few seconds (~780 sig/s bare vs ~900 sig/s with
+// `--tracing`, whose incidental syscalls keep the process classified as
+// active). Thread-level QoS and `PRIO_DARWIN_ROLE_UI_FOCAL` set the
+// *requested* priority but the coalition-level throttle is a separate knob
+// driven by observed behaviour.
+//
+// `-[NSProcessInfo beginActivityWithOptions:reason:]` is Apple's documented
+// opt-out: the returned token, kept alive for the duration of the work,
+// marks the process as user-initiated + latency-critical.
+// =============================================================================
+#[cfg(target_os = "macos")]
+mod macos_activity {
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+
+    pub struct Activity {
+        process_info: Retained<NSProcessInfo>,
+        token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+    }
+
+    impl Activity {
+        pub fn begin(reason: &str) -> Self {
+            let process_info = NSProcessInfo::processInfo();
+            let reason = NSString::from_str(reason);
+            let options = NSActivityOptions::UserInitiated | NSActivityOptions::LatencyCritical;
+            let token = process_info.beginActivityWithOptions_reason(options, &reason);
+            Self { process_info, token }
+        }
+    }
+
+    impl Drop for Activity {
+        fn drop(&mut self) {
+            unsafe { self.process_info.endActivity(&self.token) };
+        }
+    }
 }
 
 #[test]

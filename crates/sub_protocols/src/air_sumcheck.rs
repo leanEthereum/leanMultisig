@@ -29,7 +29,7 @@ use tracing::info_span;
 // early, at P-w-1, so `SplitEq` stays in packed mode (its eq_point needs length
 // > w; at round P-w-1 the eq_point has length L-(P-w-1)-1 = w).
 
-const ENDIANNESS_PIVOT: usize = 12;
+const ENDIANNESS_PIVOT_AIR: usize = 12;
 
 pub trait OuterSumcheckSession<EF: ExtensionField<PF<EF>>>: Debug {
     fn initial_n_vars(&self) -> usize;
@@ -77,7 +77,7 @@ where
         let last_point = column_evals(&packed_multilinears.by_ref(), (1 << initial_n_vars) - 1);
         let constraints_eval_at_padding = A::eval_extension(&computation, &last_point, &extra_data);
 
-        let pivot = ENDIANNESS_PIVOT.min(initial_n_vars);
+        let pivot = ENDIANNESS_PIVOT_AIR.min(initial_n_vars);
         let has_packed_phase = pivot > packing_log_width::<EF>();
 
         let padded_n_rows = non_padded_n_rows
@@ -132,7 +132,7 @@ where
     A::ExtraData: AlphaPowers<EF>,
 {
     fn pivot(&self) -> usize {
-        ENDIANNESS_PIVOT.min(self.initial_n_vars)
+        ENDIANNESS_PIVOT_AIR.min(self.initial_n_vars)
     }
 
     // example:  folding_bit = 2
