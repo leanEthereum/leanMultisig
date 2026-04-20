@@ -1,4 +1,5 @@
 use backend::*;
+use tracing::{info_span, instrument};
 
 use crate::N_VARS_TO_SEND_GKR_COEFFS;
 
@@ -107,6 +108,7 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
 /// is expected to have filled the buffers in chunk-BR order at `chunk_log =
 /// min(ENDIANNESS_PIVOT, l)`.  Saves an explicit bit-reverse pass (~17 ms on
 /// the xmss hot path) when fills already have chunk alignment.
+#[instrument(skip_all, name = "prove GKR")]
 pub fn prove_gkr_quotient_from_packed_br_base<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     nums_br: Vec<PFPacking<EF>>,
@@ -143,6 +145,7 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
     // halves chunk_log; we stop when a chunk is down to one packed word
     // (chunk_log == w), at which point further reductions go within-lane and
     // we switch to unpacked.
+    let _span = info_span!("GKR Phase 1: Packed reductions").entered();
     let mut current_n_vars = l;
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
         let (new_nums, new_dens, new_chunk_log) = match layers.last().unwrap() {
@@ -187,6 +190,7 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
         layers.push(LayerStorage::Natural { nums: nn, dens: nd });
         current_n_vars -= 1;
     }
+    std::mem::drop(_span);
 
     // Top of GKR: must be natural for evaluation at a sampled point.
     let top = layers.pop().unwrap();
@@ -223,6 +227,7 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
     (quotient, point, claim_num, claim_den)
 }
 
+#[instrument(skip_all)]
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     layer: &LayerStorage<EF>,
@@ -412,8 +417,13 @@ fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
         // where NL(j,z) = num_l[2j] + z·(num_l[2j+1] - num_l[2j]), etc.
         // H has degree 2; evaluate at z=0 and z=2, reconstruct z=1 from sum
         // constraint.
-        let mut h0_raw = EF::ZERO;
-        let mut h2_raw = EF::ZERO;
+        // 4 separate accumulators: (c0_s, c2_s) for the α-coupled DL·DR term,
+        // (c0_d, c2_d) for the double (NL·DR + NR·DL) term. α is applied once
+        // per round at finalize, saving two scalar mults per pair.
+        let mut c0_s_raw = EF::ZERO;
+        let mut c2_s_raw = EF::ZERO;
+        let mut c0_d_raw = EF::ZERO;
+        let mut c2_d_raw = EF::ZERO;
         for j in 0..half {
             let nl0 = num_l[2 * j];
             let nl1 = num_l[2 * j + 1];
@@ -424,30 +434,31 @@ fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
             let dr0 = den_r[2 * j];
             let dr1 = den_r[2 * j + 1];
 
-            let inner0 = nl0 * dr0 + nr0 * dl0 + alpha * dl0 * dr0;
+            let nl_d = nl1 - nl0;
+            let nr_d = nr1 - nr0;
+            let dl_d = dl1 - dl0;
+            let dr_d = dr1 - dr0;
 
-            let nl2 = nl1.double() - nl0;
-            let nr2 = nr1.double() - nr0;
-            let dl2 = dl1.double() - dl0;
-            let dr2 = dr1.double() - dr0;
-            let inner2 = nl2 * dr2 + nr2 * dl2 + alpha * dl2 * dr2;
+            // (u·v) coefficients: c0 = u0·v0, c2 = (u1−u0)·(v1−v0).
+            let c0_s = dl0 * dr0;
+            let c2_s = dl_d * dr_d;
+            let c0_d = nl0 * dr0 + nr0 * dl0;
+            let c2_d = nl_d * dr_d + nr_d * dl_d;
 
-            h0_raw += eq_table[j] * inner0;
-            h2_raw += eq_table[j] * inner2;
+            let eq = eq_table[j];
+            c0_s_raw += eq * c0_s;
+            c2_s_raw += eq * c2_s;
+            c0_d_raw += eq * c0_d;
+            c2_d_raw += eq * c2_d;
         }
 
-        let h0 = h0_raw * mmf;
-        let h2 = h2_raw * mmf;
-
-        // sum = (1 - eq_alpha)·h(0) + eq_alpha·h(1)
-        let h1 = (sum - (EF::ONE - eq_alpha) * h0) / eq_alpha;
-
-        let bare = DensePolynomial::lagrange_interpolation(&[
-            (PF::<EF>::ZERO, h0),
-            (PF::<EF>::ONE, h1),
-            (PF::<EF>::from_usize(2), h2),
-        ])
-        .unwrap();
+        let bare = build_bare_from_coeffs(
+            c0_d_raw + alpha * c0_s_raw,
+            c2_d_raw + alpha * c2_s_raw,
+            eq_alpha,
+            sum,
+            mmf,
+        );
 
         prover_state.add_sumcheck_polynomial(&bare.coeffs, Some(eq_alpha));
         let r = prover_state.sample();
@@ -500,17 +511,12 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br<EF: ExtensionField<PF<EF>>>(
     debug_assert!(parent_chunk_log > w + 1);
     debug_assert_eq!(packed_nums.len(), packed_dens.len());
 
-    let (num_l, num_r) = split_packed_br_by_chunk_msb::<EF>(packed_nums, parent_chunk_log);
-    let (den_l, den_r) = split_packed_br_by_chunk_msb::<EF>(packed_dens, parent_chunk_log);
-    let initial_chunk_log = parent_chunk_log - 1;
-
+    // Hand off the combined layer directly — no L/R split allocation.
     run_phase1_packed(
         prover_state,
-        num_l,
-        num_r,
-        den_l,
-        den_r,
-        initial_chunk_log,
+        packed_nums.to_vec(),
+        packed_dens.to_vec(),
+        parent_chunk_log,
         eq_point.to_vec(),
         Vec::with_capacity(eq_point.len()),
         alpha,
@@ -537,45 +543,33 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     debug_assert!(parent_chunk_log > w + 1);
     debug_assert_eq!(packed_nums.len(), packed_dens.len());
 
-    let (num_l_base, num_r_base) = split_packed_br_by_chunk_msb_base::<EF>(packed_nums, parent_chunk_log);
-    let (den_l, den_r) = split_packed_br_by_chunk_msb::<EF>(packed_dens, parent_chunk_log);
-    let initial_chunk_log = parent_chunk_log - 1;
-
     let k = eq_point.len();
     let mut remaining_eq = eq_point.to_vec();
-    let head_len = k.saturating_sub(initial_chunk_log);
+    // Outer bits above `parent_chunk_log` (combined view includes the sibling bit).
+    let head_len = (k + 1).saturating_sub(parent_chunk_log);
     let mut q_natural: Vec<EF> = Vec::with_capacity(k);
     let mut mmf = EF::ONE;
     let mut sum = expected_sum;
 
-    // Round 0: compute h_0 on base × ext. After sampling r_0, the fold
-    // promotes numerators to EFPacking so the rest of phase 1 runs ext × ext.
+    // Round 0: compute h_0 on base × ext directly on the combined layer
+    // (no split).  After sampling r_0, fold nums base→ext and continue the
+    // normal ext-only path via `run_phase1_packed`.
     let eq_alpha = *remaining_eq.last().unwrap();
     let eq_prefix: &[EF] = &remaining_eq[..remaining_eq.len() - 1];
     let (eq_outer, eq_within) = build_outer_within_eq::<EF>(eq_prefix, head_len);
 
-    let (h0_pkg, h2_pkg) = compute_round_base_ext(
-        &num_l_base,
-        &num_r_base,
-        &den_l,
-        &den_r,
-        initial_chunk_log,
-        alpha,
+    let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) = compute_round_base_ext(
+        packed_nums,
+        packed_dens,
+        parent_chunk_log,
         &eq_outer,
         &eq_within,
     );
 
-    let h0_raw: EF = EFPacking::<EF>::to_ext_iter([h0_pkg]).sum::<EF>();
-    let h2_raw: EF = EFPacking::<EF>::to_ext_iter([h2_pkg]).sum::<EF>();
-    let h0 = h0_raw * mmf;
-    let h2 = h2_raw * mmf;
-    let h1 = (sum - (EF::ONE - eq_alpha) * h0) / eq_alpha;
-    let bare = DensePolynomial::lagrange_interpolation(&[
-        (PF::<EF>::ZERO, h0),
-        (PF::<EF>::ONE, h1),
-        (PF::<EF>::from_usize(2), h2),
-    ])
-    .unwrap();
+    // α applied once per round (not per pair).
+    let c0_raw: EF = EFPacking::<EF>::to_ext_iter([c0_d_pkg + c0_s_pkg * alpha]).sum::<EF>();
+    let c2_raw: EF = EFPacking::<EF>::to_ext_iter([c2_d_pkg + c2_s_pkg * alpha]).sum::<EF>();
+    let bare = build_bare_from_coeffs(c0_raw, c2_raw, eq_alpha, sum, mmf);
     prover_state.add_sumcheck_polynomial(&bare.coeffs, Some(eq_alpha));
     let r0: EF = prover_state.sample();
     let eq_eval = (EF::ONE - eq_alpha) * (EF::ONE - r0) + eq_alpha * r0;
@@ -584,20 +578,18 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     q_natural.insert(0, r0);
     remaining_eq.pop();
 
-    // Fold base nums + ext dens into ext-only arrays using r_0.
-    let fold_bit = initial_chunk_log - 1 - w;
-    let num_l = fold_base_to_ext_at_bit::<EF>(&num_l_base, r0, fold_bit);
-    let num_r = fold_base_to_ext_at_bit::<EF>(&num_r_base, r0, fold_bit);
-    let den_l = fold_multilinear_at_bit(&den_l, r0, fold_bit, &|v, a| v * a);
-    let den_r = fold_multilinear_at_bit(&den_r, r0, fold_bit, &|v, a| v * a);
+    // Fold base nums + ext dens into combined ext arrays at storage bit
+    // `parent_chunk_log - 2` (packed bit `parent_chunk_log - 2 - w`), the
+    // sumcheck's round-0 fold bit (= chunk-MSB of each side).
+    let fold_bit = parent_chunk_log - 2 - w;
+    let nums_ext = fold_base_to_ext_at_bit::<EF>(packed_nums, r0, fold_bit);
+    let dens_ext = fold_multilinear_at_bit(packed_dens, r0, fold_bit, &|v, a| v * a);
 
     run_phase1_packed(
         prover_state,
-        num_l,
-        num_r,
-        den_l,
-        den_r,
-        initial_chunk_log - 1,
+        nums_ext,
+        dens_ext,
+        parent_chunk_log - 1,
         remaining_eq,
         q_natural,
         alpha,
@@ -610,14 +602,16 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
 /// then fuses fold-from-previous + compute-for-current on subsequent rounds.
 /// Transitions to the unpacked loop when chunks shrink to one packed word or
 /// SplitEq can no longer stay in packed mode.
+/// Combined-view phase-1 SIMD sumcheck.  `nums`/`dens` are the FULL layer
+/// arrays at `layer_chunk_log` — the L/R sibling bit is stored at the
+/// chunk-MSB, so the first half of each parent chunk is L, the second half is
+/// R.  No `split_packed_br_by_chunk_msb` allocation.
 #[allow(clippy::too_many_arguments)]
 fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    mut num_l: Vec<EFPacking<EF>>,
-    mut num_r: Vec<EFPacking<EF>>,
-    mut den_l: Vec<EFPacking<EF>>,
-    mut den_r: Vec<EFPacking<EF>>,
-    mut chunk_log: usize,
+    mut nums: Vec<EFPacking<EF>>,
+    mut dens: Vec<EFPacking<EF>>,
+    mut layer_chunk_log: usize,
     mut remaining_eq: Vec<EF>,
     mut q_natural: Vec<EF>,
     alpha: EF,
@@ -625,91 +619,77 @@ fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
     mut mmf: EF,
 ) -> (Vec<EF>, [EF; 4]) {
     let w = packing_log_width::<EF>();
-    // eq_prefix length threshold to keep SplitEq in packed mode.
-    // Also need chunk_log > w so that the NEXT pair fold stays out of lane.
     let k_initial = remaining_eq.len();
-    let head_len = k_initial.saturating_sub(chunk_log);
+    // Outer bits (above `layer_chunk_log`, plus the sibling bit which lives
+    // intra-chunk in combined view): head_len = K+1 − layer_chunk_log.
+    let head_len = (k_initial + 1).saturating_sub(layer_chunk_log);
 
-    // Fused fold + compute loop.  At round r >= 1 we combine the fold from
-    // round r-1 (using `pending_r`) with the compute for round r — one sweep
-    // over the packed arrays instead of two.  Round 0 and the tail after the
-    // final phase-1 round fall back to the unfused path.
+    // Fused fold + compute loop.  Round 0 falls back to unfused compute (no
+    // `pending_r` yet); subsequent rounds fuse the prev fold with the current
+    // compute in a single sweep.
     //
-    // Exit when either (a) chunks are down to one packed word so the next
-    // fold would go within-lane, or (b) SplitEq can no longer stay in packed
-    // mode — which needs the eq_prefix length (= remaining_eq.len() - 1) to
-    // be strictly greater than w.
+    // The non-fused compute needs `layer_chunk_log ≥ w + 2` (sib + fold bits
+    // both in packed space); the fused variant needs `layer_chunk_log ≥ w + 3`
+    // (sib + prev + cur bits). The loop guard `layer_chunk_log > w + 1`
+    // ensures the non-fused bound; the fused bound is implicitly satisfied
+    // because `pending_r` is only set after a round that increments the
+    // requirement by 1 at the next iteration.
     let mut pending_r: Option<EF> = None;
-    while chunk_log > w && remaining_eq.len() > w + 1 {
+    while layer_chunk_log > w + 1 && remaining_eq.len() > w + 1 {
         let eq_alpha = *remaining_eq.last().unwrap();
         let eq_prefix: &[EF] = &remaining_eq[..remaining_eq.len() - 1];
-        // Factorize eq: outer over the K-r-chunk_log MSB variables (one scalar
-        // per chunk, amortized across the inner loop), within over the
-        // chunk_log-1 remaining within-chunk variables (one packed lookup per
-        // pair, inside the tight inner loop).
         let (eq_outer, eq_within) = build_outer_within_eq::<EF>(eq_prefix, head_len);
 
-        let (h0_pkg, h2_pkg) = if let Some(prev_r) = pending_r.take() {
-            // Fused: apply prev_r fold to arrays at chunk_log+1 AND compute
-            // h_r on the resulting size-halved arrays in one pass.
-            let (new_nl, new_nr, new_dl, new_dr, h0, h2) = fold_and_compute_round_packed(
-                &num_l,
-                &num_r,
-                &den_l,
-                &den_r,
-                chunk_log + 1,
+        let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) = if let Some(prev_r) = pending_r.take() {
+            // Input is still at the pre-fold `layer_chunk_log + 1`.
+            let (new_nums, new_dens, c0s, c2s, c0d, c2d) = fold_and_compute_round_packed(
+                &nums,
+                &dens,
+                layer_chunk_log + 1,
                 prev_r,
-                alpha,
                 &eq_outer,
                 &eq_within,
             );
-            num_l = new_nl;
-            num_r = new_nr;
-            den_l = new_dl;
-            den_r = new_dr;
-            (h0, h2)
+            nums = new_nums;
+            dens = new_dens;
+            (c0s, c2s, c0d, c2d)
         } else {
-            compute_round_packed(&num_l, &num_r, &den_l, &den_r, chunk_log, alpha, &eq_outer, &eq_within)
+            compute_round_packed(&nums, &dens, layer_chunk_log, &eq_outer, &eq_within)
         };
 
-        let h0_raw: EF = EFPacking::<EF>::to_ext_iter([h0_pkg]).sum::<EF>();
-        let h2_raw: EF = EFPacking::<EF>::to_ext_iter([h2_pkg]).sum::<EF>();
-        let h0 = h0_raw * mmf;
-        let h2 = h2_raw * mmf;
-        let h1 = (sum - (EF::ONE - eq_alpha) * h0) / eq_alpha;
-        let bare = DensePolynomial::lagrange_interpolation(&[
-            (PF::<EF>::ZERO, h0),
-            (PF::<EF>::ONE, h1),
-            (PF::<EF>::from_usize(2), h2),
-        ])
-        .unwrap();
+        // α is applied once per round here, not per pair.
+        let c0_raw: EF = EFPacking::<EF>::to_ext_iter([c0_d_pkg + c0_s_pkg * alpha]).sum::<EF>();
+        let c2_raw: EF = EFPacking::<EF>::to_ext_iter([c2_d_pkg + c2_s_pkg * alpha]).sum::<EF>();
+        let bare = build_bare_from_coeffs(c0_raw, c2_raw, eq_alpha, sum, mmf);
         prover_state.add_sumcheck_polynomial(&bare.coeffs, Some(eq_alpha));
         let r = prover_state.sample();
         let eq_eval = (EF::ONE - eq_alpha) * (EF::ONE - r) + eq_alpha * r;
         sum = eq_eval * bare.evaluate(r);
         mmf *= eq_eval;
 
-        // Don't fold yet — stash r for fusing into the next round.
         pending_r = Some(r);
-        chunk_log -= 1;
+        layer_chunk_log -= 1;
         q_natural.insert(0, r);
         remaining_eq.pop();
     }
 
-    // Apply any pending fold before exiting the packed path.
+    // Apply any pending fold before exiting the packed path.  Input arrays
+    // are still at `layer_chunk_log + 1`; the round's fold bit is the sib+1
+    // bit, storage bit `layer_chunk_log - 1`, packed bit `layer_chunk_log-1-w`.
     if let Some(prev_r) = pending_r.take() {
-        let prev_bit = chunk_log - w; // the bit we folded at when we stashed pending_r
-        num_l = fold_multilinear_at_bit(&num_l, prev_r, prev_bit, &|v, a| v * a);
-        num_r = fold_multilinear_at_bit(&num_r, prev_r, prev_bit, &|v, a| v * a);
-        den_l = fold_multilinear_at_bit(&den_l, prev_r, prev_bit, &|v, a| v * a);
-        den_r = fold_multilinear_at_bit(&den_r, prev_r, prev_bit, &|v, a| v * a);
+        let prev_bit = layer_chunk_log - 1 - w;
+        nums = fold_multilinear_at_bit(&nums, prev_r, prev_bit, &|v, a| v * a);
+        dens = fold_multilinear_at_bit(&dens, prev_r, prev_bit, &|v, a| v * a);
     }
 
-    // Transition to phase 2.
-    let num_l_nat = unpack_and_unreverse::<EF>(&num_l, chunk_log);
-    let num_r_nat = unpack_and_unreverse::<EF>(&num_r, chunk_log);
-    let den_l_nat = unpack_and_unreverse::<EF>(&den_l, chunk_log);
-    let den_r_nat = unpack_and_unreverse::<EF>(&den_r, chunk_log);
+    // Transition to phase 2: unpack + un-bit-reverse the combined array, then
+    // even/odd-split to produce L/R sides.  Sib bit in packed-BR is natural
+    // LSB (storage chunk-MSB ↔ natural bit 0), so L = even-indexed,
+    // R = odd-indexed in natural order.
+    let nums_nat = unpack_and_unreverse::<EF>(&nums, layer_chunk_log);
+    let dens_nat = unpack_and_unreverse::<EF>(&dens, layer_chunk_log);
+    let (num_l_nat, num_r_nat) = even_odd_split(&nums_nat);
+    let (den_l_nat, den_r_nat) = even_odd_split(&dens_nat);
 
     rtl_gkr_quotient_sumcheck_prove_unpacked_rounds(
         prover_state,
@@ -731,130 +711,129 @@ fn run_phase1_packed<EF: ExtensionField<PF<EF>>>(
 /// per chunk instead of once per pair), then within-chunk pairs. The pair bit
 /// is the chunk-MSB at the given chunk_log, so within a chunk the pair is at
 /// positions `(i0, i0 + chunk_packed/2)` — cache-contiguous.
+/// Combined-view round-0 compute on packed-BR arrays.  `nums`/`dens` are the
+/// UNSPLIT layer data at `layer_chunk_log`; within each parent chunk the
+/// first half is the L side and the second half is R.  Returns the 4
+/// accumulators `(c0_s, c2_s, c0_d, c2_d)`.
 #[allow(clippy::too_many_arguments)]
 fn compute_round_packed<EF: ExtensionField<PF<EF>>>(
-    num_l: &[EFPacking<EF>],
-    num_r: &[EFPacking<EF>],
-    den_l: &[EFPacking<EF>],
-    den_r: &[EFPacking<EF>],
-    chunk_log: usize,
-    alpha: EF,
+    nums: &[EFPacking<EF>],
+    dens: &[EFPacking<EF>],
+    layer_chunk_log: usize,
     eq_outer: &[EF],
     eq_within: &[EFPacking<EF>],
-) -> (EFPacking<EF>, EFPacking<EF>) {
+) -> (EFPacking<EF>, EFPacking<EF>, EFPacking<EF>, EFPacking<EF>) {
     let w = packing_log_width::<EF>();
-    let chunk_packed = 1usize << (chunk_log - w);
-    let half = chunk_packed / 2;
-    debug_assert!(num_l.len().is_multiple_of(chunk_packed));
-    debug_assert_eq!(num_l.len() / chunk_packed, eq_outer.len().max(1));
-    debug_assert_eq!(eq_within.len(), half);
+    debug_assert!(layer_chunk_log >= w + 2);
+    let layer_packed = 1usize << (layer_chunk_log - w);
+    let half = layer_packed / 2; // L/R sibling stride within chunk
+    let quarter = layer_packed / 4; // fold stride within each side
+    debug_assert!(nums.len().is_multiple_of(layer_packed));
+    debug_assert_eq!(nums.len() / layer_packed, eq_outer.len().max(1));
+    debug_assert_eq!(eq_within.len(), quarter);
 
-    num_l
-        .par_chunks_exact(chunk_packed)
-        .zip(num_r.par_chunks_exact(chunk_packed))
-        .zip(den_l.par_chunks_exact(chunk_packed))
-        .zip(den_r.par_chunks_exact(chunk_packed))
+    type P<EF> = EFPacking<EF>;
+    let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
+        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+    };
+
+    nums.par_chunks_exact(layer_packed)
+        .zip(dens.par_chunks_exact(layer_packed))
         .enumerate()
-        .fold(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(mut acc0, mut acc2), (c, (((nl_c, nr_c), dl_c), dr_c))| {
-                let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
-                let mut loc0 = EFPacking::<EF>::ZERO;
-                let mut loc2 = EFPacking::<EF>::ZERO;
-                for inner in 0..half {
-                    let i1 = inner + half;
-                    let nl0 = nl_c[inner];
-                    let nl1 = nl_c[i1];
-                    let nr0 = nr_c[inner];
-                    let nr1 = nr_c[i1];
-                    let dl0 = dl_c[inner];
-                    let dl1 = dl_c[i1];
-                    let dr0 = dr_c[inner];
-                    let dr1 = dr_c[i1];
+        .fold(zero, |mut acc, (c, (n_c, d_c))| {
+            let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
+            let (mut l_c0s, mut l_c2s, mut l_c0d, mut l_c2d) =
+                (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+            for inner in 0..quarter {
+                let nl0 = n_c[inner];
+                let nl1 = n_c[inner + quarter];
+                let nr0 = n_c[inner + half];
+                let nr1 = n_c[inner + half + quarter];
+                let dl0 = d_c[inner];
+                let dl1 = d_c[inner + quarter];
+                let dr0 = d_c[inner + half];
+                let dr1 = d_c[inner + half + quarter];
 
-                    let (t0_s, t2_s) = sumcheck_quadratic_pair(&dl0, &dl1, &dr0, &dr1);
-                    let (t0_a, t2_a) = sumcheck_quadratic_pair(&nl0, &nl1, &dr0, &dr1);
-                    let (t0_b, t2_b) = sumcheck_quadratic_pair(&nr0, &nr1, &dl0, &dl1);
-                    let t0 = (t0_a + t0_b) + t0_s * alpha;
-                    let t2 = (t2_a + t2_b) + t2_s * alpha;
-                    let eq_w = eq_within[inner];
-                    loc0 += t0 * eq_w;
-                    loc2 += t2 * eq_w;
-                }
-                acc0 += loc0 * eq_o;
-                acc2 += loc2 * eq_o;
-                (acc0, acc2)
-            },
-        )
-        .reduce(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        )
+                let (c0_s, c2_s) = sumcheck_quadratic_pair(&dl0, &dl1, &dr0, &dr1);
+                let (c0_a, c2_a) = sumcheck_quadratic_pair(&nl0, &nl1, &dr0, &dr1);
+                let (c0_b, c2_b) = sumcheck_quadratic_pair(&nr0, &nr1, &dl0, &dl1);
+                let eq_w = eq_within[inner];
+                l_c0s += c0_s * eq_w;
+                l_c2s += c2_s * eq_w;
+                l_c0d += (c0_a + c0_b) * eq_w;
+                l_c2d += (c2_a + c2_b) * eq_w;
+            }
+            acc.0 += l_c0s * eq_o;
+            acc.1 += l_c2s * eq_o;
+            acc.2 += l_c0d * eq_o;
+            acc.3 += l_c2d * eq_o;
+            acc
+        })
+        .reduce(zero, add)
 }
 
 /// Base × ext variant of `compute_round_packed` for round 0 of the biggest
-/// sumcheck, where numerators are still in `PFPacking`.
+/// sumcheck, where numerators are still in `PFPacking`.  Combined view —
+/// `nums`/`dens` are the full layer data at `layer_chunk_log`.
 #[allow(clippy::too_many_arguments)]
 fn compute_round_base_ext<EF: ExtensionField<PF<EF>>>(
-    num_l: &[PFPacking<EF>],
-    num_r: &[PFPacking<EF>],
-    den_l: &[EFPacking<EF>],
-    den_r: &[EFPacking<EF>],
-    chunk_log: usize,
-    alpha: EF,
+    nums: &[PFPacking<EF>],
+    dens: &[EFPacking<EF>],
+    layer_chunk_log: usize,
     eq_outer: &[EF],
     eq_within: &[EFPacking<EF>],
-) -> (EFPacking<EF>, EFPacking<EF>)
+) -> (EFPacking<EF>, EFPacking<EF>, EFPacking<EF>, EFPacking<EF>)
 where
     EFPacking<EF>: Algebra<PFPacking<EF>>,
 {
     let w = packing_log_width::<EF>();
-    let chunk_packed = 1usize << (chunk_log - w);
-    let half = chunk_packed / 2;
-    debug_assert!(num_l.len().is_multiple_of(chunk_packed));
-    debug_assert_eq!(eq_within.len(), half);
+    debug_assert!(layer_chunk_log >= w + 2);
+    let layer_packed = 1usize << (layer_chunk_log - w);
+    let half = layer_packed / 2;
+    let quarter = layer_packed / 4;
+    debug_assert!(nums.len().is_multiple_of(layer_packed));
+    debug_assert_eq!(eq_within.len(), quarter);
 
-    num_l
-        .par_chunks_exact(chunk_packed)
-        .zip(num_r.par_chunks_exact(chunk_packed))
-        .zip(den_l.par_chunks_exact(chunk_packed))
-        .zip(den_r.par_chunks_exact(chunk_packed))
+    type P<EF> = EFPacking<EF>;
+    let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
+        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+    };
+
+    nums.par_chunks_exact(layer_packed)
+        .zip(dens.par_chunks_exact(layer_packed))
         .enumerate()
-        .fold(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(mut acc0, mut acc2), (c, (((nl_c, nr_c), dl_c), dr_c))| {
-                let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
-                let mut loc0 = EFPacking::<EF>::ZERO;
-                let mut loc2 = EFPacking::<EF>::ZERO;
-                for inner in 0..half {
-                    let i1 = inner + half;
-                    let nl0 = nl_c[inner];
-                    let nl1 = nl_c[i1];
-                    let nr0 = nr_c[inner];
-                    let nr1 = nr_c[i1];
-                    let dl0 = dl_c[inner];
-                    let dl1 = dl_c[i1];
-                    let dr0 = dr_c[inner];
-                    let dr1 = dr_c[i1];
+        .fold(zero, |mut acc, (c, (n_c, d_c))| {
+            let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
+            let (mut l_c0s, mut l_c2s, mut l_c0d, mut l_c2d) =
+                (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+            for inner in 0..quarter {
+                let nl0 = n_c[inner];
+                let nl1 = n_c[inner + quarter];
+                let nr0 = n_c[inner + half];
+                let nr1 = n_c[inner + half + quarter];
+                let dl0 = d_c[inner];
+                let dl1 = d_c[inner + quarter];
+                let dr0 = d_c[inner + half];
+                let dr1 = d_c[inner + half + quarter];
 
-                    let (t0_s, t2_s) = sumcheck_quadratic_pair(&dl0, &dl1, &dr0, &dr1);
-                    let (t0_a, t2_a) = sumcheck_quadratic_base_ext::<EF>(&nl0, &nl1, &dr0, &dr1);
-                    let (t0_b, t2_b) = sumcheck_quadratic_base_ext::<EF>(&nr0, &nr1, &dl0, &dl1);
-                    let t0 = (t0_a + t0_b) + t0_s * alpha;
-                    let t2 = (t2_a + t2_b) + t2_s * alpha;
-                    let eq_w = eq_within[inner];
-                    loc0 += t0 * eq_w;
-                    loc2 += t2 * eq_w;
-                }
-                acc0 += loc0 * eq_o;
-                acc2 += loc2 * eq_o;
-                (acc0, acc2)
-            },
-        )
-        .reduce(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        )
+                let (c0_s, c2_s) = sumcheck_quadratic_pair(&dl0, &dl1, &dr0, &dr1);
+                let (c0_a, c2_a) = sumcheck_quadratic_base_ext::<EF>(&nl0, &nl1, &dr0, &dr1);
+                let (c0_b, c2_b) = sumcheck_quadratic_base_ext::<EF>(&nr0, &nr1, &dl0, &dl1);
+                let eq_w = eq_within[inner];
+                l_c0s += c0_s * eq_w;
+                l_c2s += c2_s * eq_w;
+                l_c0d += (c0_a + c0_b) * eq_w;
+                l_c2d += (c2_a + c2_b) * eq_w;
+            }
+            acc.0 += l_c0s * eq_o;
+            acc.1 += l_c2s * eq_o;
+            acc.2 += l_c0d * eq_o;
+            acc.3 += l_c2d * eq_o;
+            acc
+        })
+        .reduce(zero, add)
 }
 
 /// Build the outer (scalar EF, per-chunk) and within (packed EF, per pair)
@@ -887,115 +866,150 @@ fn build_outer_within_eq<EF: ExtensionField<PF<EF>>>(
 /// bit is one below — matching the standard `(i, i+half)` / `(i, i+quarter)`
 /// four-way access pattern. Output arrays have `chunk_log_old - 1` chunk_log
 /// and half the packed length.
+/// Combined-view fused fold + compute. `nums`/`dens` are at `layer_chunk_log_old`;
+/// within each parent chunk the first half is the L side and the second half
+/// is R. Writes the fold-output as new combined arrays at
+/// `layer_chunk_log_old - 1`, preserving the same "L first, R second" in-chunk
+/// layout. Returns `(new_nums, new_dens, c0_s, c2_s, c0_d, c2_d)`.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn fold_and_compute_round_packed<EF: ExtensionField<PF<EF>>>(
-    num_l: &[EFPacking<EF>],
-    num_r: &[EFPacking<EF>],
-    den_l: &[EFPacking<EF>],
-    den_r: &[EFPacking<EF>],
-    chunk_log_old: usize,
+    nums: &[EFPacking<EF>],
+    dens: &[EFPacking<EF>],
+    layer_chunk_log_old: usize,
     prev_r: EF,
-    alpha: EF,
     eq_outer: &[EF],
     eq_within: &[EFPacking<EF>],
 ) -> (
     Vec<EFPacking<EF>>,
     Vec<EFPacking<EF>>,
-    Vec<EFPacking<EF>>,
-    Vec<EFPacking<EF>>,
+    EFPacking<EF>,
+    EFPacking<EF>,
     EFPacking<EF>,
     EFPacking<EF>,
 ) {
     let w = packing_log_width::<EF>();
-    debug_assert!(chunk_log_old >= w + 2);
-    let in_chunk_packed = 1usize << (chunk_log_old - w);
-    let out_chunk_packed = in_chunk_packed / 2; // output chunk size
-    let half = out_chunk_packed; // stride_prev within input chunk
-    let quarter = out_chunk_packed / 2; // stride_cur within input chunk (= output half)
-    debug_assert!(num_l.len().is_multiple_of(in_chunk_packed));
-    debug_assert_eq!(eq_within.len(), quarter);
+    debug_assert!(layer_chunk_log_old >= w + 3);
+    let in_packed = 1usize << (layer_chunk_log_old - w);
+    let in_half = in_packed / 2; // L/R sibling stride in input
+    let in_quarter = in_packed / 4; // prev fold stride in input
+    let in_eighth = in_packed / 8; // cur fold stride in input
+    let out_packed = in_packed / 2; // new chunk size
+    let out_half = out_packed / 2; // = in_quarter; L/R stride in output
+    let out_quarter = out_packed / 4; // = in_eighth; cur fold stride in output
+    debug_assert!(nums.len().is_multiple_of(in_packed));
+    debug_assert_eq!(eq_within.len(), in_eighth);
 
-    let new_len = num_l.len() / 2;
-    let mut new_nl: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
-    let mut new_nr: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
-    let mut new_dl: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
-    let mut new_dr: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
+    let new_len = nums.len() / 2;
+    let mut new_nums: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
+    let mut new_dens: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(new_len) };
 
-    let (h0_pkg, h2_pkg) = num_l
-        .par_chunks_exact(in_chunk_packed)
-        .zip(num_r.par_chunks_exact(in_chunk_packed))
-        .zip(den_l.par_chunks_exact(in_chunk_packed))
-        .zip(den_r.par_chunks_exact(in_chunk_packed))
-        .zip(new_nl.par_chunks_exact_mut(out_chunk_packed))
-        .zip(new_nr.par_chunks_exact_mut(out_chunk_packed))
-        .zip(new_dl.par_chunks_exact_mut(out_chunk_packed))
-        .zip(new_dr.par_chunks_exact_mut(out_chunk_packed))
+    type P<EF> = EFPacking<EF>;
+    let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
+        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+    };
+
+    let (c0s, c2s, c0d, c2d) = nums
+        .par_chunks_exact(in_packed)
+        .zip(dens.par_chunks_exact(in_packed))
+        .zip(new_nums.par_chunks_exact_mut(out_packed))
+        .zip(new_dens.par_chunks_exact_mut(out_packed))
         .enumerate()
-        .fold(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(mut acc0, mut acc2), (c, (((((((nl_c, nr_c), dl_c), dr_c), o_nl), o_nr), o_dl), o_dr))| {
-                let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
-                let mut loc0 = EFPacking::<EF>::ZERO;
-                let mut loc2 = EFPacking::<EF>::ZERO;
-                for i in 0..quarter {
-                    let i_pc01 = i + quarter; // prev=0, cur=1
-                    let i_p10 = i + half; // prev=1, cur=0
-                    let i_p11 = i_p10 + quarter; // prev=1, cur=1
+        .fold(zero, |mut acc, (c, (((n_c, d_c), nn_c), nd_c))| {
+            let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
+            let (mut l_c0s, mut l_c2s, mut l_c0d, mut l_c2d) =
+                (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
+            for i in 0..in_eighth {
+                // Within input chunk, access by (sib, prev, cur) bits.
+                // sib stride = in_half, prev stride = in_quarter, cur stride = in_eighth.
+                let l_p0_c0 = i;
+                let l_p0_c1 = i + in_eighth;
+                let l_p1_c0 = i + in_quarter;
+                let l_p1_c1 = i + in_quarter + in_eighth;
+                let r_p0_c0 = i + in_half;
+                let r_p0_c1 = i + in_half + in_eighth;
+                let r_p1_c0 = i + in_half + in_quarter;
+                let r_p1_c1 = i + in_half + in_quarter + in_eighth;
 
-                    let fl_nl = nl_c[i] + (nl_c[i_p10] - nl_c[i]) * prev_r;
-                    let fr_nl = nl_c[i_pc01] + (nl_c[i_p11] - nl_c[i_pc01]) * prev_r;
-                    let fl_nr = nr_c[i] + (nr_c[i_p10] - nr_c[i]) * prev_r;
-                    let fr_nr = nr_c[i_pc01] + (nr_c[i_p11] - nr_c[i_pc01]) * prev_r;
-                    let fl_dl = dl_c[i] + (dl_c[i_p10] - dl_c[i]) * prev_r;
-                    let fr_dl = dl_c[i_pc01] + (dl_c[i_p11] - dl_c[i_pc01]) * prev_r;
-                    let fl_dr = dr_c[i] + (dr_c[i_p10] - dr_c[i]) * prev_r;
-                    let fr_dr = dr_c[i_pc01] + (dr_c[i_p11] - dr_c[i_pc01]) * prev_r;
+                // Fold prev bit with `prev_r` — yields 4 values per-multilinear
+                // (L/R × cur=0/1).
+                let fl_nl = n_c[l_p0_c0] + (n_c[l_p1_c0] - n_c[l_p0_c0]) * prev_r;
+                let fr_nl = n_c[l_p0_c1] + (n_c[l_p1_c1] - n_c[l_p0_c1]) * prev_r;
+                let fl_nr = n_c[r_p0_c0] + (n_c[r_p1_c0] - n_c[r_p0_c0]) * prev_r;
+                let fr_nr = n_c[r_p0_c1] + (n_c[r_p1_c1] - n_c[r_p0_c1]) * prev_r;
+                let fl_dl = d_c[l_p0_c0] + (d_c[l_p1_c0] - d_c[l_p0_c0]) * prev_r;
+                let fr_dl = d_c[l_p0_c1] + (d_c[l_p1_c1] - d_c[l_p0_c1]) * prev_r;
+                let fl_dr = d_c[r_p0_c0] + (d_c[r_p1_c0] - d_c[r_p0_c0]) * prev_r;
+                let fr_dr = d_c[r_p0_c1] + (d_c[r_p1_c1] - d_c[r_p0_c1]) * prev_r;
 
-                    o_nl[i] = fl_nl;
-                    o_nl[i + quarter] = fr_nl;
-                    o_nr[i] = fl_nr;
-                    o_nr[i + quarter] = fr_nr;
-                    o_dl[i] = fl_dl;
-                    o_dl[i + quarter] = fr_dl;
-                    o_dr[i] = fl_dr;
-                    o_dr[i + quarter] = fr_dr;
+                // Write to output (sib × cur × inner); sib stride = out_half,
+                // cur stride = out_quarter.
+                nn_c[i] = fl_nl;
+                nn_c[i + out_quarter] = fr_nl;
+                nn_c[i + out_half] = fl_nr;
+                nn_c[i + out_half + out_quarter] = fr_nr;
+                nd_c[i] = fl_dl;
+                nd_c[i + out_quarter] = fr_dl;
+                nd_c[i + out_half] = fl_dr;
+                nd_c[i + out_half + out_quarter] = fr_dr;
 
-                    let eq_w = eq_within[i];
-                    let (t0_s, t2_s) = sumcheck_quadratic_pair(&fl_dl, &fr_dl, &fl_dr, &fr_dr);
-                    let (t0_a, t2_a) = sumcheck_quadratic_pair(&fl_nl, &fr_nl, &fl_dr, &fr_dr);
-                    let (t0_b, t2_b) = sumcheck_quadratic_pair(&fl_nr, &fr_nr, &fl_dl, &fr_dl);
-                    let t0 = (t0_a + t0_b) + t0_s * alpha;
-                    let t2 = (t2_a + t2_b) + t2_s * alpha;
-                    loc0 += t0 * eq_w;
-                    loc2 += t2 * eq_w;
-                }
-                acc0 += loc0 * eq_o;
-                acc2 += loc2 * eq_o;
-                (acc0, acc2)
-            },
-        )
-        .reduce(
-            || (EFPacking::<EF>::ZERO, EFPacking::<EF>::ZERO),
-            |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2),
-        );
+                let eq_w = eq_within[i];
+                let (c0_s, c2_s) = sumcheck_quadratic_pair(&fl_dl, &fr_dl, &fl_dr, &fr_dr);
+                let (c0_a, c2_a) = sumcheck_quadratic_pair(&fl_nl, &fr_nl, &fl_dr, &fr_dr);
+                let (c0_b, c2_b) = sumcheck_quadratic_pair(&fl_nr, &fr_nr, &fl_dl, &fr_dl);
+                l_c0s += c0_s * eq_w;
+                l_c2s += c2_s * eq_w;
+                l_c0d += (c0_a + c0_b) * eq_w;
+                l_c2d += (c2_a + c2_b) * eq_w;
+            }
+            acc.0 += l_c0s * eq_o;
+            acc.1 += l_c2s * eq_o;
+            acc.2 += l_c0d * eq_o;
+            acc.3 += l_c2d * eq_o;
+            acc
+        })
+        .reduce(zero, add);
 
-    (new_nl, new_nr, new_dl, new_dr, h0_pkg, h2_pkg)
+    (new_nums, new_dens, c0s, c2s, c0d, c2d)
 }
 
-/// `(u·v)(0), (u·v)(2)` where `u(z) = u0 + z·(u1-u0)`, same for `v`.
-/// `(u·v)(0) = u0·v0`, `(u·v)(2) = (2u1-u0)(2v1-v0)`.
+/// Build the bare round polynomial (scaled by `mmf`) from the z⁰ and z²
+/// coefficients of `H(z)`.  h(1) is recovered from the sum constraint, then
+/// c1 = h(1) − c0 − c2.
+#[inline]
+fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
+    c0_raw: EF,
+    c2_raw: EF,
+    eq_alpha: EF,
+    sum: EF,
+    mmf: EF,
+) -> DensePolynomial<EF> {
+    let c0_mmf = c0_raw * mmf;
+    let c2_mmf = c2_raw * mmf;
+    // sum = (1 − eq_α)·h(0) + eq_α·h(1)  ⇒  h(1) = (sum − (1−eq_α)·c0) / eq_α.
+    let h1_mmf = (sum - (EF::ONE - eq_alpha) * c0_mmf) / eq_alpha;
+    let c1_mmf = h1_mmf - c0_mmf - c2_mmf;
+    DensePolynomial::new(vec![c0_mmf, c1_mmf, c2_mmf])
+}
+
+/// Constant (z⁰) and quadratic (z²) coefficients of `(u·v)(z)` where
+/// `u(z) = u0 + z·(u1-u0)`, same for `v`. So `const = u0·v0`,
+/// `quad = (u1-u0)·(v1-v0)`.  Using the coefficient form avoids the two
+/// `double()` ops that the `(2u1-u0)(2v1-v0)` / `h(2)` form needs.
+/// Callers must reconstruct the sumcheck polynomial from these coefficients
+/// (directly, via `DensePolynomial::new`) instead of from `(h(0), h(2))`.
 #[inline(always)]
 fn sumcheck_quadratic_pair<A: Copy + PrimeCharacteristicRing>(u0: &A, u1: &A, v0: &A, v1: &A) -> (A, A) {
-    let at0 = *u0 * *v0;
-    let u2 = u1.double() - *u0;
-    let v2 = v1.double() - *v0;
-    let at2 = u2 * v2;
-    (at0, at2)
+    let c0 = *u0 * *v0;
+    let u_diff = *u1 - *u0;
+    let v_diff = *v1 - *v0;
+    let c2 = u_diff * v_diff;
+    (c0, c2)
 }
 
 /// Same as `sumcheck_quadratic_pair` but the first factor is base-field
 /// packed; the output is extension-field packed (via `Algebra<N>` on
-/// `EFPacking`).
+/// `EFPacking`). Returns (z⁰ coef, z² coef).
 #[inline(always)]
 fn sumcheck_quadratic_base_ext<EF: ExtensionField<PF<EF>>>(
     u0: &PFPacking<EF>,
@@ -1006,11 +1020,11 @@ fn sumcheck_quadratic_base_ext<EF: ExtensionField<PF<EF>>>(
 where
     EFPacking<EF>: Algebra<PFPacking<EF>>,
 {
-    let at0 = *v0 * *u0;
-    let u2 = u1.double() - *u0;
-    let v2 = v1.double() - *v0;
-    let at2 = v2 * u2;
-    (at0, at2)
+    let c0 = *v0 * *u0;
+    let u_diff = *u1 - *u0;
+    let v_diff = *v1 - *v0;
+    let c2 = v_diff * u_diff;
+    (c0, c2)
 }
 
 /// Fold a base-field-packed array at `bit`, producing an extension-field
@@ -1046,35 +1060,6 @@ where
             .collect_into_vec(&mut res);
     }
     res
-}
-
-/// Split a packed-BR array by chunk-MSB (which is natural-LSB = 0 vs 1). The
-/// first half of each packed chunk becomes L (even natural indices), the
-/// second half becomes R (odd). Both outputs are packed-BR with chunk size
-/// halved. Requires `parent_chunk_log > w` so the halves are each at least one
-/// packed word.
-fn split_packed_br_by_chunk_msb<EF: ExtensionField<PF<EF>>>(
-    v: &[EFPacking<EF>],
-    parent_chunk_log: usize,
-) -> (Vec<EFPacking<EF>>, Vec<EFPacking<EF>>) {
-    let w = packing_log_width::<EF>();
-    debug_assert!(parent_chunk_log > w);
-    let parent_chunk_packed = 1usize << (parent_chunk_log - w);
-    let half_chunk_packed = parent_chunk_packed / 2;
-    debug_assert!(v.len().is_multiple_of(parent_chunk_packed));
-    let n_chunks = v.len() / parent_chunk_packed;
-
-    let mut l: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(n_chunks * half_chunk_packed) };
-    let mut r: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(n_chunks * half_chunk_packed) };
-    l.par_chunks_exact_mut(half_chunk_packed)
-        .zip(r.par_chunks_exact_mut(half_chunk_packed))
-        .zip(v.par_chunks_exact(parent_chunk_packed))
-        .for_each(|((l_dst, r_dst), src)| {
-            let (first, second) = src.split_at(half_chunk_packed);
-            l_dst.copy_from_slice(first);
-            r_dst.copy_from_slice(second);
-        });
-    (l, r)
 }
 
 pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
@@ -1341,31 +1326,6 @@ where
         });
 
     (new_nums, new_dens)
-}
-
-/// Base-field variant of `split_packed_br_by_chunk_msb`.
-fn split_packed_br_by_chunk_msb_base<EF: ExtensionField<PF<EF>>>(
-    v: &[PFPacking<EF>],
-    parent_chunk_log: usize,
-) -> (Vec<PFPacking<EF>>, Vec<PFPacking<EF>>) {
-    let w = packing_log_width::<EF>();
-    debug_assert!(parent_chunk_log > w);
-    let parent_chunk_packed = 1usize << (parent_chunk_log - w);
-    let half_chunk_packed = parent_chunk_packed / 2;
-    debug_assert!(v.len().is_multiple_of(parent_chunk_packed));
-    let n_chunks = v.len() / parent_chunk_packed;
-
-    let mut l: Vec<PFPacking<EF>> = unsafe { uninitialized_vec(n_chunks * half_chunk_packed) };
-    let mut r: Vec<PFPacking<EF>> = unsafe { uninitialized_vec(n_chunks * half_chunk_packed) };
-    l.par_chunks_exact_mut(half_chunk_packed)
-        .zip(r.par_chunks_exact_mut(half_chunk_packed))
-        .zip(v.par_chunks_exact(parent_chunk_packed))
-        .for_each(|((l_dst, r_dst), src)| {
-            let (first, second) = src.split_at(half_chunk_packed);
-            l_dst.copy_from_slice(first);
-            r_dst.copy_from_slice(second);
-        });
-    (l, r)
 }
 
 /// Base-field variant of `bit_reverse_chunks_and_pack`.

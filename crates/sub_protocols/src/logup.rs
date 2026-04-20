@@ -2,7 +2,7 @@ use crate::{ENDIANNESS_PIVOT, prove_gkr_quotient, prove_gkr_quotient_from_packed
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
-use tracing::instrument;
+use tracing::{info_span, instrument};
 use utils::ansi::Colorize;
 use utils::*;
 
@@ -34,6 +34,7 @@ pub fn prove_generic_logup(
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
+    let _span = info_span!("Logup: Building initial numerators and denominators").entered();
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
@@ -449,6 +450,8 @@ pub fn prove_generic_logup(
     denominators_packed[offset / width..]
         .par_iter_mut()
         .for_each(|d| *d = EFPacking::<EF>::ONE);
+
+    std::mem::drop(_span);
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) = if use_bitrev {
         // Data is already chunk-BR.  `numerators` (base field, F) is
