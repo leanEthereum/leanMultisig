@@ -454,10 +454,15 @@ pub fn prove_generic_logup(
     std::mem::drop(_span);
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) = if use_bitrev {
-        // Data is already chunk-BR.  `numerators` (base field, F) is
-        // scatter-filled in BR; we just pack it without reordering.
-        let nums_br: Vec<PFPacking<EF>> = PFPacking::<EF>::pack_slice(&numerators).to_vec();
-        prove_gkr_quotient_from_packed_br_base::<EF>(prover_state, nums_br, denominators_packed, total_gkr_n_vars)
+        // Data is already chunk-BR.  Borrow `denominators_packed` so we can
+        // still evaluate slices of it after GKR for the bus-denominator evals.
+        let nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
+        prove_gkr_quotient_from_packed_br_base::<EF>(
+            prover_state,
+            nums_br_slice,
+            &denominators_packed,
+            total_gkr_n_vars,
+        )
     } else {
         let numerators_packed = MleRef::Base(&numerators).pack();
         let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
@@ -487,15 +492,30 @@ pub fn prove_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
+    // Walk the same layout as the fill so we can take per-table slices of
+    // `denominators_packed` and evaluate them directly — matching main's code.
+    let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
     for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
+        // For the bus-denominator slice, if `use_bitrev` the stored data is
+        // bit-reversed within `2^pivot`-chunks, so we reverse the last
+        // `pivot` coords of the evaluation point — the MLE identity
+        // `eval(M_br, p) = eval(M, reversed(p))` preserves the value.
+        let bus_eval_point = if use_bitrev {
+            let mut coords = inner_point.0.clone();
+            let within_start = coords.len() - pivot;
+            coords[within_start..].reverse();
+            MultilinearPoint(coords)
+        } else {
+            inner_point.clone()
+        };
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == &Table::execution() {
-            // 0] bytecode lookup
+            // 0] bytecode lookup — evaluate per-instruction columns for the verifier.
             let pc_column = &trace.columns[COL_PC];
             let bytecode_columns = trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
                 .iter()
@@ -516,28 +536,22 @@ pub fn prove_generic_logup(
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, *eval_on_instr_col);
             }
+
+            // The bytecode-lookup denominator section occupies 2^log_n_rows
+            // entries before the bus section of this table.
+            offset += 1 << log_n_rows;
         }
 
-        // I] Bus (data flow between tables)
+        // I] Bus (data flow between tables) — direct MLE eval on the
+        // fingerprinted `denominators_packed` slice (mirrors main).
         let bus = table.bus();
         let eval_on_selector = trace.columns[bus.selector].evaluate(&inner_point) * bus.direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        // `denominators_packed[...]` holds
-        //   c + precompile_contrib + Σ alphas_eq_poly[i] * bus_data[i]
-        // on this table's rows. MLE evaluation is affine in the stored
-        // values, so we reconstruct the eval from the bus-data column evals
-        // instead of reading `denominators_packed` (which won't stay in
-        // natural order once we bit-reverse the fill below).
-        let precompile_contrib_scalar = alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP);
-        let mut eval_on_data = c + precompile_contrib_scalar;
-        for (i, entry) in bus.data.iter().enumerate() {
-            let col_eval: EF = match entry {
-                BusData::Column(col) => trace.columns[*col].evaluate(&inner_point),
-                BusData::Constant(val) => EF::from(F::from_usize(*val)),
-            };
-            eval_on_data += alphas_eq_poly[i] * col_eval;
-        }
+        let eval_on_data = MleRef::<EF>::ExtensionPacked(
+            &denominators_packed[offset / width..][..(1 << log_n_rows) / width],
+        )
+        .evaluate(&bus_eval_point);
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);
@@ -559,6 +573,8 @@ pub fn prove_generic_logup(
         }
 
         columns_values.insert(*table, table_values);
+
+        offset += offset_for_table(table, log_n_rows);
     }
 
     GenericLogupStatements {

@@ -40,20 +40,24 @@ pub const ENDIANNESS_PIVOT: usize = 12;
 /// preserve base-field SIMD density in the first reduction + the first round
 /// of the biggest sumcheck.  After one reduction, num × den products live in
 /// the extension field, so subsequent layers use `PackedBr`.
-enum LayerStorage<EF: ExtensionField<PF<EF>>> {
+/// `nums` / `dens` are `Cow`s so that the INITIAL layer can borrow the
+/// caller's buffer (avoiding a full-buffer clone in
+/// `prove_gkr_quotient_from_packed_br_base`), while reduced layers hold
+/// freshly-allocated `Vec`s via `Cow::Owned`.
+enum LayerStorage<'a, EF: ExtensionField<PF<EF>>> {
     PackedBrBase {
-        nums: Vec<PFPacking<EF>>,
-        dens: Vec<EFPacking<EF>>,
+        nums: Cow<'a, [PFPacking<EF>]>,
+        dens: Cow<'a, [EFPacking<EF>]>,
         chunk_log: usize,
     },
     PackedBr {
-        nums: Vec<EFPacking<EF>>,
-        dens: Vec<EFPacking<EF>>,
+        nums: Cow<'a, [EFPacking<EF>]>,
+        dens: Cow<'a, [EFPacking<EF>]>,
         chunk_log: usize,
     },
     Natural {
-        nums: Vec<EF>,
-        dens: Vec<EF>,
+        nums: Cow<'a, [EF]>,
+        dens: Cow<'a, [EF]>,
     },
 }
 
@@ -82,8 +86,8 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
                 let nums_nat = PFPacking::<EF>::unpack_slice(nums_src);
                 let dens_nat = unpack_extension_fast::<EF>(dens_src);
                 LayerStorage::PackedBrBase {
-                    nums: bit_reverse_chunks_and_pack_base::<EF>(nums_nat, pivot),
-                    dens: bit_reverse_chunks_and_pack::<EF>(&dens_nat, pivot),
+                    nums: Cow::Owned(bit_reverse_chunks_and_pack_base::<EF>(nums_nat, pivot)),
+                    dens: Cow::Owned(bit_reverse_chunks_and_pack::<EF>(&dens_nat, pivot)),
                     chunk_log: pivot,
                 }
             }
@@ -91,16 +95,16 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
                 let nums_nat: Vec<EF> = mle_ref_to_vec_ef(numerators);
                 let dens_nat: Vec<EF> = mle_ref_to_vec_ef(denominators);
                 LayerStorage::PackedBr {
-                    nums: bit_reverse_chunks_and_pack::<EF>(&nums_nat, pivot),
-                    dens: bit_reverse_chunks_and_pack::<EF>(&dens_nat, pivot),
+                    nums: Cow::Owned(bit_reverse_chunks_and_pack::<EF>(&nums_nat, pivot)),
+                    dens: Cow::Owned(bit_reverse_chunks_and_pack::<EF>(&dens_nat, pivot)),
                     chunk_log: pivot,
                 }
             }
         }
     } else {
         LayerStorage::Natural {
-            nums: mle_ref_to_vec_ef(numerators),
-            dens: mle_ref_to_vec_ef(denominators),
+            nums: Cow::Owned(mle_ref_to_vec_ef(numerators)),
+            dens: Cow::Owned(mle_ref_to_vec_ef(denominators)),
         }
     };
     prove_gkr_quotient_from_initial_layer(prover_state, initial, l)
@@ -110,11 +114,13 @@ pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
 /// is expected to have filled the buffers in chunk-BR order at `chunk_log =
 /// min(ENDIANNESS_PIVOT, l)`.  Saves an explicit bit-reverse pass (~17 ms on
 /// the xmss hot path) when fills already have chunk alignment.
+/// Borrows the caller's chunk-BR buffers so that no full-buffer clone happens
+/// (the caller can still evaluate slices of `dens_br` after this returns).
 #[instrument(skip_all, name = "prove GKR")]
-pub fn prove_gkr_quotient_from_packed_br_base<EF: ExtensionField<PF<EF>>>(
+pub fn prove_gkr_quotient_from_packed_br_base<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    nums_br: Vec<PFPacking<EF>>,
-    dens_br: Vec<EFPacking<EF>>,
+    nums_br: &'a [PFPacking<EF>],
+    dens_br: &'a [EFPacking<EF>],
     l: usize,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
     let w = packing_log_width::<EF>();
@@ -127,20 +133,20 @@ pub fn prove_gkr_quotient_from_packed_br_base<EF: ExtensionField<PF<EF>>>(
     assert_eq!(nums_br.len() << w, 1 << l);
     assert_eq!(dens_br.len() << w, 1 << l);
     let initial = LayerStorage::PackedBrBase {
-        nums: nums_br,
-        dens: dens_br,
+        nums: Cow::Borrowed(nums_br),
+        dens: Cow::Borrowed(dens_br),
         chunk_log: pivot,
     };
     prove_gkr_quotient_from_initial_layer(prover_state, initial, l)
 }
 
-fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
+fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    initial: LayerStorage<EF>,
+    initial: LayerStorage<'a, EF>,
     l: usize,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
     let w = packing_log_width::<EF>();
-    let mut layers: Vec<LayerStorage<EF>> = Vec::new();
+    let mut layers: Vec<LayerStorage<'a, EF>> = Vec::new();
     layers.push(initial);
 
     // Phase-1 reductions: work on packed bit-reversed data. Each reduction
@@ -152,18 +158,18 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
         let (new_nums, new_dens, new_chunk_log) = match layers.last().unwrap() {
             LayerStorage::PackedBrBase { nums, dens, chunk_log } if *chunk_log > w => {
-                let (nn, nd) = sum_quotients_packed_br_base::<EF>(nums, dens, *chunk_log);
+                let (nn, nd) = sum_quotients_packed_br_base::<EF>(nums.as_ref(), dens.as_ref(), *chunk_log);
                 (nn, nd, *chunk_log - 1)
             }
             LayerStorage::PackedBr { nums, dens, chunk_log } if *chunk_log > w => {
-                let (nn, nd) = sum_quotients_packed_br::<EF>(nums, dens, *chunk_log);
+                let (nn, nd) = sum_quotients_packed_br::<EF>(nums.as_ref(), dens.as_ref(), *chunk_log);
                 (nn, nd, *chunk_log - 1)
             }
             _ => break,
         };
         layers.push(LayerStorage::PackedBr {
-            nums: new_nums,
-            dens: new_dens,
+            nums: Cow::Owned(new_nums),
+            dens: Cow::Owned(new_dens),
             chunk_log: new_chunk_log,
         });
         current_n_vars -= 1;
@@ -175,40 +181,40 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
         let (nn, nd) = match layers.last().unwrap() {
             LayerStorage::PackedBrBase { nums, dens, chunk_log } => {
-                let n_nat: Vec<EF> = unpack_base_and_unreverse::<EF>(nums, *chunk_log)
+                let n_nat: Vec<EF> = unpack_base_and_unreverse::<EF>(nums.as_ref(), *chunk_log)
                     .into_iter()
                     .map(EF::from)
                     .collect();
-                let d_nat = unpack_and_unreverse::<EF>(dens, *chunk_log);
+                let d_nat = unpack_and_unreverse::<EF>(dens.as_ref(), *chunk_log);
                 sum_quotients(&n_nat, &d_nat)
             }
             LayerStorage::PackedBr { nums, dens, chunk_log } => {
-                let n_nat = unpack_and_unreverse::<EF>(nums, *chunk_log);
-                let d_nat = unpack_and_unreverse::<EF>(dens, *chunk_log);
+                let n_nat = unpack_and_unreverse::<EF>(nums.as_ref(), *chunk_log);
+                let d_nat = unpack_and_unreverse::<EF>(dens.as_ref(), *chunk_log);
                 sum_quotients(&n_nat, &d_nat)
             }
-            LayerStorage::Natural { nums, dens } => sum_quotients(nums, dens),
+            LayerStorage::Natural { nums, dens } => sum_quotients(nums.as_ref(), dens.as_ref()),
         };
-        layers.push(LayerStorage::Natural { nums: nn, dens: nd });
+        layers.push(LayerStorage::Natural { nums: Cow::Owned(nn), dens: Cow::Owned(nd) });
         current_n_vars -= 1;
     }
     std::mem::drop(_span);
 
     // Top of GKR: must be natural for evaluation at a sampled point.
     let top = layers.pop().unwrap();
-    let (top_nums, top_dens) = match top {
+    let (top_nums, top_dens): (Vec<EF>, Vec<EF>) = match top {
         LayerStorage::PackedBrBase { nums, dens, chunk_log } => (
-            unpack_base_and_unreverse::<EF>(&nums, chunk_log)
+            unpack_base_and_unreverse::<EF>(nums.as_ref(), chunk_log)
                 .into_iter()
                 .map(EF::from)
                 .collect(),
-            unpack_and_unreverse::<EF>(&dens, chunk_log),
+            unpack_and_unreverse::<EF>(dens.as_ref(), chunk_log),
         ),
         LayerStorage::PackedBr { nums, dens, chunk_log } => (
-            unpack_and_unreverse::<EF>(&nums, chunk_log),
-            unpack_and_unreverse::<EF>(&dens, chunk_log),
+            unpack_and_unreverse::<EF>(nums.as_ref(), chunk_log),
+            unpack_and_unreverse::<EF>(dens.as_ref(), chunk_log),
         ),
-        LayerStorage::Natural { nums, dens } => (nums, dens),
+        LayerStorage::Natural { nums, dens } => (nums.into_owned(), dens.into_owned()),
     };
     prover_state.add_extension_scalars(&top_nums);
     prover_state.add_extension_scalars(&top_dens);
@@ -232,7 +238,7 @@ fn prove_gkr_quotient_from_initial_layer<EF: ExtensionField<PF<EF>>>(
 #[instrument(skip_all)]
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    layer: &LayerStorage<EF>,
+    layer: &LayerStorage<'_, EF>,
     claim_point: &MultilinearPoint<EF>, // K coords, natural order
     claim_num: EF,
     claim_den: EF,
@@ -248,8 +254,8 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
         LayerStorage::PackedBrBase { nums, dens, chunk_log } if *chunk_log > w + 1 => {
             rtl_gkr_quotient_sumcheck_prove_packed_br_base(
                 prover_state,
-                nums,
-                dens,
+                nums.as_ref(),
+                dens.as_ref(),
                 *chunk_log,
                 &claim_point.0,
                 alpha,
@@ -257,11 +263,11 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         LayerStorage::PackedBrBase { nums, dens, chunk_log } => {
-            let n_nat: Vec<EF> = unpack_base_and_unreverse::<EF>(nums, *chunk_log)
+            let n_nat: Vec<EF> = unpack_base_and_unreverse::<EF>(nums.as_ref(), *chunk_log)
                 .into_iter()
                 .map(EF::from)
                 .collect();
-            let d_nat = unpack_and_unreverse::<EF>(dens, *chunk_log);
+            let d_nat = unpack_and_unreverse::<EF>(dens.as_ref(), *chunk_log);
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
             rtl_gkr_quotient_sumcheck_prove(
@@ -278,8 +284,8 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
         LayerStorage::PackedBr { nums, dens, chunk_log } if *chunk_log > w + 1 => {
             rtl_gkr_quotient_sumcheck_prove_packed_br(
                 prover_state,
-                nums,
-                dens,
+                nums.as_ref(),
+                dens.as_ref(),
                 *chunk_log,
                 &claim_point.0,
                 alpha,
@@ -287,8 +293,8 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         LayerStorage::PackedBr { nums, dens, chunk_log } => {
-            let n_nat = unpack_and_unreverse::<EF>(nums, *chunk_log);
-            let d_nat = unpack_and_unreverse::<EF>(dens, *chunk_log);
+            let n_nat = unpack_and_unreverse::<EF>(nums.as_ref(), *chunk_log);
+            let d_nat = unpack_and_unreverse::<EF>(dens.as_ref(), *chunk_log);
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
             rtl_gkr_quotient_sumcheck_prove(
@@ -303,8 +309,8 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         LayerStorage::Natural { nums, dens } => {
-            let (num_l, num_r) = even_odd_split(nums);
-            let (den_l, den_r) = even_odd_split(dens);
+            let (num_l, num_r) = even_odd_split(nums.as_ref());
+            let (den_l, den_r) = even_odd_split(dens.as_ref());
             rtl_gkr_quotient_sumcheck_prove(
                 prover_state,
                 num_l,
