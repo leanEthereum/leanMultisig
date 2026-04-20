@@ -476,7 +476,7 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     }
 }
 
-#[inline]
+#[inline(always)]
 fn within_pt<EF: Copy>(remaining_eq: &[EF], head_len: usize) -> Vec<EF> {
     remaining_eq[head_len..remaining_eq.len() - 1]
         .iter()
@@ -488,7 +488,7 @@ fn within_pt<EF: Copy>(remaining_eq: &[EF], head_len: usize) -> Vec<EF> {
 /// Combine the (c0,c2) packed pairs, sample the next challenge, and advance
 /// `sum`/`mmf` accordingly.
 #[allow(clippy::too_many_arguments)]
-#[inline]
+#[inline(always)]
 fn finalize_round<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     c0_s: EFPacking<EF>,
@@ -660,7 +660,7 @@ where
         .reduce(coeffs4_zero::<EF>, coeffs4_add::<EF>)
 }
 
-#[inline]
+#[inline(always)]
 fn coeffs4_zero<EF: ExtensionField<PF<EF>>>() -> Coeffs4<EF> {
     (
         EFPacking::<EF>::ZERO,
@@ -670,7 +670,7 @@ fn coeffs4_zero<EF: ExtensionField<PF<EF>>>() -> Coeffs4<EF> {
     )
 }
 
-#[inline]
+#[inline(always)]
 fn coeffs4_add<EF: ExtensionField<PF<EF>>>(a: Coeffs4<EF>, b: Coeffs4<EF>) -> Coeffs4<EF> {
     (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
 }
@@ -780,7 +780,7 @@ where
 
 /// Build the bare round polynomial (scaled by `mmf`) from the z⁰ and z²
 /// coefficients of `H(z)`; h(1) is recovered from the sum constraint.
-#[inline]
+#[inline(always)]
 fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
     c0_raw: EF,
     c2_raw: EF,
