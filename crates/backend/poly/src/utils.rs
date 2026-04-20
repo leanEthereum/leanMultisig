@@ -91,6 +91,29 @@ pub fn batch_fold_multilinears<
     }
 }
 
+pub fn fold_multilinear_lsb<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    Mul: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    m: &[IF],
+    alpha: EF,
+    mul_if_of: &Mul,
+) -> Vec<OF> {
+    let new_size = m.len() / 2;
+    let mut res = unsafe { uninitialized_vec(new_size) };
+    let compute = |(c, r_v): (&[IF], &mut OF)| {
+        *r_v = mul_if_of(c[1] - c[0], alpha) + c[0];
+    };
+    if new_size < PARALLEL_THRESHOLD {
+        m.chunks_exact(2).zip(res.iter_mut()).for_each(compute);
+    } else {
+        m.par_chunks_exact(2).zip(res.par_iter_mut()).for_each(compute);
+    }
+    res
+}
+
 pub fn fold_multilinear_at_bit<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
@@ -104,6 +127,11 @@ pub fn fold_multilinear_at_bit<
 ) -> Vec<OF> {
     let new_size = m.len() / 2;
     assert!(m.len() >= 2 * (1 << bit), "bit out of range for slice length");
+
+    if bit == 0 {
+        return fold_multilinear_lsb(m, alpha, mul_if_of);
+    }
+
     let stride = 1usize << bit;
     let lo_mask = stride - 1;
     let mut res = unsafe { uninitialized_vec(new_size) };
