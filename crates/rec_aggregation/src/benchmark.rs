@@ -350,147 +350,41 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 // macOS: opt out of coalition / App-Nap throttling
 // =============================================================================
 //
-// Problem
-// -------
 // A CPU-bound, I/O-silent process on Apple silicon gets throttled onto
-// efficiency cores after a few seconds. On our XMSS benchmark this shows up
-// as ~780 sig/s bare vs ~900 sig/s with `--tracing` (the tracing layer's
-// incidental syscalls happen to keep the process classified as active).
-// Thread-level QoS (`pthread_set_qos_class_self_np`) and Darwin role
-// (`PRIO_DARWIN_ROLE_UI_FOCAL`) were both insufficient — they set the
+// efficiency cores after a few seconds (~780 sig/s bare vs ~900 sig/s with
+// `--tracing`, whose incidental syscalls keep the process classified as
+// active). Thread-level QoS and `PRIO_DARWIN_ROLE_UI_FOCAL` set the
 // *requested* priority but the coalition-level throttle is a separate knob
-// based on observed behaviour.
+// driven by observed behaviour.
 //
-// Fix
-// ---
-// Apple's documented API for "this process is doing user-initiated,
-// latency-critical work, please don't throttle me" is
-// `-[NSProcessInfo beginActivityWithOptions:reason:]`. The returned token
-// must be kept alive for the duration of the protected work and released
-// via `-endActivity:`. This is exactly what Foundation/AppKit apps use, and
-// it is the supported way for command-line tools to opt out of App Nap and
-// related throttling.
-//
-//   <https://developer.apple.com/documentation/foundation/nsprocessinfo/1408965-beginactivitywithoptions>
-//
-// Options used: `NSActivityUserInitiated | NSActivityLatencyCritical`.
-//   - UserInitiated:  the user is actively waiting for this work (the cover
-//                     for "not background, not idle-sleep-eligible").
-//   - LatencyCritical: the work has strict timing / I/O-precision needs.
-//
-// Implementation note
-// -------------------
-// We call the API directly through the Objective-C runtime via raw
-// `objc_msgSend` + `objc_getClass` + `sel_registerName`, avoiding any extra
-// crate dependency. Foundation is linked explicitly with
-// `#[link(name = "Foundation", kind = "framework")]`; the rest of the
-// runtime (`libobjc`) is already pulled in by libSystem.
+// `-[NSProcessInfo beginActivityWithOptions:reason:]` is Apple's documented
+// opt-out: the returned token, kept alive for the duration of the work,
+// marks the process as user-initiated + latency-critical.
 // =============================================================================
 #[cfg(target_os = "macos")]
 mod macos_activity {
-    use std::ffi::{CString, c_void};
-    use std::os::raw::c_char;
-
-    // NSActivityOptions values from <Foundation/NSProcessInfo.h>:
-    //   NSActivityIdleSystemSleepDisabled = 1ULL << 20
-    //   NSActivityUserInitiated           = 0x00FFFFFF | NSActivityIdleSystemSleepDisabled
-    //   NSActivityLatencyCritical         = 0xFF00000000
-    const NS_ACTIVITY_USER_INITIATED: u64 = 0x00FF_FFFF | (1 << 20);
-    const NS_ACTIVITY_LATENCY_CRITICAL: u64 = 0xFF_0000_0000;
-
-    #[link(name = "Foundation", kind = "framework")]
-    unsafe extern "C" {}
-
-    unsafe extern "C" {
-        fn objc_getClass(name: *const c_char) -> *mut c_void;
-        fn sel_registerName(name: *const c_char) -> *mut c_void;
-        fn objc_msgSend();
-    }
-
-    type Id = *mut c_void;
-    type Sel = *mut c_void;
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
 
     pub struct Activity {
-        token: Id,
+        process_info: Retained<NSProcessInfo>,
+        token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
     }
 
-    // Activity tokens are not thread-affine; safe to move / share.
-    unsafe impl Send for Activity {}
-    unsafe impl Sync for Activity {}
-
     impl Activity {
-        pub fn begin(reason: &str) -> Option<Self> {
-            let reason_cstr = CString::new(reason).ok()?;
-            unsafe {
-                let ns_process_info = objc_getClass(c"NSProcessInfo".as_ptr());
-                let ns_string = objc_getClass(c"NSString".as_ptr());
-                if ns_process_info.is_null() || ns_string.is_null() {
-                    return None;
-                }
-
-                // Typed shims around objc_msgSend for each signature we use.
-                type Send0 = unsafe extern "C" fn(Id, Sel) -> Id;
-                type SendCStr = unsafe extern "C" fn(Id, Sel, *const c_char) -> Id;
-                type SendU64Id = unsafe extern "C" fn(Id, Sel, u64, Id) -> Id;
-                let msg_send = objc_msgSend as *const () as usize;
-                let send0: Send0 = std::mem::transmute(msg_send);
-                let send_cstr: SendCStr = std::mem::transmute(msg_send);
-                let send_u64_id: SendU64Id = std::mem::transmute(msg_send);
-
-                let sel_process_info = sel_registerName(c"processInfo".as_ptr());
-                let sel_string_with_utf8 = sel_registerName(c"stringWithUTF8String:".as_ptr());
-                let sel_begin = sel_registerName(c"beginActivityWithOptions:reason:".as_ptr());
-                let sel_retain = sel_registerName(c"retain".as_ptr());
-
-                let proc_info = send0(ns_process_info, sel_process_info);
-                if proc_info.is_null() {
-                    return None;
-                }
-
-                let reason_ns = send_cstr(ns_string, sel_string_with_utf8, reason_cstr.as_ptr());
-                if reason_ns.is_null() {
-                    return None;
-                }
-
-                let options = NS_ACTIVITY_USER_INITIATED | NS_ACTIVITY_LATENCY_CRITICAL;
-                let activity = send_u64_id(proc_info, sel_begin, options, reason_ns);
-                if activity.is_null() {
-                    return None;
-                }
-
-                // The returned object is autoreleased; retain so it outlives any
-                // autorelease pool we may be draining in the benchmark loop.
-                let retained = send0(activity, sel_retain);
-                if retained.is_null() {
-                    return None;
-                }
-                Some(Self { token: retained })
-            }
+        pub fn begin(reason: &str) -> Self {
+            let process_info = NSProcessInfo::processInfo();
+            let reason = NSString::from_str(reason);
+            let options = NSActivityOptions::UserInitiated | NSActivityOptions::LatencyCritical;
+            let token = process_info.beginActivityWithOptions_reason(options, &reason);
+            Self { process_info, token }
         }
     }
 
     impl Drop for Activity {
         fn drop(&mut self) {
-            unsafe {
-                type Send0 = unsafe extern "C" fn(Id, Sel) -> Id;
-                type SendId = unsafe extern "C" fn(Id, Sel, Id) -> Id;
-                let msg_send = objc_msgSend as *const () as usize;
-                let send0: Send0 = std::mem::transmute(msg_send);
-                let send_id: SendId = std::mem::transmute(msg_send);
-
-                let ns_process_info = objc_getClass(c"NSProcessInfo".as_ptr());
-                let sel_process_info = sel_registerName(c"processInfo".as_ptr());
-                let sel_end = sel_registerName(c"endActivity:".as_ptr());
-                let sel_release = sel_registerName(c"release".as_ptr());
-
-                if !ns_process_info.is_null() {
-                    let proc_info = send0(ns_process_info, sel_process_info);
-                    if !proc_info.is_null() {
-                        send_id(proc_info, sel_end, self.token);
-                    }
-                }
-                send0(self.token, sel_release);
-            }
+            unsafe { self.process_info.endActivity(&self.token) };
         }
     }
 }
