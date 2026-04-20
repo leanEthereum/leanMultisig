@@ -548,10 +548,9 @@ pub fn prove_generic_logup(
         let eval_on_selector = trace.columns[bus.selector].evaluate(&inner_point) * bus.direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data = MleRef::<EF>::ExtensionPacked(
-            &denominators_packed[offset / width..][..(1 << log_n_rows) / width],
-        )
-        .evaluate(&bus_eval_point);
+        let eval_on_data =
+            MleRef::<EF>::ExtensionPacked(&denominators_packed[offset / width..][..(1 << log_n_rows) / width])
+                .evaluate(&bus_eval_point);
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);

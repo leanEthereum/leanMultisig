@@ -195,7 +195,10 @@ fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
             }
             LayerStorage::Natural { nums, dens } => sum_quotients(nums.as_ref(), dens.as_ref()),
         };
-        layers.push(LayerStorage::Natural { nums: Cow::Owned(nn), dens: Cow::Owned(nd) });
+        layers.push(LayerStorage::Natural {
+            nums: Cow::Owned(nn),
+            dens: Cow::Owned(nd),
+        });
         current_n_vars -= 1;
     }
     std::mem::drop(_span);
@@ -571,17 +574,15 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
 
     // --- Round 0: compute h_0 on base × ext directly on the combined layer. ---
     let eq_alpha_0 = *remaining_eq.last().unwrap();
-    let within_pt_0: Vec<EF> =
-        remaining_eq[head_len..remaining_eq.len() - 1].iter().rev().copied().collect();
+    let within_pt_0: Vec<EF> = remaining_eq[head_len..remaining_eq.len() - 1]
+        .iter()
+        .rev()
+        .copied()
+        .collect();
     let eq_within_0 = eval_eq_packed(&within_pt_0);
 
-    let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) = compute_round_base_ext(
-        packed_nums,
-        packed_dens,
-        parent_chunk_log,
-        &eq_outer,
-        &eq_within_0,
-    );
+    let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) =
+        compute_round_base_ext(packed_nums, packed_dens, parent_chunk_log, &eq_outer, &eq_within_0);
 
     // α applied once per round (not per pair).
     let c0_raw: EF = EFPacking::<EF>::to_ext_iter([c0_d_pkg + c0_s_pkg * alpha]).sum::<EF>();
@@ -602,19 +603,21 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     // in tiny edge cases — fall back to the non-fused path.
     if parent_chunk_log >= w + 3 && remaining_eq.len() > w + 1 {
         let eq_alpha_1 = *remaining_eq.last().unwrap();
-        let within_pt_1: Vec<EF> =
-            remaining_eq[head_len..remaining_eq.len() - 1].iter().rev().copied().collect();
+        let within_pt_1: Vec<EF> = remaining_eq[head_len..remaining_eq.len() - 1]
+            .iter()
+            .rev()
+            .copied()
+            .collect();
         let eq_within_1 = eval_eq_packed(&within_pt_1);
 
-        let (nums_ext, dens_ext, c0_s_1, c2_s_1, c0_d_1, c2_d_1) =
-            fold_and_compute_round_packed_base_to_ext::<EF>(
-                packed_nums,
-                packed_dens,
-                parent_chunk_log,
-                r0,
-                &eq_outer,
-                &eq_within_1,
-            );
+        let (nums_ext, dens_ext, c0_s_1, c2_s_1, c0_d_1, c2_d_1) = fold_and_compute_round_packed_base_to_ext::<EF>(
+            packed_nums,
+            packed_dens,
+            parent_chunk_log,
+            r0,
+            &eq_outer,
+            &eq_within_1,
+        );
 
         let c0_r1: EF = EFPacking::<EF>::to_ext_iter([c0_d_1 + c0_s_1 * alpha]).sum::<EF>();
         let c2_r1: EF = EFPacking::<EF>::to_ext_iter([c2_d_1 + c2_s_1 * alpha]).sum::<EF>();
@@ -724,8 +727,11 @@ fn run_phase1_packed<'a, EF: ExtensionField<PF<EF>>>(
         let eq_alpha = *remaining_eq.last().unwrap();
         // eq_within shrinks by one variable each round; rebuild it (small,
         // fits in one packed word at small layer_chunk_log).
-        let within_pt: Vec<EF> =
-            remaining_eq[head_len..remaining_eq.len() - 1].iter().rev().copied().collect();
+        let within_pt: Vec<EF> = remaining_eq[head_len..remaining_eq.len() - 1]
+            .iter()
+            .rev()
+            .copied()
+            .collect();
         let eq_within = eval_eq_packed(&within_pt);
 
         let (c0_s_pkg, c2_s_pkg, c0_d_pkg, c2_d_pkg) = if let Some(prev_r) = pending_r.take() {
@@ -822,9 +828,8 @@ fn compute_round_packed<EF: ExtensionField<PF<EF>>>(
 
     type P<EF> = EFPacking<EF>;
     let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
-    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
-        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
-    };
+    let add =
+        |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3);
 
     nums.par_chunks_exact(layer_packed)
         .zip(dens.par_chunks_exact(layer_packed))
@@ -885,9 +890,8 @@ where
 
     type P<EF> = EFPacking<EF>;
     let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
-    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
-        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
-    };
+    let add =
+        |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3);
 
     nums.par_chunks_exact(layer_packed)
         .zip(dens.par_chunks_exact(layer_packed))
@@ -993,9 +997,8 @@ fn fold_and_compute_round_packed<EF: ExtensionField<PF<EF>>>(
 
     type P<EF> = EFPacking<EF>;
     let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
-    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
-        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
-    };
+    let add =
+        |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3);
 
     let (c0s, c2s, c0d, c2d) = nums
         .par_chunks_exact(in_packed)
@@ -1108,9 +1111,8 @@ where
 
     type P<EF> = EFPacking<EF>;
     let zero = || (P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO, P::<EF>::ZERO);
-    let add = |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| {
-        (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
-    };
+    let add =
+        |a: (P<EF>, P<EF>, P<EF>, P<EF>), b: (P<EF>, P<EF>, P<EF>, P<EF>)| (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3);
 
     let (c0s, c2s, c0d, c2d) = nums_base
         .par_chunks_exact(in_packed)
