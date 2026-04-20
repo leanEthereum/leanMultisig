@@ -14,5 +14,3 @@ pub use sc_computation::*;
 
 mod product_computation;
 pub use product_computation::*;
-
-mod quotient_computation;

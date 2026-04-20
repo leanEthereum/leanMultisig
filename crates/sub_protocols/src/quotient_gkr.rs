@@ -1,4 +1,7 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    ops::{Add, Mul},
+};
 
 use backend::*;
 use tracing::instrument;
@@ -823,81 +826,42 @@ pub fn verify_gkr_quotient<EF: ExtensionField<PF<EF>>>(
 ) -> Result<(EF, MultilinearPoint<EF>, EF, EF), ProofError> {
     assert!(n_vars > N_VARS_TO_SEND_GKR_COEFFS);
     let send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS;
-    let top_nums = verifier_state.next_extension_scalars_vec(send_len)?;
-    let top_dens = verifier_state.next_extension_scalars_vec(send_len)?;
-    let quotient = compute_quotient(&top_nums, &top_dens);
-
+    let last_nums = verifier_state.next_extension_scalars_vec(send_len)?;
+    let last_dens = verifier_state.next_extension_scalars_vec(send_len)?;
+    let quotient: EF = compute_quotient(&last_nums, &last_dens);
     let mut point = MultilinearPoint(verifier_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
-    let mut claim_num = top_nums.evaluate(&point);
-    let mut claim_den = top_dens.evaluate(&point);
-
-    for k in N_VARS_TO_SEND_GKR_COEFFS..n_vars {
-        let (next_point, next_num, next_den) =
-            verify_gkr_quotient_step(verifier_state, k, &point, claim_num, claim_den)?;
-        point = next_point;
-        claim_num = next_num;
-        claim_den = next_den;
+    let mut claims_num = last_nums.evaluate(&point);
+    let mut claims_den = last_dens.evaluate(&point);
+    for i in N_VARS_TO_SEND_GKR_COEFFS..n_vars {
+        (point, claims_num, claims_den) = verify_gkr_quotient_step(verifier_state, i, &point, claims_num, claims_den)?;
     }
-
-    Ok((quotient, point, claim_num, claim_den))
+    Ok((quotient, point, claims_num, claims_den))
 }
 
 fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut impl FSVerifier<EF>,
-    k: usize,
-    claim_point: &MultilinearPoint<EF>,
-    claim_num: EF,
-    claim_den: EF,
+    n_vars: usize,
+    point: &MultilinearPoint<EF>,
+    claims_num: EF,
+    claims_den: EF,
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
     let alpha = verifier_state.sample();
-    let expected_sum = claim_num + alpha * claim_den;
-
-    let (q_natural, final_target) = rtl_gkr_quotient_sumcheck_verify(verifier_state, k, &claim_point.0, expected_sum)?;
-
+    let expected_sum = claims_num + alpha * claims_den;
+    let eq_alphas_rev: Vec<EF> = point.0.iter().rev().copied().collect();
+    let mut postponed = sumcheck_verify(verifier_state, n_vars, 3, expected_sum, Some(&eq_alphas_rev))?;
+    postponed.point.0.reverse();
     let inner_evals = verifier_state.next_extension_scalars_vec(4)?;
-    let nl_q = inner_evals[0];
-    let nr_q = inner_evals[1];
-    let dl_q = inner_evals[2];
-    let dr_q = inner_evals[3];
-
-    let q_point = MultilinearPoint(q_natural.clone());
-    let eq_factor = claim_point.eq_poly_outside(&q_point);
-    let expected = eq_factor * (nl_q * dr_q + nr_q * dl_q + alpha * dl_q * dr_q);
-    if final_target != expected {
+    let constraints_eval =
+        alpha * inner_evals[2] * inner_evals[3] + (inner_evals[0] * inner_evals[3] + inner_evals[1] * inner_evals[2]);
+    if postponed.value != point.eq_poly_outside(&postponed.point) * constraints_eval {
         return Err(ProofError::InvalidProof);
     }
-
     let beta = verifier_state.sample();
-    let one_minus_beta = EF::ONE - beta;
-    let next_num = one_minus_beta * nl_q + beta * nr_q;
-    let next_den = one_minus_beta * dl_q + beta * dr_q;
-
-    let mut next_point = q_natural;
-    next_point.push(beta);
-    Ok((MultilinearPoint(next_point), next_num, next_den))
-}
-
-// Mirror of rtl_gkr_quotient_sumcheck_prove: walks eq_point from the back, one
-// eq_alpha per round. Returns (q_natural, final_running_target) — the target
-// the caller must then cross-check against the inner_evals.
-fn rtl_gkr_quotient_sumcheck_verify<EF: ExtensionField<PF<EF>>>(
-    verifier_state: &mut impl FSVerifier<EF>,
-    k: usize,
-    eq_point: &[EF],
-    initial_sum: EF,
-) -> Result<(Vec<EF>, EF), ProofError> {
-    debug_assert_eq!(eq_point.len(), k);
-    let mut target = initial_sum;
-    let mut q_natural: Vec<EF> = Vec::with_capacity(k);
-    for round in 0..k {
-        let eq_alpha = eq_point[k - 1 - round];
-        let coeffs = verifier_state.next_sumcheck_polynomial(4, target, Some(eq_alpha))?;
-        let pol = DensePolynomial::new(coeffs);
-        let r = verifier_state.sample();
-        target = pol.evaluate(r);
-        q_natural.insert(0, r);
-    }
-    Ok((q_natural, target))
+    let next_claims_numerators = (&inner_evals[..2]).evaluate(&MultilinearPoint(vec![beta]));
+    let next_claims_denominators = (&inner_evals[2..]).evaluate(&MultilinearPoint(vec![beta]));
+    let mut next_point = postponed.point.clone();
+    next_point.0.push(beta);
+    Ok((next_point, next_claims_numerators, next_claims_denominators))
 }
 
 fn sum_quotients<EF: ExtensionField<PF<EF>>>(nums: &[EF], dens: &[EF]) -> (Vec<EF>, Vec<EF>) {
@@ -946,7 +910,6 @@ fn bit_reverse_chunks<T: Copy + Send + Sync>(v: &[T], chunk_log: usize) -> Vec<T
     let mut out: Vec<T> = unsafe { uninitialized_vec(n) };
     bit_reverse_chunks_into(v, chunk_log, &mut out);
     out
-
 }
 
 fn bit_reverse_chunks_into<T: Copy + Send + Sync>(v: &[T], chunk_log: usize, out: &mut [T]) {
