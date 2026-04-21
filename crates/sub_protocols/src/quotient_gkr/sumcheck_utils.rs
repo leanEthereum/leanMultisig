@@ -52,8 +52,6 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
 
     let k = eq_point.len();
     let mut remaining_eq = eq_point.to_vec();
-    // head_len = outer bits above parent_chunk_log (the combined view includes
-    // the sibling bit inside the chunk).
     let head_len = (k + 1).saturating_sub(parent_chunk_log);
     let mut q_natural = vec![];
     let mut mmf = EF::ONE;
@@ -65,7 +63,6 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
         eval_eq(&remaining_eq[..head_len])
     };
 
-    // Round 0: base × ext directly on the combined layer.
     let eq_alpha_0 = *remaining_eq.last().unwrap();
     let eq_within_0 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
     let (c0_s, c2_s, c0_d, c2_d) =
@@ -83,64 +80,39 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
     );
     q_natural.insert(0, r0);
     remaining_eq.pop();
+    assert!(parent_chunk_log >= w + 3);
 
-    if parent_chunk_log >= w + 3 && remaining_eq.len() > w + 1 {
-        let eq_alpha_1 = *remaining_eq.last().unwrap();
-        let eq_within_1 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
-        let (nums_ext, dens_ext, c0_s, c2_s, c0_d, c2_d) = fold_and_compute_round_packed::<EF, _>(
-            packed_nums,
-            packed_dens,
-            parent_chunk_log,
-            r0,
-            &eq_outer,
-            &eq_within_1,
-        );
-        let r1 = finalize_round(
-            prover_state,
-            c0_s,
-            c2_s,
-            c0_d,
-            c2_d,
-            alpha,
-            eq_alpha_1,
-            &mut sum,
-            &mut mmf,
-        );
-        q_natural.insert(0, r1);
-        remaining_eq.pop();
+    let eq_alpha_1 = *remaining_eq.last().unwrap();
+    let eq_within_1 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
+    let (nums_ext, dens_ext, c0_s, c2_s, c0_d, c2_d) =
+        fold_and_compute_round_packed::<EF, _>(packed_nums, packed_dens, parent_chunk_log, r0, &eq_outer, &eq_within_1);
+    let r1 = finalize_round(
+        prover_state,
+        c0_s,
+        c2_s,
+        c0_d,
+        c2_d,
+        alpha,
+        eq_alpha_1,
+        &mut sum,
+        &mut mmf,
+    );
+    q_natural.insert(0, r1);
+    remaining_eq.pop();
 
-        run_phase1_sumcheck(
-            prover_state,
-            Cow::Owned(nums_ext),
-            Cow::Owned(dens_ext),
-            parent_chunk_log - 2,
-            remaining_eq,
-            q_natural,
-            alpha,
-            sum,
-            mmf,
-            Some(eq_outer),
-            Some(r1),
-        )
-    } else {
-        // Tiny-layer fallback: unfused fold.
-        let fold_bit = parent_chunk_log - 2 - w;
-        let nums_ext = fold_base_to_ext_at_bit::<EF>(packed_nums, r0, fold_bit);
-        let dens_ext = fold_multilinear_at_bit(packed_dens, r0, fold_bit, &|v, a| v * a);
-        run_phase1_sumcheck(
-            prover_state,
-            Cow::Owned(nums_ext),
-            Cow::Owned(dens_ext),
-            parent_chunk_log - 1,
-            remaining_eq,
-            q_natural,
-            alpha,
-            sum,
-            mmf,
-            Some(eq_outer),
-            None,
-        )
-    }
+    run_phase1_sumcheck(
+        prover_state,
+        Cow::Owned(nums_ext),
+        Cow::Owned(dens_ext),
+        parent_chunk_log - 2,
+        remaining_eq,
+        q_natural,
+        alpha,
+        sum,
+        mmf,
+        Some(eq_outer),
+        Some(r1),
+    )
 }
 
 /// bit-reversed by chunk + Packed
@@ -485,16 +457,6 @@ fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
     let h1_mmf = (sum - (EF::ONE - eq_alpha) * c0_mmf) / eq_alpha;
     let c1_mmf = h1_mmf - c0_mmf - c2_mmf;
     DensePolynomial::new(vec![c0_mmf, c1_mmf, c2_mmf])
-}
-
-/// Fold a base-field-packed array at `bit`, producing an extension-field
-/// packed result.
-fn fold_base_to_ext_at_bit<EF: ExtensionField<PF<EF>>>(m: &[PFPacking<EF>], alpha: EF, bit: usize) -> Vec<EFPacking<EF>>
-where
-    EFPacking<EF>: Algebra<PFPacking<EF>>,
-{
-    let alpha_packed: EFPacking<EF> = <EFPacking<EF> as From<EF>>::from(alpha);
-    fold_multilinear_at_bit(m, alpha_packed, bit, &|diff, a| a * diff)
 }
 
 pub(super) fn even_odd_split<EF: Copy>(v: &[EF]) -> (Vec<EF>, Vec<EF>) {
