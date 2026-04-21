@@ -5,12 +5,12 @@ use tracing::instrument;
 
 use crate::N_VARS_TO_SEND_GKR_COEFFS;
 
-// Right-to-left GKR for Σ nᵢ/dᵢ.
-// Storage is lexicographic (x_0 = MSB, x_{L-1} = LSB); each round binds the
-// LSB. Phase 1 keeps data chunk-bit-reversed at chunk_log = min(PIVOT, L) and
+// GKR for Σ nᵢ/dᵢ
+// Folding = 'right to left' (LSB first)  (x_0 = MSB, x_{L-1} = LSB)
+// Phase 1 keeps data chunk-bit-reversed at chunk_log  and
 // packed — a natural-LSB fold becomes a fold at the chunk-MSB, which stays
-// above SIMD-lane while chunk_log > w. Once chunk_log drops to w we unpack and
-// continue naturally.
+// above SIMD-lane while chunk_log > w (w = log(SIMD lane)). Once chunk_log
+// drops to w we unpack and continue naturally.
 //
 // In this file, "br" means "bit reverse"
 
@@ -36,20 +36,69 @@ enum LayerStorage<'a, EF: ExtensionField<PF<EF>>> {
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
-    fn unpack_and_unreverse(&self) -> (Vec<EF>, Vec<EF>) {
+    fn as_natural(&self) -> Self {
         match self {
-            LayerStorage::Initial { nums, dens, chunk_log } => {
+            Self::Initial { nums, dens, chunk_log } => {
                 let n_nat: Vec<EF> = bit_reverse_chunks(PFPacking::<EF>::unpack_slice(nums.as_ref()), *chunk_log)
                     .into_iter()
                     .map(EF::from)
                     .collect();
-                (n_nat, unpack_and_unreverse_slice(dens.as_ref(), *chunk_log))
+                let d_nat = unpack_and_unreverse_slice(dens.as_ref(), *chunk_log);
+                Self::Natural {
+                    nums: Cow::Owned(n_nat),
+                    dens: Cow::Owned(d_nat),
+                }
             }
-            LayerStorage::PackedBr { nums, dens, chunk_log } => (
-                unpack_and_unreverse_slice(nums.as_ref(), *chunk_log),
-                unpack_and_unreverse_slice(dens.as_ref(), *chunk_log),
-            ),
-            LayerStorage::Natural { nums, dens } => (nums.to_vec(), dens.to_vec()),
+            Self::PackedBr { nums, dens, chunk_log } => {
+                let n_nat = unpack_and_unreverse_slice(nums.as_ref(), *chunk_log);
+                let d_nat = unpack_and_unreverse_slice(dens.as_ref(), *chunk_log);
+                Self::Natural {
+                    nums: Cow::Owned(n_nat),
+                    dens: Cow::Owned(d_nat),
+                }
+            }
+            Self::Natural { nums, dens } => Self::Natural {
+                nums: Cow::Owned(nums.to_vec()),
+                dens: Cow::Owned(dens.to_vec()),
+            },
+        }
+    }
+
+    fn sum_quotients_2_by_2(&self) -> Self {
+        match self {
+            Self::Initial { nums, dens, chunk_log } => {
+                let (new_nums, new_dens) =
+                    sum_quotients_2_by_2_packed_br::<EF, _>(nums.as_ref(), dens.as_ref(), *chunk_log);
+                Self::PackedBr {
+                    nums: Cow::Owned(new_nums),
+                    dens: Cow::Owned(new_dens),
+                    chunk_log: *chunk_log - 1,
+                }
+            }
+            Self::PackedBr { nums, dens, chunk_log } => {
+                let (new_nums, new_dens) =
+                    sum_quotients_2_by_2_packed_br::<EF, _>(nums.as_ref(), dens.as_ref(), *chunk_log);
+                Self::PackedBr {
+                    nums: Cow::Owned(new_nums),
+                    dens: Cow::Owned(new_dens),
+                    chunk_log: *chunk_log - 1,
+                }
+            }
+            Self::Natural { nums, dens } => {
+                let (nn, nd) = sum_quotients_2_by_2(nums.as_ref(), dens.as_ref());
+                Self::Natural {
+                    nums: Cow::Owned(nn),
+                    dens: Cow::Owned(nd),
+                }
+            }
+        }
+    }
+
+    fn chunk_log(&self) -> usize {
+        match self {
+            Self::Initial { chunk_log, .. } => *chunk_log,
+            Self::PackedBr { chunk_log, .. } => *chunk_log,
+            Self::Natural { .. } => 0,
         }
     }
 }
@@ -76,51 +125,30 @@ pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
         dens: Cow::Borrowed(dens_br),
         chunk_log: pivot,
     };
-    prove_gkr_quotient_from_initial_layer(prover_state, initial, l)
-}
 
-fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    initial: LayerStorage<'a, EF>,
-    l: usize,
-) -> (EF, MultilinearPoint<EF>) {
-    let w = packing_log_width::<EF>();
     let mut layers: Vec<LayerStorage<'a, EF>> = vec![initial];
 
     // Phase 1: SIMD reductions on packed-BR data until chunk_log shrinks to w.
     let mut current_n_vars = l;
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
-        let (new_nums, new_dens, new_chunk_log) = match layers.last().unwrap() {
-            LayerStorage::Initial { nums, dens, chunk_log } if *chunk_log > w => {
-                let (nn, nd) = sum_quotients_packed_br::<EF, _>(nums.as_ref(), dens.as_ref(), *chunk_log);
-                (nn, nd, *chunk_log - 1)
-            }
-            LayerStorage::PackedBr { nums, dens, chunk_log } if *chunk_log > w => {
-                let (nn, nd) = sum_quotients_packed_br::<EF, _>(nums.as_ref(), dens.as_ref(), *chunk_log);
-                (nn, nd, *chunk_log - 1)
-            }
-            _ => break,
-        };
-        layers.push(LayerStorage::PackedBr {
-            nums: Cow::Owned(new_nums),
-            dens: Cow::Owned(new_dens),
-            chunk_log: new_chunk_log,
-        });
+        let last_layer = layers.last().unwrap();
+        let chunk_log = last_layer.chunk_log();
+        if chunk_log <= w {
+            break;
+        }
+        layers.push(last_layer.sum_quotients_2_by_2());
         current_n_vars -= 1;
     }
 
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
-        let (n_nat, d_nat) = layers.last().unwrap().unpack_and_unreverse();
-        let (nn, nd) = sum_quotients(&n_nat, &d_nat);
-        layers.push(LayerStorage::Natural {
-            nums: Cow::Owned(nn),
-            dens: Cow::Owned(nd),
-        });
+        layers.push(layers.last().unwrap().as_natural().sum_quotients_2_by_2());
         current_n_vars -= 1;
     }
 
     let top = layers.pop().unwrap();
-    let (top_nums, top_dens) = top.unpack_and_unreverse();
+    let LayerStorage::Natural { nums: top_nums, dens: top_dens } = top.as_natural() else {
+        unreachable!()
+    };
     prover_state.add_extension_scalars(&top_nums);
     prover_state.add_extension_scalars(&top_dens);
     let quotient = compute_quotient(&top_nums, &top_dens);
@@ -177,7 +205,9 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         _ => {
-            let (n_nat, d_nat) = layer.unpack_and_unreverse();
+            let LayerStorage::Natural { nums: n_nat, dens: d_nat } = layer.as_natural() else {
+                unreachable!()
+            };
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
             rtl_gkr_quotient_sumcheck_prove(
@@ -783,7 +813,7 @@ where
     fold_multilinear_at_bit(m, alpha_packed, bit, &|diff, a| a * diff)
 }
 
-fn sum_quotients<EF: ExtensionField<PF<EF>>>(nums: &[EF], dens: &[EF]) -> (Vec<EF>, Vec<EF>) {
+fn sum_quotients_2_by_2<EF: ExtensionField<PF<EF>>>(nums: &[EF], dens: &[EF]) -> (Vec<EF>, Vec<EF>) {
     let n = nums.len();
     assert_eq!(n, dens.len());
     let new_n = n / 2;
@@ -866,7 +896,7 @@ fn unpack_and_unreverse_slice<EF: ExtensionField<PF<EF>>>(v: &[EFPacking<EF>], c
     bit_reverse_chunks(&unpack_extension::<EF>(v), chunk_log)
 }
 
-fn sum_quotients_packed_br<EF: ExtensionField<PF<EF>>, N>(
+fn sum_quotients_2_by_2_packed_br<EF: ExtensionField<PF<EF>>, N>(
     nums: &[N],
     dens: &[EFPacking<EF>],
     chunk_log: usize,
