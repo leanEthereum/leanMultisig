@@ -36,7 +36,6 @@ fn finalize_round<EF: ExtensionField<PF<EF>>>(
     r
 }
 
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
@@ -144,7 +143,6 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
     }
 }
 
-
 /// bit-reversed by chunk + Packed
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
@@ -232,7 +230,6 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     )
 }
 
-
 // Normal ordering (not bit-reversed) + not packed
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
@@ -310,7 +307,6 @@ pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
     let evals = [num_l[0], num_r[0], den_l[0], den_r[0]];
     (q_natural, evals)
 }
-
 
 type Coeffs4<EF> = (EFPacking<EF>, EFPacking<EF>, EFPacking<EF>, EFPacking<EF>);
 
@@ -500,8 +496,6 @@ where
     let alpha_packed: EFPacking<EF> = <EFPacking<EF> as From<EF>>::from(alpha);
     fold_multilinear_at_bit(m, alpha_packed, bit, &|diff, a| a * diff)
 }
-
-
 
 pub(super) fn even_odd_split<EF: Copy>(v: &[EF]) -> (Vec<EF>, Vec<EF>) {
     (
