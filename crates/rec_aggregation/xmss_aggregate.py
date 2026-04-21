@@ -44,23 +44,16 @@ def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
     leaf_tweak = all_tweaks + LEAF_TWEAK_OFFSET
     merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
 
-    # 1) Encode: poseidon24_compress_0_9(randomness(7) || pp(5) || slot(2) || message(9) || 0)
-    enc_capacity = Array(9)
-    copy_7(randomness, enc_capacity)
-    enc_capacity[7] = public_param[0]
-    enc_capacity[8] = public_param[1]
-
+    # 1) Encode: poseidon24_compress_0_9(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)
-    enc_rate[0] = public_param[2]
-    enc_rate[1] = public_param[3]
-    enc_rate[2] = public_param[4]
-    enc_rate[3] = encoding_tweak[0]
-    enc_rate[4] = encoding_tweak[1]
-    copy_9(message, enc_rate + 5)
+    copy_5(public_param, enc_rate)
+    enc_rate[5] = encoding_tweak[0]
+    enc_rate[6] = encoding_tweak[1]
+    copy_7(randomness, enc_rate + 7)
     enc_rate[14] = 0
 
     encoding_fe = Array(POSEIDON24_CAP)
-    poseidon24_compress_0_9(enc_capacity, enc_rate, encoding_fe)
+    poseidon24_compress_0_9(message, enc_rate, encoding_fe)
 
     # 2) Decompose encoding_fe into chain indices (only first NUM_ENCODING_FE elements)
     encoding = Array(NUM_ENCODING_FE * CHUNKS_PER_FE)
@@ -103,17 +96,14 @@ def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
 
 
 @inline
-def chain_hash_one(public_param, chain_tweaks, chain_index, step, input_ptr, output_ptr):
-    # Poseidon16 input: [parameter(5) | tweak(2) | message(8) | 0(1)]
+def make_chain_right(public_param, chain_tweaks, chain_index, step):
+    right = Array(DIGEST_LEN)
     tweak_idx = (chain_index * CHAIN_LENGTH + step) * TWEAK_LEN
-    input_buf = Array(16)
-    copy_5(public_param, input_buf)
-    input_buf[5] = chain_tweaks[tweak_idx]
-    input_buf[6] = chain_tweaks[tweak_idx + 1]
-    copy_8(input_ptr, input_buf + 7)
-    input_buf[15] = 0
-    poseidon16_compress(input_buf, input_buf + 8, output_ptr)
-    return
+    copy_5(public_param, right)
+    right[5] = chain_tweaks[tweak_idx]
+    right[6] = chain_tweaks[tweak_idx + 1]
+    right[7] = 0
+    return right
 
 
 @inline
@@ -124,19 +114,17 @@ def chain_hash(input_ptr, n, output_ptr, chain_sum_ptr, public_param, chain_twea
     if num_hashes == 0:
         copy_8(input_ptr, output_ptr)
     elif num_hashes == 1:
-        chain_hash_one(public_param, chain_tweaks, chain_index, start_step, input_ptr, output_ptr)
+        right = make_chain_right(public_param, chain_tweaks, chain_index, start_step)
+        poseidon16_compress(input_ptr, right, output_ptr)
     else:
         states = Array((num_hashes - 1) * DIGEST_LEN)
-        chain_hash_one(public_param, chain_tweaks, chain_index, start_step, input_ptr, states)
+        right0 = make_chain_right(public_param, chain_tweaks, chain_index, start_step)
+        poseidon16_compress(input_ptr, right0, states)
         for j in unroll(1, num_hashes - 1):
-            chain_hash_one(
-                public_param, chain_tweaks, chain_index, start_step + j,
-                states + (j - 1) * DIGEST_LEN, states + j * DIGEST_LEN,
-            )
-        chain_hash_one(
-            public_param, chain_tweaks, chain_index, start_step + num_hashes - 1,
-            states + (num_hashes - 2) * DIGEST_LEN, output_ptr,
-        )
+            right_j = make_chain_right(public_param, chain_tweaks, chain_index, start_step + j)
+            poseidon16_compress(states + (j - 1) * DIGEST_LEN, right_j, states + j * DIGEST_LEN)
+        right_last = make_chain_right(public_param, chain_tweaks, chain_index, start_step + num_hashes - 1)
+        poseidon16_compress(states + (num_hashes - 2) * DIGEST_LEN, right_last, output_ptr)
 
     chain_sum_ptr[0] = n
     return
