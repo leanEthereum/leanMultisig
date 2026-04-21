@@ -49,7 +49,7 @@ pub fn prove_generic_logup(
     );
     let mut numerators = F::zero_vec(1 << total_gkr_n_vars);
     let width = packing_width::<EF>();
-    let mut denominators_packed = EFPacking::<EF>::zero_vec((1 << total_gkr_n_vars) / width);
+    let mut denominators = EFPacking::<EF>::zero_vec((1 << total_gkr_n_vars) / width);
     let c_packed = EFPacking::<EF>::from(c);
     let alphas_packed: Vec<EFPacking<EF>> = alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
     let alpha_last = *alphas_eq_poly.last().unwrap();
@@ -89,20 +89,17 @@ pub fn prove_generic_logup(
     // Memory section.
     assert_eq!(memory.len(), memory_acc.len());
     fill_num_from(&mut numerators[offset..][..memory.len()], memory_acc, true);
-    fill_denoms(
-        &mut denominators_packed[offset / width..][..memory.len() / width],
-        |p| {
-            c_packed
-                - finger_print_packed::<EF>(
-                    memory_contrib,
-                    &[
-                        PFPacking::<EF>::from_fn(|w| memory[src_idx(p, w)]),
-                        PFPacking::<EF>::from_fn(|w| F::from_usize(src_idx(p, w))),
-                    ],
-                    &alphas_packed,
-                )
-        },
-    );
+    fill_denoms(&mut denominators[offset / width..][..memory.len() / width], |p| {
+        c_packed
+            - finger_print_packed::<EF>(
+                memory_contrib,
+                &[
+                    PFPacking::<EF>::from_fn(|w| memory[src_idx(p, w)]),
+                    PFPacking::<EF>::from_fn(|w| F::from_usize(src_idx(p, w))),
+                ],
+                &alphas_packed,
+            )
+    });
     offset += memory.len();
 
     // Bytecode section.
@@ -110,7 +107,7 @@ pub fn prove_generic_logup(
     fill_num_from(&mut numerators[offset..][..bytecode_acc.len()], bytecode_acc, true);
     let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
     fill_denoms(
-        &mut denominators_packed[offset / width..][..(1 << log_bytecode) / width],
+        &mut denominators[offset / width..][..(1 << log_bytecode) / width],
         |p| {
             let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
             for k in 0..N_INSTRUCTION_COLUMNS {
@@ -121,7 +118,8 @@ pub fn prove_generic_logup(
         },
     );
     if 1 << log_bytecode < max_table_height {
-        denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
+        // padding
+        denominators[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
             .par_iter_mut()
             .for_each(|d| *d = EFPacking::<EF>::ONE);
     }
@@ -137,17 +135,14 @@ pub fn prove_generic_logup(
             numerators[offset..][..1 << log_n_rows]
                 .par_iter_mut()
                 .for_each(|n| *n = F::ONE);
-            fill_denoms(
-                &mut denominators_packed[offset / width..][..(1 << log_n_rows) / width],
-                |p| {
-                    let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
-                    for k in 0..N_INSTRUCTION_COLUMNS {
-                        data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][src_idx(p, w)]);
-                    }
-                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[src_idx(p, w)]);
-                    c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed)
-                },
-            );
+            fill_denoms(&mut denominators[offset / width..][..(1 << log_n_rows) / width], |p| {
+                let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                for k in 0..N_INSTRUCTION_COLUMNS {
+                    data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][src_idx(p, w)]);
+                }
+                data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[src_idx(p, w)]);
+                c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed)
+            });
             offset += 1 << log_n_rows;
         }
 
@@ -157,20 +152,17 @@ pub fn prove_generic_logup(
         let pull = matches!(bus.direction, BusDirection::Pull);
         fill_num_from(&mut numerators[offset..][..1 << log_n_rows], selector, pull);
         let bus_data_entries = &bus.data;
-        fill_denoms(
-            &mut denominators_packed[offset / width..][..(1 << log_n_rows) / width],
-            |p| {
-                let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
-                for (j, entry) in bus_data_entries.iter().enumerate() {
-                    bus_data[j] = match entry {
-                        BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][src_idx(p, w)]),
-                        BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
-                    };
-                }
-                c_packed
-                    + finger_print_packed::<EF>(precompile_contrib, &bus_data[..bus_data_entries.len()], &alphas_packed)
-            },
-        );
+        fill_denoms(&mut denominators[offset / width..][..(1 << log_n_rows) / width], |p| {
+            let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+            for (j, entry) in bus_data_entries.iter().enumerate() {
+                bus_data[j] = match entry {
+                    BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][src_idx(p, w)]),
+                    BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
+                };
+            }
+            c_packed
+                + finger_print_packed::<EF>(precompile_contrib, &bus_data[..bus_data_entries.len()], &alphas_packed)
+        });
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
@@ -181,7 +173,7 @@ pub fn prove_generic_logup(
                 .par_iter_mut()
                 .for_each(|n| *n = F::ONE);
             let packed_chunk_size = (1 << log_n_rows) / width;
-            denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
+            denominators[offset / width..][..col_values.len() * packed_chunk_size]
                 .par_chunks_exact_mut(packed_chunk_size)
                 .enumerate()
                 .for_each(|(i, denom_chunk)| {
@@ -214,20 +206,17 @@ pub fn prove_generic_logup(
         .blue()
     );
 
-    // Final padding: EFPacking::ONE everywhere (layout-invariant).
-    denominators_packed[offset / width..]
+    // Final padding
+    denominators[offset / width..]
         .par_iter_mut()
         .for_each(|d| *d = EFPacking::<EF>::ONE);
 
-    // In the fallback (non-aligned) path we filled naturally; convert to
-    // chunk-BR-packed via unpack + BR + pack. Borrowed in the happy path.
-    let nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
-    let dens_br_slice = &denominators_packed;
-
-    let (sum, claim_point_gkr, numerators_value, denominators_value) =
-        prove_gkr_quotient::<EF>(prover_state, nums_br_slice, dens_br_slice, pivot);
-
-    let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
+    let (sum, claim_point_gkr) = prove_gkr_quotient::<EF>(
+        prover_state,
+        PFPacking::<EF>::pack_slice(&numerators),
+        &denominators,
+        pivot,
+    );
 
     // sanity check
     assert_eq!(sum, EF::ZERO);

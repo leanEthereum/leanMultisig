@@ -58,7 +58,7 @@ pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
     nums_br: &'a [PFPacking<EF>], // already bit-reversed at `pivot`
     dens_br: &'a [EFPacking<EF>], // already bit-reversed at `pivot`
     pivot: usize,
-) -> (EF, MultilinearPoint<EF>, EF, EF) {
+) -> (EF, MultilinearPoint<EF>) {
     let w = packing_log_width::<EF>();
     let l = log2_strict_usize(nums_br.len()) + w;
     assert!(pivot <= ENDIANNESS_PIVOT_GKR.min(l));
@@ -81,7 +81,7 @@ fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     initial: LayerStorage<'a, EF>,
     l: usize,
-) -> (EF, MultilinearPoint<EF>, EF, EF) {
+) -> (EF, MultilinearPoint<EF>) {
     let w = packing_log_width::<EF>();
     let mut layers: Vec<LayerStorage<'a, EF>> = vec![initial];
 
@@ -135,7 +135,7 @@ fn prove_gkr_quotient_from_initial_layer<'a, EF: ExtensionField<PF<EF>>>(
         claim_den = next_den;
     }
 
-    (quotient, point, claim_num, claim_den)
+    (quotient, point)
 }
 
 fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
@@ -983,13 +983,14 @@ mod tests {
         let dens_br = bit_reverse_chunks_and_pack_ext::<EF>(&denominators_raw, pivot);
 
         let time = Instant::now();
-        let prover_statements = prove_gkr_quotient::<EF>(&mut prover_state, &nums_br, &dens_br, pivot);
+        let (quotient_prover, claim_point_prover) = prove_gkr_quotient::<EF>(&mut prover_state, &nums_br, &dens_br, pivot);
         println!("Proving time: {:.3}", time.elapsed().as_secs_f64());
 
         let mut verifier_state = build_verifier_state(prover_state).unwrap();
         let verifier_statements = verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
-        assert_eq!(&verifier_statements, &prover_statements);
         let (retrieved_quotient, claim_point, claim_num, claim_den) = verifier_statements;
+        assert_eq!(claim_point_prover, claim_point);
+        assert_eq!(quotient_prover, retrieved_quotient);
         assert_eq!(retrieved_quotient, real_quotient);
         assert_eq!(numerators_nat.evaluate(&claim_point), claim_num);
         assert_eq!(denominators_nat.evaluate(&claim_point), claim_den);

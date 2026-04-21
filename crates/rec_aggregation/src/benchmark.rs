@@ -299,9 +299,7 @@ fn build_aggregation(
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
     // Tell macOS this is a user-initiated, latency-critical computation and
-    // should not be throttled / App-Napped. Held for the entire benchmark;
-    // dropped via `endActivity:` when the token falls out of scope. See
-    // `macos_activity` below for the full explanation.
+    // should not be throttled / App-Napped.
     #[cfg(target_os = "macos")]
     let _activity = macos_activity::Activity::begin("lean-multisig benchmark");
 
@@ -346,21 +344,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     time
 }
 
-// =============================================================================
-// macOS: opt out of coalition / App-Nap throttling
-// =============================================================================
-//
-// A CPU-bound, I/O-silent process on Apple silicon gets throttled onto
-// efficiency cores after a few seconds (~780 sig/s bare vs ~900 sig/s with
-// `--tracing`, whose incidental syscalls keep the process classified as
-// active). Thread-level QoS and `PRIO_DARWIN_ROLE_UI_FOCAL` set the
-// *requested* priority but the coalition-level throttle is a separate knob
-// driven by observed behaviour.
-//
-// `-[NSProcessInfo beginActivityWithOptions:reason:]` is Apple's documented
-// opt-out: the returned token, kept alive for the duration of the work,
-// marks the process as user-initiated + latency-critical.
-// =============================================================================
+// TODO is there a better fix?
 #[cfg(target_os = "macos")]
 mod macos_activity {
     use objc2::rc::Retained;
