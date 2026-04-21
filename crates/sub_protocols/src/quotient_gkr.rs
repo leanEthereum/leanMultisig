@@ -150,9 +150,9 @@ pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
 
     let top = layers.pop().unwrap().convert_to_natural();
     let (top_nums, top_dens) = top.natural_nums_dens();
-    prover_state.add_extension_scalars(&top_nums);
-    prover_state.add_extension_scalars(&top_dens);
-    let quotient = compute_quotient(&top_nums, &top_dens);
+    prover_state.add_extension_scalars(top_nums);
+    prover_state.add_extension_scalars(top_dens);
+    let quotient = compute_quotient(top_nums, top_dens);
 
     let mut point = MultilinearPoint(prover_state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS));
     let mut claim_num = top_nums.evaluate(&point);
@@ -199,8 +199,8 @@ fn prove_gkr_layer<EF: ExtensionField<PF<EF>>>(
             None,
         ),
         LayerStorage::Natural { nums, dens } => {
-            let (num_l, num_r) = even_odd_split(&nums);
-            let (den_l, den_r) = even_odd_split(&dens);
+            let (num_l, num_r) = even_odd_split(nums);
+            let (den_l, den_r) = even_odd_split(dens);
             run_phase2_sumcheck(
                 prover_state,
                 num_l,
