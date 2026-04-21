@@ -159,13 +159,13 @@ pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
     let mut claim_den = top_dens.evaluate(&point);
 
     for layer in layers.iter().rev() {
-        (point, claim_num, claim_den) = prove_gkr_quotient_step(prover_state, layer, &point, claim_num, claim_den);
+        (point, claim_num, claim_den) = prove_gkr_layer(prover_state, layer, &point, claim_num, claim_den);
     }
 
     (quotient, point)
 }
 
-fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
+fn prove_gkr_layer<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     layer: &LayerStorage<'_, EF>,
     claim_point: &MultilinearPoint<EF>, // K coords, natural order
@@ -176,7 +176,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     let expected_sum = claim_num + alpha * claim_den;
 
     let (mut q_natural, inner_evals) = match layer {
-        LayerStorage::Initial { nums, dens, chunk_log } => gkr_quotient_sumcheck_prove_packed_br_base(
+        LayerStorage::Initial { nums, dens, chunk_log } => quotient_sumcheck_prove_packed_br_base(
             prover_state,
             nums.as_ref(),
             dens.as_ref(),
@@ -305,10 +305,8 @@ fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
     (q_natural, evals)
 }
 
-/// Base-numerator variant: runs round 0 as base×ext for full base-field
-/// density, then folds into EFPacking and continues via `run_phase1_packed`.
 #[allow(clippy::too_many_arguments)]
-fn gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
+fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     packed_nums: &[PFPacking<EF>],
     packed_dens: &[EFPacking<EF>],
@@ -355,7 +353,6 @@ fn gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     q_natural.insert(0, r0);
     remaining_eq.pop();
 
-    // Round 1 fused (base→ext fold + compute): needs 3 packed bits (sib, r0, r1).
     if parent_chunk_log >= w + 3 && remaining_eq.len() > w + 1 {
         let eq_alpha_1 = *remaining_eq.last().unwrap();
         let eq_within_1 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
@@ -424,10 +421,7 @@ fn within_pt<EF: Copy>(remaining_eq: &[EF], head_len: usize) -> Vec<EF> {
         .collect()
 }
 
-/// Combine the (c0,c2) packed pairs, sample the next challenge, and advance
-/// `sum`/`mmf` accordingly.
 #[allow(clippy::too_many_arguments)]
-#[inline(always)]
 fn finalize_round<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     c0_s: EFPacking<EF>,
@@ -513,7 +507,6 @@ fn run_phase1_packed<'a, EF: ExtensionField<PF<EF>>>(
         remaining_eq.pop();
     }
 
-    // Drain any pending fold before transitioning to the unpacked loop.
     if let Some(prev_r) = pending_r {
         let prev_bit = layer_chunk_log - 1 - w;
         nums = Cow::Owned(fold_multilinear_at_bit(nums.as_ref(), prev_r, prev_bit, &|v, a| v * a));
@@ -538,9 +531,6 @@ fn run_phase1_packed<'a, EF: ExtensionField<PF<EF>>>(
     )
 }
 
-/// Combined-view compute for one phase-1 round. `nums` may be `EFPacking` or
-/// `PFPacking`; the generic bound `EFPacking<EF>: Algebra<N>` handles both.
-/// Iterates outer-chunk first so `eq_outer[c]` costs one scalar mult per chunk.
 type Coeffs4<EF> = (EFPacking<EF>, EFPacking<EF>, EFPacking<EF>, EFPacking<EF>);
 
 fn compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
@@ -611,10 +601,6 @@ fn coeffs4_add<EF: ExtensionField<PF<EF>>>(a: Coeffs4<EF>, b: Coeffs4<EF>) -> Co
     (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
 }
 
-/// Combined-view fused fold + compute for phase-1: folds the prev bit into
-/// new arrays at `chunk_log - 1` AND computes the next round polynomial.
-/// Generic over the numerator element type `N`: `EFPacking<EF>` for the
-/// general case, `PFPacking<EF>` for the base→ext lift on the top layer.
 #[allow(clippy::type_complexity)]
 fn fold_and_compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
     nums: &[N],
@@ -663,7 +649,6 @@ where
             let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
             let mut local = coeffs4_zero::<EF>();
             for i in 0..in_eighth {
-                // (sib, prev, cur) strides = (in_half, in_quarter, in_eighth).
                 let l_p0_c0 = i;
                 let l_p0_c1 = i + in_eighth;
                 let l_p1_c0 = i + in_quarter;
@@ -673,13 +658,10 @@ where
                 let r_p1_c0 = i + in_half + in_quarter;
                 let r_p1_c1 = i + in_half + in_quarter + in_eighth;
 
-                // prev_r_packed * diff works for both N = EFPacking (trivially)
-                // and N = PFPacking (via Algebra<PFPacking>), uniformly lifting
-                // the nums fold into EFPacking.
-                let fl_nl: EFPacking<EF> = prev_r_packed * (n_c[l_p1_c0] - n_c[l_p0_c0]) + n_c[l_p0_c0];
-                let fr_nl: EFPacking<EF> = prev_r_packed * (n_c[l_p1_c1] - n_c[l_p0_c1]) + n_c[l_p0_c1];
-                let fl_nr: EFPacking<EF> = prev_r_packed * (n_c[r_p1_c0] - n_c[r_p0_c0]) + n_c[r_p0_c0];
-                let fr_nr: EFPacking<EF> = prev_r_packed * (n_c[r_p1_c1] - n_c[r_p0_c1]) + n_c[r_p0_c1];
+                let fl_nl = prev_r_packed * (n_c[l_p1_c0] - n_c[l_p0_c0]) + n_c[l_p0_c0];
+                let fr_nl = prev_r_packed * (n_c[l_p1_c1] - n_c[l_p0_c1]) + n_c[l_p0_c1];
+                let fl_nr = prev_r_packed * (n_c[r_p1_c0] - n_c[r_p0_c0]) + n_c[r_p0_c0];
+                let fr_nr = prev_r_packed * (n_c[r_p1_c1] - n_c[r_p0_c1]) + n_c[r_p0_c1];
                 let fl_dl = d_c[l_p0_c0] + (d_c[l_p1_c0] - d_c[l_p0_c0]) * prev_r;
                 let fr_dl = d_c[l_p0_c1] + (d_c[l_p1_c1] - d_c[l_p0_c1]) * prev_r;
                 let fl_dr = d_c[r_p0_c0] + (d_c[r_p1_c0] - d_c[r_p0_c0]) * prev_r;
@@ -714,9 +696,6 @@ where
     (new_nums, new_dens, c0s, c2s, c0d, c2d)
 }
 
-/// Build the bare round polynomial (scaled by `mmf`) from the z⁰ and z²
-/// coefficients of `H(z)`; h(1) is recovered from the sum constraint.
-#[inline(always)]
 fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
     c0_raw: EF,
     c2_raw: EF,
