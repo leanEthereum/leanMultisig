@@ -36,7 +36,7 @@ enum LayerStorage<'a, EF: ExtensionField<PF<EF>>> {
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
-    fn as_natural(&self) -> Self {
+    fn convert_to_natural(&self) -> Self {
         match self {
             Self::Initial { nums, dens, chunk_log } => {
                 let n_nat: Vec<EF> = bit_reverse_chunks(PFPacking::<EF>::unpack_slice(nums.as_ref()), *chunk_log)
@@ -61,6 +61,13 @@ impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
                 nums: Cow::Owned(nums.to_vec()),
                 dens: Cow::Owned(dens.to_vec()),
             },
+        }
+    }
+
+    fn natural_nums_dens(&self) -> (&[EF], &[EF]) {
+        match self {
+            Self::Natural { nums, dens } => (nums.as_ref(), dens.as_ref()),
+            _ => unreachable!(),
         }
     }
 
@@ -132,23 +139,18 @@ pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
     let mut current_n_vars = l;
     while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
         let last_layer = layers.last().unwrap();
-        let chunk_log = last_layer.chunk_log();
-        if chunk_log <= w {
-            break;
+        if last_layer.chunk_log() == w {
+            let last_layer_unreversed = last_layer.convert_to_natural();
+            layers.push(last_layer_unreversed.sum_quotients_2_by_2());
+        } else {
+            layers.push(last_layer.sum_quotients_2_by_2());
         }
-        layers.push(last_layer.sum_quotients_2_by_2());
+
         current_n_vars -= 1;
     }
 
-    while current_n_vars > N_VARS_TO_SEND_GKR_COEFFS {
-        layers.push(layers.last().unwrap().as_natural().sum_quotients_2_by_2());
-        current_n_vars -= 1;
-    }
-
-    let top = layers.pop().unwrap();
-    let LayerStorage::Natural { nums: top_nums, dens: top_dens } = top.as_natural() else {
-        unreachable!()
-    };
+    let top = layers.pop().unwrap().convert_to_natural();
+    let (top_nums, top_dens) = top.natural_nums_dens();
     prover_state.add_extension_scalars(&top_nums);
     prover_state.add_extension_scalars(&top_dens);
     let quotient = compute_quotient(&top_nums, &top_dens);
@@ -205,9 +207,8 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
             )
         }
         _ => {
-            let LayerStorage::Natural { nums: n_nat, dens: d_nat } = layer.as_natural() else {
-                unreachable!()
-            };
+            let natural = layer.convert_to_natural();
+            let (n_nat, d_nat) = natural.natural_nums_dens();
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
             rtl_gkr_quotient_sumcheck_prove(
