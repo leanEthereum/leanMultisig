@@ -9,6 +9,9 @@ pub struct ConstraintFolderPacked<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData:
     pub extra_data: &'a ExtraData,
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
+    pub skip_low: bool,
+    pub accumulator_low: EFPacking<EF>,
+    pub cached_state: Vec<IF>,
 }
 
 impl<'a, IF, EF, ExtraData> AirBuilder for ConstraintFolderPacked<'a, IF, EF, ExtraData>
@@ -44,6 +47,37 @@ where
         let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
         self.accumulator += EFPacking::<EF>::from(alpha_power) * x;
         self.constraint_index += 1;
+    }
+
+    #[inline]
+    fn assert_eq_low(&mut self, x: IF, y: IF) {
+        if self.skip_low {
+            self.constraint_index += 1;
+            return;
+        }
+        let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
+        let contrib = EFPacking::<EF>::from(alpha_power) * (x - y);
+        self.accumulator += contrib;
+        self.accumulator_low += contrib;
+        self.constraint_index += 1;
+    }
+
+    #[inline]
+    fn is_skip_low(&self) -> bool {
+        self.skip_low
+    }
+
+    #[inline]
+    fn store_cached_state(&mut self, state: &[IF]) {
+        if self.cached_state.capacity() > 0 {
+            self.cached_state.clear();
+            self.cached_state.extend_from_slice(state);
+        }
+    }
+
+    #[inline]
+    fn get_cached_state(&self) -> &[IF] {
+        &self.cached_state
     }
 
     #[inline]

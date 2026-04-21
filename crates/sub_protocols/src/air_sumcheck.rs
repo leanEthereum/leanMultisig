@@ -322,6 +322,25 @@ where
     A::ExtraData: AlphaPowers<EF>,
 {
     let unpack_sum_packed = |s: EFPacking<EF>| -> EF { EFPacking::<EF>::to_ext_iter([s]).sum::<EF>() };
+
+    if let Some(low_degree) = computation.low_degree_air() {
+        match multilinears {
+            MleGroupRef::BasePacked(cols) => {
+                return compute_raw_poly_split::<EF, A, PFPacking<EF>, _, _>(
+                    cols, |j| split_eq.get_packed(j), computation, extra_data,
+                    fold_bit, active_count_pairs, low_degree, unpack_sum_packed,
+                );
+            }
+            MleGroupRef::ExtensionPacked(cols) => {
+                return compute_raw_poly_split::<EF, A, EFPacking<EF>, _, _>(
+                    cols, |j| split_eq.get_packed(j), computation, extra_data,
+                    fold_bit, active_count_pairs, low_degree, unpack_sum_packed,
+                );
+            }
+            _ => {}
+        }
+    }
+
     match multilinears {
         MleGroupRef::BasePacked(cols) => compute_raw_poly_impl::<EF, A, PFPacking<EF>, EFPacking<EF>, _, _>(
             cols,
@@ -364,6 +383,226 @@ where
             |s| s,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_raw_poly_split<EF, A, IF, GetEq, UnpackSum>(
+    cols: &[&[IF]],
+    get_split_eq: GetEq,
+    computation: &A,
+    extra_data: &A::ExtraData,
+    fold_bit: usize,
+    active_count_pairs: usize,
+    low_degree: usize,
+    unpack_sum: UnpackSum,
+) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+    A: Air + 'static,
+    A::ExtraData: AlphaPowers<EF>,
+    IF: Algebra<PFPacking<EF>> + Copy + Send + Sync + Sub<Output = IF> + AddAssign + PrimeCharacteristicRing + 'static,
+    EFPacking<EF>: PrimeCharacteristicRing + Mul<IF, Output = EFPacking<EF>> + Add<IF, Output = EFPacking<EF>>,
+    GetEq: Fn(usize) -> EFPacking<EF> + Sync + Send,
+    UnpackSum: Fn(EFPacking<EF>) -> EF + Sync + Send,
+{
+    let degree = computation.degree_air();
+    let n_cols = cols.len();
+    let n_up = computation.n_columns();
+    let stride = 1usize << fold_bit;
+    let lo_mask = stride - 1;
+    let n_full = low_degree + 1;
+    let n_skip = degree - n_full;
+
+    let eval_z: Vec<PF<EF>> = std::iter::once(PF::<EF>::ZERO)
+        .chain((2..=(low_degree + 1) as u64).map(PF::<EF>::from_u64))
+        .collect();
+    let target_z: Vec<PF<EF>> = ((low_degree + 2) as u64..=degree as u64)
+        .map(PF::<EF>::from_u64)
+        .collect();
+
+    let lagrange_coeffs: Vec<Vec<EFPacking<EF>>> = target_z
+        .iter()
+        .map(|&tz| {
+            eval_z
+                .iter()
+                .enumerate()
+                .map(|(i, &zi)| {
+                    let mut num = PF::<EF>::ONE;
+                    let mut den = PF::<EF>::ONE;
+                    for (j, &zj) in eval_z.iter().enumerate() {
+                        if j != i {
+                            num *= tz - zj;
+                            den *= zi - zj;
+                        }
+                    }
+                    EFPacking::<EF>::from(EF::from(num * den.inverse()))
+                })
+                .collect()
+        })
+        .collect();
+
+    let inv_2 = PF::<EF>::TWO.inverse();
+    let state_interp_coeffs: Vec<PFPacking<EF>> = target_z
+        .iter()
+        .map(|&tz| PFPacking::<EF>::from(tz * inv_2))
+        .collect();
+
+    let state_cap = 16;
+
+    let acc = (0..active_count_pairs)
+        .into_par_iter()
+        .fold(
+            || {
+                (
+                    vec![EFPacking::<EF>::ZERO; degree],
+                    Vec::<IF>::with_capacity(n_cols),
+                    Vec::<IF>::with_capacity(n_cols),
+                    vec![EFPacking::<EF>::ZERO; n_full],
+                    {
+                        let mut v = Vec::with_capacity(state_cap);
+                        v.resize(state_cap, IF::ZERO);
+                        v
+                    },
+                    {
+                        let mut v = Vec::with_capacity(state_cap);
+                        v.resize(state_cap, IF::ZERO);
+                        v
+                    },
+                    {
+                        let mut v = Vec::with_capacity(state_cap);
+                        v.resize(state_cap, IF::ZERO);
+                        v
+                    },
+                )
+            },
+            |(mut acc, mut point, mut diff, mut low_evals, mut state_0, mut state_2, mut cached_buf),
+             new_j| {
+                let i_hi = new_j >> fold_bit;
+                let i_lo = new_j & lo_mask;
+                let i0 = (i_hi << (fold_bit + 1)) | i_lo;
+                let i1 = i0 | stride;
+                let partial_eq = get_split_eq(new_j);
+
+                point.clear();
+                diff.clear();
+                for c in cols {
+                    let lo = c[i0];
+                    let hi = c[i1];
+                    point.push(lo);
+                    diff.push(hi - lo);
+                }
+
+                // z=0: full eval, capture state and low accumulator
+                {
+                    let mut folder = ConstraintFolderPacked {
+                        up: &point[..n_up],
+                        down: &point[n_up..],
+                        extra_data,
+                        accumulator: EFPacking::<EF>::ZERO,
+                        constraint_index: 0,
+                        skip_low: false,
+                        accumulator_low: EFPacking::<EF>::ZERO,
+                        cached_state: std::mem::take(&mut state_0),
+                    };
+                    Air::eval(computation, &mut folder, extra_data);
+                    acc[0] += folder.accumulator * partial_eq;
+                    low_evals[0] = folder.accumulator_low;
+                    state_0 = folder.cached_state;
+                }
+
+                for k in 0..n_cols {
+                    point[k] += diff[k];
+                }
+
+                // z=2: full eval, capture state and low accumulator
+                for k in 0..n_cols {
+                    point[k] += diff[k];
+                }
+                {
+                    let mut folder = ConstraintFolderPacked {
+                        up: &point[..n_up],
+                        down: &point[n_up..],
+                        extra_data,
+                        accumulator: EFPacking::<EF>::ZERO,
+                        constraint_index: 0,
+                        skip_low: false,
+                        accumulator_low: EFPacking::<EF>::ZERO,
+                        cached_state: std::mem::take(&mut state_2),
+                    };
+                    Air::eval(computation, &mut folder, extra_data);
+                    acc[1] += folder.accumulator * partial_eq;
+                    low_evals[1] = folder.accumulator_low;
+                    state_2 = folder.cached_state;
+                }
+
+                // z=3, ..., low_degree+1: full eval, capture low accumulator only
+                for z_idx in 2..n_full {
+                    for k in 0..n_cols {
+                        point[k] += diff[k];
+                    }
+                    let mut folder = ConstraintFolderPacked {
+                        up: &point[..n_up],
+                        down: &point[n_up..],
+                        extra_data,
+                        accumulator: EFPacking::<EF>::ZERO,
+                        constraint_index: 0,
+                        skip_low: false,
+                        accumulator_low: EFPacking::<EF>::ZERO,
+                        cached_state: Vec::new(),
+                    };
+                    Air::eval(computation, &mut folder, extra_data);
+                    acc[z_idx] += folder.accumulator * partial_eq;
+                    low_evals[z_idx] = folder.accumulator_low;
+                }
+
+                // Phase 2: skip partial rounds at z=low_degree+2, ..., degree
+                let state_len = state_0.len().min(state_2.len());
+                for t in 0..n_skip {
+                    for k in 0..n_cols {
+                        point[k] += diff[k];
+                    }
+
+                    let coeff = state_interp_coeffs[t];
+                    for i in 0..state_len {
+                        cached_buf[i] = state_0[i] + (state_2[i] - state_0[i]) * coeff;
+                    }
+
+                    let mut folder = ConstraintFolderPacked {
+                        up: &point[..n_up],
+                        down: &point[n_up..],
+                        extra_data,
+                        accumulator: EFPacking::<EF>::ZERO,
+                        constraint_index: 0,
+                        skip_low: true,
+                        accumulator_low: EFPacking::<EF>::ZERO,
+                        cached_state: std::mem::take(&mut cached_buf),
+                    };
+                    Air::eval(computation, &mut folder, extra_data);
+                    cached_buf = folder.cached_state;
+
+                    let mut low_interp = EFPacking::<EF>::ZERO;
+                    for (i, lc) in lagrange_coeffs[t].iter().enumerate() {
+                        low_interp += *lc * low_evals[i];
+                    }
+
+                    acc[n_full + t] += (folder.accumulator + low_interp) * partial_eq;
+                }
+
+                (acc, point, diff, low_evals, state_0, state_2, cached_buf)
+            },
+        )
+        .map(|(acc, ..)| acc)
+        .reduce(
+            || vec![EFPacking::<EF>::ZERO; degree],
+            |mut a, b| {
+                for i in 0..degree {
+                    a[i] += b[i];
+                }
+                a
+            },
+        );
+
+    acc.into_iter().map(&unpack_sum).collect()
 }
 
 #[allow(clippy::too_many_arguments)]

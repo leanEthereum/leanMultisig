@@ -9,6 +9,9 @@ pub struct ConstraintFolder<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData: Alpha
     pub extra_data: &'a ExtraData,
     pub accumulator: EF,
     pub constraint_index: usize,
+    pub skip_low: bool,
+    pub accumulator_low: EF,
+    pub cached_state: Vec<IF>,
 }
 
 impl<'a, IF, EF, ExtraData> AirBuilder for ConstraintFolder<'a, IF, EF, ExtraData>

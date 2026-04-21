@@ -25,6 +25,9 @@ macro_rules! impl_air_eval {
             extra_data: $extra_data,
             accumulator: Default::default(),
             constraint_index: 0,
+            skip_low: false,
+            accumulator_low: Default::default(),
+            cached_state: Vec::new(),
         };
         Air::eval($self, &mut folder, $extra_data);
         folder.accumulator
