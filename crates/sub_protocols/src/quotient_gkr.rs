@@ -185,7 +185,7 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     // (chunk_log > w+1); otherwise fall back to the unpacked sumcheck.
     let (mut q_natural, inner_evals) = match layer {
         LayerStorage::Initial { nums, dens, chunk_log } if *chunk_log > w + 1 => {
-            rtl_gkr_quotient_sumcheck_prove_packed_br_base(
+            gkr_quotient_sumcheck_prove_packed_br_base(
                 prover_state,
                 nums.as_ref(),
                 dens.as_ref(),
@@ -195,31 +195,35 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
                 expected_sum,
             )
         }
-        LayerStorage::PackedBr { nums, dens, chunk_log } if *chunk_log > w + 1 => {
-            rtl_gkr_quotient_sumcheck_prove_packed_br(
-                prover_state,
-                nums.as_ref(),
-                dens.as_ref(),
-                *chunk_log,
-                &claim_point.0,
-                alpha,
-                expected_sum,
-            )
-        }
+        LayerStorage::PackedBr { nums, dens, chunk_log } if *chunk_log > w + 1 => run_phase1_packed(
+            prover_state,
+            nums.as_ref().into(),
+            dens.as_ref().into(),
+            *chunk_log,
+            claim_point.0.to_vec(),
+            vec![],
+            alpha,
+            expected_sum,
+            EF::ONE,
+            None,
+            None,
+        ),
         _ => {
             let natural = layer.convert_to_natural();
             let (n_nat, d_nat) = natural.natural_nums_dens();
             let (num_l, num_r) = even_odd_split(&n_nat);
             let (den_l, den_r) = even_odd_split(&d_nat);
-            rtl_gkr_quotient_sumcheck_prove(
+            gkr_quotient_sumcheck_prove_unpacked_rounds(
                 prover_state,
                 num_l,
                 num_r,
                 den_l,
                 den_r,
-                &claim_point.0,
+                claim_point.0.to_vec(),
+                vec![],
                 alpha,
                 expected_sum,
+                EF::ONE,
             )
         }
     };
@@ -235,39 +239,11 @@ fn prove_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     (MultilinearPoint(q_natural), next_num, next_den)
 }
 
-// Runs the RTL sumcheck proving
-//   Σ_b eq(b, eq_point) · [nl(b)·dr(b) + nr(b)·dl(b) + α·dl(b)·dr(b)] = expected_sum,
-// binding the LSB first. Returns (q_natural, [nl(q), nr(q), dl(q), dr(q)]).
-#[allow(clippy::too_many_arguments)]
-fn rtl_gkr_quotient_sumcheck_prove<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    num_l: Vec<EF>,
-    num_r: Vec<EF>,
-    den_l: Vec<EF>,
-    den_r: Vec<EF>,
-    eq_point: &[EF],
-    alpha: EF,
-    expected_sum: EF,
-) -> (Vec<EF>, [EF; 4]) {
-    rtl_gkr_quotient_sumcheck_prove_unpacked_rounds(
-        prover_state,
-        num_l,
-        num_r,
-        den_l,
-        den_r,
-        eq_point.to_vec(),
-        Vec::with_capacity(eq_point.len()),
-        alpha,
-        expected_sum,
-        EF::ONE,
-    )
-}
-
 // Invariant entering round r: sum = mmf · H_r(r_0,…,r_{r-1}),
 // mmf = Π_{i<r} eq(α_i, r_i). The bare polynomial sent is mmf · H_r(z).
 // α is applied once per round at finalize (saves 2 mults per pair).
 #[allow(clippy::too_many_arguments)]
-fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
+fn gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     mut num_l: Vec<EF>,
     mut num_r: Vec<EF>,
@@ -343,42 +319,10 @@ fn rtl_gkr_quotient_sumcheck_prove_unpacked_rounds<EF: ExtensionField<PF<EF>>>(
     (q_natural, evals)
 }
 
-// Phase-1 SIMD sumcheck on packed-BR data. Folds the chunk-MSB packed bit
-// each round; transitions to the unpacked loop once the next fold would cross
-// lane boundaries. SplitEq keeps the eq table factorized (O(√N) build per
-// round); fold+compute are fused from round 1 onward.
-#[allow(clippy::too_many_arguments)]
-fn rtl_gkr_quotient_sumcheck_prove_packed_br<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    packed_nums: &[EFPacking<EF>],
-    packed_dens: &[EFPacking<EF>],
-    parent_chunk_log: usize,
-    eq_point: &[EF],
-    alpha: EF,
-    expected_sum: EF,
-) -> (Vec<EF>, [EF; 4]) {
-    let w = packing_log_width::<EF>();
-    debug_assert!(parent_chunk_log > w + 1);
-    debug_assert_eq!(packed_nums.len(), packed_dens.len());
-    run_phase1_packed(
-        prover_state,
-        Cow::Borrowed(packed_nums),
-        Cow::Borrowed(packed_dens),
-        parent_chunk_log,
-        eq_point.to_vec(),
-        Vec::with_capacity(eq_point.len()),
-        alpha,
-        expected_sum,
-        EF::ONE,
-        None,
-        None,
-    )
-}
-
 /// Base-numerator variant: runs round 0 as base×ext for full base-field
 /// density, then folds into EFPacking and continues via `run_phase1_packed`.
 #[allow(clippy::too_many_arguments)]
-fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
+fn gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     packed_nums: &[PFPacking<EF>],
     packed_dens: &[EFPacking<EF>],
@@ -396,7 +340,7 @@ fn rtl_gkr_quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>(
     // head_len = outer bits above parent_chunk_log (the combined view includes
     // the sibling bit inside the chunk).
     let head_len = (k + 1).saturating_sub(parent_chunk_log);
-    let mut q_natural: Vec<EF> = Vec::with_capacity(k);
+    let mut q_natural = vec![];
     let mut mmf = EF::ONE;
     let mut sum = expected_sum;
 
@@ -597,7 +541,7 @@ fn run_phase1_packed<'a, EF: ExtensionField<PF<EF>>>(
     let dens_nat = unpack_and_unreverse_slice(dens.as_ref(), layer_chunk_log);
     let (num_l, num_r) = even_odd_split(&nums_nat);
     let (den_l, den_r) = even_odd_split(&dens_nat);
-    rtl_gkr_quotient_sumcheck_prove_unpacked_rounds(
+    gkr_quotient_sumcheck_prove_unpacked_rounds(
         prover_state,
         num_l,
         num_r,
