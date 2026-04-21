@@ -53,14 +53,15 @@ impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
 }
 
 #[instrument(skip_all, name = "prove GKR")]
-pub fn prove_gkr_quotient_br<'a, EF: ExtensionField<PF<EF>>>(
+pub fn prove_gkr_quotient<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    nums_br: &'a [PFPacking<EF>],
-    dens_br: &'a [EFPacking<EF>],
-    l: usize,
+    nums_br: &'a [PFPacking<EF>], // already bit-reversed at `pivot`
+    dens_br: &'a [EFPacking<EF>], // already bit-reversed at `pivot`
+    pivot: usize,
 ) -> (EF, MultilinearPoint<EF>, EF, EF) {
     let w = packing_log_width::<EF>();
-    let pivot = ENDIANNESS_PIVOT_GKR.min(l);
+    let l = log2_strict_usize(nums_br.len()) + w;
+    assert!(pivot <= ENDIANNESS_PIVOT_GKR.min(l));
     assert!(l > N_VARS_TO_SEND_GKR_COEFFS);
     assert!(
         pivot > w && l > w,
@@ -889,15 +890,12 @@ fn bit_reverse_chunks_into<T: Copy + Send + Sync>(v: &[T], chunk_log: usize, out
 }
 
 /// Natural-order extension-field slice → chunk-bit-reversed + packed.
-pub fn bit_reverse_chunks_and_pack_ext<EF: ExtensionField<PF<EF>>>(v: &[EF], chunk_log: usize) -> Vec<EFPacking<EF>> {
+fn bit_reverse_chunks_and_pack_ext<EF: ExtensionField<PF<EF>>>(v: &[EF], chunk_log: usize) -> Vec<EFPacking<EF>> {
     pack_extension(&bit_reverse_chunks(v, chunk_log)) // TODO do it in one pass without the intermediate Vec
 }
 
 /// Base-field analogue: natural-order `&[PF]` → chunk-bit-reversed + packed.
-pub fn bit_reverse_chunks_and_pack_base<EF: ExtensionField<PF<EF>>>(
-    v: &[PF<EF>],
-    chunk_log: usize,
-) -> Vec<PFPacking<EF>> {
+fn bit_reverse_chunks_and_pack_base<EF: ExtensionField<PF<EF>>>(v: &[PF<EF>], chunk_log: usize) -> Vec<PFPacking<EF>> {
     let width: usize = packing_width::<EF>();
     let mut res = unsafe { uninitialized_vec::<PFPacking<EF>>(v.len() / width) };
     let unpacked = PFPacking::<EF>::unpack_slice_mut(&mut res);
@@ -985,7 +983,7 @@ mod tests {
         let dens_br = bit_reverse_chunks_and_pack_ext::<EF>(&denominators_raw, pivot);
 
         let time = Instant::now();
-        let prover_statements = prove_gkr_quotient_br::<EF>(&mut prover_state, &nums_br, &dens_br, log_n);
+        let prover_statements = prove_gkr_quotient::<EF>(&mut prover_state, &nums_br, &dens_br, pivot);
         println!("Proving time: {:.3}", time.elapsed().as_secs_f64());
 
         let mut verifier_state = build_verifier_state(prover_state).unwrap();

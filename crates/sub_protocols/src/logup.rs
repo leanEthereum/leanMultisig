@@ -1,7 +1,4 @@
-use crate::{
-    ENDIANNESS_PIVOT_GKR, bit_reverse_chunks_and_pack_ext, bit_reverse_chunks_and_pack_base, prove_gkr_quotient_br,
-    verify_gkr_quotient,
-};
+use crate::{ENDIANNESS_PIVOT_GKR, prove_gkr_quotient, verify_gkr_quotient};
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
@@ -60,54 +57,32 @@ pub fn prove_generic_logup(
     let bytecode_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_BYTECODE_DOMAINSEP));
     let precompile_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP));
 
-    // `prove_gkr_quotient_br` expects inputs chunk-bit-reversed at
-    // `chunk_log = min(ENDIANNESS_PIVOT, total_gkr_n_vars)`. Whenever every
-    // section spans a whole number of chunks we write in BR layout directly
-    // (SIMD-packed fills using `src_idx` to gather lanes), saving an explicit
-    // BR pass. Otherwise we fill naturally and BR+pack at the end.
-    let pivot = ENDIANNESS_PIVOT_GKR.min(total_gkr_n_vars);
-    let w_log = packing_log_width::<EF>();
+    let min_section_log = log_bytecode.min(tables_log_heights_sorted.last().unwrap().1);
+    if min_section_log < ENDIANNESS_PIVOT_GKR {
+        tracing::info!("TODO: suboptimal GKR pivot (could be improved).");
+    }
+    let pivot = ENDIANNESS_PIVOT_GKR.min(min_section_log);
     let chunk_size = 1usize << pivot;
-    let packed_per_chunk = chunk_size / width;
     let chunk_shift = usize::BITS as usize - pivot;
-    let use_bitrev = pivot > w_log && total_gkr_n_vars > w_log && tables_log_heights_sorted.last().unwrap().1 <= pivot;
+    let chunk_mask = chunk_size - 1;
     let max_table_height = 1 << tables_log_heights_sorted[0].1;
 
-    // Source-index mapping: packed-index `p`, lane `w` → natural source offset.
-    // In BR layout each chunk's within-chunk indices are reversed; in natural
-    // layout it's just `p*width + w`.
     let src_idx = |p: usize, w: usize| -> usize {
-        if use_bitrev {
-            let p_chunk = p / packed_per_chunk;
-            let p_within = p % packed_per_chunk;
-            p_chunk * chunk_size + ((p_within * width + w).reverse_bits() >> chunk_shift)
-        } else {
-            p * width + w
-        }
+        let x = p * width + w;
+        (x & !chunk_mask) | ((x & chunk_mask).reverse_bits() >> chunk_shift)
     };
 
-    // Fill `dst` (scalar F, length `len`) from `src` with optional sign.
     let fill_num_from = |dst: &mut [F], src: &[F], neg: bool| {
-        if use_bitrev {
-            dst.par_chunks_exact_mut(chunk_size)
-                .enumerate()
-                .for_each(|(c, dst_chunk)| {
-                    let src_chunk = &src[c * chunk_size..][..chunk_size];
-                    for (i, slot) in dst_chunk.iter_mut().enumerate() {
-                        let v = src_chunk[i.reverse_bits() >> chunk_shift];
-                        *slot = if neg { -v } else { v };
-                    }
-                });
-        } else {
-            dst.par_iter_mut()
-                .zip(src)
-                .for_each(|(slot, &v)| *slot = if neg { -v } else { v });
-        }
+        dst.par_chunks_exact_mut(chunk_size)
+            .enumerate()
+            .for_each(|(c, dst_chunk)| {
+                let src_chunk = &src[c * chunk_size..][..chunk_size];
+                for (i, slot) in dst_chunk.iter_mut().enumerate() {
+                    let v = src_chunk[i.reverse_bits() >> chunk_shift];
+                    *slot = if neg { -v } else { v };
+                }
+            });
     };
-
-    // `fill_denoms` is a free generic fn (below) so `build` monomorphizes and
-    // inlines — a closure let-binding would erase it to `&dyn Fn` and cost an
-    // indirect call per element on ≥2^25 tables.
 
     let mut offset = 0;
 
@@ -246,21 +221,11 @@ pub fn prove_generic_logup(
 
     // In the fallback (non-aligned) path we filled naturally; convert to
     // chunk-BR-packed via unpack + BR + pack. Borrowed in the happy path.
-    let (nums_br_slice, dens_br_owned);
-    let nums_br_owned;
-    let dens_br_slice: &[EFPacking<EF>] = if use_bitrev {
-        nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
-        &denominators_packed
-    } else {
-        nums_br_owned = bit_reverse_chunks_and_pack_base::<EF>(&numerators, pivot);
-        let dens_nat = unpack_extension::<EF>(&denominators_packed);
-        dens_br_owned = bit_reverse_chunks_and_pack_ext::<EF>(&dens_nat, pivot);
-        nums_br_slice = &nums_br_owned;
-        &dens_br_owned
-    };
+    let nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
+    let dens_br_slice = &denominators_packed;
 
     let (sum, claim_point_gkr, numerators_value, denominators_value) =
-        prove_gkr_quotient_br::<EF>(prover_state, nums_br_slice, dens_br_slice, total_gkr_n_vars);
+        prove_gkr_quotient::<EF>(prover_state, nums_br_slice, dens_br_slice, pivot);
 
     let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
 
