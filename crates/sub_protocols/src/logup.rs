@@ -1,4 +1,7 @@
-use crate::{ENDIANNESS_PIVOT_GKR, prove_gkr_quotient, prove_gkr_quotient_br, verify_gkr_quotient};
+use crate::{
+    ENDIANNESS_PIVOT_GKR, bit_reverse_chunks_and_pack_ext, bit_reverse_chunks_and_pack_base, prove_gkr_quotient_br,
+    verify_gkr_quotient,
+};
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
@@ -57,26 +60,22 @@ pub fn prove_generic_logup(
     let bytecode_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_BYTECODE_DOMAINSEP));
     let precompile_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP));
 
-    // `prove_gkr_quotient`'s SIMD phase-1 expects inputs chunk-bit-reversed at
-    // `chunk_log = min(ENDIANNESS_PIVOT, total_gkr_n_vars)`. We write sections
-    // directly in bit-reversed layout when all section offsets/lengths are
-    // multiples of the chunk size, saving a ~17 ms explicit BR pass.
-    let log_memory = log2_strict_usize(memory.len());
+    // `prove_gkr_quotient_br` expects inputs chunk-bit-reversed at
+    // `chunk_log = min(ENDIANNESS_PIVOT, total_gkr_n_vars)`. Whenever every
+    // section spans a whole number of chunks we write in BR layout directly
+    // (SIMD-packed fills using `src_idx` to gather lanes), saving an explicit
+    // BR pass. Otherwise we fill naturally and BR+pack at the end.
     let pivot = ENDIANNESS_PIVOT_GKR.min(total_gkr_n_vars);
     let w_log = packing_log_width::<EF>();
     let chunk_size = 1usize << pivot;
     let packed_per_chunk = chunk_size / width;
     let chunk_shift = usize::BITS as usize - pivot;
-    let use_bitrev = pivot > w_log
-        && total_gkr_n_vars > w_log
-        && log_memory >= pivot
-        && log_bytecode >= pivot
-        && tables_log_heights_sorted.iter().all(|(_, h)| *h >= pivot);
+    let use_bitrev = pivot > w_log && total_gkr_n_vars > w_log && tables_log_heights_sorted.last().unwrap().1 <= pivot;
     let max_table_height = 1 << tables_log_heights_sorted[0].1;
 
     // Source-index mapping: packed-index `p`, lane `w` → natural source offset.
-    // In bit-reversed layout each chunk's within-chunk indices are reversed;
-    // in natural layout it's just p*width + w.
+    // In BR layout each chunk's within-chunk indices are reversed; in natural
+    // layout it's just `p*width + w`.
     let src_idx = |p: usize, w: usize| -> usize {
         if use_bitrev {
             let p_chunk = p / packed_per_chunk;
@@ -87,7 +86,7 @@ pub fn prove_generic_logup(
         }
     };
 
-    // Fill `num_slice` (scalar F, length `len`) from `src` with optional sign.
+    // Fill `dst` (scalar F, length `len`) from `src` with optional sign.
     let fill_num_from = |dst: &mut [F], src: &[F], neg: bool| {
         if use_bitrev {
             dst.par_chunks_exact_mut(chunk_size)
@@ -245,16 +244,23 @@ pub fn prove_generic_logup(
         .par_iter_mut()
         .for_each(|d| *d = EFPacking::<EF>::ONE);
 
-    let (sum, claim_point_gkr, numerators_value, denominators_value) = if use_bitrev {
-        // Data is already chunk-BR.  Borrow `denominators_packed` so we can
-        // still evaluate slices of it after GKR for the bus-denominator evals.
-        let nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
-        prove_gkr_quotient_br::<EF>(prover_state, nums_br_slice, &denominators_packed, total_gkr_n_vars)
+    // In the fallback (non-aligned) path we filled naturally; convert to
+    // chunk-BR-packed via unpack + BR + pack. Borrowed in the happy path.
+    let (nums_br_slice, dens_br_owned);
+    let nums_br_owned;
+    let dens_br_slice: &[EFPacking<EF>] = if use_bitrev {
+        nums_br_slice = PFPacking::<EF>::pack_slice(&numerators);
+        &denominators_packed
     } else {
-        let numerators_packed = MleRef::Base(&numerators).pack();
-        let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
-        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denom_ref)
+        nums_br_owned = bit_reverse_chunks_and_pack_base::<EF>(&numerators, pivot);
+        let dens_nat = unpack_extension::<EF>(&denominators_packed);
+        dens_br_owned = bit_reverse_chunks_and_pack_ext::<EF>(&dens_nat, pivot);
+        nums_br_slice = &nums_br_owned;
+        &dens_br_owned
     };
+
+    let (sum, claim_point_gkr, numerators_value, denominators_value) =
+        prove_gkr_quotient_br::<EF>(prover_state, nums_br_slice, dens_br_slice, total_gkr_n_vars);
 
     let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
 
@@ -275,34 +281,17 @@ pub fn prove_generic_logup(
 
     // evaluation on bytecode itself can be done directly by the verifier
 
-    // ... Rest of the tables:
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    // Walk the same layout as the fill so we can take per-table slices of
-    // `denominators_packed` and evaluate them directly — matching main's code.
-    let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
     for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
         let inner_point = MultilinearPoint(from_end(&claim_point_gkr, log_n_rows).to_vec());
-        // For the bus-denominator slice, if `use_bitrev` the stored data is
-        // bit-reversed within `2^pivot`-chunks, so we reverse the last
-        // `pivot` coords of the evaluation point — the MLE identity
-        // `eval(M_br, p) = eval(M, reversed(p))` preserves the value.
-        let bus_eval_point = if use_bitrev {
-            let mut coords = inner_point.0.clone();
-            let within_start = coords.len() - pivot;
-            coords[within_start..].reverse();
-            MultilinearPoint(coords)
-        } else {
-            inner_point.clone()
-        };
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == &Table::execution() {
-            // 0] bytecode lookup — evaluate per-instruction columns for the verifier.
             let pc_column = &trace.columns[COL_PC];
             let bytecode_columns = trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
                 .iter()
@@ -323,21 +312,25 @@ pub fn prove_generic_logup(
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, *eval_on_instr_col);
             }
-
-            // The bytecode-lookup denominator section occupies 2^log_n_rows
-            // entries before the bus section of this table.
-            offset += 1 << log_n_rows;
         }
 
-        // I] Bus (data flow between tables) — direct MLE eval on the
-        // fingerprinted `denominators_packed` slice (mirrors main).
         let bus = table.bus();
         let eval_on_selector = trace.columns[bus.selector].evaluate(&inner_point) * bus.direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data =
-            MleRef::<EF>::ExtensionPacked(&denominators_packed[offset / width..][..(1 << log_n_rows) / width])
-                .evaluate(&bus_eval_point);
+        let bus_data_evals: Vec<EF> = bus
+            .data
+            .iter()
+            .map(|entry| match entry {
+                BusData::Column(col) => trace.columns[*col].evaluate(&inner_point),
+                BusData::Constant(val) => EF::from(F::from_usize(*val)),
+            })
+            .collect();
+        let eval_on_data = c + finger_print::<F, EF, EF>(
+            F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP),
+            &bus_data_evals,
+            alphas_eq_poly,
+        );
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);
@@ -359,8 +352,6 @@ pub fn prove_generic_logup(
         }
 
         columns_values.insert(*table, table_values);
-
-        offset += offset_for_table(table, log_n_rows);
     }
 
     GenericLogupStatements {
@@ -579,9 +570,9 @@ fn compute_total_gkr_n_vars(
 }
 
 #[inline]
-fn fill_denoms<F>(dst: &mut [EFPacking<EF>], build: F)
+fn fill_denoms<Build>(dst: &mut [EFPacking<EF>], build: Build)
 where
-    F: Fn(usize) -> EFPacking<EF> + Sync,
+    Build: Fn(usize) -> EFPacking<EF> + Sync,
 {
     dst.par_iter_mut().enumerate().for_each(|(p, slot)| *slot = build(p));
 }

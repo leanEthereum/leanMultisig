@@ -52,32 +52,6 @@ impl<'a, EF: ExtensionField<PF<EF>>> LayerStorage<'a, EF> {
     }
 }
 
-pub fn prove_gkr_quotient<EF: ExtensionField<PF<EF>>>(
-    prover_state: &mut impl FSProver<EF>,
-    numerators: &MleRef<'_, EF>,
-    denominators: &MleRef<'_, EF>,
-) -> (EF, MultilinearPoint<EF>, EF, EF) {
-    assert_eq!(numerators.n_vars(), denominators.n_vars());
-    assert!(numerators.n_vars() > N_VARS_TO_SEND_GKR_COEFFS);
-
-    let l = numerators.n_vars();
-    let w = packing_log_width::<EF>();
-    let pivot = ENDIANNESS_PIVOT_GKR.min(l);
-    assert!(pivot > w && l > w);
-
-    let (MleRef::BasePacked(nums_src), MleRef::ExtensionPacked(dens_src)) = (numerators, denominators) else {
-        panic!("prove_gkr_quotient requires BasePacked numerators and ExtensionPacked denominators");
-    };
-    let nums_nat = PFPacking::<EF>::unpack_slice(nums_src);
-    let dens_nat = unpack_extension::<EF>(dens_src);
-    let initial = LayerStorage::Initial {
-        nums: Cow::Owned(bit_reverse_chunks_and_pack_base::<EF>(nums_nat, pivot)),
-        dens: Cow::Owned(bit_reverse_chunks_and_pack::<EF>(&dens_nat, pivot)),
-        chunk_log: pivot,
-    };
-    prove_gkr_quotient_from_initial_layer(prover_state, initial, l)
-}
-
 #[instrument(skip_all, name = "prove GKR")]
 pub fn prove_gkr_quotient_br<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
@@ -915,8 +889,8 @@ fn bit_reverse_chunks_into<T: Copy + Send + Sync>(v: &[T], chunk_log: usize, out
 }
 
 /// Natural-order extension-field slice → chunk-bit-reversed + packed.
-pub fn bit_reverse_chunks_and_pack<EF: ExtensionField<PF<EF>>>(v: &[EF], chunk_log: usize) -> Vec<EFPacking<EF>> {
-    pack_extension(&bit_reverse_chunks(v, chunk_log))
+pub fn bit_reverse_chunks_and_pack_ext<EF: ExtensionField<PF<EF>>>(v: &[EF], chunk_log: usize) -> Vec<EFPacking<EF>> {
+    pack_extension(&bit_reverse_chunks(v, chunk_log)) // TODO do it in one pass without the intermediate Vec
 }
 
 /// Base-field analogue: natural-order `&[PF]` → chunk-bit-reversed + packed.
@@ -992,21 +966,26 @@ mod tests {
         let n = 1 << log_n;
 
         let mut rng = StdRng::seed_from_u64(0);
-        let numerators = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
+        let numerators_raw = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
         let c: EF = rng.random();
         let denominators_indexes = (0..n)
             .map(|_| PF::<EF>::from_usize(rng.random_range(..n)))
             .collect::<Vec<_>>();
-        let denominators = denominators_indexes.iter().map(|&i| c - i).collect::<Vec<EF>>();
-        let real_quotient = sum_all_quotients(&numerators, &denominators);
+        let denominators_raw = denominators_indexes.iter().map(|&i| c - i).collect::<Vec<EF>>();
+        let real_quotient = sum_all_quotients(&numerators_raw, &denominators_raw);
         let mut prover_state = build_prover_state();
 
-        let numerators = MleOwned::BasePacked(pack_extension(&numerators));
-        let denominators = MleOwned::ExtensionPacked(pack_extension(&denominators));
+        // Keep natural-layout MLEs to check claims at `claim_point`.
+        let numerators_nat = MleOwned::BasePacked(pack_extension(&numerators_raw));
+        let denominators_nat = MleOwned::ExtensionPacked(pack_extension(&denominators_raw));
+
+        // Pre-BR the inputs for `prove_gkr_quotient_br`.
+        let pivot = ENDIANNESS_PIVOT_GKR.min(log_n);
+        let nums_br = bit_reverse_chunks_and_pack_base::<EF>(&numerators_raw, pivot);
+        let dens_br = bit_reverse_chunks_and_pack_ext::<EF>(&denominators_raw, pivot);
 
         let time = Instant::now();
-        let prover_statements =
-            prove_gkr_quotient::<EF>(&mut prover_state, &numerators.by_ref(), &denominators.by_ref());
+        let prover_statements = prove_gkr_quotient_br::<EF>(&mut prover_state, &nums_br, &dens_br, log_n);
         println!("Proving time: {:.3}", time.elapsed().as_secs_f64());
 
         let mut verifier_state = build_verifier_state(prover_state).unwrap();
@@ -1014,8 +993,8 @@ mod tests {
         assert_eq!(&verifier_statements, &prover_statements);
         let (retrieved_quotient, claim_point, claim_num, claim_den) = verifier_statements;
         assert_eq!(retrieved_quotient, real_quotient);
-        assert_eq!(numerators.evaluate(&claim_point), claim_num);
-        assert_eq!(denominators.evaluate(&claim_point), claim_den);
+        assert_eq!(numerators_nat.evaluate(&claim_point), claim_num);
+        assert_eq!(denominators_nat.evaluate(&claim_point), claim_den);
     }
 
     #[test]
