@@ -4,6 +4,77 @@ use backend::*;
 
 use crate::quotient_gkr::layers::unpack_and_unreverse_active;
 
+#[derive(Clone, Copy, Default)]
+struct RoundCoeffs<EF: ExtensionField<PF<EF>>> {
+    c0_den: EFPacking<EF>,
+    c2_den: EFPacking<EF>,
+    c0_num: EFPacking<EF>,
+    c2_num: EFPacking<EF>,
+}
+
+impl<EF: ExtensionField<PF<EF>>> RoundCoeffs<EF> {
+    fn zero() -> Self {
+        Self::default()
+    }
+
+    fn add_assign_scaled(&mut self, other: Self, w: EFPacking<EF>) {
+        self.c0_den += other.c0_den * w;
+        self.c2_den += other.c2_den * w;
+        self.c0_num += other.c0_num * w;
+        self.c2_num += other.c2_num * w;
+    }
+
+    fn add_assign_scaled_ef(&mut self, other: Self, w: EF) {
+        self.c0_den += other.c0_den * w;
+        self.c2_den += other.c2_den * w;
+        self.c0_num += other.c0_num * w;
+        self.c2_num += other.c2_num * w;
+    }
+
+    fn add_assign(&mut self, other: Self) {
+        self.c0_den += other.c0_den;
+        self.c2_den += other.c2_den;
+        self.c0_num += other.c0_num;
+        self.c2_num += other.c2_num;
+    }
+}
+
+#[inline(always)]
+fn pair_coeffs_packed<EF, N>(
+    nl: (N, N),
+    nr: (N, N),
+    dl: (EFPacking<EF>, EFPacking<EF>),
+    dr: (EFPacking<EF>, EFPacking<EF>),
+) -> RoundCoeffs<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+    N: PrimeCharacteristicRing + Copy,
+    EFPacking<EF>: Algebra<N>,
+{
+    let (c0_den, c2_den) = sumcheck_quadratic(((&dl.0, &dl.1), (&dr.0, &dr.1)));
+    let (c0_a, c2_a) = sumcheck_quadratic(((&nl.0, &nl.1), (&dr.0, &dr.1)));
+    let (c0_b, c2_b) = sumcheck_quadratic(((&nr.0, &nr.1), (&dl.0, &dl.1)));
+    RoundCoeffs {
+        c0_den,
+        c2_den,
+        c0_num: c0_a + c0_b,
+        c2_num: c2_a + c2_b,
+    }
+}
+
+#[inline(always)]
+fn pair_coeffs_scalar<EF: ExtensionField<PF<EF>>>(
+    nl: (EF, EF),
+    nr: (EF, EF),
+    dl: (EF, EF),
+    dr: (EF, EF),
+) -> (EF, EF, EF, EF) {
+    let (c0_den, c2_den) = sumcheck_quadratic(((&dl.0, &dl.1), (&dr.0, &dr.1)));
+    let (c0_a, c2_a) = sumcheck_quadratic(((&nl.0, &nl.1), (&dr.0, &dr.1)));
+    let (c0_b, c2_b) = sumcheck_quadratic(((&nr.0, &nr.1), (&dl.0, &dl.1)));
+    (c0_den, c2_den, c0_a + c0_b, c2_a + c2_b)
+}
+
 #[inline(always)]
 fn within_pt<EF: Copy>(remaining_eq: &[EF], head_len: usize) -> Vec<EF> {
     remaining_eq[head_len..remaining_eq.len() - 1]
@@ -13,29 +84,18 @@ fn within_pt<EF: Copy>(remaining_eq: &[EF], head_len: usize) -> Vec<EF> {
         .collect()
 }
 
-fn packed_padding_correction<EF: ExtensionField<PF<EF>>>(active_chunks: usize, outer_point: &[EF]) -> EF {
-    if outer_point.is_empty() {
-        debug_assert!(active_chunks <= 1);
-        return if active_chunks == 0 { EF::ONE } else { EF::ZERO };
-    }
-    evaluate_mle_of_zero_then_ones(active_chunks, outer_point)
-}
-
-#[allow(clippy::too_many_arguments)]
 fn finalize_round<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
-    c0_s: EFPacking<EF>,
-    c2_s: EFPacking<EF>,
-    c0_d: EFPacking<EF>,
-    c2_d: EFPacking<EF>,
+    coeffs: RoundCoeffs<EF>,
     alpha: EF,
     eq_alpha: EF,
     sum: &mut EF,
     mmf: &mut EF,
-    padding_correction: EF, // added to c0_raw; 0 when no padding
+    padding_correction: EF,
 ) -> EF {
-    let c0_raw: EF = EFPacking::<EF>::to_ext_iter([c0_d + c0_s * alpha]).sum::<EF>() + padding_correction;
-    let c2_raw: EF = EFPacking::<EF>::to_ext_iter([c2_d + c2_s * alpha]).sum();
+    let c0_raw: EF =
+        EFPacking::<EF>::to_ext_iter([coeffs.c0_num + coeffs.c0_den * alpha]).sum::<EF>() + padding_correction;
+    let c2_raw: EF = EFPacking::<EF>::to_ext_iter([coeffs.c2_num + coeffs.c2_den * alpha]).sum();
     let bare = build_bare_from_coeffs(c0_raw, c2_raw, eq_alpha, *sum, *mmf);
     prover_state.add_sumcheck_polynomial(&bare.coeffs, Some(eq_alpha));
     let r = prover_state.sample();
@@ -56,7 +116,7 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
     expected_sum: EF,
 ) -> (Vec<EF>, [EF; 4]) {
     let w = packing_log_width::<EF>();
-    debug_assert!(parent_chunk_log > w + 1);
+    debug_assert!(parent_chunk_log >= w + 3);
     debug_assert_eq!(packed_nums.len(), packed_dens.len());
     let active_chunks = (packed_nums.len() << w) >> parent_chunk_log;
 
@@ -74,49 +134,42 @@ pub(super) fn quotient_sumcheck_prove_packed_br_base<EF: ExtensionField<PF<EF>>>
         eval_eq(&outer_point)
     };
 
-    let padding_sum = alpha * packed_padding_correction::<EF>(active_chunks, &outer_point);
-    let has_padding = {
-        let total_chunks = 1usize << head_len;
-        active_chunks < total_chunks
+    let has_padding = active_chunks < 1usize << head_len;
+    let padding_sum = if has_padding {
+        alpha * evaluate_mle_of_zero_then_ones(active_chunks, &outer_point)
+    } else {
+        EF::ZERO
     };
 
     let eq_alpha_0 = *remaining_eq.last().unwrap();
     let eq_within_0 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
-    let (c0_s, c2_s, c0_d, c2_d) =
-        compute_round_packed::<EF, _>(packed_nums, packed_dens, parent_chunk_log, &eq_outer, &eq_within_0);
+    let coeffs_0 = compute_round_packed::<EF, _>(packed_nums, packed_dens, parent_chunk_log, &eq_outer, &eq_within_0);
     let r0 = finalize_round(
         prover_state,
-        c0_s,
-        c2_s,
-        c0_d,
-        c2_d,
+        coeffs_0,
         alpha,
         eq_alpha_0,
         &mut sum,
         &mut mmf,
-        if has_padding { padding_sum } else { EF::ZERO },
+        padding_sum,
     );
-    q_natural.insert(0, r0);
+    q_natural.push(r0);
     remaining_eq.pop();
-    assert!(parent_chunk_log >= w + 3);
 
     let eq_alpha_1 = *remaining_eq.last().unwrap();
     let eq_within_1 = eval_eq_packed(&within_pt(&remaining_eq, head_len));
-    let (nums_ext, dens_ext, c0_s, c2_s, c0_d, c2_d) =
+    let (nums_ext, dens_ext, coeffs_1) =
         fold_and_compute_round_packed::<EF, _>(packed_nums, packed_dens, parent_chunk_log, r0, &eq_outer, &eq_within_1);
     let r1 = finalize_round(
         prover_state,
-        c0_s,
-        c2_s,
-        c0_d,
-        c2_d,
+        coeffs_1,
         alpha,
         eq_alpha_1,
         &mut sum,
         &mut mmf,
-        if has_padding { padding_sum } else { EF::ZERO },
+        padding_sum,
     );
-    q_natural.insert(0, r1);
+    q_natural.push(r1);
     remaining_eq.pop();
 
     run_phase1_sumcheck(
@@ -162,10 +215,11 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
 
     let active_chunks = (nums.len() << w) >> (layer_chunk_log + usize::from(initial_pending_r.is_some()));
 
-    let padding_sum = alpha * packed_padding_correction::<EF>(active_chunks, &outer_point);
-    let has_padding = {
-        let total_chunks = 1usize << head_len;
-        active_chunks < total_chunks
+    let has_padding = active_chunks < 1usize << head_len;
+    let padding_sum = if has_padding {
+        alpha * evaluate_mle_of_zero_then_ones(active_chunks, &outer_point)
+    } else {
+        EF::ZERO
     };
 
     let mut pending_r: Option<EF> = initial_pending_r;
@@ -173,8 +227,8 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
         let eq_alpha = *remaining_eq.last().unwrap();
         let eq_within = eval_eq_packed(&within_pt(&remaining_eq, head_len));
 
-        let (c0_s, c2_s, c0_d, c2_d) = if let Some(prev_r) = pending_r.take() {
-            let (new_nums, new_dens, c0s, c2s, c0d, c2d) = fold_and_compute_round_packed::<EF, _>(
+        let coeffs = if let Some(prev_r) = pending_r.take() {
+            let (new_nums, new_dens, c) = fold_and_compute_round_packed::<EF, _>(
                 nums.as_ref(),
                 dens.as_ref(),
                 layer_chunk_log + 1,
@@ -184,49 +238,31 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
             );
             nums = Cow::Owned(new_nums);
             dens = Cow::Owned(new_dens);
-            (c0s, c2s, c0d, c2d)
+            c
         } else {
             compute_round_packed::<EF, _>(nums.as_ref(), dens.as_ref(), layer_chunk_log, &eq_outer, &eq_within)
         };
 
-        let r = finalize_round(
-            prover_state,
-            c0_s,
-            c2_s,
-            c0_d,
-            c2_d,
-            alpha,
-            eq_alpha,
-            &mut sum,
-            &mut mmf,
-            if has_padding { padding_sum } else { EF::ZERO },
-        );
+        let r = finalize_round(prover_state, coeffs, alpha, eq_alpha, &mut sum, &mut mmf, padding_sum);
         pending_r = Some(r);
         layer_chunk_log -= 1;
-        q_natural.insert(0, r);
+        q_natural.push(r);
         remaining_eq.pop();
     }
 
     if let Some(prev_r) = pending_r {
         let prev_bit = layer_chunk_log - 1 - w;
-        nums = Cow::Owned(fold_ext_active_at_bit::<EF>(
-            nums.as_ref(),
-            prev_r,
-            prev_bit,
-            layer_chunk_log + 1,
-        ));
-        dens = Cow::Owned(fold_ext_active_at_bit::<EF>(
-            dens.as_ref(),
-            prev_r,
-            prev_bit,
-            layer_chunk_log + 1,
-        ));
+        let mul = |x: EFPacking<EF>, a: EF| x * a;
+        nums = Cow::Owned(fold_multilinear_at_bit(nums.as_ref(), prev_r, prev_bit, &mul));
+        dens = Cow::Owned(fold_multilinear_at_bit(dens.as_ref(), prev_r, prev_bit, &mul));
     }
 
     let nums_nat = unpack_and_unreverse_active::<EF>(nums.as_ref(), layer_chunk_log);
     let dens_nat = unpack_and_unreverse_active::<EF>(dens.as_ref(), layer_chunk_log);
-    let (num_l, num_r) = even_odd_split(&nums_nat);
-    let (den_l, den_r) = even_odd_split(&dens_nat);
+    let num_l: Vec<EF> = nums_nat.iter().step_by(2).copied().collect();
+    let num_r: Vec<EF> = nums_nat.iter().skip(1).step_by(2).copied().collect();
+    let den_l: Vec<EF> = dens_nat.iter().step_by(2).copied().collect();
+    let den_r: Vec<EF> = dens_nat.iter().skip(1).step_by(2).copied().collect();
     run_phase2_sumcheck(
         prover_state,
         num_l,
@@ -241,7 +277,9 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     )
 }
 
-// Normal ordering (not bit-reversed) + not packed.
+/// Sumcheck over natural-ordered, unpacked data. Terminal phase — applies the
+/// single `reverse()` on `q_natural` before returning, undoing the `push()`
+/// ordering used throughout both phases.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
@@ -264,67 +302,48 @@ pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
         let active_r = num_r.len();
         let half = eq_table.len();
         let active_pairs = active_l.div_ceil(2);
-
-        let mut c0_s_raw = EF::ZERO;
-        let mut c2_s_raw = EF::ZERO;
-        let mut c0_d_raw = EF::ZERO;
-        let mut c2_d_raw = EF::ZERO;
         let fully_active = active_r / 2;
+
+        let mut c0_den_raw = EF::ZERO;
+        let mut c2_den_raw = EF::ZERO;
+        let mut c0_num_raw = EF::ZERO;
+        let mut c2_num_raw = EF::ZERO;
+
         for j in 0..fully_active {
-            let nl0 = num_l[2 * j];
-            let nl1 = num_l[2 * j + 1];
-            let nr0 = num_r[2 * j];
-            let nr1 = num_r[2 * j + 1];
-            let dl0 = den_l[2 * j];
-            let dl1 = den_l[2 * j + 1];
-            let dr0 = den_r[2 * j];
-            let dr1 = den_r[2 * j + 1];
-            let (c0_s, c2_s) = sumcheck_quadratic(((&dl0, &dl1), (&dr0, &dr1)));
-            let (c0_a, c2_a) = sumcheck_quadratic(((&nl0, &nl1), (&dr0, &dr1)));
-            let (c0_b, c2_b) = sumcheck_quadratic(((&nr0, &nr1), (&dl0, &dl1)));
+            let (c0_den, c2_den, c0_num, c2_num) = pair_coeffs_scalar::<EF>(
+                (num_l[2 * j], num_l[2 * j + 1]),
+                (num_r[2 * j], num_r[2 * j + 1]),
+                (den_l[2 * j], den_l[2 * j + 1]),
+                (den_r[2 * j], den_r[2 * j + 1]),
+            );
             let eq = eq_table[j];
-            c0_s_raw += eq * c0_s;
-            c2_s_raw += eq * c2_s;
-            c0_d_raw += eq * (c0_a + c0_b);
-            c2_d_raw += eq * (c2_a + c2_b);
+            c0_den_raw += eq * c0_den;
+            c2_den_raw += eq * c2_den;
+            c0_num_raw += eq * c0_num;
+            c2_num_raw += eq * c2_num;
         }
         // Boundary
+        let pair = |arr: &[EF], idx: usize, pad: EF| {
+            (
+                arr.get(idx).copied().unwrap_or(pad),
+                arr.get(idx + 1).copied().unwrap_or(pad),
+            )
+        };
+        #[allow(clippy::needless_range_loop)]
         for j in fully_active..active_pairs {
-            let nl0 = if 2 * j < active_l { num_l[2 * j] } else { EF::ZERO };
-            let nl1 = if 2 * j + 1 < active_l {
-                num_l[2 * j + 1]
-            } else {
-                EF::ZERO
-            };
-            let nr0 = if 2 * j < active_r { num_r[2 * j] } else { EF::ZERO };
-            let nr1 = if 2 * j + 1 < active_r {
-                num_r[2 * j + 1]
-            } else {
-                EF::ZERO
-            };
-            let dl0 = if 2 * j < active_l { den_l[2 * j] } else { EF::ONE };
-            let dl1 = if 2 * j + 1 < active_l {
-                den_l[2 * j + 1]
-            } else {
-                EF::ONE
-            };
-            let dr0 = if 2 * j < active_r { den_r[2 * j] } else { EF::ONE };
-            let dr1 = if 2 * j + 1 < active_r {
-                den_r[2 * j + 1]
-            } else {
-                EF::ONE
-            };
-            let (c0_s, c2_s) = sumcheck_quadratic(((&dl0, &dl1), (&dr0, &dr1)));
-            let (c0_a, c2_a) = sumcheck_quadratic(((&nl0, &nl1), (&dr0, &dr1)));
-            let (c0_b, c2_b) = sumcheck_quadratic(((&nr0, &nr1), (&dl0, &dl1)));
+            let (c0_den, c2_den, c0_num, c2_num) = pair_coeffs_scalar::<EF>(
+                pair(&num_l, 2 * j, EF::ZERO),
+                pair(&num_r, 2 * j, EF::ZERO),
+                pair(&den_l, 2 * j, EF::ONE),
+                pair(&den_r, 2 * j, EF::ONE),
+            );
             let eq = eq_table[j];
-            c0_s_raw += eq * c0_s;
-            c2_s_raw += eq * c2_s;
-            c0_d_raw += eq * (c0_a + c0_b);
-            c2_d_raw += eq * (c2_a + c2_b);
+            c0_den_raw += eq * c0_den;
+            c2_den_raw += eq * c2_den;
+            c0_num_raw += eq * c0_num;
+            c2_num_raw += eq * c2_num;
         }
 
-        // Correction
         let padding_sum = if active_pairs < half {
             alpha * evaluate_mle_of_zero_then_ones(active_pairs, eq_prefix)
         } else {
@@ -332,8 +351,8 @@ pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
         };
 
         let bare = build_bare_from_coeffs(
-            c0_d_raw + alpha * c0_s_raw + padding_sum,
-            c2_d_raw + alpha * c2_s_raw,
+            c0_num_raw + alpha * c0_den_raw + padding_sum,
+            c2_num_raw + alpha * c2_den_raw,
             eq_alpha,
             sum,
             mmf,
@@ -350,10 +369,11 @@ pub(super) fn run_phase2_sumcheck<EF: ExtensionField<PF<EF>>>(
         den_l = fold_normal_with_padding(&den_l, r, EF::ONE);
         den_r = fold_normal_with_padding(&den_r, r, EF::ONE);
 
-        q_natural.insert(0, r);
+        q_natural.push(r);
         remaining_eq.pop();
     }
 
+    q_natural.reverse();
     let evals = [num_l[0], num_r[0], den_l[0], den_r[0]];
     (q_natural, evals)
 }
@@ -381,15 +401,13 @@ fn fold_normal_with_padding<EF: ExtensionField<PF<EF>>>(m: &[EF], r: EF, pad_val
     out
 }
 
-type Coeffs4<EF> = (EFPacking<EF>, EFPacking<EF>, EFPacking<EF>, EFPacking<EF>);
-
 fn compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
     nums: &[N],
     dens: &[EFPacking<EF>],
     layer_chunk_log: usize,
     eq_outer: &[EF],
     eq_within: &[EFPacking<EF>],
-) -> Coeffs4<EF>
+) -> RoundCoeffs<EF>
 where
     N: PrimeCharacteristicRing + Copy + Send + Sync,
     EFPacking<EF>: Algebra<N>,
@@ -406,50 +424,26 @@ where
     nums.par_chunks_exact(layer_packed)
         .zip(dens.par_chunks_exact(layer_packed))
         .enumerate()
-        .fold(coeffs4_zero::<EF>, |mut acc, (c, (n_c, d_c))| {
+        .fold(RoundCoeffs::<EF>::zero, |mut acc, (c, (n_c, d_c))| {
             let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
-            let mut local = coeffs4_zero::<EF>();
+            let mut local = RoundCoeffs::<EF>::zero();
             for inner in 0..quarter {
-                let nl0 = n_c[inner];
-                let nl1 = n_c[inner + quarter];
-                let nr0 = n_c[inner + half];
-                let nr1 = n_c[inner + half + quarter];
-                let dl0 = d_c[inner];
-                let dl1 = d_c[inner + quarter];
-                let dr0 = d_c[inner + half];
-                let dr1 = d_c[inner + half + quarter];
-
-                let (c0_s, c2_s) = sumcheck_quadratic(((&dl0, &dl1), (&dr0, &dr1)));
-                let (c0_a, c2_a) = sumcheck_quadratic(((&nl0, &nl1), (&dr0, &dr1)));
-                let (c0_b, c2_b) = sumcheck_quadratic(((&nr0, &nr1), (&dl0, &dl1)));
-                let eq_w = eq_within[inner];
-                local.0 += c0_s * eq_w;
-                local.1 += c2_s * eq_w;
-                local.2 += (c0_a + c0_b) * eq_w;
-                local.3 += (c2_a + c2_b) * eq_w;
+                let coeffs = pair_coeffs_packed::<EF, _>(
+                    (n_c[inner], n_c[inner + quarter]),
+                    (n_c[inner + half], n_c[inner + half + quarter]),
+                    (d_c[inner], d_c[inner + quarter]),
+                    (d_c[inner + half], d_c[inner + half + quarter]),
+                );
+                local.add_assign_scaled(coeffs, eq_within[inner]);
             }
-            acc.0 += local.0 * eq_o;
-            acc.1 += local.1 * eq_o;
-            acc.2 += local.2 * eq_o;
-            acc.3 += local.3 * eq_o;
+            acc.add_assign_scaled_ef(local, eq_o);
             acc
         })
-        .reduce(coeffs4_zero::<EF>, coeffs4_add::<EF>)
-}
-
-#[inline(always)]
-fn coeffs4_zero<EF: ExtensionField<PF<EF>>>() -> Coeffs4<EF> {
-    (
-        EFPacking::<EF>::ZERO,
-        EFPacking::<EF>::ZERO,
-        EFPacking::<EF>::ZERO,
-        EFPacking::<EF>::ZERO,
-    )
-}
-
-#[inline(always)]
-fn coeffs4_add<EF: ExtensionField<PF<EF>>>(a: Coeffs4<EF>, b: Coeffs4<EF>) -> Coeffs4<EF> {
-    (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3)
+        .reduce(RoundCoeffs::<EF>::zero, |a, b| {
+            let mut r = a;
+            r.add_assign(b);
+            r
+        })
 }
 
 #[allow(clippy::type_complexity)]
@@ -460,14 +454,7 @@ fn fold_and_compute_round_packed<EF: ExtensionField<PF<EF>>, N>(
     prev_r: EF,
     eq_outer: &[EF],
     eq_within: &[EFPacking<EF>],
-) -> (
-    Vec<EFPacking<EF>>,
-    Vec<EFPacking<EF>>,
-    EFPacking<EF>,
-    EFPacking<EF>,
-    EFPacking<EF>,
-    EFPacking<EF>,
-)
+) -> (Vec<EFPacking<EF>>, Vec<EFPacking<EF>>, RoundCoeffs<EF>)
 where
     N: PrimeCharacteristicRing + Copy + Send + Sync,
     EFPacking<EF>: Algebra<N>,
@@ -490,15 +477,15 @@ where
     let mut new_dens: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(active_out_packed) };
     let prev_r_packed: EFPacking<EF> = <EFPacking<EF> as From<EF>>::from(prev_r);
 
-    let (c0s, c2s, c0d, c2d) = nums
+    let coeffs = nums
         .par_chunks_exact(in_packed)
         .zip(dens.par_chunks_exact(in_packed))
         .zip(new_nums.par_chunks_exact_mut(out_packed))
         .zip(new_dens.par_chunks_exact_mut(out_packed))
         .enumerate()
-        .fold(coeffs4_zero::<EF>, |mut acc, (c, (((n_c, d_c), nn_c), nd_c))| {
+        .fold(RoundCoeffs::<EF>::zero, |mut acc, (c, (((n_c, d_c), nn_c), nd_c))| {
             let eq_o: EF = eq_outer.get(c).copied().unwrap_or(EF::ONE);
-            let mut local = coeffs4_zero::<EF>();
+            let mut local = RoundCoeffs::<EF>::zero();
             for i in 0..in_eighth {
                 let l_p0_c0 = i;
                 let l_p0_c1 = i + in_eighth;
@@ -527,24 +514,24 @@ where
                 nd_c[i + out_half] = fl_dr;
                 nd_c[i + out_half + out_quarter] = fr_dr;
 
-                let eq_w = eq_within[i];
-                let (c0_s, c2_s) = sumcheck_quadratic(((&fl_dl, &fr_dl), (&fl_dr, &fr_dr)));
-                let (c0_a, c2_a) = sumcheck_quadratic(((&fl_nl, &fr_nl), (&fl_dr, &fr_dr)));
-                let (c0_b, c2_b) = sumcheck_quadratic(((&fl_nr, &fr_nr), (&fl_dl, &fr_dl)));
-                local.0 += c0_s * eq_w;
-                local.1 += c2_s * eq_w;
-                local.2 += (c0_a + c0_b) * eq_w;
-                local.3 += (c2_a + c2_b) * eq_w;
+                let round = pair_coeffs_packed::<EF, EFPacking<EF>>(
+                    (fl_nl, fr_nl),
+                    (fl_nr, fr_nr),
+                    (fl_dl, fr_dl),
+                    (fl_dr, fr_dr),
+                );
+                local.add_assign_scaled(round, eq_within[i]);
             }
-            acc.0 += local.0 * eq_o;
-            acc.1 += local.1 * eq_o;
-            acc.2 += local.2 * eq_o;
-            acc.3 += local.3 * eq_o;
+            acc.add_assign_scaled_ef(local, eq_o);
             acc
         })
-        .reduce(coeffs4_zero::<EF>, coeffs4_add::<EF>);
+        .reduce(RoundCoeffs::<EF>::zero, |a, b| {
+            let mut r = a;
+            r.add_assign(b);
+            r
+        });
 
-    (new_nums, new_dens, c0s, c2s, c0d, c2d)
+    (new_nums, new_dens, coeffs)
 }
 
 fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
@@ -559,47 +546,4 @@ fn build_bare_from_coeffs<EF: ExtensionField<PF<EF>>>(
     let h1_mmf = (sum - (EF::ONE - eq_alpha) * c0_mmf) / eq_alpha;
     let c1_mmf = h1_mmf - c0_mmf - c2_mmf;
     DensePolynomial::new(vec![c0_mmf, c1_mmf, c2_mmf])
-}
-
-fn fold_ext_active_at_bit<EF: ExtensionField<PF<EF>>>(
-    m: &[EFPacking<EF>],
-    alpha: EF,
-    bit: usize,
-    chunk_log_old: usize,
-) -> Vec<EFPacking<EF>> {
-    let w = packing_log_width::<EF>();
-    let in_packed = 1usize << (chunk_log_old - w);
-    debug_assert!(m.len().is_multiple_of(in_packed));
-    let active_out = m.len() / 2;
-    let stride = 1usize << bit;
-    let lo_mask = stride - 1;
-
-    let mut out: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(active_out) };
-
-    let compute = |(new_j, slot): (usize, &mut EFPacking<EF>)| {
-        let i_hi = new_j >> bit;
-        let i_lo = new_j & lo_mask;
-        let i0 = (i_hi << (bit + 1)) | i_lo;
-        let i1 = i0 | stride;
-        let diff = m[i1] - m[i0];
-        *slot = diff * alpha + m[i0];
-    };
-
-    if active_out < PARALLEL_THRESHOLD {
-        out.iter_mut().enumerate().for_each(compute);
-    } else {
-        out.par_iter_mut()
-            .with_min_len(PARALLEL_THRESHOLD)
-            .enumerate()
-            .for_each(compute);
-    }
-
-    out
-}
-
-pub(super) fn even_odd_split<EF: Copy>(v: &[EF]) -> (Vec<EF>, Vec<EF>) {
-    (
-        v.iter().step_by(2).copied().collect(),
-        v.iter().skip(1).step_by(2).copied().collect(),
-    )
 }

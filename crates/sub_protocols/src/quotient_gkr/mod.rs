@@ -7,9 +7,7 @@ use crate::{
     N_VARS_TO_SEND_GKR_COEFFS,
     quotient_gkr::{
         layers::LayerStorage,
-        sumcheck_utils::{
-            even_odd_split, quotient_sumcheck_prove_packed_br_base, run_phase1_sumcheck, run_phase2_sumcheck,
-        },
+        sumcheck_utils::{quotient_sumcheck_prove_packed_br_base, run_phase1_sumcheck, run_phase2_sumcheck},
     },
 };
 
@@ -110,22 +108,18 @@ fn prove_gkr_layer<EF: ExtensionField<PF<EF>>>(
             None,
             None,
         ),
-        LayerStorage::Natural { nums, dens } => {
-            let (num_l, num_r) = even_odd_split(nums);
-            let (den_l, den_r) = even_odd_split(dens);
-            run_phase2_sumcheck(
-                prover_state,
-                num_l,
-                num_r,
-                den_l,
-                den_r,
-                claim_point.0.to_vec(),
-                vec![],
-                alpha,
-                expected_sum,
-                EF::ONE,
-            )
-        }
+        LayerStorage::Natural { nums, dens } => run_phase2_sumcheck(
+            prover_state,
+            nums.iter().step_by(2).copied().collect(),
+            nums.iter().skip(1).step_by(2).copied().collect(),
+            dens.iter().step_by(2).copied().collect(),
+            dens.iter().skip(1).step_by(2).copied().collect(),
+            claim_point.0.to_vec(),
+            vec![],
+            alpha,
+            expected_sum,
+            EF::ONE,
+        ),
     };
 
     prover_state.add_extension_scalars(&inner_evals);

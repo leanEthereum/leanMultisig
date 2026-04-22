@@ -130,30 +130,29 @@ fn sum_quotients_2_by_2<EF: ExtensionField<PF<EF>>>(nums: &[EF], dens: &[EF]) ->
     assert_eq!(nums.len(), dens.len());
     let active_len = nums.len();
     let new_active = active_len.div_ceil(2);
+    let full_pairs = active_len / 2;
 
     let mut new_nums: Vec<EF> = unsafe { uninitialized_vec(new_active) };
     let mut new_dens: Vec<EF> = unsafe { uninitialized_vec(new_active) };
 
-    new_nums
+    new_nums[..full_pairs]
         .par_iter_mut()
-        .zip(new_dens.par_iter_mut())
+        .zip(new_dens[..full_pairs].par_iter_mut())
         .enumerate()
         .for_each(|(i, (num, den))| {
-            let i0 = 2 * i;
-            let i1 = 2 * i + 1;
-            if i1 >= active_len {
-                // Boundary: a/b + 0/1 = a/b
-                *num = nums[i0];
-                *den = dens[i0];
-            } else {
-                let n0 = nums[i0];
-                let n1 = nums[i1];
-                let d0 = dens[i0];
-                let d1 = dens[i1];
-                *num = d1 * n0 + d0 * n1;
-                *den = d0 * d1;
-            }
+            let n0 = nums[2 * i];
+            let n1 = nums[2 * i + 1];
+            let d0 = dens[2 * i];
+            let d1 = dens[2 * i + 1];
+            *num = d1 * n0 + d0 * n1;
+            *den = d0 * d1;
         });
+
+    // Boundary (at most one pair: a/b + 0/1 = a/b).
+    if full_pairs < new_active {
+        new_nums[full_pairs] = nums[2 * full_pairs];
+        new_dens[full_pairs] = dens[2 * full_pairs];
+    }
 
     (new_nums, new_dens)
 }
@@ -198,8 +197,7 @@ pub(super) fn unpack_and_unreverse_active<EF: ExtensionField<PF<EF>>>(
     v: &[EFPacking<EF>],
     chunk_log: usize,
 ) -> Vec<EF> {
-    let active_unpacked = unpack_extension::<EF>(v);
-    bit_reverse_chunks(&active_unpacked, chunk_log)
+    bit_reverse_chunks(&unpack_extension::<EF>(v), chunk_log)
 }
 
 fn unpack_base_and_unreverse_active<EF: ExtensionField<PF<EF>>>(v: &[PFPacking<EF>], chunk_log: usize) -> Vec<EF> {

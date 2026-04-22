@@ -345,11 +345,14 @@ pub fn verify_generic_logup(
     let mut retrieved_numerators_value = EF::ZERO;
     let mut retrieved_denominators_value = EF::ZERO;
 
-    // Memory ...
+    let pref_at = |offset: usize, log_height: usize| {
+        let n_missing = total_gkr_n_vars - log_height;
+        let bits = to_big_endian_in_field::<EF>(offset >> log_height, n_missing);
+        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..n_missing].to_vec()))
+    };
+
     let memory_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
-    let bits = to_big_endian_in_field::<EF>(0, total_gkr_n_vars - log_memory);
-    let pref =
-        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_memory].to_vec()));
+    let pref = pref_at(0, log_memory);
 
     let value_memory_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_memory_acc;
@@ -364,17 +367,10 @@ pub fn verify_generic_logup(
         ));
     let mut offset = 1 << log_memory;
 
-    // Bytecode
     let log_bytecode_padded = log_bytecode.max(tables_heights_sorted[0].1);
     let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
-    let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_gkr_n_vars - log_bytecode);
-    let pref = MultilinearPoint(bits)
-        .eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_bytecode].to_vec()));
-    let bits_padded =
-        to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_gkr_n_vars - log_bytecode_padded);
-    let pref_padded = MultilinearPoint(bits_padded).eq_poly_outside(&MultilinearPoint(
-        point_gkr[..total_gkr_n_vars - log_bytecode_padded].to_vec(),
-    ));
+    let pref = pref_at(offset, log_bytecode);
+    let pref_padded = pref_at(offset, log_bytecode_padded);
 
     let value_bytecode_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_bytecode_acc;
@@ -405,8 +401,6 @@ pub fn verify_generic_logup(
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     for &(table, log_n_rows) in &tables_heights_sorted {
-        let n_missing_vars = total_gkr_n_vars - log_n_rows;
-        let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == Table::execution() {
@@ -416,12 +410,10 @@ pub fn verify_generic_logup(
 
             let instr_evals = verifier_state.next_extension_scalars_vec(N_INSTRUCTION_COLUMNS)?;
             for (i, eval_on_instr_col) in instr_evals.iter().enumerate() {
-                let global_index = N_RUNTIME_COLUMNS + i;
-                table_values.insert(global_index, *eval_on_instr_col);
+                table_values.insert(N_RUNTIME_COLUMNS + i, *eval_on_instr_col);
             }
 
-            let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-            let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+            let pref = pref_at(offset, log_n_rows);
             retrieved_numerators_value += pref; // numerator is 1
             retrieved_denominators_value += pref
                 * (c - finger_print(
@@ -435,9 +427,7 @@ pub fn verify_generic_logup(
 
         // I] Bus (data flow between tables)
         let eval_on_selector = verifier_state.next_extension_scalar()?;
-
-        let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-        let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+        let pref = pref_at(offset, log_n_rows);
         retrieved_numerators_value += pref * eval_on_selector;
 
         let eval_on_data = verifier_state.next_extension_scalar()?;
@@ -459,8 +449,7 @@ pub fn verify_generic_logup(
                 assert!(!table_values.contains_key(col_index));
                 table_values.insert(*col_index, value_eval);
 
-                let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-                let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+                let pref = pref_at(offset, log_n_rows);
                 retrieved_numerators_value += pref; // numerator is 1
                 retrieved_denominators_value += pref
                     * (c - finger_print(
@@ -475,7 +464,8 @@ pub fn verify_generic_logup(
         columns_values.insert(table, table_values);
     }
 
-    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
+    // Compensates for the final padding `xxx..xxx111...1`
+    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr);
     if retrieved_numerators_value != numerators_value {
         return Err(ProofError::InvalidProof);
     }
