@@ -42,14 +42,15 @@ pub fn prove_generic_logup(
     let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_log_heights_sorted = sort_tables_by_height(&tables_log_heights);
 
-    let total_gkr_n_vars = compute_total_gkr_n_vars(
+    let total_active_len = compute_total_active_len(
         log2_strict_usize(memory.len()),
         log_bytecode,
-        &tables_log_heights_sorted.iter().cloned().collect(),
+        &tables_log_heights_sorted,
     );
-    let mut numerators = F::zero_vec(1 << total_gkr_n_vars);
+    let total_gkr_n_vars = log2_ceil_usize(total_active_len);
+    let mut numerators: Vec<F> = unsafe { uninitialized_vec(total_active_len) };
     let width = packing_width::<EF>();
-    let mut denominators = EFPacking::<EF>::zero_vec((1 << total_gkr_n_vars) / width);
+    let mut denominators: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(total_active_len / width) };
     let c_packed = EFPacking::<EF>::from(c);
     let alphas_packed: Vec<EFPacking<EF>> = alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
     let alpha_last = *alphas_eq_poly.last().unwrap();
@@ -119,6 +120,9 @@ pub fn prove_generic_logup(
     );
     if 1 << log_bytecode < max_table_height {
         // padding
+        numerators[offset + (1 << log_bytecode)..offset + max_table_height]
+            .par_iter_mut()
+            .for_each(|n| *n = F::ZERO);
         denominators[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
             .par_iter_mut()
             .for_each(|d| *d = EFPacking::<EF>::ONE);
@@ -194,7 +198,7 @@ pub fn prove_generic_logup(
         }
     }
 
-    assert_eq!(log2_ceil_usize(offset), total_gkr_n_vars);
+    assert_eq!(offset, total_active_len);
     tracing::info!(
         "{}",
         format!(
@@ -205,11 +209,6 @@ pub fn prove_generic_logup(
         )
         .blue()
     );
-
-    // Final padding
-    denominators[offset / width..]
-        .par_iter_mut()
-        .for_each(|d| *d = EFPacking::<EF>::ONE);
 
     let (sum, claim_point_gkr) = prove_gkr_quotient::<EF>(
         prover_state,
@@ -335,11 +334,7 @@ pub fn verify_generic_logup(
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
-    let total_gkr_n_vars = compute_total_gkr_n_vars(
-        log_memory,
-        log_bytecode,
-        &tables_heights_sorted.iter().cloned().collect(),
-    );
+    let total_gkr_n_vars = compute_total_gkr_n_vars(log_memory, log_bytecode, &tables_heights_sorted);
 
     let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_gkr_n_vars)?;
 
@@ -508,19 +503,36 @@ fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
     num_cols << log_n_rows
 }
 
+fn compute_total_active_len(
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights_sorted: &[(Table, VarCount)],
+) -> usize {
+    let max_table_height = 1 << tables_heights_sorted[0].1;
+    let log_n_cycles = tables_heights_sorted
+        .iter()
+        .find(|(table, _)| *table == Table::execution())
+        .unwrap()
+        .1;
+    (1 << log_memory)
+        + (1 << log_bytecode).max(max_table_height)
+        + (1 << log_n_cycles)
+        + tables_heights_sorted
+            .iter()
+            .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))
+            .sum::<usize>()
+}
+
 fn compute_total_gkr_n_vars(
     log_memory: usize,
     log_bytecode: usize,
-    tables_log_heights: &BTreeMap<Table, VarCount>,
+    tables_heights_sorted: &[(Table, VarCount)],
 ) -> usize {
-    let max_table_height = 1 << tables_log_heights.values().copied().max().unwrap();
-    let total_len = (1 << log_memory)
-        + (1 << log_bytecode).max(max_table_height) + (1 << tables_log_heights[&Table::execution()]) // bytecode
-        + tables_log_heights
-            .iter()
-            .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))
-            .sum::<usize>();
-    log2_ceil_usize(total_len)
+    log2_ceil_usize(compute_total_active_len(
+        log_memory,
+        log_bytecode,
+        tables_heights_sorted,
+    ))
 }
 
 #[inline]
