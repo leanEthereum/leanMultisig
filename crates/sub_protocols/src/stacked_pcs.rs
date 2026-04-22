@@ -147,7 +147,7 @@ pub fn stack_polynomials_and_commit(
     let global_polynomial = MleOwned::Base(global_polynomial);
 
     let inner_witness =
-        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial, offset);
+        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial);
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,
