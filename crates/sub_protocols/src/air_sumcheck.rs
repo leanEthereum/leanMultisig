@@ -196,7 +196,7 @@ where
         let len = self.initial_n_vars - self.rounds_done;
         let mut alphas = self.permuted_alphas(len);
         alphas[len - 1 - self.folding_bit()] = EF::ZERO;
-        evaluate_mle_of_zero_then_ones(unpadded_len, &alphas)
+        mle_of_zeros_then_ones(unpadded_len, &alphas)
     }
 }
 

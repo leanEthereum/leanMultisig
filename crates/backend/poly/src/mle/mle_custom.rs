@@ -1,15 +1,20 @@
 use field::Field;
 
+/// Evaluates the MLE of `[0, ..., 0, 1, ..., 1]` (`n_zeros` zeros, then ones) at `point`.
 pub fn mle_of_zeros_then_ones<F: Field>(n_zeros: usize, point: &[F]) -> F {
-    let n_vars = point.len();
-    let n_values = 1 << n_vars;
+    let n_values = 1 << point.len();
     assert!(n_zeros <= n_values);
-    if n_vars == 0 {
-        F::from_usize(1 - n_zeros)
-    } else if n_zeros < n_values / 2 {
+    if n_zeros == 0 {
+        return F::ONE;
+    }
+    if n_zeros == n_values {
+        return F::ZERO;
+    }
+    let half = n_values / 2;
+    if n_zeros < half {
         (F::ONE - point[0]) * mle_of_zeros_then_ones::<F>(n_zeros, &point[1..]) + point[0]
     } else {
-        point[0] * mle_of_zeros_then_ones::<F>(n_zeros - n_values / 2, &point[1..])
+        point[0] * mle_of_zeros_then_ones::<F>(n_zeros - half, &point[1..])
     }
 }
 
