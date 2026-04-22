@@ -285,9 +285,7 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
 
     if builder.is_skip_low() {
         let cached = builder.get_cached_state();
-        for i in 0..WIDTH {
-            state[i] = cached[i];
-        }
+        state[..WIDTH].copy_from_slice(&cached[..WIDTH]);
         for _ in 0..PARTIAL_ROUNDS {
             builder.assert_eq_low(AB::IF::ZERO, AB::IF::ZERO);
         }

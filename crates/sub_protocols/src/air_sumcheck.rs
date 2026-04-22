@@ -327,14 +327,26 @@ where
         match multilinears {
             MleGroupRef::BasePacked(cols) => {
                 return compute_raw_poly_split::<EF, A, PFPacking<EF>, _, _>(
-                    cols, |j| split_eq.get_packed(j), computation, extra_data,
-                    fold_bit, active_count_pairs, low_degree, unpack_sum_packed,
+                    cols,
+                    |j| split_eq.get_packed(j),
+                    computation,
+                    extra_data,
+                    fold_bit,
+                    active_count_pairs,
+                    low_degree,
+                    unpack_sum_packed,
                 );
             }
             MleGroupRef::ExtensionPacked(cols) => {
                 return compute_raw_poly_split::<EF, A, EFPacking<EF>, _, _>(
-                    cols, |j| split_eq.get_packed(j), computation, extra_data,
-                    fold_bit, active_count_pairs, low_degree, unpack_sum_packed,
+                    cols,
+                    |j| split_eq.get_packed(j),
+                    computation,
+                    extra_data,
+                    fold_bit,
+                    active_count_pairs,
+                    low_degree,
+                    unpack_sum_packed,
                 );
             }
             _ => {}
@@ -442,10 +454,8 @@ where
         .collect();
 
     let inv_2 = PF::<EF>::TWO.inverse();
-    let state_interp_coeffs: Vec<PFPacking<EF>> = target_z
-        .iter()
-        .map(|&tz| PFPacking::<EF>::from(tz * inv_2))
-        .collect();
+    let state_interp_coeffs: Vec<PFPacking<EF>> =
+        target_z.iter().map(|&tz| PFPacking::<EF>::from(tz * inv_2)).collect();
 
     let state_cap = 16;
 
@@ -475,8 +485,7 @@ where
                     },
                 )
             },
-            |(mut acc, mut point, mut diff, mut low_evals, mut state_0, mut state_2, mut cached_buf),
-             new_j| {
+            |(mut acc, mut point, mut diff, mut low_evals, mut state_0, mut state_2, mut cached_buf), new_j| {
                 let i_hi = new_j >> fold_bit;
                 let i_lo = new_j & lo_mask;
                 let i0 = (i_hi << (fold_bit + 1)) | i_lo;
