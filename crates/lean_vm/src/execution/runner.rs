@@ -85,6 +85,19 @@ impl Trace {
         }
     }
 
+    fn with_capacity(cycles: usize, table_rows: &BTreeMap<Table, usize>) -> Self {
+        Self {
+            pcs: Vec::with_capacity(cycles),
+            fps: Vec::with_capacity(cycles),
+            tables: BTreeMap::from_iter((0..N_TABLES).map(|i| {
+                let cap = table_rows.get(&ALL_TABLES[i]).copied().unwrap_or(0);
+                (ALL_TABLES[i], TableTrace::with_column_capacity(&ALL_TABLES[i], cap))
+            })),
+            counts: InstructionCounts::default(),
+            pending_deref_hints: Vec::new(),
+        }
+    }
+
     fn merge(&mut self, other: Self) {
         self.pcs.extend(other.pcs);
         self.fps.extend(other.fps);
@@ -423,6 +436,11 @@ fn handle_parallel_batch(
     let shared: &[Option<F>] = &*left;
     let segment_slices: Vec<&mut [Option<F>]> = right.chunks_mut(stride).take(n_par).collect();
 
+    let seg0_table_rows: BTreeMap<Table, usize> = trace.tables.iter()
+        .map(|(t, tt)| (*t, tt.columns.first().map_or(0, |c| c.len())))
+        .collect();
+    let seg0_cycles = trace.pcs.len();
+
     type SegResult = Result<(Trace, Vec<(usize, F)>), RunnerError>;
     let results: Vec<SegResult> = segment_slices
         .into_par_iter()
@@ -431,7 +449,7 @@ fn handle_parallel_batch(
             let seg_start = split_at + i * stride;
             let mut seg_mem = SegmentMemory::new(shared, seg_slice, seg_start);
             let fp_i = batch.batch_fp + (i + 1) * stride;
-            let mut seg_trace = Trace::new();
+            let mut seg_trace = Trace::with_capacity(seg0_cycles, &seg0_table_rows);
             let mut seg_pc = batch.batch_pc;
             let mut seg_fp = fp_i;
             let mut seg_ap = fp_i + batch.frame_size;

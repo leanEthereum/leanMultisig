@@ -61,6 +61,14 @@ impl TableTrace {
             log_n_rows: 0,        // filled later
         }
     }
+
+    pub fn with_column_capacity<A: TableT>(air: &A, capacity: usize) -> Self {
+        Self {
+            columns: (0..air.n_columns_total()).map(|_| Vec::with_capacity(capacity)).collect(),
+            non_padded_n_rows: 0,
+            log_n_rows: 0,
+        }
+    }
 }
 
 pub fn sort_tables_by_height(tables_log_heights: &BTreeMap<Table, usize>) -> Vec<(Table, usize)> {
