@@ -383,11 +383,8 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
 /// this splits the output into tiles that fit in L2 cache and processes all N queries per tile
 /// before moving on, reducing DRAM traffic to ~168MB (one read + one writeback of the output).
 #[inline]
-pub fn compute_eval_eq_base_packed_batched<F, EF>(
-    evals: &[&[F]],
-    out: &mut [EF::ExtensionPacking],
-    scalars: &[EF],
-) where
+pub fn compute_eval_eq_base_packed_batched<F, EF>(evals: &[&[F]], out: &mut [EF::ExtensionPacking], scalars: &[EF])
+where
     F: Field,
     EF: ExtensionField<F>,
 {
@@ -426,40 +423,35 @@ pub fn compute_eval_eq_base_packed_batched<F, EF>(
     let tile_unpacked_size = 1 << k;
     let tile_packed_size = tile_unpacked_size >> log_packing_width;
 
-    out.par_chunks_exact_mut(tile_packed_size)
-        .enumerate()
-        .for_each_init(
-            || -> Vec<EF> { unsafe { uninitialized_vec(tile_unpacked_size) } },
-            |tile_buf, (tile_idx, out_tile)| {
-                for (eval, &scalar) in evals.iter().zip(scalars) {
-                    let prefix = tile_prefix::<F, EF>(
-                        &eval[..n_prefix_levels], tile_idx, scalar,
-                    );
-                    eval_eq_basic::<F, F, EF, false>(
-                        &eval[n_prefix_levels..], tile_buf, prefix,
-                    );
-                    out_tile.iter_mut()
-                        .zip(tile_buf.chunks_exact(packing_width))
-                        .for_each(|(out_elem, chunk)| {
-                            *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
-                        });
-                }
-            },
-        );
+    out.par_chunks_exact_mut(tile_packed_size).enumerate().for_each_init(
+        || -> Vec<EF> { unsafe { uninitialized_vec(tile_unpacked_size) } },
+        |tile_buf, (tile_idx, out_tile)| {
+            for (eval, &scalar) in evals.iter().zip(scalars) {
+                let prefix = tile_prefix::<F, EF>(&eval[..n_prefix_levels], tile_idx, scalar);
+                eval_eq_basic::<F, F, EF, false>(&eval[n_prefix_levels..], tile_buf, prefix);
+                out_tile
+                    .iter_mut()
+                    .zip(tile_buf.chunks_exact(packing_width))
+                    .for_each(|(out_elem, chunk)| {
+                        *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
+                    });
+            }
+        },
+    );
 }
 
 #[inline(always)]
-fn tile_prefix<F: Field, EF: ExtensionField<F>>(
-    eval_upper: &[F],
-    tile_index: usize,
-    scalar: EF,
-) -> EF {
+fn tile_prefix<F: Field, EF: ExtensionField<F>>(eval_upper: &[F], tile_index: usize, scalar: EF) -> EF {
     let n_levels = eval_upper.len();
     let mut prefix = scalar;
-    for level in 0..n_levels {
-        let s1 = prefix * eval_upper[level];
+    for (level, &ev) in eval_upper.iter().enumerate() {
+        let s1 = prefix * ev;
         let s0 = prefix - s1;
-        prefix = if (tile_index >> (n_levels - 1 - level)) & 1 == 0 { s0 } else { s1 };
+        prefix = if (tile_index >> (n_levels - 1 - level)) & 1 == 0 {
+            s0
+        } else {
+            s1
+        };
     }
     prefix
 }

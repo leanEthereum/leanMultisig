@@ -64,7 +64,9 @@ impl TableTrace {
 
     pub fn with_column_capacity<A: TableT>(air: &A, capacity: usize) -> Self {
         Self {
-            columns: (0..air.n_columns_total()).map(|_| Vec::with_capacity(capacity)).collect(),
+            columns: (0..air.n_columns_total())
+                .map(|_| Vec::with_capacity(capacity))
+                .collect(),
             non_padded_n_rows: 0,
             log_n_rows: 0,
         }

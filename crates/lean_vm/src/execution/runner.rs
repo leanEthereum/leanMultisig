@@ -436,7 +436,9 @@ fn handle_parallel_batch(
     let shared: &[Option<F>] = &*left;
     let segment_slices: Vec<&mut [Option<F>]> = right.chunks_mut(stride).take(n_par).collect();
 
-    let seg0_table_rows: BTreeMap<Table, usize> = trace.tables.iter()
+    let seg0_table_rows: BTreeMap<Table, usize> = trace
+        .tables
+        .iter()
         .map(|(t, tt)| (*t, tt.columns.first().map_or(0, |c| c.len())))
         .collect();
     let seg0_cycles = trace.pcs.len();

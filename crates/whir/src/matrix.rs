@@ -328,11 +328,11 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> Matrix<T> for DenseMatrix<T, S>
         for i in 0..P::WIDTH {
             row_offsets[i] = ((r + i) % height) * w;
         }
-        (0..n_leading_zeros)
-            .map(|_| P::default())
-            .chain((0..effective_width).rev().map(move |c| {
-                P::from_fn(|i| unsafe { *vals.get_unchecked(row_offsets[i] + c) })
-            }))
+        (0..n_leading_zeros).map(|_| P::default()).chain(
+            (0..effective_width)
+                .rev()
+                .map(move |c| P::from_fn(|i| unsafe { *vals.get_unchecked(row_offsets[i] + c) })),
+        )
     }
 }
 
