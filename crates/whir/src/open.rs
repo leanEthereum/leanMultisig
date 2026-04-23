@@ -5,7 +5,7 @@ use std::ops::{Mul, Sub};
 use ::utils::log2_strict_usize;
 use fiat_shamir::{FSProver, MerklePath, ProofResult};
 use field::PrimeCharacteristicRing;
-use field::{ExtensionField, Field, TwoAdicField};
+use field::{ExtensionField, Field, PackedValue, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
 use tracing::{info_span, instrument};
@@ -520,7 +520,8 @@ where
         let f_base_opt = unpacked_ref.as_base();
         let f_ext_opt = unpacked_ref.as_extension();
         let f = match (f_base_opt, f_ext_opt) {
-            (Some(b), _) => crate::svo::FEvals::Base(b),
+            // Zero-copy re-pack: the base slice and the packed slice share memory.
+            (Some(b), _) => crate::svo::FEvals::Base(PFPacking::<EF>::pack_slice(b)),
             (None, Some(e)) => crate::svo::FEvals::Ext(e),
             _ => panic!("WHIR sumcheck input must be base or extension (no packed)"),
         };

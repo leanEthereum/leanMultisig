@@ -19,26 +19,34 @@
 // (active=2). Lagrange weights are built from challenges in natural order
 // `(rho_0, rho_1, .., rho_{r-1})`.
 
-use std::ops::Mul;
-
-use field::{ExtensionField, Field};
-use poly::{PARALLEL_THRESHOLD, PF, compute_eval_eq, eval_eq};
+use field::{ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing};
+use poly::{EFPacking, PARALLEL_THRESHOLD, PF, PFPacking, compute_eval_eq, eval_eq, packing_width};
 use rayon::prelude::*;
 
-/// Committed polynomial evaluations in either base or extension form. Lets
-/// callers pass a single parameter and keeps the base-vs-ext dispatch at the
-/// outer boundary — inner kernels are generic over the element type so the
-/// `EF · F` (Algebra<F>) fast path is preserved through monomorphization.
+/// Committed polynomial evaluations. The Base variant holds the packed
+/// `&[PFPacking<EF>]` view obtained zero-copy via `PFPacking::pack_slice`.
+/// The row-reduce kernel accumulates into `Vec<EFPacking<EF>>` so that
+/// arithmetic is lane-parallel across `W = packing_width` bsvos — LLVM alone
+/// only achieves 2-wide within-coord SIMD for this shape (AoS `Vec<EF>`
+/// accumulator defeats cross-bsvo auto-vec). The Ext variant keeps a scalar
+/// fallback; SVO is only invoked on the initial WHIR polynomial which is
+/// always base-field in production.
 #[derive(Clone, Copy)]
 pub(crate) enum FEvals<'a, EF: ExtensionField<PF<EF>>> {
-    Base(&'a [PF<EF>]),
+    Base(&'a [PFPacking<EF>]),
     Ext(&'a [EF]),
 }
 
 impl<'a, EF: ExtensionField<PF<EF>>> FEvals<'a, EF> {
+    /// Scalar element read at an unpacked index. Cold path (spill-regime
+    /// eq-claim, bucket-C of next-claim).
     fn read(&self, idx: usize) -> EF {
         match self {
-            Self::Base(s) => EF::from(s[idx]),
+            Self::Base(packed) => {
+                let w = packing_width::<EF>();
+                let chunk = packed[idx / w];
+                EF::from(chunk.as_slice()[idx % w])
+            }
             Self::Ext(s) => s[idx],
         }
     }
@@ -143,13 +151,122 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
 // =========================================================================
 // Row-reduction kernels shared by the eq-claim and next-claim compressors.
 // =========================================================================
+//
+// Base path (hot): operate on `&[PFPacking<EF>]`, accumulate into
+// `Vec<EFPacking<EF>>` of length `svo_len/W`. Each inner step is one
+// `EFPacking * PFPacking -> EFPacking` lane-parallel multiply-add — W bsvos
+// at once. This forces cross-bsvo SIMD that LLVM would not emit on its own
+// from the AoS `Vec<EF>` accumulator (see the `project_svo_vectorization`
+// memory for the assembly finding that motivated this rewrite).
+//
+// Preconditions (guaranteed by WHIR: sel_offset = sel << (l-s), svo_len = 2^l_0,
+// l-s >= l_0 in non-spill regimes, l_0 >= log2(W) for all supported widths):
+//   - svo_len is a multiple of W
+//   - sel_offset is a multiple of svo_len, hence of W.
 
-/// Compute `acc[bsvo] = Σ_b coef[b] * rows[sel_offset + b*svo_len + bsvo]`.
-/// Serial or parallel over `b` depending on `e_len * svo_len`.
-fn reduce_svo_rows_one<EF, E>(rows: &[E], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
+/// Packed base-field reducer (hot path). Accumulator stays packed
+/// (`Vec<EFPacking<EF>>`) throughout the outer loop and unpacks once at end.
+fn reduce_rows_one_base_packed<EF>(
+    rows_packed: &[PFPacking<EF>],
+    coef: &[EF],
+    sel_offset: usize,
+    svo_len: usize,
+) -> Vec<EF>
 where
-    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
-    E: Copy + Send + Sync,
+    EF: ExtensionField<PF<EF>>,
+{
+    let w = packing_width::<EF>();
+    debug_assert!(svo_len.is_multiple_of(w));
+    debug_assert!(sel_offset.is_multiple_of(w));
+    let svo_len_p = svo_len / w;
+    let sel_off_p = sel_offset / w;
+
+    let e_len = coef.len();
+    let zero = || vec![EFPacking::<EF>::ZERO; svo_len_p];
+    let step = |mut acc: Vec<EFPacking<EF>>, b: usize| {
+        let e = EFPacking::<EF>::from(coef[b]);
+        let row = &rows_packed[sel_off_p + b * svo_len_p..][..svo_len_p];
+        for k in 0..svo_len_p {
+            acc[k] += e * row[k];
+        }
+        acc
+    };
+    let merge = |mut a: Vec<EFPacking<EF>>, b: Vec<EFPacking<EF>>| {
+        for (x, y) in a.iter_mut().zip(&b) {
+            *x += *y;
+        }
+        a
+    };
+    let acc_packed = if e_len * svo_len_p < PARALLEL_THRESHOLD {
+        (0..e_len).fold(zero(), step)
+    } else {
+        (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
+    };
+    EFPacking::<EF>::to_ext_iter_vec(acc_packed)
+}
+
+/// Packed base-field reducer, two-coefficient variant.
+fn reduce_rows_two_base_packed<EF>(
+    rows_packed: &[PFPacking<EF>],
+    coef_a: &[EF],
+    coef_b: &[EF],
+    sel_offset: usize,
+    svo_len: usize,
+) -> (Vec<EF>, Vec<EF>)
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let w = packing_width::<EF>();
+    debug_assert!(svo_len.is_multiple_of(w));
+    debug_assert!(sel_offset.is_multiple_of(w));
+    let svo_len_p = svo_len / w;
+    let sel_off_p = sel_offset / w;
+
+    let e_len = coef_a.len();
+    debug_assert_eq!(coef_b.len(), e_len);
+    let zero = || {
+        (
+            vec![EFPacking::<EF>::ZERO; svo_len_p],
+            vec![EFPacking::<EF>::ZERO; svo_len_p],
+        )
+    };
+    let step = |(mut a, mut b): (Vec<EFPacking<EF>>, Vec<EFPacking<EF>>), idx: usize| {
+        let ca = EFPacking::<EF>::from(coef_a[idx]);
+        let cb = EFPacking::<EF>::from(coef_b[idx]);
+        let row = &rows_packed[sel_off_p + idx * svo_len_p..][..svo_len_p];
+        for k in 0..svo_len_p {
+            let v = row[k];
+            a[k] += ca * v;
+            b[k] += cb * v;
+        }
+        (a, b)
+    };
+    let merge = |(mut ax, mut bx): (Vec<EFPacking<EF>>, Vec<EFPacking<EF>>),
+                 (ay, by): (Vec<EFPacking<EF>>, Vec<EFPacking<EF>>)| {
+        for (x, y) in ax.iter_mut().zip(&ay) {
+            *x += *y;
+        }
+        for (x, y) in bx.iter_mut().zip(&by) {
+            *x += *y;
+        }
+        (ax, bx)
+    };
+    let (a_p, b_p) = if e_len * svo_len_p < PARALLEL_THRESHOLD {
+        (0..e_len).fold(zero(), step)
+    } else {
+        (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
+    };
+    (
+        EFPacking::<EF>::to_ext_iter_vec(a_p),
+        EFPacking::<EF>::to_ext_iter_vec(b_p),
+    )
+}
+
+/// Scalar extension-field reducer (cold path — SVO doesn't hit this in
+/// production; kept for correctness on a hypothetical extension-field input).
+fn reduce_rows_one_ext<EF>(rows: &[EF], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>>,
 {
     let e_len = coef.len();
     let zero = || EF::zero_vec(svo_len);
@@ -174,18 +291,16 @@ where
     }
 }
 
-/// Same shape as [`reduce_svo_rows_one`] but accumulates two coefficient tables
-/// in one pass (reads each `rows` entry once).
-fn reduce_svo_rows_two<EF, E>(
-    rows: &[E],
+/// Scalar extension-field reducer, two-coefficient variant.
+fn reduce_rows_two_ext<EF>(
+    rows: &[EF],
     coef_a: &[EF],
     coef_b: &[EF],
     sel_offset: usize,
     svo_len: usize,
 ) -> (Vec<EF>, Vec<EF>)
 where
-    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
-    E: Copy + Send + Sync,
+    EF: ExtensionField<PF<EF>>,
 {
     let e_len = coef_a.len();
     debug_assert_eq!(coef_b.len(), e_len);
@@ -254,8 +369,8 @@ where
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
         let contrib = match f {
-            FEvals::Base(fb) => reduce_svo_rows_one::<EF, _>(fb, &e_split, sel_offset, svo_len),
-            FEvals::Ext(fe) => reduce_svo_rows_one::<EF, _>(fe, &e_split, sel_offset, svo_len),
+            FEvals::Base(fb) => reduce_rows_one_base_packed(fb, &e_split, sel_offset, svo_len),
+            FEvals::Ext(fe) => reduce_rows_one_ext(fe, &e_split, sel_offset, svo_len),
         };
         for (p, s) in p_bar.iter_mut().zip(contrib.iter()) {
             *p += alpha_j * *s;
@@ -372,8 +487,8 @@ where
         let sel_offset = sel_j << (l - s);
 
         let (sig_contrib, eq_contrib) = match f {
-            FEvals::Base(fb) => reduce_svo_rows_two::<EF, _>(fb, &bar_t_split, &e_split, sel_offset, svo_len),
-            FEvals::Ext(fe) => reduce_svo_rows_two::<EF, _>(fe, &bar_t_split, &e_split, sel_offset, svo_len),
+            FEvals::Base(fb) => reduce_rows_two_base_packed(fb, &bar_t_split, &e_split, sel_offset, svo_len),
+            FEvals::Ext(fe) => reduce_rows_two_ext(fe, &bar_t_split, &e_split, sel_offset, svo_len),
         };
 
         // Bucket-C slice read at β_split = 1^{m_split}.
