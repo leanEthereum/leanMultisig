@@ -1,5 +1,7 @@
 // Credits: whir-p3 (https://github.com/tcoratger/whir-p3) (MIT and Apache-2.0 licenses).
 
+use std::ops::{Mul, Sub};
+
 use ::utils::log2_strict_usize;
 use fiat_shamir::{FSProver, MerklePath, ProofResult};
 use field::PrimeCharacteristicRing;
@@ -542,10 +544,10 @@ where
         // input stays at `EF · F` cost per multiply (instead of promoting to
         // EF after round 0, which would force `EF · EF` on subsequent rounds).
         let evals_ext: Vec<EF> = if let Some(base) = f_base_opt {
-            fold_base_by_tensor::<EF>(base, &challenges)
+            fold_by_tensor::<EF, _>(base, &challenges)
         } else {
             let ext = f_ext_opt.expect("WHIR sumcheck input must be base or extension (no packed)");
-            fold_ext_by_tensor::<EF>(ext, &challenges)
+            fold_by_tensor::<EF, _>(ext, &challenges)
         };
 
         let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
@@ -619,9 +621,8 @@ where
 
         if m >= l_0 {
             if smt.is_next {
-                // Materialize and fold `l_0` times. The saving vs the old
-                // structured path is that the dense `2^n` buffer for OOD never
-                // gets folded — the nxt inner poly is always size `2^m ≤ 2^n`.
+                // Materialize and fold `l_0` times. The dense `2^n` OOD buffer
+                // is never folded — the nxt inner poly has size `2^m ≤ 2^n`.
                 let mut buf = matrix_next_mle_folded(p);
                 for &r in rhos {
                     let half = buf.len() / 2;
@@ -742,35 +743,13 @@ where
 ///
 /// The round polynomial is `p(z) = c0 + c1·z + c2·z^2` where `c1 = sum - 2·c0 - c2`. We return
 /// only `c0` and `c2`; the caller derives `c1` from the running sum.
-fn round_coeffs_flat<EF>(evals: &[EF], weights: &[EF]) -> (EF, EF)
-where
-    EF: ExtensionField<PF<EF>>,
-{
-    let n = evals.len();
-    assert_eq!(n, weights.len());
-    assert!(n >= 2 && n.is_power_of_two());
-    let half = n / 2;
-    (0..half)
-        .into_par_iter()
-        .map(|i| {
-            let lo_e = evals[2 * i];
-            let hi_e = evals[2 * i + 1];
-            let lo_w = weights[2 * i];
-            let hi_w = weights[2 * i + 1];
-            (lo_e * lo_w, (hi_e - lo_e) * (hi_w - lo_w))
-        })
-        .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
-}
-
-/// Base-field variant of [`round_coeffs_flat`]: `evals ∈ F^n`, `weights ∈ EF^n`.
 ///
-/// Uses `EF · F` multiplications (via `Algebra<F>`) instead of `EF · EF`. For EF5 over
-/// KoalaBear that's 5 base-field multiplies per product instead of 25, and there's no
-/// extension reduction on the product — roughly a 5× per-multiply speed-up on the
-/// round-0 hot loop.
-fn round_coeffs_flat_base<EF>(evals: &[PF<EF>], weights: &[EF]) -> (EF, EF)
+/// Generic over the eval type: `E = EF` uses EF · EF, `E = PF<EF>` uses `EF · F` via
+/// `Algebra<F>` (5× cheaper per mul on EF5/KoalaBear) for the round-0 hot loop.
+fn round_coeffs_flat<EF, E>(evals: &[E], weights: &[EF]) -> (EF, EF)
 where
-    EF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
+    E: Copy + Send + Sync + Sub<E, Output = E>,
 {
     let n = evals.len();
     assert_eq!(n, weights.len());
@@ -783,10 +762,8 @@ where
             let hi_e = evals[2 * i + 1];
             let lo_w = weights[2 * i];
             let hi_w = weights[2 * i + 1];
-            // Put EF on the left of the mul so `Mul<F> for EF` (from Algebra<F>) is used.
-            let diff_e = hi_e - lo_e; // F
-            let diff_w = hi_w - lo_w; // EF
-            (lo_w * lo_e, diff_w * diff_e)
+            // EF on the left so `Mul<E> for EF` is used (Algebra<F> for the base case).
+            (lo_w * lo_e, (hi_w - lo_w) * (hi_e - lo_e))
         })
         .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
 }
@@ -797,33 +774,27 @@ fn lsb_fold_base_to_ext<EF>(m: &[PF<EF>], r: EF) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>>,
 {
-    let half = m.len() / 2;
-    (0..half)
-        .into_par_iter()
-        .map(|i| {
-            // r · (F - F) is EF · F → EF; then EF + F → EF.
-            r * (m[2 * i + 1] - m[2 * i]) + m[2 * i]
-        })
-        .collect()
+    fold_multilinear_lsb(m, r, &|diff, alpha| alpha * diff)
 }
 
-/// Fold a base-field evaluation table by `l_0` LSB-fold challenges in a
-/// single pass via the eq-tensor `eval_eq([ρ_{l_0-1}, .., ρ_0])`.
+/// Fold an evaluation table by `l_0` LSB-fold challenges in a single pass via the eq-tensor
+/// `eval_eq([ρ_{l_0-1}, .., ρ_0])`.
 ///
-/// Equivalent to iterating `lsb_fold_base_to_ext(base, ρ_0)` followed by
-/// `lsb_fold(.., ρ_k)` for k = 1..l_0, but reads each `base` entry exactly
-/// once and stays in `EF · F` arithmetic throughout (vs iterated fold which
-/// promotes to `EF · EF` after round 0).
-fn fold_base_by_tensor<EF>(base: &[PF<EF>], rhos: &[EF]) -> Vec<EF>
+/// Equivalent to iterating `lsb_fold_base_to_ext(evals, ρ_0)` followed by `lsb_fold(.., ρ_k)` for
+/// k = 1..l_0, but reads each `evals` entry exactly once. For `E = PF<EF>` the inner mul is
+/// `EF · F` (via `Algebra<F>`), ~5× cheaper than the iterated fold which promotes to `EF · EF`
+/// after round 0.
+fn fold_by_tensor<EF, E>(evals: &[E], rhos: &[EF]) -> Vec<EF>
 where
-    EF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF> + From<E>,
+    E: Copy + Send + Sync,
 {
     let l_0 = rhos.len();
-    assert!(base.len() >= 1 << l_0);
+    assert!(evals.len() >= 1 << l_0);
     let width = 1usize << l_0;
-    let out_len = base.len() >> l_0;
+    let out_len = evals.len() >> l_0;
     if l_0 == 0 {
-        return base.iter().map(|&v| EF::from(v)).collect();
+        return evals.iter().map(|&v| EF::from(v)).collect();
     }
     let rhos_rev: Vec<EF> = rhos.iter().rev().copied().collect();
     let tensor = eval_eq(&rhos_rev);
@@ -835,36 +806,7 @@ where
             let offset = j * width;
             let mut acc = EF::ZERO;
             for k in 0..width {
-                acc += tensor[k] * base[offset + k];
-            }
-            acc
-        })
-        .collect()
-}
-
-/// Extension-field variant of [`fold_base_by_tensor`]. `EF · EF` products.
-fn fold_ext_by_tensor<EF>(ext: &[EF], rhos: &[EF]) -> Vec<EF>
-where
-    EF: ExtensionField<PF<EF>>,
-{
-    let l_0 = rhos.len();
-    assert!(ext.len() >= 1 << l_0);
-    let width = 1usize << l_0;
-    let out_len = ext.len() >> l_0;
-    if l_0 == 0 {
-        return ext.to_vec();
-    }
-    let rhos_rev: Vec<EF> = rhos.iter().rev().copied().collect();
-    let tensor = eval_eq(&rhos_rev);
-    debug_assert_eq!(tensor.len(), width);
-
-    (0..out_len)
-        .into_par_iter()
-        .map(|j| {
-            let offset = j * width;
-            let mut acc = EF::ZERO;
-            for k in 0..width {
-                acc += tensor[k] * ext[offset + k];
+                acc += tensor[k] * evals[offset + k];
             }
             acc
         })
@@ -914,7 +856,7 @@ fn lsb_sumcheck_round_split_base<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     pow_bits: usize,
 ) -> EF {
-    let (c0, c2) = split.round_coeffs_split_base(evals);
+    let (c0, c2) = split.round_coeffs_split(evals);
     sumcheck_finish_round(c0, c2, sum, prover_state, pow_bits)
 }
 
@@ -928,28 +870,13 @@ fn lsb_sumcheck_round<EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     pow_bits: usize,
 ) -> EF {
-    // For LSB-fold: lo = evals[2i], hi = evals[2i+1]. Same for weights.
-    // Round polynomial p(z) = c0 + c1*z + c2*z^2 with
-    //   p(0) = sum_i lo_e * lo_w                         = c0
-    //   p(2) - 2*p(1) + p(0) = c2 (second difference)
-    // Then c1 = sum_prev - 2*c0 - c2 (from the standard sumcheck identity).
     let (c0, c2) = round_coeffs_flat(evals, weights);
-    let c1 = *sum - c0.double() - c2;
-    let poly = DensePolynomial::new(vec![c0, c1, c2]);
-    prover_state.add_sumcheck_polynomial(&poly.coeffs, None);
-    prover_state.pow_grinding(pow_bits);
-    let r: EF = prover_state.sample();
-    *sum = poly.evaluate(r);
-    r
+    sumcheck_finish_round(c0, c2, sum, prover_state, pow_bits)
 }
 
 /// LSB-fold a slice of evaluations: `out[i] = m[2i] + r * (m[2i+1] - m[2i])`.
 fn lsb_fold<EF: ExtensionField<PF<EF>>>(m: &[EF], r: EF) -> Vec<EF> {
-    let half = m.len() / 2;
-    (0..half)
-        .into_par_iter()
-        .map(|i| m[2 * i] + r * (m[2 * i + 1] - m[2 * i]))
-        .collect()
+    fold_multilinear_lsb(m, r, &|diff, alpha| alpha * diff)
 }
 
 #[derive(Debug)]
@@ -1020,79 +947,6 @@ where
     }
 }
 
-/// Legacy flat-path combination of sparse statements into a single `2^n`-sized weight vector.
-/// No longer exercised by the prover (which uses [`SplitWeights::from_statements`] followed by
-/// structured round folding). Retained as a test oracle so `SplitWeights` can be validated
-/// against a direct, obviously-correct implementation.
-#[cfg(test)]
-#[instrument(skip_all, fields(num_constraints = statements.len(), n_vars = statements[0].total_num_variables))]
-fn combine_statement_flat<EF>(statements: &[SparseStatement<EF>], gamma: EF) -> (Vec<EF>, EF)
-where
-    EF: ExtensionField<PF<EF>>,
-{
-    let num_variables = statements[0].total_num_variables;
-    assert!(statements.iter().all(|e| e.total_num_variables == num_variables));
-
-    let mut combined_weights = EF::zero_vec(1 << num_variables);
-
-    let mut combined_sum = EF::ZERO;
-    let mut gamma_pow = EF::ONE;
-
-    for smt in statements {
-        if !smt.is_next && smt.values.len() == 1 {
-            for evaluation in &smt.values {
-                compute_sparse_eval_eq::<EF>(evaluation.selector, &smt.point.0, &mut combined_weights, gamma_pow);
-                combined_sum += evaluation.value * gamma_pow;
-                gamma_pow *= gamma;
-            }
-        } else {
-            let inner_poly: Vec<EF> = if smt.is_next {
-                matrix_next_mle_folded(&smt.point.0)
-            } else {
-                eval_eq(&smt.point.0)
-            };
-            let shift = smt.inner_num_variables();
-            let mut indexed_smt_values = smt.values.iter().enumerate().collect::<Vec<_>>();
-            indexed_smt_values.sort_by_key(|(_, e)| e.selector);
-            indexed_smt_values.dedup_by_key(|(_, e)| e.selector);
-            assert_eq!(
-                indexed_smt_values.len(),
-                smt.values.len(),
-                "Duplicate selectors in sparse statement"
-            );
-            let mut chunks_mut = split_at_mut_many(
-                &mut combined_weights,
-                &indexed_smt_values
-                    .iter()
-                    .map(|(_, e)| e.selector << shift)
-                    .collect::<Vec<_>>(),
-            );
-            chunks_mut.remove(0);
-            let mut next_gamma_powers = vec![gamma_pow];
-            for _ in 1..indexed_smt_values.len() {
-                next_gamma_powers.push(*next_gamma_powers.last().unwrap() * gamma);
-            }
-            for (e, &scalar) in smt.values.iter().zip(&next_gamma_powers) {
-                combined_sum += e.value * scalar;
-            }
-            chunks_mut
-                .into_par_iter()
-                .zip(&indexed_smt_values)
-                .for_each(|(out_buff, &(origin_index, _))| {
-                    out_buff[..1 << shift]
-                        .par_iter_mut()
-                        .zip(&inner_poly)
-                        .for_each(|(out_elem, &poly_elem)| {
-                            *out_elem += poly_elem * next_gamma_powers[origin_index];
-                        });
-                });
-            gamma_pow = *next_gamma_powers.last().unwrap() * gamma;
-        }
-    }
-
-    (combined_weights, combined_sum)
-}
-
 /// LSB-fold a sparse selector coefficient list: `new[i] = coefs[2i] + r · (coefs[2i+1] - coefs[2i])`.
 ///
 /// Entries at `sel = 2i` contribute `(1 - r) · coef` at `i`; entries at `sel = 2i + 1` contribute
@@ -1127,7 +981,7 @@ pub(crate) enum SelectCoefs<EF> {
 
 /// One factored term `select(x_prefix) * inner_eq(x_suffix)` of the combined weight polynomial.
 ///
-/// Initially `inner_eq` is `eval_eq(point)` (or `matrix_next_mle_folded(point)` when `is_next`)
+/// Initially `inner_eq` is `eval_eq(point)` (or `matrix_next_mle_folded(point)` when is_next)
 /// with length `2^m_g`. The group's weight, viewed as a function on the full `2^n` index, is
 /// `weights[j] = select[j >> m_g] * inner_eq[j & (2^m_g - 1)]`. After LSB-folding, `inner_eq`
 /// halves each round until it reaches size 1 ("scalar phase"), at which point the selector
@@ -1137,9 +991,6 @@ pub(crate) enum SelectCoefs<EF> {
 pub(crate) struct WeightGroup<EF> {
     pub(crate) inner_eq: Vec<EF>,
     pub(crate) select_coefs: SelectCoefs<EF>,
-    /// Preserved for debugging / diagnostics only; not used by folding or collapse logic.
-    #[allow(dead_code)]
-    pub(crate) is_next: bool,
 }
 
 /// Structured representation of the combined weight polynomial used in the initial sumcheck.
@@ -1204,8 +1055,7 @@ where
                     for v in &smt.values {
                         assert_eq!(v.selector, 0, "dense SparseStatement with non-zero selector");
                         // `compute_sparse_eval_eq` writes `gamma_pow · eq(point, ·)` directly
-                        // into `dw` in-place (INITIALIZED=true add mode). This matches the old
-                        // flat path's single-selector fast path and avoids allocating a fresh
+                        // into `dw` in-place (INITIALIZED=true add mode), avoiding a fresh
                         // `2^n` buffer per dense statement — critical when OOD samples make
                         // several dense claims in sequence.
                         compute_sparse_eval_eq::<EF>(v.selector, &smt.point.0, dw, gamma_pow);
@@ -1235,12 +1085,10 @@ where
                     combined_sum += v.value * gamma_pow;
                     gamma_pow *= gamma;
                 }
-                let _ = m; // m_g is no longer stored; kept as a local only for clarity.
 
                 groups.push(WeightGroup {
                     inner_eq,
                     select_coefs: SelectCoefs::Sparse(coefs),
-                    is_next: smt.is_next,
                 });
             }
         }
@@ -1257,7 +1105,15 @@ where
 
     /// Compute the `(c0, c2)` coefficients of the LSB-fold round polynomial directly from the
     /// structured representation, without materializing a `2^(n-round)` weight vector.
-    pub(crate) fn round_coeffs_split(&self, evals: &[EF]) -> (EF, EF) {
+    ///
+    /// Generic over the eval type: `E = EF` for subsequent rounds, `E = PF<EF>` for round 0
+    /// when the committed polynomial is base-field (uses `EF · F` via `Algebra<F>`, ~5× cheaper
+    /// per mul on EF5/KoalaBear).
+    pub(crate) fn round_coeffs_split<E>(&self, evals: &[E]) -> (EF, EF)
+    where
+        EF: Mul<E, Output = EF>,
+        E: Copy + Send + Sync + Sub<E, Output = E>,
+    {
         let n_remaining = evals.len();
         assert!(n_remaining >= 2 && n_remaining.is_power_of_two());
         let half = n_remaining / 2;
@@ -1313,103 +1169,13 @@ where
                             assert!(sel < n_remaining);
                             let i = sel >> 1;
                             let effective = scalar * coef;
+                            let diff_e = evals[2 * i + 1] - evals[2 * i];
                             if sel & 1 == 0 {
                                 // lo_w = effective, hi_w = 0 at this (i).
-                                c0 += evals[2 * i] * effective;
-                                c2 -= (evals[2 * i + 1] - evals[2 * i]) * effective;
-                            } else {
-                                // lo_w = 0, hi_w = effective at this (i).
-                                c2 += (evals[2 * i + 1] - evals[2 * i]) * effective;
-                            }
-                        }
-                    }
-                    SelectCoefs::Dense(coefs) => {
-                        assert_eq!(coefs.len(), n_remaining);
-                        let (g0, g2) = (0..half)
-                            .into_par_iter()
-                            .map(|i| {
-                                let lo_e = evals[2 * i];
-                                let hi_e = evals[2 * i + 1];
-                                let lo_w = coefs[2 * i] * scalar;
-                                let hi_w = coefs[2 * i + 1] * scalar;
-                                (lo_e * lo_w, (hi_e - lo_e) * (hi_w - lo_w))
-                            })
-                            .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
-                        c0 += g0;
-                        c2 += g2;
-                    }
-                }
-            }
-        }
-
-        (c0, c2)
-    }
-
-    /// Base-field variant of [`Self::round_coeffs_split`]: `evals ∈ F^{n_remaining}`.
-    ///
-    /// Computes the same `(c0, c2)` coefficients but uses `EF · F` multiplications on the
-    /// evals side. Only used in round 0 when the committed polynomial is base-field; after
-    /// folding by an extension-field challenge the evals become EF and subsequent rounds use
-    /// [`Self::round_coeffs_split`].
-    pub(crate) fn round_coeffs_split_base(&self, evals: &[PF<EF>]) -> (EF, EF) {
-        let n_remaining = evals.len();
-        assert!(n_remaining >= 2 && n_remaining.is_power_of_two());
-        let half = n_remaining / 2;
-
-        let mut c0 = EF::ZERO;
-        let mut c2 = EF::ZERO;
-
-        if let Some(dw) = &self.dense_weights {
-            assert_eq!(dw.len(), n_remaining);
-            let (d0, d2) = round_coeffs_flat_base(evals, dw);
-            c0 += d0;
-            c2 += d2;
-        }
-
-        for group in &self.groups {
-            let eq_len = group.inner_eq.len();
-            if eq_len >= 2 {
-                let selector_len = n_remaining / eq_len;
-                match &group.select_coefs {
-                    SelectCoefs::Sparse(entries) => {
-                        for &(a, coef) in entries {
-                            assert!(a < selector_len);
-                            let base = a * eq_len;
-                            let (g0, g2) = round_coeffs_flat_base(&evals[base..base + eq_len], &group.inner_eq);
-                            c0 += g0 * coef;
-                            c2 += g2 * coef;
-                        }
-                    }
-                    SelectCoefs::Dense(coefs) => {
-                        assert_eq!(coefs.len(), selector_len);
-                        let (g0, g2) = coefs
-                            .par_iter()
-                            .enumerate()
-                            .map(|(a, &coef)| {
-                                let base = a * eq_len;
-                                let (g0, g2) = round_coeffs_flat_base(&evals[base..base + eq_len], &group.inner_eq);
-                                (g0 * coef, g2 * coef)
-                            })
-                            .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2));
-                        c0 += g0;
-                        c2 += g2;
-                    }
-                }
-            } else {
-                let scalar = group.inner_eq[0];
-                match &group.select_coefs {
-                    SelectCoefs::Sparse(entries) => {
-                        for &(sel, coef) in entries {
-                            assert!(sel < n_remaining);
-                            let i = sel >> 1;
-                            let effective = scalar * coef; // EF · EF, computed once per entry
-                            let diff_e = evals[2 * i + 1] - evals[2 * i]; // F
-                            if sel & 1 == 0 {
-                                // lo_w = effective, hi_w = 0.
-                                c0 += effective * evals[2 * i]; // EF · F
+                                c0 += effective * evals[2 * i];
                                 c2 -= effective * diff_e;
                             } else {
-                                // lo_w = 0, hi_w = effective.
+                                // lo_w = 0, hi_w = effective at this (i).
                                 c2 += effective * diff_e;
                             }
                         }
@@ -1529,550 +1295,5 @@ where
         }
 
         out
-    }
-
-    /// Materialize at the starting (unfolded) size `2^n_total_vars`. Used by the test oracle
-    /// that compares structured output to `combine_statement_flat`.
-    #[cfg(test)]
-    pub(crate) fn collapse_to_flat(self) -> Vec<EF> {
-        let n = self.n_total_vars;
-        self.into_flat(1 << n)
-    }
-}
-
-#[cfg(test)]
-mod split_weights_tests {
-    use super::*;
-    use koala_bear::QuinticExtensionFieldKB;
-    use rand::{RngExt, SeedableRng, rngs::StdRng};
-
-    type EF = QuinticExtensionFieldKB;
-
-    fn random_statement(
-        rng: &mut StdRng,
-        n: usize,
-        m: usize,
-        is_next: bool,
-        n_selectors: usize,
-    ) -> SparseStatement<EF> {
-        let point = MultilinearPoint((0..m).map(|_| rng.random::<EF>()).collect());
-        let s = n - m;
-        let mut selectors: Vec<usize> = Vec::new();
-        while selectors.len() < n_selectors {
-            let sel = rng.random_range(0..1 << s);
-            if !selectors.contains(&sel) {
-                selectors.push(sel);
-            }
-        }
-        let values = selectors
-            .into_iter()
-            .map(|selector| SparseValue {
-                selector,
-                value: rng.random::<EF>(),
-            })
-            .collect();
-        if is_next {
-            SparseStatement::new_next(n, point, values)
-        } else {
-            SparseStatement::new(n, point, values)
-        }
-    }
-
-    fn check_equivalence(statements: Vec<SparseStatement<EF>>) {
-        let mut rng = StdRng::seed_from_u64(12345);
-        let gamma: EF = rng.random();
-        let (flat_w, flat_sum) = combine_statement_flat(&statements, gamma);
-        let (split, split_sum) = SplitWeights::<EF>::from_statements(&statements, gamma);
-        let split_w = split.collapse_to_flat();
-        assert_eq!(flat_sum, split_sum);
-        assert_eq!(flat_w, split_w);
-    }
-
-    #[test]
-    fn split_weights_matches_flat_sparse_single_selector() {
-        let mut rng = StdRng::seed_from_u64(1);
-        let n = 8;
-        let statements = (0..4)
-            .map(|_| {
-                let m = rng.random_range(1..n);
-                random_statement(&mut rng, n, m, false, 1)
-            })
-            .collect::<Vec<_>>();
-        check_equivalence(statements);
-    }
-
-    #[test]
-    fn split_weights_matches_flat_sparse_multi_selector() {
-        let mut rng = StdRng::seed_from_u64(2);
-        let n = 8;
-        let statements = (0..4)
-            .map(|_| {
-                let m = rng.random_range(1..n - 2);
-                random_statement(&mut rng, n, m, false, 3)
-            })
-            .collect::<Vec<_>>();
-        check_equivalence(statements);
-    }
-
-    #[test]
-    fn split_weights_matches_flat_is_next() {
-        let mut rng = StdRng::seed_from_u64(3);
-        let n = 8;
-        let statements = vec![
-            random_statement(&mut rng, n, 4, true, 1),
-            random_statement(&mut rng, n, 3, true, 2),
-            random_statement(&mut rng, n, 5, false, 1),
-        ];
-        check_equivalence(statements);
-    }
-
-    #[test]
-    fn split_weights_matches_flat_dense() {
-        let mut rng = StdRng::seed_from_u64(4);
-        let n = 8;
-        let statements = vec![
-            random_statement(&mut rng, n, n, false, 1), // dense eq
-            random_statement(&mut rng, n, n, true, 1),  // dense is_next
-            random_statement(&mut rng, n, 3, false, 2),
-        ];
-        check_equivalence(statements);
-    }
-
-    /// Drive both the flat and split paths through multiple LSB-fold rounds. At each round:
-    ///   - assert `round_coeffs_split` matches `round_coeffs_flat`;
-    ///   - sample a fresh challenge `r`;
-    ///   - fold both representations with `r`;
-    ///   - assert the folded split weights collapse back to the folded flat weights.
-    fn check_multi_round_equivalence(statements: Vec<SparseStatement<EF>>, n_rounds: usize, seed: u64) {
-        let mut rng = StdRng::seed_from_u64(seed);
-        let gamma: EF = rng.random();
-        let (mut flat_w, _) = combine_statement_flat(&statements, gamma);
-        let (mut split, _) = SplitWeights::<EF>::from_statements(&statements, gamma);
-        let n = statements[0].total_num_variables;
-        let mut evals: Vec<EF> = (0..1 << n).map(|_| rng.random::<EF>()).collect();
-
-        for round in 0..n_rounds {
-            assert_eq!(evals.len(), flat_w.len(), "round {round}: length drift");
-            let (c0_flat, c2_flat) = round_coeffs_flat(&evals, &flat_w);
-            let (c0_split, c2_split) = split.round_coeffs_split(&evals);
-            assert_eq!(c0_flat, c0_split, "round {round}: c0 mismatch");
-            assert_eq!(c2_flat, c2_split, "round {round}: c2 mismatch");
-
-            let r: EF = rng.random();
-
-            // Fold evals and flat weights via LSB-fold.
-            let half = evals.len() / 2;
-            evals = (0..half)
-                .map(|i| evals[2 * i] + r * (evals[2 * i + 1] - evals[2 * i]))
-                .collect();
-            flat_w = (0..half)
-                .map(|i| flat_w[2 * i] + r * (flat_w[2 * i + 1] - flat_w[2 * i]))
-                .collect();
-
-            // Fold the structured weights with the same challenge.
-            split.fold(r);
-
-            // After fold, collapsing the structured rep must reproduce the flat-folded weights,
-            // but only up to the current size — so we re-materialize the structured weights at the
-            // current fold level.
-            let materialized = split_weights_materialize_at_round(&split, flat_w.len());
-            assert_eq!(materialized.len(), flat_w.len(), "round {round}: materialize length");
-            assert_eq!(materialized, flat_w, "round {round}: split fold mismatches flat fold");
-        }
-    }
-
-    /// Materialize the current (folded) structured weights into a flat vector of the given size.
-    /// Generalizes `collapse_to_flat` to any fold level: selector-axis length is
-    /// `target_size / inner_eq.len()` per group.
-    fn split_weights_materialize_at_round(split: &SplitWeights<EF>, target_size: usize) -> Vec<EF> {
-        // Clone the structured state so we can reuse `into_flat` without consuming `split`.
-        let cloned = SplitWeights::<EF> {
-            n_total_vars: split.n_total_vars,
-            groups: split.groups.clone(),
-            dense_weights: split.dense_weights.clone(),
-        };
-        cloned.into_flat(target_size)
-    }
-
-    /// Base-field round-0 kernel equivalence: building the same `SplitWeights`, computing
-    /// `(c0, c2)` via `round_coeffs_split_base(base_evals)` must match `round_coeffs_split`
-    /// called on the same evals lifted to EF. Also checks `lsb_fold_base_to_ext` matches the
-    /// EF-lane LSB-fold.
-    #[test]
-    fn split_weights_round0_base_matches_extension() {
-        type F = koala_bear::KoalaBear;
-        let mut rng = StdRng::seed_from_u64(7);
-        let n = 10;
-        let statements = vec![
-            random_statement(&mut rng, n, 3, false, 2),
-            random_statement(&mut rng, n, 6, false, 1),
-            random_statement(&mut rng, n, 4, true, 1),
-            random_statement(&mut rng, n, n, false, 1), // dense
-        ];
-        let gamma: EF = rng.random();
-        let (split, _) = SplitWeights::<EF>::from_statements(&statements, gamma);
-
-        // Random base-field evals.
-        let base_evals: Vec<F> = (0..1 << n).map(|_| rng.random::<F>()).collect();
-        let ext_evals: Vec<EF> = base_evals.iter().map(|&v| EF::from(v)).collect();
-
-        let (c0_base, c2_base) = split.round_coeffs_split_base(&base_evals);
-        let (c0_ext, c2_ext) = split.round_coeffs_split(&ext_evals);
-        assert_eq!(c0_base, c0_ext, "round_coeffs_split_base c0 mismatch");
-        assert_eq!(c2_base, c2_ext, "round_coeffs_split_base c2 mismatch");
-
-        let r: EF = rng.random();
-        let folded_base = lsb_fold_base_to_ext::<EF>(&base_evals, r);
-        let folded_ext = lsb_fold(&ext_evals, r);
-        assert_eq!(folded_base, folded_ext, "lsb_fold_base_to_ext mismatch");
-    }
-
-    /// Isolated-statement SVO vs flat: one statement at a time, at small n, l_0.
-    /// Helps pinpoint which statement category is broken.
-    #[test]
-    fn svo_vs_flat_single_dense_eq() {
-        svo_vs_flat_single(|rng, n| random_statement(rng, n, n, false, 1), "dense_eq");
-    }
-
-    #[test]
-    fn svo_vs_flat_single_sparse_eq() {
-        svo_vs_flat_single(
-            |rng, n| {
-                let m = rng.random_range(2..n);
-                random_statement(rng, n, m, false, 2)
-            },
-            "sparse_eq",
-        );
-    }
-
-    #[test]
-    fn svo_vs_flat_single_next() {
-        svo_vs_flat_single(
-            |rng, n| {
-                let m = rng.random_range(2..=n);
-                random_statement(rng, n, m, true, 1)
-            },
-            "next",
-        );
-    }
-
-    #[test]
-    fn svo_vs_flat_single_spill() {
-        svo_vs_flat_single(
-            |rng, n| {
-                // s > n - l_0 with l_0 = 2: m < 2, so m in {0, 1}.
-                let m = rng.random_range(0..2);
-                let s = n - m;
-                random_statement(rng, n, m, false, 1.min(1usize << s))
-            },
-            "spill",
-        );
-    }
-
-    fn svo_vs_flat_single<F>(mut gen_smt: F, label: &str)
-    where
-        F: FnMut(&mut StdRng, usize) -> SparseStatement<EF>,
-    {
-        use crate::svo::{build_accumulators, round_message, values_to_coeffs};
-        let mut rng = StdRng::seed_from_u64(2027);
-        let n = 6;
-        let l_0 = 2;
-        let statement = vec![gen_smt(&mut rng, n)];
-        // Ensure next-claim has m >= l_0 (SVO-eligible).
-        if statement[0].is_next && statement[0].inner_num_variables() < l_0 {
-            return;
-        }
-
-        let base_evals: Vec<koala_bear::KoalaBear> = (0..(1u64 << n)).map(|_| rng.random()).collect();
-        let gamma: EF = rng.random();
-        let (mut split, sum0) = SplitWeights::<EF>::from_statements(&statement, gamma);
-
-        let smt = &statement[0];
-        let s = smt.selector_num_variables();
-        let inner: Vec<EF> = smt.point.0.clone();
-        let sel: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
-        let alphas: Vec<EF> = {
-            let mut gp = EF::ONE;
-            sel.iter()
-                .map(|_| {
-                    let v = gp;
-                    gp *= gamma;
-                    v
-                })
-                .collect()
-        };
-        let groups: Vec<crate::svo::CompressedGroup<EF>> = if smt.is_next {
-            crate::svo::compress_next_claim_bucketed::<EF>(Some(&base_evals), None, &sel, &inner, &alphas, n, l_0, s)
-        } else if s + l_0 <= n {
-            vec![crate::svo::compress_eq_claim::<EF>(
-                Some(&base_evals),
-                None,
-                &sel,
-                &inner,
-                &alphas,
-                n,
-                l_0,
-                s,
-            )]
-        } else {
-            crate::svo::compress_eq_spill_claim::<EF>(Some(&base_evals), None, &sel, &inner, &alphas, n, l_0, s)
-        };
-        let accs = build_accumulators::<EF>(&groups, l_0);
-
-        let _ = sum0;
-        let (c0_flat, c2_flat) = split.round_coeffs_split_base(&base_evals);
-        let (h0, h1, h2) = round_message(0, &[], &accs);
-        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
-        assert_eq!(c0_flat, c0_svo, "{label}: c0 mismatch round 0");
-        assert_eq!(c2_flat, c2_svo, "{label}: c2 mismatch round 0");
-
-        // Round 1.
-        let rho0: EF = rng.random();
-        split.fold(rho0);
-        let evals_ext = lsb_fold_base_to_ext::<EF>(&base_evals, rho0);
-        let (c0_flat, c2_flat) = split.round_coeffs_split(&evals_ext);
-        let (h0, h1, h2) = round_message(1, &[rho0], &accs);
-        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
-        assert_eq!(c0_flat, c0_svo, "{label}: c0 mismatch round 1");
-        assert_eq!(c2_flat, c2_svo, "{label}: c2 mismatch round 1");
-    }
-
-    /// End-to-end equivalence: SVO (c0, c2) per round must match the flat
-    /// `round_coeffs_split` path byte-for-byte across l_0 rounds, using the
-    /// same sequence of random challenges.
-    #[test]
-    fn svo_vs_flat_c0_c2_equivalence() {
-        use crate::svo::{build_accumulators, round_message, values_to_coeffs};
-
-        let mut rng = StdRng::seed_from_u64(2026);
-        for n in [6usize, 8, 10] {
-            for l_0 in 1..=(n / 2).min(5) {
-                for trial in 0..3 {
-                    // Build random statement mix (eq + next, various s including spill).
-                    let mut statements: Vec<SparseStatement<EF>> = Vec::new();
-                    // A dense eq (OOD-like).
-                    statements.push(random_statement(&mut rng, n, n, false, 1));
-                    // Sparse eq non-spill (m >= l_0, so s = n - m <= n - l_0).
-                    for _ in 0..3 {
-                        let m = rng.random_range(l_0.max(1)..=n.saturating_sub(1).max(l_0));
-                        let m = m.max(l_0); // ensure non-spill
-                        let s = n - m;
-                        let max_sel = (1usize << s).clamp(1, 3);
-                        let k = rng.random_range(1..=max_sel);
-                        statements.push(random_statement(&mut rng, n, m, false, k));
-                    }
-                    // Next-claim with m >= l_0.
-                    let m = rng.random_range(l_0..=n);
-                    statements.push(random_statement(&mut rng, n, m, true, 1));
-                    // Spill eq (m < l_0): only if n > l_0.
-                    if n > l_0 {
-                        let m = rng.random_range(0..l_0);
-                        // Need at least one selector < 2^s where s = n - m.
-                        let s = n - m;
-                        statements.push(random_statement(&mut rng, n, m, false, 1.min(1usize << s)));
-                    }
-
-                    // Random base-field evals.
-                    let base_evals: Vec<koala_bear::KoalaBear> = (0..(1u64 << n)).map(|_| rng.random()).collect();
-                    let gamma: EF = rng.random();
-
-                    // Flat path.
-                    let (mut split, _sum_flat) = SplitWeights::<EF>::from_statements(&statements, gamma);
-
-                    // SVO path: build compressed groups + accumulators.
-                    let sel_bits_all_spill_safe =
-                        statements.iter().all(|e| !e.is_next || e.inner_num_variables() >= l_0);
-                    if !sel_bits_all_spill_safe {
-                        // Can't run SVO — skip this trial (would fall back).
-                        continue;
-                    }
-                    let mut gamma_pow = EF::ONE;
-                    let mut groups: Vec<crate::svo::CompressedGroup<EF>> = Vec::new();
-                    for smt in &statements {
-                        let s = smt.selector_num_variables();
-                        let inner: Vec<EF> = smt.point.0.clone();
-                        let sel: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
-                        let mut alphas: Vec<EF> = Vec::with_capacity(sel.len());
-                        for _ in 0..sel.len() {
-                            alphas.push(gamma_pow);
-                            gamma_pow *= gamma;
-                        }
-                        if smt.is_next {
-                            groups.extend(crate::svo::compress_next_claim_bucketed::<EF>(
-                                Some(&base_evals),
-                                None,
-                                &sel,
-                                &inner,
-                                &alphas,
-                                n,
-                                l_0,
-                                s,
-                            ));
-                        } else if s + l_0 <= n {
-                            groups.push(crate::svo::compress_eq_claim::<EF>(
-                                Some(&base_evals),
-                                None,
-                                &sel,
-                                &inner,
-                                &alphas,
-                                n,
-                                l_0,
-                                s,
-                            ));
-                        } else {
-                            groups.extend(crate::svo::compress_eq_spill_claim::<EF>(
-                                Some(&base_evals),
-                                None,
-                                &sel,
-                                &inner,
-                                &alphas,
-                                n,
-                                l_0,
-                                s,
-                            ));
-                        }
-                    }
-                    let accs = build_accumulators::<EF>(&groups, l_0);
-
-                    // Round 0: base-field path computes (c0, c2) from split+base, SVO from accs.
-                    let (c0_flat_r0, c2_flat_r0) = split.round_coeffs_split_base(&base_evals);
-                    let mut rhos: Vec<EF> = Vec::new();
-                    let (h0, h1, h2) = round_message(0, &rhos, &accs);
-                    let (c0_svo_r0, c2_svo_r0) = values_to_coeffs(h0, h1, h2);
-                    assert_eq!(
-                        c0_flat_r0, c0_svo_r0,
-                        "n={n} l_0={l_0} trial={trial}: c0 mismatch at round 0"
-                    );
-                    assert_eq!(
-                        c2_flat_r0, c2_svo_r0,
-                        "n={n} l_0={l_0} trial={trial}: c2 mismatch at round 0"
-                    );
-
-                    let rho0: EF = rng.random();
-                    rhos.push(rho0);
-                    split.fold(rho0);
-                    let mut evals_ext: Vec<EF> = lsb_fold_base_to_ext::<EF>(&base_evals, rho0);
-
-                    // Rounds 1..l_0.
-                    for r in 1..l_0 {
-                        let (c0_flat, c2_flat) = split.round_coeffs_split(&evals_ext);
-                        let (h0, h1, h2) = round_message(r, &rhos, &accs);
-                        let (c0_svo, c2_svo) = values_to_coeffs(h0, h1, h2);
-                        assert_eq!(
-                            c0_flat, c0_svo,
-                            "n={n} l_0={l_0} trial={trial}: c0 mismatch at round {r}"
-                        );
-                        assert_eq!(
-                            c2_flat, c2_svo,
-                            "n={n} l_0={l_0} trial={trial}: c2 mismatch at round {r}"
-                        );
-                        let rho: EF = rng.random();
-                        rhos.push(rho);
-                        split.fold(rho);
-                        evals_ext = lsb_fold(&evals_ext, rho);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn split_weights_multi_round_mixed() {
-        let mut rng = StdRng::seed_from_u64(101);
-        let n = 8;
-        let statements = vec![
-            // Sparse single-selector at various m.
-            random_statement(&mut rng, n, 2, false, 1),
-            random_statement(&mut rng, n, 5, false, 1),
-            // Multi-selector.
-            random_statement(&mut rng, n, 3, false, 3),
-            // is_next.
-            random_statement(&mut rng, n, 4, true, 1),
-            random_statement(&mut rng, n, 6, true, 2),
-            // Dense OOD-like.
-            random_statement(&mut rng, n, n, false, 1),
-            random_statement(&mut rng, n, n, true, 1),
-        ];
-        // Fold through all rounds so we cover inner->scalar transitions at every m, plus the
-        // scalar-phase selector fold at the tail.
-        check_multi_round_equivalence(statements, n - 1, 42);
-    }
-
-    #[test]
-    fn split_weights_multi_round_all_sparse_single_selector() {
-        let mut rng = StdRng::seed_from_u64(102);
-        let n = 10;
-        let statements = (0..5)
-            .map(|_| {
-                let m = rng.random_range(1..n);
-                random_statement(&mut rng, n, m, false, 1)
-            })
-            .collect::<Vec<_>>();
-        check_multi_round_equivalence(statements, n - 1, 43);
-    }
-
-    #[test]
-    fn split_weights_matches_flat_mixed() {
-        let mut rng = StdRng::seed_from_u64(5);
-        let n = 10;
-        let mut statements = Vec::new();
-        for _ in 0..8 {
-            let is_next = rng.random::<bool>();
-            let m = rng.random_range(1..=n);
-            let s = n - m;
-            let max_sel = if s == 0 { 1 } else { (1 << s).min(4) };
-            let n_sel = rng.random_range(1..=max_sel);
-            statements.push(random_statement(&mut rng, n, m, is_next, n_sel));
-        }
-        check_equivalence(statements);
-    }
-
-    /// Parity test for Phase 3 (`build_post_svo_weights` vs folded
-    /// `SplitWeights::into_flat`): exercises eq non-spill, eq spill, nxt
-    /// (m >= l_0), and dense OOD statements.
-    #[test]
-    fn post_svo_weight_matches_split_into_flat() {
-        let mut rng = StdRng::seed_from_u64(2028);
-        for n in [6usize, 8, 10] {
-            for l_0 in 1..=(n / 2).min(5) {
-                for trial in 0..3 {
-                    let mut statements: Vec<SparseStatement<EF>> = Vec::new();
-                    statements.push(random_statement(&mut rng, n, n, false, 1));
-                    for _ in 0..3 {
-                        let m = rng.random_range(l_0.max(1)..=n);
-                        let s = n - m;
-                        let max_sel = (1usize << s).clamp(1, 3);
-                        let k = rng.random_range(1..=max_sel);
-                        statements.push(random_statement(&mut rng, n, m, false, k));
-                    }
-                    let m_nxt = rng.random_range(l_0..=n);
-                    statements.push(random_statement(&mut rng, n, m_nxt, true, 1));
-                    if n > l_0 {
-                        let m = rng.random_range(0..l_0);
-                        let s = n - m;
-                        statements.push(random_statement(&mut rng, n, m, false, 1.min(1usize << s)));
-                    }
-
-                    let gamma: EF = rng.random();
-                    let rhos: Vec<EF> = (0..l_0).map(|_| rng.random()).collect();
-
-                    // Oracle: SplitWeights folded l_0 times then into_flat.
-                    let (mut split, _) = SplitWeights::<EF>::from_statements(&statements, gamma);
-                    for &r in &rhos {
-                        split.fold(r);
-                    }
-                    let target_size = 1usize << (n - l_0);
-                    let oracle = split.into_flat(target_size);
-
-                    let ours = build_post_svo_weights(&statements, gamma, &rhos);
-                    assert_eq!(
-                        ours.len(),
-                        oracle.len(),
-                        "n={n} l_0={l_0} trial={trial}: length mismatch"
-                    );
-                    assert_eq!(ours, oracle, "n={n} l_0={l_0} trial={trial}: weight mismatch");
-                }
-            }
-        }
     }
 }
