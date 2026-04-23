@@ -35,14 +35,21 @@ fn test_run_whir() {
     let num_variables = std::env::var("WHIR_NUM_VARIABLES")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(18);
+        .unwrap_or(22);
     let num_coeffs = 1 << num_variables;
+
+    let log_memory = num_variables.saturating_sub(5);
+    let log_exec = num_variables.saturating_sub(6);
+    let log_poseidon = num_variables.saturating_sub(8);
+    let log_extop = num_variables.saturating_sub(11);
+    let log_bytecode = num_variables.saturating_sub(14).max(1);
+    let log_pub_mem = num_variables.saturating_sub(9).max(1);
 
     let params = WhirConfigBuilder {
         security_level: 123,
-        max_num_variables_to_send_coeffs: 9,
+        max_num_variables_to_send_coeffs: 8,
         pow_bits: 18,
-        folding_factor: FoldingFactor::new(7, 4),
+        folding_factor: FoldingFactor::new(7, 5),
         soundness_type: SecurityAssumption::JohnsonBound,
         starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 5,
@@ -56,30 +63,32 @@ fn test_run_whir() {
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = (0..num_coeffs).map(|_| rng.random::<F>()).collect::<Vec<F>>();
 
-    let random_sparse_point = |rng: &mut StdRng, num_variables: usize| {
-        let selector_len = rng.random_range(0..num_variables / 2);
-        let point = (0..num_variables - selector_len)
-            .map(|_| rng.random())
-            .collect::<Vec<EF>>();
-        (selector_len, MultilinearPoint(point))
-    };
+    let random_point = |rng: &mut StdRng, n: usize| MultilinearPoint((0..n).map(|_| rng.random()).collect::<Vec<EF>>());
 
-    // Sample `num_points` random multilinear points in the Boolean hypercube
-    let mut points = (0..7)
-        .map(|_| random_sparse_point(&mut rng, num_variables))
-        .collect::<Vec<_>>();
-    points.push((num_variables, MultilinearPoint(vec![])));
+    let claims: Vec<(usize, usize)> = vec![
+        (log_memory, 2),     // memory + memory_acc (logup GKR)
+        (log_pub_mem, 1),    // public memory consistency
+        (log_bytecode, 1),   // bytecode_acc (logup GKR)
+        (log_exec, 8),       // execution table - logup GKR (pc + addr/value cols)
+        (log_exec, 20),      // execution table - AIR sumcheck (all 20 cols)
+        (log_extop, 6),      // ext-op table - logup GKR
+        (log_extop, 29),     // ext-op table - AIR sumcheck
+        (log_poseidon, 3),   // poseidon table - logup GKR
+        (log_poseidon, 240), // poseidon table - AIR sumcheck (all round cols)
+    ];
 
     let mut statement = Vec::new();
 
-    // Add constraints for each sampled point (equality constraints)
-    for (selector_len, point) in &points {
-        let num_selectors = rng.random_range(1..5);
-        let mut selectors = vec![];
-        for _ in 0..num_selectors {
-            let selector = rng.random_range(0..(1 << selector_len));
-            if !selectors.contains(&selector) {
-                selectors.push(selector);
+    for &(inner_n_vars, num_cols) in &claims {
+        let selector_len = num_variables - inner_n_vars;
+        let point = random_point(&mut rng, inner_n_vars);
+        let total_slots = 1usize << selector_len;
+        let n = num_cols.min(total_slots);
+        let mut selectors: Vec<usize> = Vec::with_capacity(n);
+        while selectors.len() < n {
+            let s = rng.random_range(0..total_slots);
+            if !selectors.contains(&s) {
+                selectors.push(s);
             }
         }
         statement.push(SparseStatement::new(
@@ -87,11 +96,23 @@ fn test_run_whir() {
             point.clone(),
             selectors
                 .iter()
-                .map(|selector| SparseValue {
-                    selector: *selector,
-                    value: polynomial.evaluate_sparse(*selector, point),
+                .map(|&s| SparseValue {
+                    selector: s,
+                    value: polynomial.evaluate_sparse(s, &point),
                 })
                 .collect(),
+        ));
+    }
+
+    // PC start / end: unique-value openings at fixed offsets (empty point,
+    // full-width selector) — mirrors the two `unique_value` statements pushed
+    // for the execution table in `stacked_pcs_global_statements`.
+    let empty_point = MultilinearPoint(vec![]);
+    for &offset in &[0usize, num_coeffs - 1] {
+        statement.push(SparseStatement::unique_value(
+            num_variables,
+            offset,
+            polynomial.evaluate_sparse(offset, &empty_point),
         ));
     }
 

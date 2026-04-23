@@ -49,6 +49,18 @@ where
     pub prover_data: MerkleData<EF>,
     pub ood_points: Vec<EF>,
     pub ood_answers: Vec<EF>,
+    /// Number of entries at the start of the committed polynomial that are
+    /// non-zero. Trailing entries `[valid_size, 2^num_variables)` are
+    /// guaranteed to be zero (padding). When the committed polynomial is
+    /// a stacked concatenation of sub-polynomials, this is the total data
+    /// size (sum of sub-poly sizes + any inter-sub-poly pads).
+    ///
+    /// The sumcheck weights we stamp don't need to reach into the padding
+    /// since `f ≡ 0` there. Setting this to less than `2^num_variables`
+    /// lets `add_new_*_equality` skip fully-padding rayon chunks.
+    ///
+    /// Equals `1 << num_variables` when the polynomial has no padding.
+    pub valid_size: usize,
 }
 
 impl<EF> WhirConfig<EF>
@@ -82,6 +94,9 @@ where
             prover_data,
             ood_points,
             ood_answers,
+            // Default: assume no padding. Callers (e.g., stacked PCS) may
+            // overwrite this with a smaller value after constructing the witness.
+            valid_size: 1usize << self.num_variables,
         }
     }
 }

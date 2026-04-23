@@ -300,6 +300,140 @@ where
     }
 }
 
+/// Bounded variant of [`compute_eval_eq`]: only writes indices
+/// `[0, valid_size)` of `out`. See [`compute_eval_eq_base_bounded`] for the
+/// rationale — used for extension-point equality claims against a zero-padded
+/// polynomial.
+pub fn compute_eval_eq_bounded<F, EF, const INITIALIZED: bool>(
+    eval: &[EF],
+    out: &mut [EF],
+    scalar: EF,
+    valid_size: usize,
+) where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    let packing_width = F::Packing::WIDTH;
+    debug_assert_eq!(out.len(), 1 << eval.len());
+    debug_assert!(valid_size <= out.len());
+
+    if valid_size == out.len() {
+        compute_eval_eq::<F, EF, INITIALIZED>(eval, out, scalar);
+        return;
+    }
+    if valid_size == 0 {
+        return;
+    }
+
+    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
+        return;
+    }
+
+    let log_packing_width = log2_strict_usize(packing_width);
+    let eval_len_min_packing = eval.len() - log_packing_width;
+
+    let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
+    let out_chunk_size = out.len() / NUM_THREADS;
+
+    parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
+    fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
+
+    out.par_chunks_exact_mut(out_chunk_size)
+        .enumerate()
+        .zip(parallel_buffer.par_iter())
+        .for_each(|((chunk_idx, out_chunk), buffer_val)| {
+            let chunk_start = chunk_idx * out_chunk_size;
+            if chunk_start >= valid_size {
+                return;
+            }
+            eval_eq_with_packed_scalar::<_, _, INITIALIZED>(
+                &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                out_chunk,
+                *buffer_val,
+            );
+        });
+}
+
+/// Bounded variant of [`compute_eval_eq_base`]: only writes indices
+/// `[0, valid_size)` of `out`. Trailing entries (the "padding" region of
+/// a stacked polynomial, where `f ≡ 0`) are skipped — any eq-value that
+/// would have been stamped there multiplies by `f[i] = 0` downstream so
+/// the result is unchanged.
+///
+/// Only meaningful when `INITIALIZED = true` (ADD semantics). With
+/// `INITIALIZED = false` the caller gets undefined state in the skipped
+/// region, which is fine iff the caller never reads those indices against
+/// a nonzero `f` — the typical case when this is used with a zero-padded
+/// committed polynomial.
+///
+/// Pays the same per-op arithmetic as `compute_eval_eq_base` on the valid
+/// prefix; the win is purely in skipping fully-padding rayon chunks.
+pub fn compute_eval_eq_base_bounded<F, EF, const INITIALIZED: bool>(
+    eval: &[F],
+    out: &mut [EF],
+    scalar: EF,
+    valid_size: usize,
+) where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    let packing_width = F::Packing::WIDTH;
+
+    debug_assert_eq!(out.len(), 1 << eval.len());
+    debug_assert!(valid_size <= out.len());
+
+    if valid_size == out.len() {
+        // No padding to skip — fall through to the standard path.
+        compute_eval_eq_base::<F, EF, INITIALIZED>(eval, out, scalar);
+        return;
+    }
+    if valid_size == 0 {
+        return;
+    }
+
+    // Fall back to serial recursion below the parallelization threshold; rayon
+    // overhead dominates in that regime anyway.
+    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+        // For small n we don't bother with chunking — the serial recursion
+        // writes the full buffer, and the padding portion costs ~O(pad) base
+        // mults but those are cheap enough to ignore.
+        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
+        return;
+    }
+
+    let log_packing_width = log2_strict_usize(packing_width);
+    let eval_len_min_packing = eval.len() - log_packing_width;
+
+    let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
+    let out_chunk_size = out.len() / NUM_THREADS;
+
+    parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], F::ONE);
+    fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
+
+    out.par_chunks_exact_mut(out_chunk_size)
+        .enumerate()
+        .zip(parallel_buffer.par_iter())
+        .for_each(|((chunk_idx, out_chunk), buffer_val)| {
+            // Skip chunks that lie entirely past `valid_size`. The eq-values we
+            // would have written here multiply against `f[i] = 0` in the sumcheck
+            // so the sum is unaffected.
+            let chunk_start = chunk_idx * out_chunk_size;
+            if chunk_start >= valid_size {
+                return;
+            }
+            // Partial and fully-valid chunks get the full kernel. Handling the
+            // partial case "exactly" (stamping only up to valid_size within the
+            // chunk) would complicate the recursion for a tiny fraction of the work.
+            base_eval_eq_packed::<_, _, INITIALIZED>(
+                &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                out_chunk,
+                *buffer_val,
+                scalar,
+            );
+        });
+}
+
 #[inline]
 pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
     eval: &[F],

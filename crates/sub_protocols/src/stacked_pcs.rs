@@ -145,8 +145,14 @@ pub fn stack_polynomials_and_commit(
     );
 
     let global_polynomial = MleOwned::Base(global_polynomial);
+    // `offset` at this point equals the total packed-data size. The trailing
+    // region `[offset, 1 << stacked_n_vars)` is zero padding (from `zero_vec`
+    // above), so the sumcheck weights don't need to cover it.
+    let valid_size = offset;
 
-    let inner_witness = WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial);
+    let mut inner_witness =
+        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial);
+    inner_witness.valid_size = valid_size;
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,

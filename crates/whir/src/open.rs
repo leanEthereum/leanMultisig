@@ -316,6 +316,14 @@ pub struct SumcheckSingle<EF: ExtensionField<PF<EF>>> {
     pub(crate) weights: Vec<EF>,
     /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
+    /// Number of entries at the start of `evals` / `weights` that are "live".
+    /// Entries `[valid_size, weights.len())` have `evals = 0` (trailing
+    /// zero-padding of the stacked polynomial), so the sumcheck weight stamped
+    /// there multiplies by zero and doesn't affect the round polynomial.
+    /// Tracked through folds: `lsb_fold` maps it to `ceil(valid_size / 2)`,
+    /// and the post-SVO tensor fold by `l_0` maps it to `ceil(valid_size / 2^l_0)`.
+    /// Equals `weights.len()` when there's no padding.
+    pub(crate) valid_size: usize,
 }
 
 impl<EF: Field> SumcheckSingle<EF>
@@ -332,11 +340,13 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
+        // Skip stamping into the trailing padding region of `self.weights`:
+        // those indices multiply against `evals[i] = 0` in the sumcheck.
         points
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
-                compute_eval_eq::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand);
+                compute_eval_eq_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
             });
 
         self.sum += combination_randomness
@@ -356,11 +366,12 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
+        // Skip stamping into the trailing padding region. See `add_new_equality`.
         points
             .iter()
             .zip(combination_randomness.iter())
             .for_each(|(point, &rand)| {
-                compute_eval_eq_base::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand);
+                compute_eval_eq_base_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
             });
 
         self.sum += combination_randomness
@@ -394,6 +405,10 @@ where
             let new_weights = lsb_fold(&self.weights, r);
             self.evals = MleOwned::Extension(new_evals);
             self.weights = new_weights;
+            // LSB-fold at `r`: new[i] = old[2i] + r·(old[2i+1] − old[2i]).
+            // If old evals had zero tail starting at `valid_size`, the new evals
+            // have zero tail starting at `ceil(valid_size / 2)`.
+            self.valid_size = self.valid_size.div_ceil(2).min(self.weights.len());
         }
         MultilinearPoint(challenges)
     }
@@ -406,6 +421,7 @@ where
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
         pow_bits: usize,
+        valid_size_full: usize,
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
@@ -455,10 +471,15 @@ where
         // `2^(n - folding_factor)` ≈ 10 MB for n = 26 — fine to materialize.
         let weights = split.into_flat(evals_ext.len());
 
+        // After folding `folding_factor` LSB coords, the zero-tail region shrinks
+        // by the same factor: `valid_size` maps to `ceil(valid_size / 2^folding_factor)`.
+        let valid_size = valid_size_full.div_ceil(1 << folding_factor).min(weights.len());
+
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),
             weights,
             sum,
+            valid_size,
         };
 
         (sumcheck, MultilinearPoint(challenges))
@@ -482,6 +503,7 @@ where
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
         pow_bits: usize,
+        valid_size_full: usize,
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
         let l = statement[0].total_num_variables;
@@ -502,6 +524,7 @@ where
                 prover_state,
                 folding_factor,
                 pow_bits,
+                valid_size_full,
             );
         }
 
@@ -550,10 +573,15 @@ where
 
         let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
         debug_assert_eq!(weights.len(), evals_ext.len());
+        // After folding `folding_factor` coords via tensor product, the zero-tail
+        // region shrinks from `[valid_size_full, 2^l)` to roughly
+        // `[ceil(valid_size_full / 2^l_0), 2^{l - l_0})`.
+        let valid_size = valid_size_full.div_ceil(1 << l_0).min(weights.len());
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),
             weights,
             sum,
+            valid_size,
         };
         (sumcheck, MultilinearPoint(challenges))
     }
@@ -1001,6 +1029,7 @@ where
             prover_state,
             prover.folding_factor.at_round(0),
             prover.starting_folding_pow_bits,
+            witness.valid_size,
         );
 
         Ok(Self {
