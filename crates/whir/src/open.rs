@@ -318,22 +318,19 @@ pub struct SumcheckSingle<EF: ExtensionField<PF<EF>>> {
     pub(crate) sum: EF,
     /// Power-of-two upper bound on the "live" prefix of `evals`: entries
     /// `[valid_size, weights.len())` are zero in `evals`, so weight stamped
-    /// there multiplies by zero and doesn't affect any round polynomial.
+    /// there multiplies by zero and doesn't affect the round polynomial.
+    /// Propagated through LSB folds by `valid_size / 2`.
     ///
-    /// Must be a **power of two** (or equal to `weights.len()`). This keeps
-    /// the invariant stable through subsequent LSB folds: `valid_size / 2` is
-    /// also a power of two and still bounds the folded zero-tail. A
-    /// non-power-of-two bound fails at a "straddling pair" `(V-1, V)` where
-    /// `evals[V-1]` is nonzero and `evals[V]` is zero — the round-polynomial's
-    /// `c2` term needs `weights[V]`, which a tighter bound would leave
-    /// un-stamped.
-    ///
-    /// The `round_up_pow2` cost is essentially free in practice: the bounded
-    /// stamping path chunks the buffer into `NUM_THREADS` tiles and skips
-    /// fully-padding tiles, so the effective work is
-    /// `valid_size.next_multiple_of(chunk_size)` — and `chunk_size` is coarser
-    /// than the pow2 rounding for all realistic workloads, so tight and pow2
-    /// produce the same stamped-tile count.
+    /// Must be a **power of two** (or equal to `weights.len()`). Using a
+    /// tight non-pow2 bound `V_tight` is incorrect: an unstamped chunk at
+    /// top level maps to a contiguous block of positions at every future
+    /// level, and eventually at some fold level we hit an odd `V_k` with a
+    /// straddle pair `(V_k - 1, V_k)` where `weights[V_k]` folds from a
+    /// top-level block that includes the unstamped region. Concretely:
+    /// `weights[V_k]` at level `top - k` aggregates top positions
+    /// `[V_k * 2^k, (V_k + 1) * 2^k)`, and the set of top positions that
+    /// can affect ANY future live weight turns out to be exactly
+    /// `[0, pow2_ge(V_tight))` — so pow2 is the minimal correct bound.
     pub(crate) valid_size: usize,
 }
 
@@ -410,10 +407,9 @@ where
             let new_weights = lsb_fold(&self.weights, r);
             self.evals = MleOwned::Extension(new_evals);
             self.weights = new_weights;
-            // `valid_size` is a power of two (or equals `weights.len()`).
-            // Halving keeps it a power of two and still bounds the folded
-            // zero-tail. Can't produce a straddle since both `V` and `V/2`
-            // are even.
+            // `valid_size` is a power of two (or equals `weights.len()`);
+            // halving preserves the invariant. See the `valid_size` docstring
+            // on `SumcheckSingle` for why tight `div_ceil(2)` is incorrect.
             debug_assert!(self.valid_size.is_power_of_two() || self.valid_size == self.weights.len() * 2);
             self.valid_size = (self.valid_size / 2).max(1).min(self.weights.len());
         }
@@ -478,10 +474,10 @@ where
         // `2^(n - folding_factor)` ≈ 10 MB for n = 26 — fine to materialize.
         let weights = split.into_flat(evals_ext.len());
 
-        // After folding `folding_factor` LSB coords, the zero-tail region shrinks
-        // by the same factor. Round up to a power of two so that subsequent LSB
-        // folds can never produce a straddling pair `(V-1, V)` with V odd
-        // (see `SumcheckSingle.valid_size` docs).
+        // After folding `folding_factor` LSB coords the zero-tail region shrinks
+        // by the same factor. Round up to a power of two so that weights at
+        // every future odd-V fold level pull from a fully-stamped top-level
+        // block (see `SumcheckSingle.valid_size` docs).
         let valid_size = round_up_pow2(valid_size_full.div_ceil(1 << folding_factor)).min(weights.len());
 
         let sumcheck = Self {
@@ -582,9 +578,9 @@ where
 
         let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
         debug_assert_eq!(weights.len(), evals_ext.len());
-        // After folding `l_0` coords via tensor product, the zero-tail region
-        // shrinks by a factor of `2^l_0`. Round up to a power of two so the
-        // bound survives all subsequent LSB folds (see `valid_size` docs).
+        // After folding `l_0` coords via tensor product the zero-tail region
+        // shrinks by `2^l_0`. Round up to a power of two (see
+        // `SumcheckSingle.valid_size` docs).
         let valid_size = round_up_pow2(valid_size_full.div_ceil(1 << l_0)).min(weights.len());
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),

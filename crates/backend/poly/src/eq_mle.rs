@@ -91,63 +91,8 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    // It's possible for this to be called with F = EF (Despite F actually being an extension field).
-    //
-    // IMPORTANT: We previously checked here that `packing_width > 1`,
-    // but this check is **not viable** for Goldilocks on Neon or when not using `target-cpu=native`.
-    //
-    // Why? Because Neon SIMD vectors are 128 bits and Goldilocks elements are already 64 bits,
-    // so no packing happens (width stays 1), and there's no performance advantage.
-    //
-    // Be careful: this means code relying on packing optimizations should **not assume**
-    // `packing_width > 1` is always true.
-    let packing_width = F::Packing::WIDTH;
-    // debug_assert!(packing_width > 1);
-
-    // Ensure that the output buffer size is correct:
-    // It should be of size `2^n`, where `n` is the number of variables.
-    debug_assert_eq!(out.len(), 1 << eval.len());
-
-    // If the number of variables is small, there is no need to use
-    // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
-        // A basic recursive approach.
-        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
-    } else {
-        let log_packing_width = log2_strict_usize(packing_width);
-        let eval_len_min_packing = eval.len() - log_packing_width;
-
-        // We split eval into three parts:
-        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
-        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
-        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
-
-        // The middle elements are the ones which will be computed in parallel.
-        // The last log_packing_width elements are the ones which will be packed.
-
-        // We make a buffer of elements of size `NUM_THREADS`.
-        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
-
-        // Compute the equality polynomial corresponding to the last log_packing_width elements
-        // and pack these.
-        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
-
-        // Update the buffer so it contains the evaluations of the equality polynomial
-        // with respect to parts one and three.
-        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
-
-        // Finally do all computations involving the middle elements in parallel.
-        out.par_chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_with_packed_scalar::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                );
-            });
-    }
+    let len = out.len();
+    compute_eval_eq_bounded::<F, EF, INITIALIZED>(eval, out, scalar, len);
 }
 
 #[inline]
@@ -247,63 +192,14 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    // we assume that packing_width is a power of 2.
-    let packing_width = F::Packing::WIDTH;
-
-    // Ensure that the output buffer size is correct:
-    // It should be of size `2^n`, where `n` is the number of variables.
-    debug_assert_eq!(out.len(), 1 << eval.len());
-
-    // If the number of variables is small, there is no need to use
-    // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
-        // A basic recursive approach.
-        eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
-    } else {
-        let log_packing_width = log2_strict_usize(packing_width);
-        let eval_len_min_packing = eval.len() - log_packing_width;
-
-        // We split eval into three parts:
-        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
-        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
-        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
-
-        // The middle elements are the ones which will be computed in parallel.
-        // The last log_packing_width elements are the ones which will be packed.
-
-        // We make a buffer of PackedField elements of size `NUM_THREADS`.
-        // Note that this is a slightly different strategy to `eval_eq` which instead
-        // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
-        // operations, it seems to be faster in practice due to less data moving around.
-        let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
-
-        // Compute the equality polynomial corresponding to the last log_packing_width elements
-        // and pack these.
-        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], F::ONE);
-
-        // Update the buffer so it contains the evaluations of the equality polynomial
-        // with respect to parts one and three.
-        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
-
-        // Finally do all computations involving the middle elements in parallel.
-        out.par_chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                base_eval_eq_packed::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                    scalar,
-                );
-            });
-    }
+    let len = out.len();
+    compute_eval_eq_base_bounded::<F, EF, INITIALIZED>(eval, out, scalar, len);
 }
 
-/// Bounded variant of [`compute_eval_eq`]: only writes indices
-/// `[0, valid_size)` of `out`. See [`compute_eval_eq_base_bounded`] for the
-/// rationale — used for extension-point equality claims against a zero-padded
-/// polynomial.
+/// Bounded variant of [`compute_eval_eq`]: skips fully-padding rayon chunks
+/// past `valid_size`. See [`compute_eval_eq_base_bounded`] for the rationale —
+/// used for extension-point equality claims against a zero-padded polynomial.
+/// Passing `valid_size == out.len()` is equivalent to the unbounded path.
 pub fn compute_eval_eq_bounded<F, EF, const INITIALIZED: bool>(
     eval: &[EF],
     out: &mut [EF],
@@ -313,18 +209,27 @@ pub fn compute_eval_eq_bounded<F, EF, const INITIALIZED: bool>(
     F: Field,
     EF: ExtensionField<F>,
 {
+    // It's possible for this to be called with F = EF (Despite F actually being an extension field).
+    //
+    // IMPORTANT: We previously checked here that `packing_width > 1`,
+    // but this check is **not viable** for Goldilocks on Neon or when not using `target-cpu=native`.
+    //
+    // Why? Because Neon SIMD vectors are 128 bits and Goldilocks elements are already 64 bits,
+    // so no packing happens (width stays 1), and there's no performance advantage.
+    //
+    // Be careful: this means code relying on packing optimizations should **not assume**
+    // `packing_width > 1` is always true.
     let packing_width = F::Packing::WIDTH;
     debug_assert_eq!(out.len(), 1 << eval.len());
     debug_assert!(valid_size <= out.len());
 
-    if valid_size == out.len() {
-        compute_eval_eq::<F, EF, INITIALIZED>(eval, out, scalar);
-        return;
-    }
     if valid_size == 0 {
         return;
     }
 
+    // Small-n path stamps every index regardless of `valid_size`; the padding
+    // writes cost ~O(pad) base mults but downstream those indices multiply by
+    // `f[i] = 0` so the result is unaffected.
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
         return;
@@ -355,8 +260,8 @@ pub fn compute_eval_eq_bounded<F, EF, const INITIALIZED: bool>(
         });
 }
 
-/// Bounded variant of [`compute_eval_eq_base`]: only writes indices
-/// `[0, valid_size)` of `out`. Trailing entries (the "padding" region of
+/// Bounded variant of [`compute_eval_eq_base`]: skips rayon chunks that lie
+/// entirely past `valid_size`. Trailing entries (the "padding" region of
 /// a stacked polynomial, where `f ≡ 0`) are skipped — any eq-value that
 /// would have been stamped there multiplies by `f[i] = 0` downstream so
 /// the result is unchanged.
@@ -367,8 +272,8 @@ pub fn compute_eval_eq_bounded<F, EF, const INITIALIZED: bool>(
 /// a nonzero `f` — the typical case when this is used with a zero-padded
 /// committed polynomial.
 ///
-/// Pays the same per-op arithmetic as `compute_eval_eq_base` on the valid
-/// prefix; the win is purely in skipping fully-padding rayon chunks.
+/// Passing `valid_size == out.len()` is equivalent to the unbounded path.
+/// The win is purely in skipping fully-padding rayon chunks.
 pub fn compute_eval_eq_base_bounded<F, EF, const INITIALIZED: bool>(
     eval: &[F],
     out: &mut [EF],
@@ -378,26 +283,20 @@ pub fn compute_eval_eq_base_bounded<F, EF, const INITIALIZED: bool>(
     F: Field,
     EF: ExtensionField<F>,
 {
+    // we assume that packing_width is a power of 2.
     let packing_width = F::Packing::WIDTH;
 
     debug_assert_eq!(out.len(), 1 << eval.len());
     debug_assert!(valid_size <= out.len());
 
-    if valid_size == out.len() {
-        // No padding to skip — fall through to the standard path.
-        compute_eval_eq_base::<F, EF, INITIALIZED>(eval, out, scalar);
-        return;
-    }
     if valid_size == 0 {
         return;
     }
 
-    // Fall back to serial recursion below the parallelization threshold; rayon
-    // overhead dominates in that regime anyway.
+    // Small-n path stamps every index regardless of `valid_size`; the padding
+    // writes cost ~O(pad) base mults but downstream those indices multiply by
+    // `f[i] = 0` so the result is unaffected.
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
-        // For small n we don't bother with chunking — the serial recursion
-        // writes the full buffer, and the padding portion costs ~O(pad) base
-        // mults but those are cheap enough to ignore.
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
         return;
     }
@@ -405,6 +304,14 @@ pub fn compute_eval_eq_base_bounded<F, EF, const INITIALIZED: bool>(
     let log_packing_width = log2_strict_usize(packing_width);
     let eval_len_min_packing = eval.len() - log_packing_width;
 
+    // We split eval into three parts:
+    // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
+    // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
+    // - eval[eval_len_min_packing..] (the last log_packing_width elements)
+    //
+    // The middle elements are computed in parallel. The last log_packing_width
+    // are packed. Unlike `eval_eq` this uses PackedField (not PackedExtensionField)
+    // elements — more math ops but less data motion, faster in practice.
     let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
     let out_chunk_size = out.len() / NUM_THREADS;
 
@@ -415,9 +322,6 @@ pub fn compute_eval_eq_base_bounded<F, EF, const INITIALIZED: bool>(
         .enumerate()
         .zip(parallel_buffer.par_iter())
         .for_each(|((chunk_idx, out_chunk), buffer_val)| {
-            // Skip chunks that lie entirely past `valid_size`. The eq-values we
-            // would have written here multiply against `f[i] = 0` in the sumcheck
-            // so the sum is unaffected.
             let chunk_start = chunk_idx * out_chunk_size;
             if chunk_start >= valid_size {
                 return;
