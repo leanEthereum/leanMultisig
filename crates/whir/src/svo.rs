@@ -19,9 +19,30 @@
 // (active=2). Lagrange weights are built from challenges in natural order
 // `(rho_0, rho_1, .., rho_{r-1})`.
 
+use std::ops::Mul;
+
 use field::{ExtensionField, Field};
 use poly::{PARALLEL_THRESHOLD, PF, compute_eval_eq, eval_eq};
 use rayon::prelude::*;
+
+/// Committed polynomial evaluations in either base or extension form. Lets
+/// callers pass a single parameter and keeps the base-vs-ext dispatch at the
+/// outer boundary — inner kernels are generic over the element type so the
+/// `EF · F` (Algebra<F>) fast path is preserved through monomorphization.
+#[derive(Clone, Copy)]
+pub(crate) enum FEvals<'a, EF: ExtensionField<PF<EF>>> {
+    Base(&'a [PF<EF>]),
+    Ext(&'a [EF]),
+}
+
+impl<'a, EF: ExtensionField<PF<EF>>> FEvals<'a, EF> {
+    fn read(&self, idx: usize) -> EF {
+        match self {
+            Self::Base(s) => EF::from(s[idx]),
+            Self::Ext(s) => s[idx],
+        }
+    }
+}
 
 /// One `(eq(bsvo, w_svo), p_bar(bsvo))` sub-group consumed by
 /// `build_accumulators`. `w_svo` has length `l_0`; `p_bar` has length `2^l_0`
@@ -54,22 +75,12 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
         out.extend_from_slice(f);
         return;
     }
-    // Stage buffers ping-pong between `cur` and `nxt`. We pick the pair so
-    // that the final write lands in `out`: number of stages is `l`, so the
-    // initial `cur` is `scratch` when `l` is odd, `out` when `l` is even —
-    // after `l` swaps, `cur` ends up at `out` either way once we adjust.
-    // Simpler: always end with a swap that leaves `cur` in `out`. We do this
-    // by keeping a single `cur` / `nxt` pair and swapping `out <-> scratch`
-    // after the last stage if parity requires it.
-    let mut cur: &mut Vec<EF>;
-    let mut nxt: &mut Vec<EF>;
-    if l.is_multiple_of(2) {
-        cur = out;
-        nxt = scratch;
+    // Pick parity so the final stage lands in `out`.
+    let (mut cur, mut nxt): (&mut Vec<EF>, &mut Vec<EF>) = if l.is_multiple_of(2) {
+        (out, scratch)
     } else {
-        cur = scratch;
-        nxt = out;
-    }
+        (scratch, out)
+    };
     cur.clear();
     cur.extend_from_slice(f);
     cur.resize(out_len, EF::ZERO);
@@ -92,8 +103,6 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
                 out_block[3 * j + 2] = f1.double() - f0;
             }
         };
-        // Parallel only when the stage is big enough — rayon overhead dominates
-        // below `PARALLEL_THRESHOLD`.
         if out_total < PARALLEL_THRESHOLD {
             for pair in cur_slice.chunks_exact(2 * s).zip(next_slice.chunks_exact_mut(3 * s)) {
                 block_kernel(pair);
@@ -106,15 +115,13 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
         }
         std::mem::swap(&mut cur, &mut nxt);
     }
-    // cur now holds the final grid; parity was chosen so that cur == out.
     debug_assert_eq!(cur.len(), out_len);
 }
 
-/// Extend a `3^r`-size Lagrange tensor to `3^{r+1}` by tensoring with the
-/// `(L_0, L_1, L_2)` triple at `c`. Mirrors [`lagrange_tensor`] one step at a
-/// time, lets the round loop amortize allocations.
+/// Extend a `3^r`-size Lagrange tensor to `3^{r+1}` in place by tensoring with
+/// `(L_0, L_1, L_2)` at `c`, where `L_0(c) = (c-1)(c-2)/2`, `L_1(c) = c(2-c)`,
+/// `L_2(c) = c(c-1)/2`.
 pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
-    // L_0(c) = (c-1)(c-2)/2, L_1(c) = c(2-c), L_2(c) = c(c-1)/2.
     let inv_two = EF::TWO.inverse();
     let two = EF::TWO;
     let c_m1 = c - EF::ONE;
@@ -122,38 +129,107 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
     let l0 = c_m1 * c_m2 * inv_two;
     let l1 = c * (two - c);
     let l2 = c * c_m1 * inv_two;
-    let mut new = Vec::with_capacity(out.len() * 3);
-    for &v in out.iter() {
-        new.push(v * l0);
-        new.push(v * l1);
-        new.push(v * l2);
+    let old_len = out.len();
+    out.resize(old_len * 3, EF::ZERO);
+    // Walk backwards so writes never overlap unread input.
+    for i in (0..old_len).rev() {
+        let v = out[i];
+        out[3 * i] = v * l0;
+        out[3 * i + 1] = v * l1;
+        out[3 * i + 2] = v * l2;
     }
-    *out = new;
+}
+
+// =========================================================================
+// Row-reduction kernels shared by the eq-claim and next-claim compressors.
+// =========================================================================
+
+/// Compute `acc[bsvo] = Σ_b coef[b] * rows[sel_offset + b*svo_len + bsvo]`.
+/// Serial or parallel over `b` depending on `e_len * svo_len`.
+fn reduce_svo_rows_one<EF, E>(rows: &[E], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
+where
+    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
+    E: Copy + Send + Sync,
+{
+    let e_len = coef.len();
+    let zero = || EF::zero_vec(svo_len);
+    let step = |mut acc: Vec<EF>, b: usize| {
+        let e = coef[b];
+        let row = &rows[sel_offset + b * svo_len..][..svo_len];
+        for bsvo in 0..svo_len {
+            acc[bsvo] += e * row[bsvo];
+        }
+        acc
+    };
+    let merge = |mut a: Vec<EF>, b: Vec<EF>| {
+        for (x, y) in a.iter_mut().zip(&b) {
+            *x += *y;
+        }
+        a
+    };
+    if e_len * svo_len < PARALLEL_THRESHOLD {
+        (0..e_len).fold(zero(), step)
+    } else {
+        (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
+    }
+}
+
+/// Same shape as [`reduce_svo_rows_one`] but accumulates two coefficient tables
+/// in one pass (reads each `rows` entry once).
+fn reduce_svo_rows_two<EF, E>(
+    rows: &[E],
+    coef_a: &[EF],
+    coef_b: &[EF],
+    sel_offset: usize,
+    svo_len: usize,
+) -> (Vec<EF>, Vec<EF>)
+where
+    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
+    E: Copy + Send + Sync,
+{
+    let e_len = coef_a.len();
+    debug_assert_eq!(coef_b.len(), e_len);
+    let zero = || (EF::zero_vec(svo_len), EF::zero_vec(svo_len));
+    let step = |(mut a, mut b): (Vec<EF>, Vec<EF>), idx: usize| {
+        let ca = coef_a[idx];
+        let cb = coef_b[idx];
+        let row = &rows[sel_offset + idx * svo_len..][..svo_len];
+        for bsvo in 0..svo_len {
+            let v = row[bsvo];
+            a[bsvo] += ca * v;
+            b[bsvo] += cb * v;
+        }
+        (a, b)
+    };
+    let merge = |(mut ax, mut bx): (Vec<EF>, Vec<EF>), (ay, by): (Vec<EF>, Vec<EF>)| {
+        for (x, y) in ax.iter_mut().zip(&ay) {
+            *x += *y;
+        }
+        for (x, y) in bx.iter_mut().zip(&by) {
+            *x += *y;
+        }
+        (ax, bx)
+    };
+    if e_len * svo_len < PARALLEL_THRESHOLD {
+        (0..e_len).fold(zero(), step)
+    } else {
+        (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
+    }
 }
 
 // =========================================================================
 // eq-claim compression (Algorithm 1 "alg:compress_sparse" + merge).
 // =========================================================================
 
-/// For one eq-claim group: `K` selectors sharing an inner point `p ∈ Fq^{m}`
-/// with `m = l - s`. Builds the merged compressed polynomial
+/// One `CompressedGroup` per eq-claim group in the non-spill regime (`s <= l - l_0`).
+/// Merges all `K` selectors via the shared `E_split` table (Algorithm 2 "alg:merge").
 ///
-///   p_bar[bsvo] = sum_j alpha_j * sum_{b' in {0,1}^{l - l_0 - s}}
-///                 eq(b', p_split) * f(sel_j, b', bsvo)
+/// `p_bar[bsvo] = Σ_j alpha_j * Σ_{b' ∈ {0,1}^{l - l_0 - s}} eq(b', p_split) * f(sel_j, b', bsvo)`
+/// where `p_split = p[0..m - l_0]` and `p_svo = p[m - l_0..m]`.
 ///
-/// where `p_split = p[0..m - l_0]` and `p_svo = p[m - l_0..m]`. Returns
-/// `CompressedGroup { w_svo: p_svo.to_vec(), p_bar }`.
-/// One `CompressedGroup` per eq-claim **group** when `s <= l - l_0` (the
-/// non-spill regime). Merges all `K` selectors in the group via the shared
-/// `E_split` table (Algorithm 2 "alg:merge").
-///
-/// For the complementary `s > l - l_0` regime (selector spills into `wsvo`),
-/// use [`compress_eq_spill_claim`] — one group per claim, since claims with
-/// different spilled bits have different `wsvo` and cannot be merged.
-#[allow(clippy::too_many_arguments)]
+/// For `s > l - l_0` (selector spills into `wsvo`) use [`compress_eq_spill_claim`].
 pub(crate) fn compress_eq_claim<EF>(
-    f_base: Option<&[PF<EF>]>,
-    f_ext: Option<&[EF]>,
+    f: FEvals<'_, EF>,
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -171,73 +247,17 @@ where
     let p_split = &inner_point[..m_split];
     let p_svo = &inner_point[m_split..];
 
-    // Shared eq-table over the split-side extension coords.
-    // length 2^{m_split}
-    let e_split: Vec<EF> = if m_split == 0 { vec![EF::ONE] } else { eval_eq(p_split) };
-    let e_len = e_split.len();
+    let e_split = eval_eq(p_split); // length 2^{m_split}; correct for m_split == 0 too
     let svo_len = 1usize << l_0;
     let mut p_bar = vec![EF::ZERO; svo_len];
 
-    // For each claim, walk β_split (outer) and bsvo (inner) so f reads stride
-    // 1 (sequential) rather than 2^{l_0}. Per-tile we hold an `svo_len` partial
-    // sum; tiles reduce with pointwise addition.
-    // Parallelism granularity: total inner work per claim is
-    // `e_len * svo_len = 2^{l-s}` field products. Fall back to serial when
-    // below `PARALLEL_THRESHOLD`.
-    let total_inner = e_len * svo_len;
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
-        let svo_contrib: Vec<EF> = if total_inner < PARALLEL_THRESHOLD {
-            let mut acc = vec![EF::ZERO; svo_len];
-            for b in 0..e_len {
-                let e = e_split[b];
-                let base = sel_offset + (b << l_0);
-                if let Some(fb) = f_base {
-                    let row = &fb[base..base + svo_len];
-                    for bsvo in 0..svo_len {
-                        acc[bsvo] += e * row[bsvo];
-                    }
-                } else if let Some(fe) = f_ext {
-                    let row = &fe[base..base + svo_len];
-                    for bsvo in 0..svo_len {
-                        acc[bsvo] += e * row[bsvo];
-                    }
-                }
-            }
-            acc
-        } else {
-            (0..e_len)
-                .into_par_iter()
-                .fold(
-                    || vec![EF::ZERO; svo_len],
-                    |mut acc, b| {
-                        let e = e_split[b];
-                        let base = sel_offset + (b << l_0);
-                        if let Some(fb) = f_base {
-                            let row = &fb[base..base + svo_len];
-                            for bsvo in 0..svo_len {
-                                acc[bsvo] += e * row[bsvo];
-                            }
-                        } else if let Some(fe) = f_ext {
-                            let row = &fe[base..base + svo_len];
-                            for bsvo in 0..svo_len {
-                                acc[bsvo] += e * row[bsvo];
-                            }
-                        }
-                        acc
-                    },
-                )
-                .reduce(
-                    || vec![EF::ZERO; svo_len],
-                    |mut a, b| {
-                        for (x, y) in a.iter_mut().zip(b.iter()) {
-                            *x += *y;
-                        }
-                        a
-                    },
-                )
+        let contrib = match f {
+            FEvals::Base(fb) => reduce_svo_rows_one::<EF, _>(fb, &e_split, sel_offset, svo_len),
+            FEvals::Ext(fe) => reduce_svo_rows_one::<EF, _>(fe, &e_split, sel_offset, svo_len),
         };
-        for (p, s) in p_bar.iter_mut().zip(svo_contrib.iter()) {
+        for (p, s) in p_bar.iter_mut().zip(contrib.iter()) {
             *p += alpha_j * *s;
         }
     }
@@ -255,10 +275,8 @@ where
 ///
 /// Emits **one CompressedGroup per claim** (claims with different spilled
 /// bits have different `wsvo` and cannot share a `p_bar`).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn compress_eq_spill_claim<EF>(
-    f_base: Option<&[PF<EF>]>,
-    f_ext: Option<&[EF]>,
+    f: FEvals<'_, EF>,
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -278,40 +296,27 @@ where
     debug_assert_eq!(s_svo_bool + m, l_0);
 
     let svo_len = 1usize << l_0;
-    let mut out: Vec<CompressedGroup<EF>> = Vec::with_capacity(sel_bits.len());
-    for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
-        // Decompose selector into (top = sel_split_bool part, bottom = sel_svo_bool part).
-        let sel_top = sel_j >> s_svo_bool;
-        let sel_bot = sel_j & ((1usize << s_svo_bool) - 1);
+    sel_bits
+        .iter()
+        .zip(alpha_powers.iter())
+        .map(|(&sel_j, &alpha_j)| {
+            let sel_top = sel_j >> s_svo_bool;
+            let sel_bot = sel_j & ((1usize << s_svo_bool) - 1);
 
-        // w_svo layout: [spilled bool bits (s_svo_bool) | inner_point (m)], total l_0. Under our
-        // big-endian `wsvo` convention, the first coord (bsvo_1, MSB of bsvo index) is the
-        // highest-significance spilled bit; the m trailing coords are inner_point in order.
-        let mut w_svo: Vec<EF> = Vec::with_capacity(l_0);
-        for k in 0..s_svo_bool {
-            let bit = ((sel_bot >> (s_svo_bool - 1 - k)) & 1) as u32;
-            w_svo.push(if bit == 1 { EF::ONE } else { EF::ZERO });
-        }
-        w_svo.extend_from_slice(inner_point);
-        debug_assert_eq!(w_svo.len(), l_0);
+            // w_svo layout: [spilled bool bits (MSB first) | inner_point], total l_0.
+            let mut w_svo: Vec<EF> = (0..s_svo_bool)
+                .rev()
+                .map(|k| if (sel_bot >> k) & 1 == 1 { EF::ONE } else { EF::ZERO })
+                .collect();
+            w_svo.extend_from_slice(inner_point);
+            debug_assert_eq!(w_svo.len(), l_0);
 
-        // p_bar[bsvo] = alpha_j * f[sel_top * 2^{l_0} + bsvo]. Simple slice read scaled by alpha.
-        let sel_offset = sel_top << l_0;
-        let mut p_bar: Vec<EF> = Vec::with_capacity(svo_len);
-        for bsvo in 0..svo_len {
-            let idx = sel_offset + bsvo;
-            let v: EF = if let Some(fb) = f_base {
-                EF::from(fb[idx])
-            } else if let Some(fe) = f_ext {
-                fe[idx]
-            } else {
-                unreachable!()
-            };
-            p_bar.push(alpha_j * v);
-        }
-        out.push(CompressedGroup { w_svo, p_bar });
-    }
-    out
+            // p_bar[bsvo] = alpha_j * f[sel_top * 2^{l_0} + bsvo].
+            let sel_offset = sel_top << l_0;
+            let p_bar: Vec<EF> = (0..svo_len).map(|bsvo| alpha_j * f.read(sel_offset + bsvo)).collect();
+            CompressedGroup { w_svo, p_bar }
+        })
+        .collect()
 }
 
 // =========================================================================
@@ -319,15 +324,11 @@ where
 // =========================================================================
 
 /// For one nxt-claim group: `K` selectors sharing inner point `p ∈ Fq^m`.
-/// Emits `K * 0 + (l_0 + 2)` sub-groups — one shared Σ_split, `l_0` bucket-B
-/// sub-groups sharing `P_eq`, one bucket-C slice — with the per-claim α-weighted
-/// sums over the group's selectors merged inside.
-///
-/// Returns exactly `l_0 + 2` `CompressedGroup`s.
-#[allow(clippy::too_many_arguments)]
+/// Emits exactly `l_0 + 2` `CompressedGroup`s (one shared Σ_split, `l_0`
+/// bucket-B sub-groups sharing `P_eq`, one bucket-C slice), with the per-claim
+/// α-weighted sums over the group's selectors merged inside.
 pub(crate) fn compress_next_claim_bucketed<EF>(
-    f_base: Option<&[PF<EF>]>,
-    f_ext: Option<&[EF]>,
+    f: FEvals<'_, EF>,
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -347,22 +348,15 @@ where
     let svo_len = 1usize << l_0;
 
     // Pure-Fq precompute (no f access).
-    //   bar_T_split[β] = sum_{J in [0, m_split)} c[J] * T_J^split(β).
+    //   bar_T_split[β] = Σ_{J < m_split} c[J] * T_J^split(β).
     //   E_split[β] = eq(β, p[0..m_split]).
-    //   c_omega = prod_{j=0..m-1} p[j].
-    //   c[J] = (prod_{j>J, j<m} p[j]) * (1 - p[J]).
-    let bar_t_split = build_bar_t_split(inner_point, m_split, m);
-    let e_split: Vec<EF> = if m_split == 0 {
-        vec![EF::ONE]
-    } else {
-        eval_eq(&inner_point[..m_split])
-    };
+    //   c_omega = Π_{j<m} p[j] (returned from build_bar_t_split as suf[0]).
+    //   c[J] = (Π_{j > J, j < m} p[j]) * (1 - p[J]).
+    let (bar_t_split, c_omega) = build_bar_t_split(inner_point, m_split, m);
+    let e_split = eval_eq(&inner_point[..m_split]);
     debug_assert_eq!(bar_t_split.len(), split_len);
     debug_assert_eq!(e_split.len(), split_len);
 
-    let c_omega: EF = inner_point.iter().copied().product::<EF>();
-
-    // Bucket-B per-pivot scalars c[J] for J in [m_split, m).
     let c_pivot: Vec<EF> = (m_split..m)
         .map(|j| {
             let tail: EF = inner_point[j + 1..].iter().copied().product();
@@ -370,94 +364,22 @@ where
         })
         .collect();
 
-    // Accumulators (α-weighted over K claims at the bsvo level).
     let mut sigma_split = vec![EF::ZERO; svo_len];
     let mut p_eq = vec![EF::ZERO; svo_len];
     let mut s_omega = vec![EF::ZERO; svo_len];
 
-    let total_inner = split_len * svo_len;
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
 
-        // Fused pass: outer b_split, inner bsvo — sequential reads of f in the
-        // inner loop. Per tile we carry two size-`svo_len` partial sums.
-        let (sig_contrib, eq_contrib): (Vec<EF>, Vec<EF>) = if total_inner < PARALLEL_THRESHOLD {
-            let mut sig = vec![EF::ZERO; svo_len];
-            let mut eq_acc = vec![EF::ZERO; svo_len];
-            for b in 0..split_len {
-                let bt = bar_t_split[b];
-                let et = e_split[b];
-                let base = sel_offset + (b << l_0);
-                if let Some(fb) = f_base {
-                    let row = &fb[base..base + svo_len];
-                    for bsvo in 0..svo_len {
-                        let v = row[bsvo];
-                        sig[bsvo] += bt * v;
-                        eq_acc[bsvo] += et * v;
-                    }
-                } else if let Some(fe) = f_ext {
-                    let row = &fe[base..base + svo_len];
-                    for bsvo in 0..svo_len {
-                        let v = row[bsvo];
-                        sig[bsvo] += bt * v;
-                        eq_acc[bsvo] += et * v;
-                    }
-                }
-            }
-            (sig, eq_acc)
-        } else {
-            (0..split_len)
-                .into_par_iter()
-                .fold(
-                    || (vec![EF::ZERO; svo_len], vec![EF::ZERO; svo_len]),
-                    |(mut sig, mut eq_acc), b| {
-                        let bt = bar_t_split[b];
-                        let et = e_split[b];
-                        let base = sel_offset + (b << l_0);
-                        if let Some(fb) = f_base {
-                            let row = &fb[base..base + svo_len];
-                            for bsvo in 0..svo_len {
-                                let v = row[bsvo];
-                                sig[bsvo] += bt * v;
-                                eq_acc[bsvo] += et * v;
-                            }
-                        } else if let Some(fe) = f_ext {
-                            let row = &fe[base..base + svo_len];
-                            for bsvo in 0..svo_len {
-                                let v = row[bsvo];
-                                sig[bsvo] += bt * v;
-                                eq_acc[bsvo] += et * v;
-                            }
-                        }
-                        (sig, eq_acc)
-                    },
-                )
-                .reduce(
-                    || (vec![EF::ZERO; svo_len], vec![EF::ZERO; svo_len]),
-                    |(mut a_s, mut a_e), (b_s, b_e)| {
-                        for (x, y) in a_s.iter_mut().zip(b_s.iter()) {
-                            *x += *y;
-                        }
-                        for (x, y) in a_e.iter_mut().zip(b_e.iter()) {
-                            *x += *y;
-                        }
-                        (a_s, a_e)
-                    },
-                )
+        let (sig_contrib, eq_contrib) = match f {
+            FEvals::Base(fb) => reduce_svo_rows_two::<EF, _>(fb, &bar_t_split, &e_split, sel_offset, svo_len),
+            FEvals::Ext(fe) => reduce_svo_rows_two::<EF, _>(fe, &bar_t_split, &e_split, sel_offset, svo_len),
         };
 
-        // Bucket-C: slice read at β_split = 1^{m_split} (all split-bits set).
-        let b_all_ones = split_len - 1;
-        let c_base = sel_offset + (b_all_ones << l_0);
+        // Bucket-C slice read at β_split = 1^{m_split}.
+        let c_base = sel_offset + ((split_len - 1) << l_0);
         for bsvo in 0..svo_len {
-            let v = if let Some(fb) = f_base {
-                EF::from(fb[c_base + bsvo])
-            } else if let Some(fe) = f_ext {
-                fe[c_base + bsvo]
-            } else {
-                unreachable!()
-            };
-            s_omega[bsvo] += alpha_j * v;
+            s_omega[bsvo] += alpha_j * f.read(c_base + bsvo);
         }
 
         for bsvo in 0..svo_len {
@@ -473,26 +395,13 @@ where
         w_svo: vec![EF::ZERO; l_0],
         p_bar: sigma_split,
     });
-    // Bucket B: one sub-group per j* in {m_split+1, .., m} (1-indexed), i.e.
-    //   pivot_0idx J in [m_split, m); pivot_pos = J - m_split in [0, l_0).
-    for (k, &cp) in c_pivot.iter().enumerate() {
-        let pivot_pos = k; // = J - m_split
+    // Bucket B: one sub-group per pivot j in [m_split, m); pivot_pos = j - m_split ∈ [0, l_0).
+    for (pivot_pos, &cp) in c_pivot.iter().enumerate() {
+        // w layout: inner_point[m_split..m_split+pivot_pos] | ONE | 0..0.
         let mut w = vec![EF::ZERO; l_0];
-        for coord in 0..l_0 {
-            if coord < pivot_pos {
-                // w^(j*)_{coord+1} = p_{m_split + coord + 1}  (1-indexed)
-                // = inner_point[m_split + coord] (0-indexed).
-                w[coord] = inner_point[m_split + coord];
-            } else if coord == pivot_pos {
-                w[coord] = EF::ONE;
-            } else {
-                w[coord] = EF::ZERO;
-            }
-        }
-        let mut pb = p_eq.clone();
-        for v in pb.iter_mut() {
-            *v *= cp;
-        }
+        w[..pivot_pos].copy_from_slice(&inner_point[m_split..m_split + pivot_pos]);
+        w[pivot_pos] = EF::ONE;
+        let pb: Vec<EF> = p_eq.iter().map(|v| *v * cp).collect();
         out.push(CompressedGroup { w_svo: w, p_bar: pb });
     }
     // Bucket C: (wsvo = 1^{l_0}, p_bar = c_omega * S_omega).
@@ -508,44 +417,39 @@ where
     out
 }
 
-/// Build `bar_T_split[β] = sum_{J < m_split} c[J] * T_J^split(β)` where
-///   c[J] = (prod_{j>J, j<m} p[j]) * (1 - p[J])
-///   T_J^split(β) = prod_{j<J} eq(p[j], β[j]) * β[J] * prod_{j>J, j<m_split} (1-β[j]).
+/// Build `bar_T_split[β] = Σ_{J < m_split} c[J] * T_J^split(β)` where
+///   c[J] = (Π_{j>J, j<m} p[j]) * (1 - p[J])
+///   T_J^split(β) = Π_{j<J} eq(p[j], β[j]) * β[J] * Π_{j>J, j<m_split} (1-β[j]).
 ///
-/// For every β, exactly one pivot J contributes (the position of the last
-/// `1` in β among coords `[0, m_split)`): all coords after J must be 0 to
-/// avoid the `(1-β)` factor, and β[J] must be 1. So the table is
+/// For every β, exactly one pivot J contributes (the position of the last `1`
+/// in β among coords `[0, m_split)`): all coords after J must be 0 to avoid
+/// the `(1-β)` factor, and β[J] must be 1. So
 ///
-///   bar_T[β] = c[J_last_1(β)] * prod_{j<J_last_1(β)} eq(p[j], β[j])    if β ≠ 0
-///            = 0                                                         else.
+///   bar_T[β] = c[J_last_1(β)] * Π_{j<J_last_1(β)} eq(p[j], β[j])    if β ≠ 0
+///            = 0                                                     else.
 ///
-/// Filled with an incremental sweep over J in `[0, m_split)`, using
-/// eq_prefix_J = eval_eq(p[0..J]) (size 2^J). Total work: `O(2^{m_split})` ee.
-fn build_bar_t_split<EF: Field>(p: &[EF], m_split: usize, m: usize) -> Vec<EF> {
+/// Also returns `c_omega = Π_{j<m} p[j]` (= `suf[0]`) since the caller needs it.
+fn build_bar_t_split<EF: Field>(p: &[EF], m_split: usize, m: usize) -> (Vec<EF>, EF) {
     let out_len = 1usize << m_split;
     let mut bar_t = vec![EF::ZERO; out_len];
 
-    // Suffix products: suf[j] = prod_{j'=j..m} p[j'], with suf[m] = 1.
+    // Suffix products: suf[j] = Π_{j' ∈ [j, m)} p[j'], with suf[m] = 1.
     let mut suf = vec![EF::ONE; m + 1];
     for j in (0..m).rev() {
         suf[j] = suf[j + 1] * p[j];
     }
-    // c[J] for J in [0, m_split)
-    // Note: "c[J]" here encodes the pivot on the split side.
-    // c[J] = (prod_{j' > J, j' < m} p[j']) * (1 - p[J]) = suf[J+1] * (1 - p[J]).
-    // Also compute the prefix eq-table incrementally, size 2^J.
-    let mut prefix = vec![EF::ONE]; // eval_eq on 0 coords.
+    // c[J] = suf[J+1] * (1 - p[J]). Fill bar_t with a single incremental pass
+    // over growing prefix_eq tables (prefix = eval_eq(p[0..j])).
+    let mut prefix = vec![EF::ONE];
     for j in 0..m_split {
         let c_j = suf[j + 1] * (EF::ONE - p[j]);
         let stride = 1usize << (m_split - j);
         let offset = 1usize << (m_split - 1 - j);
-        // Fill bar_t[k * stride + offset] = c_j * prefix[k] for k in [0, 2^j).
         let prefix_len = prefix.len();
         debug_assert_eq!(prefix_len, 1 << j);
         for k in 0..prefix_len {
             bar_t[k * stride + offset] = c_j * prefix[k];
         }
-        // Extend prefix to eval_eq(p[0..j+1]) if we'll use it next iteration.
         if j + 1 < m_split {
             let p_j = p[j];
             let one_minus = EF::ONE - p_j;
@@ -557,22 +461,22 @@ fn build_bar_t_split<EF: Field>(p: &[EF], m_split: usize, m: usize) -> Vec<EF> {
             prefix = new_prefix;
         }
     }
-    bar_t
+    (bar_t, suf[0])
 }
 
 // =========================================================================
 // Per-round accumulators (Algorithm 5 "alg:accs").
 // =========================================================================
 
-/// For a single group, build `{acc_a[r], acc_b[r]}` for `r = 0..l_0`, each
-/// of length `3^r`. Pattern per round (using the NATURAL feed layout — see
-/// module docstring):
+/// For a single group, build `{acc_a[r], acc_c[r], acc_b[r]}` for `r = 0..l_0`,
+/// each of length `3^r`. Pattern per round (using the NATURAL feed layout —
+/// see module docstring):
 ///   Q_r = P_bar partially-evaluated on the first `r_F = l_0 - r - 1` coords
-///         (in Q's natural big-endian: the LEADING coords of the bsvo array).
-///         Size 2^{r+1}.
+///         (big-endian: the LEADING coords of the bsvo array). Size 2^{r+1}.
 ///   E_r = eval_eq(w_svo[r_F..l_0])       size 2^{r+1}.
 ///   tilde_Q, tilde_E = grid_expand(..)   size 3^{r+1}.
-///   acc_a[r][j] = tilde_Q[3j] * tilde_E[3j]
+///   acc_a[r][j] = tilde_Q[3j]   * tilde_E[3j]
+///   acc_c[r][j] = tilde_Q[3j+1] * tilde_E[3j+1]
 ///   acc_b[r][j] = tilde_Q[3j+2] * tilde_E[3j+2]    for j in [0, 3^r).
 pub(crate) fn build_accumulators_single<EF>(group: &CompressedGroup<EF>, l_0: usize) -> AccGroup<EF>
 where
@@ -585,13 +489,7 @@ where
     let mut acc_c: Vec<Vec<EF>> = vec![Vec::new(); l_0];
     let mut acc_b: Vec<Vec<EF>> = vec![Vec::new(); l_0];
 
-    // Q starts as P_bar (size 2^{l_0}, r = l_0 - 1, r_F = 0). Each iteration
-    // emits the current Q as Q_r then MSB-folds by w_svo[r_F] to advance to
-    // r-1 (r_F += 1).
-    //
-    // Persistent buffers reused across rounds: `q` shrinks in place (MSB-fold
-    // via `truncate`); `tilde_q` / `tilde_e` and their scratch are kept at
-    // `3^{l_0}` capacity to avoid per-round allocs inside `grid_expand`.
+    // Persistent scratch reused across rounds; `grid_expand_into` handles sizing.
     let cap = 3_usize.pow(l_0 as u32);
     let mut q: Vec<EF> = group.p_bar.clone();
     let mut tilde_q: Vec<EF> = Vec::with_capacity(cap);
@@ -605,22 +503,32 @@ where
         let big_l = r + 1;
         debug_assert_eq!(q.len(), 1 << big_l);
 
-        // E at round r: eq-table over w_svo[r_f..l_0], big-endian.
-        // Reuse `e_buf` instead of allocating a fresh Vec via `eval_eq`.
         e_buf.clear();
         e_buf.resize(1 << big_l, EF::ZERO);
         compute_eval_eq::<PF<EF>, EF, false>(&group.w_svo[r_f..], &mut e_buf, EF::ONE);
 
         grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
         grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
+
         let s = 3_usize.pow(r as u32);
-        let mut a = Vec::with_capacity(s);
-        let mut c_mid = Vec::with_capacity(s);
-        let mut b = Vec::with_capacity(s);
-        for j in 0..s {
-            a.push(tilde_q[3 * j] * tilde_e[3 * j]);
-            c_mid.push(tilde_q[3 * j + 1] * tilde_e[3 * j + 1]);
-            b.push(tilde_q[3 * j + 2] * tilde_e[3 * j + 2]);
+        let mut a = EF::zero_vec(s);
+        let mut c_mid = EF::zero_vec(s);
+        let mut b = EF::zero_vec(s);
+        let fill = |(j, (a_j, (c_j, b_j))): (usize, (&mut EF, (&mut EF, &mut EF)))| {
+            *a_j = tilde_q[3 * j] * tilde_e[3 * j];
+            *c_j = tilde_q[3 * j + 1] * tilde_e[3 * j + 1];
+            *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
+        };
+        if s < PARALLEL_THRESHOLD {
+            a.iter_mut()
+                .zip(c_mid.iter_mut().zip(b.iter_mut()))
+                .enumerate()
+                .for_each(fill);
+        } else {
+            a.par_iter_mut()
+                .zip(c_mid.par_iter_mut().zip(b.par_iter_mut()))
+                .enumerate()
+                .for_each(fill);
         }
         acc_a[r] = a;
         acc_c[r] = c_mid;
@@ -654,9 +562,6 @@ pub(crate) fn round_message_with_tensor<EF: Field>(r: usize, lagrange: &[EF], ac
     let s = 3_usize.pow(r as u32);
     debug_assert_eq!(lagrange.len(), s);
 
-    // Per-group work is `3s` ee-products; total = `3 * s * accs.len()`. Go
-    // parallel across groups when this exceeds `PARALLEL_THRESHOLD`; otherwise
-    // stay serial to avoid rayon overhead on tiny rounds.
     let total_work = 3 * s * accs.len();
     let group_reduce = |acc: &AccGroup<EF>| -> (EF, EF, EF) {
         debug_assert_eq!(acc.acc_a[r].len(), s);
@@ -673,22 +578,18 @@ pub(crate) fn round_message_with_tensor<EF: Field>(r: usize, lagrange: &[EF], ac
         }
         (h0, h1, h2)
     };
+    let add3 = |(a0, a1, a2), (b0, b1, b2)| (a0 + b0, a1 + b1, a2 + b2);
     if total_work < PARALLEL_THRESHOLD {
-        accs.iter()
-            .map(group_reduce)
-            .fold((EF::ZERO, EF::ZERO, EF::ZERO), |(a0, a1, a2), (b0, b1, b2)| {
-                (a0 + b0, a1 + b1, a2 + b2)
-            })
+        accs.iter().map(group_reduce).fold((EF::ZERO, EF::ZERO, EF::ZERO), add3)
     } else {
-        accs.par_iter().map(group_reduce).reduce(
-            || (EF::ZERO, EF::ZERO, EF::ZERO),
-            |(a0, a1, a2), (b0, b1, b2)| (a0 + b0, a1 + b1, a2 + b2),
-        )
+        accs.par_iter()
+            .map(group_reduce)
+            .reduce(|| (EF::ZERO, EF::ZERO, EF::ZERO), add3)
     }
 }
 
 /// Convert `(h(0), h(1), h(2))` round-polynomial values to `(c_0, c_2)`
-/// coefficients of `h(c) = c_0 + c_1 c + c_2 c^2`.
+/// coefficients of `h(c) = c_0 + c_1 c + c_2 c^2`:
 /// `c_0 = h(0)`, `c_2 = (h(2) - 2 h(1) + h(0)) / 2`.
 pub(crate) fn values_to_coeffs<EF: Field>(h0: EF, h1: EF, h2: EF) -> (EF, EF) {
     let c0 = h0;

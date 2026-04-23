@@ -519,9 +519,13 @@ where
         let unpacked_ref = unpacked_mle.by_ref();
         let f_base_opt = unpacked_ref.as_base();
         let f_ext_opt = unpacked_ref.as_extension();
+        let f = match (f_base_opt, f_ext_opt) {
+            (Some(b), _) => crate::svo::FEvals::Base(b),
+            (None, Some(e)) => crate::svo::FEvals::Ext(e),
+            _ => panic!("WHIR sumcheck input must be base or extension (no packed)"),
+        };
 
-        let groups =
-            build_all_compressed_groups::<EF>(statement, combination_randomness, f_base_opt, f_ext_opt, l, l_0);
+        let groups = build_all_compressed_groups::<EF>(statement, combination_randomness, f, l, l_0);
         let accs = build_accumulators::<EF>(&groups, l_0);
 
         let mut challenges: Vec<EF> = Vec::with_capacity(l_0);
@@ -704,8 +708,7 @@ where
 fn build_all_compressed_groups<EF>(
     statement: &[SparseStatement<EF>],
     gamma: EF,
-    f_base: Option<&[PF<EF>]>,
-    f_ext: Option<&[EF]>,
+    f: crate::svo::FEvals<'_, EF>,
     l: usize,
     l_0: usize,
 ) -> Vec<CompressedGroup<EF>>
@@ -724,15 +727,14 @@ where
             gamma_pow *= gamma;
         }
         if smt.is_next {
-            let g =
-                compress_next_claim_bucketed::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            let g = compress_next_claim_bucketed::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
             groups.extend(g);
         } else if s + l_0 <= l {
-            let g = compress_eq_claim::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            let g = compress_eq_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
             groups.push(g);
         } else {
             // Eq-claim spill regime: one CompressedGroup per claim.
-            let g = compress_eq_spill_claim::<EF>(f_base, f_ext, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            let g = compress_eq_spill_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
             groups.extend(g);
         }
     }
