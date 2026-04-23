@@ -178,12 +178,12 @@ where
         let mut output_no_packing = EF::zero_vec(1 << eval.len());
         eval_eq_basic::<_, _, _, false>(eval, &mut output_no_packing, scalar);
         out.par_iter_mut()
-            .zip(output_no_packing.into_par_iter().chunks(packing_width))
+            .zip(output_no_packing.par_chunks_exact(packing_width))
             .for_each(|(out_elem, chunk)| {
                 if INITIALIZED {
-                    *out_elem += EF::ExtensionPacking::from_ext_slice(&chunk);
+                    *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
                 } else {
-                    *out_elem = EF::ExtensionPacking::from_ext_slice(&chunk);
+                    *out_elem = EF::ExtensionPacking::from_ext_slice(chunk);
                 }
             });
     } else {
@@ -326,12 +326,12 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
         let mut output_no_packing = EF::zero_vec(1 << eval.len());
         eval_eq_basic::<_, _, _, false>(eval, &mut output_no_packing, scalar);
         out.par_iter_mut()
-            .zip(output_no_packing.into_par_iter().chunks(packing_width))
+            .zip(output_no_packing.par_chunks_exact(packing_width))
             .for_each(|(out_elem, chunk)| {
                 if INITIALIZED {
-                    *out_elem += EF::ExtensionPacking::from_ext_slice(&chunk);
+                    *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
                 } else {
-                    *out_elem = EF::ExtensionPacking::from_ext_slice(&chunk);
+                    *out_elem = EF::ExtensionPacking::from_ext_slice(chunk);
                 }
             });
     } else {
