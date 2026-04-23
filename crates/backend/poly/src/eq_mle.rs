@@ -376,6 +376,94 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
     }
 }
 
+/// Batched version of `compute_eval_eq_base_packed` that processes multiple query points
+/// in a single pass over the output buffer, keeping L2-sized tiles hot across all queries.
+///
+/// Instead of N sequential full sweeps of the output buffer (N × ~84MB = ~23GB DRAM traffic),
+/// this splits the output into tiles that fit in L2 cache and processes all N queries per tile
+/// before moving on, reducing DRAM traffic to ~168MB (one read + one writeback of the output).
+#[inline]
+pub fn compute_eval_eq_base_packed_batched<F, EF>(
+    evals: &[&[F]],
+    out: &mut [EF::ExtensionPacking],
+    scalars: &[EF],
+) where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    assert_eq!(evals.len(), scalars.len());
+    if evals.is_empty() {
+        return;
+    }
+
+    let n = evals[0].len();
+    let packing_width = F::Packing::WIDTH;
+    let log_packing_width = log2_strict_usize(packing_width);
+    assert!(log_packing_width <= n);
+    assert_eq!(out.len(), 1 << (n - log_packing_width));
+
+    // Tile size: 2^k unpacked elements. Each tile's temp buffer and output slice
+    // should fit in L2 (~1MB). With 20B per EF element and 320B per packed element:
+    // k=14 -> tile_buf=320KB, out_tile=320KB, total=640KB. Fits in L2.
+    let k = n.min(14).max(log_packing_width);
+
+    if k >= n {
+        // Output is small enough to be one tile — just reuse a single buffer.
+        let tile_size = 1 << n;
+        let mut tile_buf: Vec<EF> = unsafe { uninitialized_vec(tile_size) };
+        for (eval, &scalar) in evals.iter().zip(scalars) {
+            eval_eq_basic::<F, F, EF, false>(eval, &mut tile_buf, scalar);
+            out.iter_mut()
+                .zip(tile_buf.chunks_exact(packing_width))
+                .for_each(|(out_elem, chunk)| {
+                    *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
+                });
+        }
+        return;
+    }
+
+    let n_prefix_levels = n - k;
+    let tile_unpacked_size = 1 << k;
+    let tile_packed_size = tile_unpacked_size >> log_packing_width;
+
+    out.par_chunks_exact_mut(tile_packed_size)
+        .enumerate()
+        .for_each_init(
+            || -> Vec<EF> { unsafe { uninitialized_vec(tile_unpacked_size) } },
+            |tile_buf, (tile_idx, out_tile)| {
+                for (eval, &scalar) in evals.iter().zip(scalars) {
+                    let prefix = tile_prefix::<F, EF>(
+                        &eval[..n_prefix_levels], tile_idx, scalar,
+                    );
+                    eval_eq_basic::<F, F, EF, false>(
+                        &eval[n_prefix_levels..], tile_buf, prefix,
+                    );
+                    out_tile.iter_mut()
+                        .zip(tile_buf.chunks_exact(packing_width))
+                        .for_each(|(out_elem, chunk)| {
+                            *out_elem += EF::ExtensionPacking::from_ext_slice(chunk);
+                        });
+                }
+            },
+        );
+}
+
+#[inline(always)]
+fn tile_prefix<F: Field, EF: ExtensionField<F>>(
+    eval_upper: &[F],
+    tile_index: usize,
+    scalar: EF,
+) -> EF {
+    let n_levels = eval_upper.len();
+    let mut prefix = scalar;
+    for level in 0..n_levels {
+        let s1 = prefix * eval_upper[level];
+        let s0 = prefix - s1;
+        prefix = if (tile_index >> (n_levels - 1 - level)) & 1 == 0 { s0 } else { s1 };
+    }
+    prefix
+}
+
 /// Fills the `buffer` with evaluations of the equality polynomial
 /// of degree `points.len()` multiplied by the value at `buffer[0]`.
 ///

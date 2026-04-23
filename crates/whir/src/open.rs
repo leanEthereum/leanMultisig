@@ -366,14 +366,14 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        // Parallel update of weight buffer
-
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq_base_packed::<_, _, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
-            });
+        // Batched update: process all query points in a single tiled pass over the weight
+        // buffer, keeping L2-sized tiles hot across all queries instead of 274 full sweeps.
+        let eval_slices: Vec<&[PF<EF>]> = points.iter().map(|p| p.0.as_slice()).collect();
+        compute_eval_eq_base_packed_batched::<PF<EF>, EF>(
+            &eval_slices,
+            self.weights.as_extension_packed_mut().unwrap(),
+            combination_randomness,
+        );
 
         // Accumulate the weighted sum (cheap, done sequentially)
         self.sum += combination_randomness
