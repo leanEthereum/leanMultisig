@@ -325,8 +325,8 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> Matrix<T> for DenseMatrix<T, S>
         let w = self.width;
         let vals = self.values.borrow();
         let mut row_offsets = [0usize; 64];
-        for i in 0..P::WIDTH {
-            row_offsets[i] = ((r + i) % height) * w;
+        for (i, offset) in row_offsets.iter_mut().enumerate().take(P::WIDTH) {
+            *offset = ((r + i) % height) * w;
         }
         (0..n_leading_zeros).map(|_| P::default()).chain(
             (0..effective_width)
