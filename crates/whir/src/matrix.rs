@@ -179,6 +179,28 @@ where
             .take(len)
         }
     }
+
+    #[inline]
+    fn vertically_packed_row_rtl<P>(
+        &self,
+        r: usize,
+        effective_width: usize,
+        n_leading_zeros: usize,
+    ) -> impl Iterator<Item = P>
+    where
+        F: Copy,
+        P: PackedValue<Value = F> + Default,
+    {
+        let inner_rows = self.0.wrapping_row_slices(r, P::WIDTH);
+        let dim = EF::DIMENSION;
+        (0..n_leading_zeros)
+            .map(|_| P::default())
+            .chain((0..effective_width).rev().map(move |c| {
+                let inner_c = c / dim;
+                let coeff = c % dim;
+                P::from_fn(|i| inner_rows[i][inner_c].as_basis_coefficients_slice()[coeff])
+            }))
+    }
 }
 
 pub struct FlatIter<F, I: Iterator> {
@@ -286,6 +308,31 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> Matrix<T> for DenseMatrix<T, S>
         T: Clone,
     {
         RowMajorMatrix::new(self.values.to_vec(), self.width)
+    }
+
+    #[inline]
+    fn vertically_packed_row_rtl<P>(
+        &self,
+        r: usize,
+        effective_width: usize,
+        n_leading_zeros: usize,
+    ) -> impl Iterator<Item = P>
+    where
+        T: Copy,
+        P: PackedValue<Value = T> + Default,
+    {
+        let height = self.height();
+        let w = self.width;
+        let vals = self.values.borrow();
+        let mut row_offsets = [0usize; 64];
+        for i in 0..P::WIDTH {
+            row_offsets[i] = ((r + i) % height) * w;
+        }
+        (0..n_leading_zeros)
+            .map(|_| P::default())
+            .chain((0..effective_width).rev().map(move |c| {
+                P::from_fn(|i| unsafe { *vals.get_unchecked(row_offsets[i] + c) })
+            }))
     }
 }
 
