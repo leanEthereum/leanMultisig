@@ -316,13 +316,24 @@ pub struct SumcheckSingle<EF: ExtensionField<PF<EF>>> {
     pub(crate) weights: Vec<EF>,
     /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
-    /// Number of entries at the start of `evals` / `weights` that are "live".
-    /// Entries `[valid_size, weights.len())` have `evals = 0` (trailing
-    /// zero-padding of the stacked polynomial), so the sumcheck weight stamped
-    /// there multiplies by zero and doesn't affect the round polynomial.
-    /// Tracked through folds: `lsb_fold` maps it to `ceil(valid_size / 2)`,
-    /// and the post-SVO tensor fold by `l_0` maps it to `ceil(valid_size / 2^l_0)`.
-    /// Equals `weights.len()` when there's no padding.
+    /// Power-of-two upper bound on the "live" prefix of `evals`: entries
+    /// `[valid_size, weights.len())` are zero in `evals`, so weight stamped
+    /// there multiplies by zero and doesn't affect any round polynomial.
+    ///
+    /// Must be a **power of two** (or equal to `weights.len()`). This keeps
+    /// the invariant stable through subsequent LSB folds: `valid_size / 2` is
+    /// also a power of two and still bounds the folded zero-tail. A
+    /// non-power-of-two bound fails at a "straddling pair" `(V-1, V)` where
+    /// `evals[V-1]` is nonzero and `evals[V]` is zero — the round-polynomial's
+    /// `c2` term needs `weights[V]`, which a tighter bound would leave
+    /// un-stamped.
+    ///
+    /// The `round_up_pow2` cost is essentially free in practice: the bounded
+    /// stamping path chunks the buffer into `NUM_THREADS` tiles and skips
+    /// fully-padding tiles, so the effective work is
+    /// `valid_size.next_multiple_of(chunk_size)` — and `chunk_size` is coarser
+    /// than the pow2 rounding for all realistic workloads, so tight and pow2
+    /// produce the same stamped-tile count.
     pub(crate) valid_size: usize,
 }
 
@@ -342,12 +353,9 @@ where
 
         // Skip stamping into the trailing padding region of `self.weights`:
         // those indices multiply against `evals[i] = 0` in the sumcheck.
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
-            });
+        for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
+            compute_eval_eq_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
+        }
 
         self.sum += combination_randomness
             .iter()
@@ -367,12 +375,9 @@ where
         assert_eq!(evaluations.len(), points.len());
 
         // Skip stamping into the trailing padding region. See `add_new_equality`.
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq_base_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
-            });
+        for (point, &rand) in points.iter().zip(combination_randomness.iter()) {
+            compute_eval_eq_base_bounded::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand, self.valid_size);
+        }
 
         self.sum += combination_randomness
             .iter()
@@ -405,10 +410,12 @@ where
             let new_weights = lsb_fold(&self.weights, r);
             self.evals = MleOwned::Extension(new_evals);
             self.weights = new_weights;
-            // LSB-fold at `r`: new[i] = old[2i] + r·(old[2i+1] − old[2i]).
-            // If old evals had zero tail starting at `valid_size`, the new evals
-            // have zero tail starting at `ceil(valid_size / 2)`.
-            self.valid_size = self.valid_size.div_ceil(2).min(self.weights.len());
+            // `valid_size` is a power of two (or equals `weights.len()`).
+            // Halving keeps it a power of two and still bounds the folded
+            // zero-tail. Can't produce a straddle since both `V` and `V/2`
+            // are even.
+            debug_assert!(self.valid_size.is_power_of_two() || self.valid_size == self.weights.len() * 2);
+            self.valid_size = (self.valid_size / 2).max(1).min(self.weights.len());
         }
         MultilinearPoint(challenges)
     }
@@ -472,8 +479,10 @@ where
         let weights = split.into_flat(evals_ext.len());
 
         // After folding `folding_factor` LSB coords, the zero-tail region shrinks
-        // by the same factor: `valid_size` maps to `ceil(valid_size / 2^folding_factor)`.
-        let valid_size = valid_size_full.div_ceil(1 << folding_factor).min(weights.len());
+        // by the same factor. Round up to a power of two so that subsequent LSB
+        // folds can never produce a straddling pair `(V-1, V)` with V odd
+        // (see `SumcheckSingle.valid_size` docs).
+        let valid_size = round_up_pow2(valid_size_full.div_ceil(1 << folding_factor)).min(weights.len());
 
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),
@@ -573,10 +582,10 @@ where
 
         let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
         debug_assert_eq!(weights.len(), evals_ext.len());
-        // After folding `folding_factor` coords via tensor product, the zero-tail
-        // region shrinks from `[valid_size_full, 2^l)` to roughly
-        // `[ceil(valid_size_full / 2^l_0), 2^{l - l_0})`.
-        let valid_size = valid_size_full.div_ceil(1 << l_0).min(weights.len());
+        // After folding `l_0` coords via tensor product, the zero-tail region
+        // shrinks by a factor of `2^l_0`. Round up to a power of two so the
+        // bound survives all subsequent LSB folds (see `valid_size` docs).
+        let valid_size = round_up_pow2(valid_size_full.div_ceil(1 << l_0)).min(weights.len());
         let sumcheck = Self {
             evals: MleOwned::Extension(evals_ext),
             weights,
@@ -585,6 +594,12 @@ where
         };
         (sumcheck, MultilinearPoint(challenges))
     }
+}
+
+/// Smallest power of two `>= n`. Returns `1` for `n == 0`.
+#[inline]
+fn round_up_pow2(n: usize) -> usize {
+    if n <= 1 { 1 } else { n.next_power_of_two() }
 }
 
 /// Initial running sum `Σ γ^i · value_i` matching

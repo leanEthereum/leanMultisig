@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use fiat_shamir::{ProverState, VerifierState};
-use field::{Field, TwoAdicField};
+use field::{Field, PrimeCharacteristicRing, TwoAdicField};
 use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
 use mt_whir::*;
 use poly::*;
@@ -154,6 +154,110 @@ fn test_run_whir() {
         opening_time_single.as_millis(),
         proof_size_single / 1024.0
     );
+}
+
+/// Regression: a committed polynomial with a non-power-of-two zero tail.
+/// Exercises `SumcheckSingle.valid_size` tracking through many fold levels
+/// where `valid_size` eventually becomes odd (the "straddling pair" case).
+#[test]
+fn test_run_whir_zero_padded() {
+    let poseidon16 = default_koalabear_poseidon1_16();
+
+    let num_variables: usize = 22;
+    let num_coeffs = 1 << num_variables;
+
+    let log_memory = num_variables.saturating_sub(5);
+    let log_exec = num_variables.saturating_sub(6);
+    let log_poseidon = num_variables.saturating_sub(8);
+    let log_extop = num_variables.saturating_sub(11);
+    let log_bytecode = num_variables.saturating_sub(14).max(1);
+    let log_pub_mem = num_variables.saturating_sub(9).max(1);
+
+    let params = WhirConfigBuilder {
+        security_level: 123,
+        max_num_variables_to_send_coeffs: 8,
+        pow_bits: 18,
+        folding_factor: FoldingFactor::new(7, 5),
+        soundness_type: SecurityAssumption::JohnsonBound,
+        starting_log_inv_rate: 2,
+        rs_domain_initial_reduction_factor: 5,
+    };
+    let params = WhirConfig::new(&params, num_variables);
+
+    let mut rng = StdRng::seed_from_u64(0);
+    // Non-power-of-two valid prefix; after the initial 7 SVO folds the
+    // valid_size is `ceil(5/8 · 2^22 / 128) = 20480 = 2^12 · 5`. The factor of
+    // 5 guarantees an odd `valid_size` at some later fold level — which is
+    // exactly the path that needs `patch_straddle_weight`.
+    let valid_size = (num_coeffs * 5) / 8;
+    let mut polynomial = vec![F::ZERO; num_coeffs];
+    for v in polynomial.iter_mut().take(valid_size) {
+        *v = rng.random::<F>();
+    }
+
+    let random_point = |rng: &mut StdRng, n: usize| MultilinearPoint((0..n).map(|_| rng.random()).collect::<Vec<EF>>());
+
+    let claims: Vec<(usize, usize)> = vec![
+        (log_memory, 2),
+        (log_pub_mem, 1),
+        (log_bytecode, 1),
+        (log_exec, 8),
+        (log_exec, 20),
+        (log_extop, 6),
+        (log_extop, 29),
+        (log_poseidon, 3),
+        (log_poseidon, 240),
+    ];
+
+    let mut statement = Vec::new();
+    for &(inner_n_vars, num_cols) in &claims {
+        let selector_len = num_variables - inner_n_vars;
+        let point = random_point(&mut rng, inner_n_vars);
+        let total_slots = 1usize << selector_len;
+        let n = num_cols.min(total_slots);
+        let mut selectors: Vec<usize> = Vec::with_capacity(n);
+        while selectors.len() < n {
+            let s = rng.random_range(0..total_slots);
+            if !selectors.contains(&s) {
+                selectors.push(s);
+            }
+        }
+        statement.push(SparseStatement::new(
+            num_variables,
+            point.clone(),
+            selectors
+                .iter()
+                .map(|&s| SparseValue {
+                    selector: s,
+                    value: polynomial.evaluate_sparse(s, &point),
+                })
+                .collect(),
+        ));
+    }
+
+    let empty_point = MultilinearPoint(vec![]);
+    for &offset in &[0usize, num_coeffs - 1] {
+        statement.push(SparseStatement::unique_value(
+            num_variables,
+            offset,
+            polynomial.evaluate_sparse(offset, &empty_point),
+        ));
+    }
+
+    let mut prover_state = ProverState::new(poseidon16.clone());
+    precompute_dft_twiddles::<F>(1 << F::TWO_ADICITY);
+    let polynomial: MleOwned<EF> = MleOwned::Base(polynomial);
+
+    let mut witness = params.commit(&mut prover_state, &polynomial);
+    witness.valid_size = valid_size;
+    params.prove(&mut prover_state, statement.clone(), witness, &polynomial.by_ref());
+    let pruned_proof = prover_state.into_proof();
+
+    let mut verifier_state = VerifierState::<EF, _>::new(pruned_proof, poseidon16.clone()).unwrap();
+    let parsed_commitment = params.parse_commitment::<F>(&mut verifier_state).unwrap();
+    params
+        .verify::<F>(&mut verifier_state, &parsed_commitment, statement)
+        .expect("zero-padded witness must verify");
 }
 
 #[test]

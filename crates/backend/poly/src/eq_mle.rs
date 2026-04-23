@@ -1338,4 +1338,74 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_bounded_matches_unbounded_on_valid_prefix() {
+        // Exercise `compute_eval_eq_bounded` / `compute_eval_eq_base_bounded`
+        // at sizes that force the chunked path on NEON (packing_width=4):
+        // condition `eval.len() > packing_width + 1 + LOG_NUM_THREADS` with
+        // LOG_NUM_THREADS=5 → we need eval.len() >= 11 to exit the small-case.
+        let mut rng = StdRng::seed_from_u64(0);
+        for n_vars in [11usize, 12, 13, 15, 18] {
+            let full_size = 1usize << n_vars;
+            // Try various valid_size values — on chunk boundary, off chunk boundary.
+            let chunk = full_size / NUM_THREADS;
+            for &valid_size in &[
+                0usize,
+                1,
+                chunk / 2,
+                chunk,
+                chunk + 7,
+                2 * chunk,
+                full_size / 2,
+                full_size / 2 + 3,
+                full_size - 1,
+                full_size,
+            ] {
+                if valid_size > full_size {
+                    continue;
+                }
+
+                // Extension eval point.
+                let eval_ext = (0..n_vars).map(|_| rng.random::<EF>()).collect::<Vec<_>>();
+                let scalar: EF = rng.random();
+
+                // Start from a non-zero buffer — matches the prover's `self.weights`
+                // state when `add_new_equality` is invoked.
+                let initial = (0..full_size).map(|_| rng.random::<EF>()).collect::<Vec<_>>();
+
+                // Reference: unbounded result.
+                let mut out_ref = initial.clone();
+                compute_eval_eq::<F, EF, true>(&eval_ext, &mut out_ref, scalar);
+
+                // Bounded result.
+                let mut out_bnd = initial.clone();
+                compute_eval_eq_bounded::<F, EF, true>(&eval_ext, &mut out_bnd, scalar, valid_size);
+
+                // Valid prefix must match.
+                for i in 0..valid_size {
+                    assert_eq!(
+                        out_ref[i], out_bnd[i],
+                        "EF bounded mismatch at n_vars={n_vars} valid_size={valid_size} i={i}",
+                    );
+                }
+
+                // Base-field variant.
+                let eval_base = (0..n_vars).map(|_| rng.random::<F>()).collect::<Vec<_>>();
+                let initial2 = (0..full_size).map(|_| rng.random::<EF>()).collect::<Vec<_>>();
+                let mut out_ref = initial2.clone();
+                compute_eval_eq_base::<F, EF, true>(&eval_base, &mut out_ref, scalar);
+
+                let mut out_bnd = initial2.clone();
+                compute_eval_eq_base_bounded::<F, EF, true>(&eval_base, &mut out_bnd, scalar, valid_size);
+
+                for i in 0..valid_size {
+                    assert_eq!(
+                        out_ref[i], out_bnd[i],
+                        "base bounded mismatch at n_vars={n_vars} valid_size={valid_size} i={i}",
+                    );
+                }
+            }
+        }
+    }
 }
