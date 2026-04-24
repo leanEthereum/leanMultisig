@@ -19,8 +19,8 @@
 // (active=2). Lagrange weights are built from challenges in natural order
 // `(rho_0, rho_1, .., rho_{r-1})`.
 
-use field::{ExtensionField, Field};
-use poly::{PARALLEL_THRESHOLD, PF, compute_eval_eq, eval_eq};
+use field::{ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing};
+use poly::{EFPacking, PARALLEL_THRESHOLD, PF, PFPacking, compute_eval_eq, eval_eq, packing_log_width};
 use rayon::prelude::*;
 
 /// One `(eq(bsvo, w_svo), p_bar(bsvo))` sub-group consumed by
@@ -125,31 +125,41 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
 
 /// Compute `acc[bsvo] = Σ_b coef[b] * rows[sel_offset + b*svo_len + bsvo]`.
 /// Serial or parallel over `b` depending on `e_len * svo_len`.
-fn reduce_svo_rows_one<EF>(rows: &[PF<EF>], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
-where
-    EF: ExtensionField<PF<EF>>,
-{
+fn reduce_svo_rows_one<EF: ExtensionField<PF<EF>>>(
+    rows: &[PF<EF>],
+    coef: &[EF],
+    sel_offset: usize,
+    svo_len: usize,
+) -> impl IntoIterator<Item = EF> {
+    let w = packing_log_width::<EF>();
+    debug_assert!(svo_len.is_multiple_of(1 << w));
+    debug_assert!(sel_offset.is_multiple_of(1 << w));
+    let rows_packed = PFPacking::<EF>::pack_slice(rows);
+    let svo_len_p = svo_len >> w;
+    let sel_off_p = sel_offset >> w;
+
     let e_len = coef.len();
-    let zero = || EF::zero_vec(svo_len);
-    let step = |mut acc: Vec<EF>, b: usize| {
-        let e = coef[b];
-        let row = &rows[sel_offset + b * svo_len..][..svo_len];
-        for bsvo in 0..svo_len {
-            acc[bsvo] += e * row[bsvo];
+    let zero = || vec![EFPacking::<EF>::ZERO; svo_len_p];
+    let step = |mut acc: Vec<EFPacking<EF>>, b: usize| {
+        let e = EFPacking::<EF>::from(coef[b]);
+        let row = &rows_packed[sel_off_p + b * svo_len_p..][..svo_len_p];
+        for k in 0..svo_len_p {
+            acc[k] += e * row[k];
         }
         acc
     };
-    let merge = |mut a: Vec<EF>, b: Vec<EF>| {
+    let merge = |mut a: Vec<EFPacking<EF>>, b: Vec<EFPacking<EF>>| {
         for (x, y) in a.iter_mut().zip(&b) {
             *x += *y;
         }
         a
     };
-    if e_len * svo_len < PARALLEL_THRESHOLD {
+    let acc_packed = if e_len * svo_len_p < PARALLEL_THRESHOLD {
         (0..e_len).fold(zero(), step)
     } else {
         (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
-    }
+    };
+    EFPacking::<EF>::to_ext_iter(acc_packed)
 }
 
 /// Same shape as [`reduce_svo_rows_one`] but accumulates two coefficient tables
@@ -231,8 +241,8 @@ where
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
         let contrib = reduce_svo_rows_one::<EF>(f, &e_split, sel_offset, svo_len);
-        for (p, s) in p_bar.iter_mut().zip(contrib.iter()) {
-            *p += alpha_j * *s;
+        for (p, s) in p_bar.iter_mut().zip(contrib) {
+            *p += alpha_j * s;
         }
     }
 

@@ -661,6 +661,7 @@ where
 /// Requires `s + l_0 <= l` for every claim: eq spills must be relaxed upstream
 /// via [`relax_eq_spill_statements`], and nxt spills must be gated to the
 /// flat-path fallback.
+#[instrument(skip_all)]
 fn build_all_compressed_groups<EF>(
     statement: &[SparseStatement<EF>],
     gamma: EF,
