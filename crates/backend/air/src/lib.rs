@@ -22,7 +22,8 @@ pub trait Air: Send + Sync + 'static {
 
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData);
 
-    fn low_degree_air(&self) -> Option<usize> {
+    /// If the AIR contains a `low_degree_block` sub-region, returns `(degree, n_constraints)`
+    fn low_degree_air(&self) -> Option<(usize, usize)> {
         None
     }
 
@@ -67,14 +68,13 @@ pub trait AirBuilder: Sized {
         self.assert_eq(x, y);
     }
 
-    fn is_skip_low(&self) -> bool {
-        false
-    }
-
-    fn store_cached_state(&mut self, _state: &[Self::IF]) {}
-
-    fn get_cached_state(&self) -> &[Self::IF] {
-        &[]
+    /// Execute `block` as a low-degree sub-region whose post-state is "cacheable"
+    /// = linear in z without the low-degree constraints
+    fn low_degree_block<F>(&mut self, state: &mut [Self::IF], block: F)
+    where
+        F: FnOnce(&mut Self, &mut [Self::IF]),
+    {
+        block(self, state);
     }
 
     /// useful to build the recursion program

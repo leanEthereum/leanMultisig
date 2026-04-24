@@ -11,7 +11,29 @@ pub struct ConstraintFolderPacked<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData:
     pub constraint_index: usize,
     pub skip_low: bool,
     pub accumulator_low: EFPacking<EF>,
-    pub cached_state: Vec<IF>,
+    pub cached_state: Option<Vec<IF>>,
+    pub low_ci_count: usize,
+}
+
+impl<'a, IF, EF, ExtraData> ConstraintFolderPacked<'a, IF, EF, ExtraData>
+where
+    EF: ExtensionField<PF<EF>>,
+    EFPacking<EF>: PrimeCharacteristicRing,
+    ExtraData: AlphaPowers<EF>,
+{
+    pub fn new(up: &'a [IF], down: &'a [IF], extra_data: &'a ExtraData) -> Self {
+        Self {
+            up,
+            down,
+            extra_data,
+            accumulator: EFPacking::<EF>::ZERO,
+            constraint_index: 0,
+            skip_low: false,
+            accumulator_low: EFPacking::<EF>::ZERO,
+            cached_state: None,
+            low_ci_count: 0,
+        }
+    }
 }
 
 impl<'a, IF, EF, ExtraData> AirBuilder for ConstraintFolderPacked<'a, IF, EF, ExtraData>
@@ -51,10 +73,6 @@ where
 
     #[inline]
     fn assert_eq_low(&mut self, x: IF, y: IF) {
-        if self.skip_low {
-            self.constraint_index += 1;
-            return;
-        }
         let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
         let contrib = EFPacking::<EF>::from(alpha_power) * (x - y);
         self.accumulator += contrib;
@@ -63,21 +81,20 @@ where
     }
 
     #[inline]
-    fn is_skip_low(&self) -> bool {
-        self.skip_low
-    }
-
-    #[inline]
-    fn store_cached_state(&mut self, state: &[IF]) {
-        if self.cached_state.capacity() > 0 {
-            self.cached_state.clear();
-            self.cached_state.extend_from_slice(state);
+    fn low_degree_block<F>(&mut self, state: &mut [IF], block: F)
+    where
+        F: FnOnce(&mut Self, &mut [IF]),
+    {
+        if self.skip_low {
+            state.copy_from_slice(self.cached_state.as_ref().unwrap());
+            self.constraint_index += self.low_ci_count;
+        } else {
+            block(self, state);
+            if let Some(cache) = &mut self.cached_state {
+                cache.clear();
+                cache.extend_from_slice(state);
+            }
         }
-    }
-
-    #[inline]
-    fn get_cached_state(&self) -> &[IF] {
-        &self.cached_state
     }
 
     #[inline]
