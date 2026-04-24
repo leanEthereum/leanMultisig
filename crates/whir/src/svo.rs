@@ -11,9 +11,8 @@ pub(crate) struct CompressedGroup<EF> {
 
 #[derive(Debug)]
 pub(crate) struct AccGroup<EF> {
-    pub(crate) acc_a: Vec<Vec<EF>>,
-    pub(crate) acc_c: Vec<Vec<EF>>,
-    pub(crate) acc_b: Vec<Vec<EF>>,
+    pub(crate) acc_0: Vec<Vec<EF>>,
+    pub(crate) acc_inf: Vec<Vec<EF>>,
 }
 
 pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>, scratch: &mut Vec<EF>) {
@@ -49,7 +48,7 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
                 let f1 = hi[j];
                 out_block[3 * j] = f0;
                 out_block[3 * j + 1] = f1;
-                out_block[3 * j + 2] = f1.double() - f0;
+                out_block[3 * j + 2] = f1 - f0;
             }
         };
         if out_total < PARALLEL_THRESHOLD {
@@ -68,13 +67,13 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
 }
 
 pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
-    let inv_two = EF::TWO.inverse();
-    let two = EF::TWO;
-    let c_m1 = c - EF::ONE;
-    let c_m2 = c - two;
-    let l0 = c_m1 * c_m2 * inv_two;
-    let l1 = c * (two - c);
-    let l2 = c * c_m1 * inv_two;
+    // Lagrange basis at `c` for the evaluation set {0, 1, ∞}:
+    //   L_0(c)   = 1 - c
+    //   L_1(c)   = c
+    //   L_∞(c)   = c (c - 1)
+    let l0 = EF::ONE - c;
+    let l1 = c;
+    let l_inf = c * (c - EF::ONE);
     let old_len = out.len();
     out.resize(old_len * 3, EF::ZERO);
     // Walk backwards so writes never overlap unread input.
@@ -82,7 +81,7 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
         let v = out[i];
         out[3 * i] = v * l0;
         out[3 * i + 1] = v * l1;
-        out[3 * i + 2] = v * l2;
+        out[3 * i + 2] = v * l_inf;
     }
 }
 
@@ -220,7 +219,6 @@ where
     let split_len = 1usize << m_split;
     let svo_len = 1usize << l_0;
 
- 
     let (bar_t_split, c_omega) = build_bar_t_split(inner_point, m_split, m);
     let e_split = eval_eq(&inner_point[..m_split]);
     debug_assert_eq!(bar_t_split.len(), split_len);
@@ -316,9 +314,8 @@ where
     assert_eq!(group.w_svo.len(), l_0);
     assert_eq!(group.p_bar.len(), 1 << l_0);
 
-    let mut acc_a: Vec<Vec<EF>> = vec![Vec::new(); l_0];
-    let mut acc_c: Vec<Vec<EF>> = vec![Vec::new(); l_0];
-    let mut acc_b: Vec<Vec<EF>> = vec![Vec::new(); l_0];
+    let mut acc_0: Vec<Vec<EF>> = vec![Vec::new(); l_0];
+    let mut acc_inf: Vec<Vec<EF>> = vec![Vec::new(); l_0];
 
     let cap = 3_usize.pow(l_0 as u32);
     let mut q: Vec<EF> = group.p_bar.clone();
@@ -339,30 +336,21 @@ where
 
         grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
         grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
-
+     
         let s = 3_usize.pow(r as u32);
         let mut a = EF::zero_vec(s);
-        let mut c_mid = EF::zero_vec(s);
         let mut b = EF::zero_vec(s);
-        let fill = |(j, (a_j, (c_j, b_j))): (usize, (&mut EF, (&mut EF, &mut EF)))| {
+        let fill = |(j, (a_j, b_j)): (usize, (&mut EF, &mut EF))| {
             *a_j = tilde_q[3 * j] * tilde_e[3 * j];
-            *c_j = tilde_q[3 * j + 1] * tilde_e[3 * j + 1];
             *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
         };
         if s < PARALLEL_THRESHOLD {
-            a.iter_mut()
-                .zip(c_mid.iter_mut().zip(b.iter_mut()))
-                .enumerate()
-                .for_each(fill);
+            a.iter_mut().zip(b.iter_mut()).enumerate().for_each(fill);
         } else {
-            a.par_iter_mut()
-                .zip(c_mid.par_iter_mut().zip(b.par_iter_mut()))
-                .enumerate()
-                .for_each(fill);
+            a.par_iter_mut().zip(b.par_iter_mut()).enumerate().for_each(fill);
         }
-        acc_a[r] = a;
-        acc_c[r] = c_mid;
-        acc_b[r] = b;
+        acc_0[r] = a;
+        acc_inf[r] = b;
 
         if r_idx + 1 < l_0 {
             let alpha = group.w_svo[r_f];
@@ -375,7 +363,7 @@ where
             q.truncate(half);
         }
     }
-    AccGroup { acc_a, acc_c, acc_b }
+    AccGroup { acc_0, acc_inf }
 }
 
 pub(crate) fn build_accumulators<EF>(groups: &[CompressedGroup<EF>], l_0: usize) -> Vec<AccGroup<EF>>
@@ -385,38 +373,27 @@ where
     groups.par_iter().map(|g| build_accumulators_single(g, l_0)).collect()
 }
 
-pub(crate) fn round_message_with_tensor<EF: Field>(r: usize, lagrange: &[EF], accs: &[AccGroup<EF>]) -> (EF, EF, EF) {
+pub(crate) fn round_message_with_tensor<EF: Field>(r: usize, lagrange: &[EF], accs: &[AccGroup<EF>]) -> (EF, EF) {
     let s = 3_usize.pow(r as u32);
     debug_assert_eq!(lagrange.len(), s);
 
-    let total_work = 3 * s * accs.len();
-    let group_reduce = |acc: &AccGroup<EF>| -> (EF, EF, EF) {
-        debug_assert_eq!(acc.acc_a[r].len(), s);
-        debug_assert_eq!(acc.acc_c[r].len(), s);
-        debug_assert_eq!(acc.acc_b[r].len(), s);
-        let mut h0 = EF::ZERO;
-        let mut h1 = EF::ZERO;
-        let mut h2 = EF::ZERO;
+    let total_work = 2 * s * accs.len();
+    let group_reduce = |acc: &AccGroup<EF>| -> (EF, EF) {
+        debug_assert_eq!(acc.acc_0[r].len(), s);
+        debug_assert_eq!(acc.acc_inf[r].len(), s);
+        let mut c0 = EF::ZERO;
+        let mut c2 = EF::ZERO;
         for j in 0..s {
             let l = lagrange[j];
-            h0 += l * acc.acc_a[r][j];
-            h1 += l * acc.acc_c[r][j];
-            h2 += l * acc.acc_b[r][j];
+            c0 += l * acc.acc_0[r][j];
+            c2 += l * acc.acc_inf[r][j];
         }
-        (h0, h1, h2)
+        (c0, c2)
     };
-    let add3 = |(a0, a1, a2), (b0, b1, b2)| (a0 + b0, a1 + b1, a2 + b2);
+    let add2 = |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2);
     if total_work < PARALLEL_THRESHOLD {
-        accs.iter().map(group_reduce).fold((EF::ZERO, EF::ZERO, EF::ZERO), add3)
+        accs.iter().map(group_reduce).fold((EF::ZERO, EF::ZERO), add2)
     } else {
-        accs.par_iter()
-            .map(group_reduce)
-            .reduce(|| (EF::ZERO, EF::ZERO, EF::ZERO), add3)
+        accs.par_iter().map(group_reduce).reduce(|| (EF::ZERO, EF::ZERO), add2)
     }
-}
-
-pub(crate) fn values_to_coeffs<EF: Field>(h0: EF, h1: EF, h2: EF) -> (EF, EF) {
-    let c0 = h0;
-    let c2 = (h2 - h1.double() + h0).halve();
-    (c0, c2)
 }

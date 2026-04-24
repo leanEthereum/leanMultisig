@@ -411,8 +411,7 @@ where
         let mut lagrange: Vec<EF> = vec![EF::ONE];
         while challenges.len() < l_0 {
             let r = challenges.len();
-            let (h0, h1, h2) = round_message_with_tensor(r, &lagrange, &accs);
-            let (c0, c2) = values_to_coeffs(h0, h1, h2);
+            let (c0, c2) = round_message_with_tensor(r, &lagrange, &accs);
             let rho = sumcheck_finish_round(c0, c2, &mut sum, prover_state, pow_bits);
             challenges.push(rho);
             lagrange_tensor_extend(&mut lagrange, rho);
@@ -611,7 +610,6 @@ where
         })
         .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
 }
-
 
 fn fold_by_tensor<EF, E>(evals: &[E], rhos: &[EF]) -> Vec<EF>
 where
