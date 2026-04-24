@@ -66,6 +66,134 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
     debug_assert_eq!(cur.len(), out_len);
 }
 
+fn round_fill_l1<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
+    debug_assert_eq!(q.len(), 2);
+    debug_assert_eq!(e.len(), 2);
+    let q_inf = q[1] - q[0];
+    let e_inf = e[1] - e[0];
+    (vec![q[0] * e[0]], vec![q_inf * e_inf])
+}
+
+fn round_fill_l2<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
+    debug_assert_eq!(q.len(), 4);
+    debug_assert_eq!(e.len(), 4);
+
+    // x_1 = 0 face: directly from Boolean evals.
+    let q_00 = q[0];
+    let q_10 = q[1];
+    let q_i0 = q[1] - q[0];
+    let e_00 = e[0];
+    let e_10 = e[1];
+    let e_i0 = e[1] - e[0];
+
+    // x_1 = ∞ face: q(x_0, x_1=∞) = q(x_0, 1) - q(x_0, 0).
+    let q_0i = q[2] - q[0];
+    let q_1i = q[3] - q[1];
+    let q_ii = q_1i - q_0i;
+    let e_0i = e[2] - e[0];
+    let e_1i = e[3] - e[1];
+    let e_ii = e_1i - e_0i;
+
+    (
+        vec![q_00 * e_00, q_10 * e_10, q_i0 * e_i0],
+        vec![q_0i * e_0i, q_1i * e_1i, q_ii * e_ii],
+    )
+}
+
+fn round_fill_l3<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
+    debug_assert_eq!(q.len(), 8);
+    debug_assert_eq!(e.len(), 8);
+
+    // x_2 = 0 slice extended over (x_0, x_1) ∈ {0,1,∞}^2.
+    let q_000 = q[0];
+    let q_100 = q[1];
+    let q_010 = q[2];
+    let q_110 = q[3];
+    let q_i00 = q_100 - q_000;
+    let q_i10 = q_110 - q_010;
+    let q_0i0 = q_010 - q_000;
+    let q_1i0 = q_110 - q_100;
+    let q_ii0 = q_i10 - q_i00;
+
+    let e_000 = e[0];
+    let e_100 = e[1];
+    let e_010 = e[2];
+    let e_110 = e[3];
+    let e_i00 = e_100 - e_000;
+    let e_i10 = e_110 - e_010;
+    let e_0i0 = e_010 - e_000;
+    let e_1i0 = e_110 - e_100;
+    let e_ii0 = e_i10 - e_i00;
+
+    // x_2 = 1 slice (needed only to form x_2 = ∞).
+    let q_001 = q[4];
+    let q_101 = q[5];
+    let q_011 = q[6];
+    let q_111 = q[7];
+    let q_i01 = q_101 - q_001;
+    let q_i11 = q_111 - q_011;
+    let q_0i1 = q_011 - q_001;
+    let q_1i1 = q_111 - q_101;
+    let q_ii1 = q_i11 - q_i01;
+
+    let e_001 = e[4];
+    let e_101 = e[5];
+    let e_011 = e[6];
+    let e_111 = e[7];
+    let e_i01 = e_101 - e_001;
+    let e_i11 = e_111 - e_011;
+    let e_0i1 = e_011 - e_001;
+    let e_1i1 = e_111 - e_101;
+    let e_ii1 = e_i11 - e_i01;
+
+    // x_2 = ∞ slice: extrapolate `(..)_1 - (..)_0` pointwise.
+    let q_00i = q_001 - q_000;
+    let q_10i = q_101 - q_100;
+    let q_01i = q_011 - q_010;
+    let q_11i = q_111 - q_110;
+    let q_i0i = q_i01 - q_i00;
+    let q_i1i = q_i11 - q_i10;
+    let q_0ii = q_0i1 - q_0i0;
+    let q_1ii = q_1i1 - q_1i0;
+    let q_iii = q_ii1 - q_ii0;
+
+    let e_00i = e_001 - e_000;
+    let e_10i = e_101 - e_100;
+    let e_01i = e_011 - e_010;
+    let e_11i = e_111 - e_110;
+    let e_i0i = e_i01 - e_i00;
+    let e_i1i = e_i11 - e_i10;
+    let e_0ii = e_0i1 - e_0i0;
+    let e_1ii = e_1i1 - e_1i0;
+    let e_iii = e_ii1 - e_ii0;
+
+    // Output order: j = 3*x_0 + x_1; within each x_0 group, x_1 in {0, 1, ∞}.
+    (
+        vec![
+            q_000 * e_000,
+            q_010 * e_010,
+            q_0i0 * e_0i0,
+            q_100 * e_100,
+            q_110 * e_110,
+            q_1i0 * e_1i0,
+            q_i00 * e_i00,
+            q_i10 * e_i10,
+            q_ii0 * e_ii0,
+        ],
+        vec![
+            q_00i * e_00i,
+            q_01i * e_01i,
+            q_0ii * e_0ii,
+            q_10i * e_10i,
+            q_11i * e_11i,
+            q_1ii * e_1ii,
+            q_i0i * e_i0i,
+            q_i1i * e_i1i,
+            q_iii * e_iii,
+        ],
+    )
+}
+
 pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
     // Lagrange basis at `c` for the evaluation set {0, 1, ∞}:
     //   L_0(c)   = 1 - c
@@ -84,27 +212,44 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
         out[3 * i + 2] = v * l_inf;
     }
 }
-
-fn reduce_svo_rows_one<EF: ExtensionField<PF<EF>>>(
+fn reduce_svo_rows_one<EF>(
     rows: &[PF<EF>],
-    coef: &[EF],
+    eq_lo: &[EF],
+    eq_hi: &[EF],
     sel_offset: usize,
     svo_len: usize,
-) -> impl IntoIterator<Item = EF> {
+) -> impl IntoIterator<Item = EF>
+where
+    EF: ExtensionField<PF<EF>>,
+{
     let w = packing_log_width::<EF>();
     debug_assert!(svo_len.is_multiple_of(1 << w));
     debug_assert!(sel_offset.is_multiple_of(1 << w));
+    debug_assert!(eq_lo.len().is_power_of_two());
+    debug_assert!(eq_hi.len().is_power_of_two());
+
     let rows_packed = PFPacking::<EF>::pack_slice(rows);
     let svo_len_p = svo_len >> w;
     let sel_off_p = sel_offset >> w;
+    let n_lo = eq_lo.len();
+    let stride = eq_hi.len(); // = 2^m_hi — coefficient of b_lo in the full b index
 
-    let e_len = coef.len();
     let zero = || vec![EFPacking::<EF>::ZERO; svo_len_p];
-    let step = |mut acc: Vec<EFPacking<EF>>, b: usize| {
-        let e = EFPacking::<EF>::from(coef[b]);
-        let row = &rows_packed[sel_off_p + b * svo_len_p..][..svo_len_p];
+    let step = |mut acc: Vec<EFPacking<EF>>, b_lo: usize| {
+        // Inner reduction against eq_hi → tmp, scaled by eq_lo[b_lo] into acc.
+        let base = b_lo * stride;
+        let mut tmp = vec![EFPacking::<EF>::ZERO; svo_len_p];
+        for b_hi in 0..stride {
+            let e_hi = EFPacking::<EF>::from(eq_hi[b_hi]);
+            let row_off = sel_off_p + (base + b_hi) * svo_len_p;
+            let row = &rows_packed[row_off..][..svo_len_p];
+            for k in 0..svo_len_p {
+                tmp[k] += e_hi * row[k];
+            }
+        }
+        let e_lo = EFPacking::<EF>::from(eq_lo[b_lo]);
         for k in 0..svo_len_p {
-            acc[k] += e * row[k];
+            acc[k] += e_lo * tmp[k];
         }
         acc
     };
@@ -114,10 +259,11 @@ fn reduce_svo_rows_one<EF: ExtensionField<PF<EF>>>(
         }
         a
     };
-    let acc_packed = if e_len * svo_len_p < PARALLEL_THRESHOLD {
-        (0..e_len).fold(zero(), step)
+    let total_work = n_lo * stride * svo_len_p;
+    let acc_packed = if total_work < PARALLEL_THRESHOLD {
+        (0..n_lo).fold(zero(), step)
     } else {
-        (0..e_len).into_par_iter().fold(zero, step).reduce(zero, merge)
+        (0..n_lo).into_par_iter().fold(zero, step).reduce(zero, merge)
     };
     EFPacking::<EF>::to_ext_iter(acc_packed)
 }
@@ -181,13 +327,17 @@ where
     let p_split = &inner_point[..m_split];
     let p_svo = &inner_point[m_split..];
 
-    let e_split = eval_eq(p_split);
+    // Factored eq(p_split, ·): split at the midpoint so storage is
+    // `2^⌊m/2⌋ + 2^⌈m/2⌉` instead of `2^m`.
+    let m_lo = m_split / 2;
+    let eq_lo = eval_eq(&p_split[..m_lo]);
+    let eq_hi = eval_eq(&p_split[m_lo..]);
     let svo_len = 1usize << l_0;
     let mut p_bar = vec![EF::ZERO; svo_len];
 
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
-        let contrib = reduce_svo_rows_one::<EF>(f, &e_split, sel_offset, svo_len);
+        let contrib = reduce_svo_rows_one::<EF>(f, &eq_lo, &eq_hi, sel_offset, svo_len);
         for (p, s) in p_bar.iter_mut().zip(contrib) {
             *p += alpha_j * s;
         }
@@ -334,21 +484,29 @@ where
         e_buf.resize(1 << big_l, EF::ZERO);
         compute_eval_eq::<PF<EF>, EF, false>(&group.w_svo[r_f..], &mut e_buf, EF::ONE);
 
-        grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
-        grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
-     
-        let s = 3_usize.pow(r as u32);
-        let mut a = EF::zero_vec(s);
-        let mut b = EF::zero_vec(s);
-        let fill = |(j, (a_j, b_j)): (usize, (&mut EF, &mut EF))| {
-            *a_j = tilde_q[3 * j] * tilde_e[3 * j];
-            *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
+        let (a, b) = match big_l {
+            1 => round_fill_l1(&q, &e_buf),
+            2 => round_fill_l2(&q, &e_buf),
+            3 => round_fill_l3(&q, &e_buf),
+            _ => {
+                grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
+                grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
+
+                let s = 3_usize.pow(r as u32);
+                let mut a = EF::zero_vec(s);
+                let mut b = EF::zero_vec(s);
+                let fill = |(j, (a_j, b_j)): (usize, (&mut EF, &mut EF))| {
+                    *a_j = tilde_q[3 * j] * tilde_e[3 * j];
+                    *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
+                };
+                if s < PARALLEL_THRESHOLD {
+                    a.iter_mut().zip(b.iter_mut()).enumerate().for_each(fill);
+                } else {
+                    a.par_iter_mut().zip(b.par_iter_mut()).enumerate().for_each(fill);
+                }
+                (a, b)
+            }
         };
-        if s < PARALLEL_THRESHOLD {
-            a.iter_mut().zip(b.iter_mut()).enumerate().for_each(fill);
-        } else {
-            a.par_iter_mut().zip(b.par_iter_mut()).enumerate().for_each(fill);
-        }
         acc_0[r] = a;
         acc_inf[r] = b;
 
