@@ -19,30 +19,9 @@
 // (active=2). Lagrange weights are built from challenges in natural order
 // `(rho_0, rho_1, .., rho_{r-1})`.
 
-use std::ops::Mul;
-
 use field::{ExtensionField, Field};
 use poly::{PARALLEL_THRESHOLD, PF, compute_eval_eq, eval_eq};
 use rayon::prelude::*;
-
-/// Committed polynomial evaluations in either base or extension form. Lets
-/// callers pass a single parameter and keeps the base-vs-ext dispatch at the
-/// outer boundary — inner kernels are generic over the element type so the
-/// `EF · F` (Algebra<F>) fast path is preserved through monomorphization.
-#[derive(Clone, Copy)]
-pub(crate) enum FEvals<'a, EF: ExtensionField<PF<EF>>> {
-    Base(&'a [PF<EF>]),
-    Ext(&'a [EF]),
-}
-
-impl<'a, EF: ExtensionField<PF<EF>>> FEvals<'a, EF> {
-    fn read(&self, idx: usize) -> EF {
-        match self {
-            Self::Base(s) => EF::from(s[idx]),
-            Self::Ext(s) => s[idx],
-        }
-    }
-}
 
 /// One `(eq(bsvo, w_svo), p_bar(bsvo))` sub-group consumed by
 /// `build_accumulators`. `w_svo` has length `l_0`; `p_bar` has length `2^l_0`
@@ -146,10 +125,9 @@ pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
 
 /// Compute `acc[bsvo] = Σ_b coef[b] * rows[sel_offset + b*svo_len + bsvo]`.
 /// Serial or parallel over `b` depending on `e_len * svo_len`.
-fn reduce_svo_rows_one<EF, E>(rows: &[E], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
+fn reduce_svo_rows_one<EF>(rows: &[PF<EF>], coef: &[EF], sel_offset: usize, svo_len: usize) -> Vec<EF>
 where
-    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
-    E: Copy + Send + Sync,
+    EF: ExtensionField<PF<EF>>,
 {
     let e_len = coef.len();
     let zero = || EF::zero_vec(svo_len);
@@ -176,16 +154,15 @@ where
 
 /// Same shape as [`reduce_svo_rows_one`] but accumulates two coefficient tables
 /// in one pass (reads each `rows` entry once).
-fn reduce_svo_rows_two<EF, E>(
-    rows: &[E],
+fn reduce_svo_rows_two<EF>(
+    rows: &[PF<EF>],
     coef_a: &[EF],
     coef_b: &[EF],
     sel_offset: usize,
     svo_len: usize,
 ) -> (Vec<EF>, Vec<EF>)
 where
-    EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
-    E: Copy + Send + Sync,
+    EF: ExtensionField<PF<EF>>,
 {
     let e_len = coef_a.len();
     debug_assert_eq!(coef_b.len(), e_len);
@@ -229,7 +206,7 @@ where
 ///
 /// For `s > l - l_0` (selector spills into `wsvo`) use [`compress_eq_spill_claim`].
 pub(crate) fn compress_eq_claim<EF>(
-    f: FEvals<'_, EF>,
+    f: &[PF<EF>],
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -253,10 +230,7 @@ where
 
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
-        let contrib = match f {
-            FEvals::Base(fb) => reduce_svo_rows_one::<EF, _>(fb, &e_split, sel_offset, svo_len),
-            FEvals::Ext(fe) => reduce_svo_rows_one::<EF, _>(fe, &e_split, sel_offset, svo_len),
-        };
+        let contrib = reduce_svo_rows_one::<EF>(f, &e_split, sel_offset, svo_len);
         for (p, s) in p_bar.iter_mut().zip(contrib.iter()) {
             *p += alpha_j * *s;
         }
@@ -276,7 +250,7 @@ where
 /// Emits **one CompressedGroup per claim** (claims with different spilled
 /// bits have different `wsvo` and cannot share a `p_bar`).
 pub(crate) fn compress_eq_spill_claim<EF>(
-    f: FEvals<'_, EF>,
+    f: &[PF<EF>],
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -313,7 +287,7 @@ where
 
             // p_bar[bsvo] = alpha_j * f[sel_top * 2^{l_0} + bsvo].
             let sel_offset = sel_top << l_0;
-            let p_bar: Vec<EF> = (0..svo_len).map(|bsvo| alpha_j * f.read(sel_offset + bsvo)).collect();
+            let p_bar: Vec<EF> = (0..svo_len).map(|bsvo| alpha_j * f[sel_offset + bsvo]).collect();
             CompressedGroup { w_svo, p_bar }
         })
         .collect()
@@ -328,7 +302,7 @@ where
 /// bucket-B sub-groups sharing `P_eq`, one bucket-C slice), with the per-claim
 /// α-weighted sums over the group's selectors merged inside.
 pub(crate) fn compress_next_claim_bucketed<EF>(
-    f: FEvals<'_, EF>,
+    f: &[PF<EF>],
     sel_bits: &[usize],
     inner_point: &[EF],
     alpha_powers: &[EF],
@@ -371,15 +345,12 @@ where
     for (&sel_j, &alpha_j) in sel_bits.iter().zip(alpha_powers.iter()) {
         let sel_offset = sel_j << (l - s);
 
-        let (sig_contrib, eq_contrib) = match f {
-            FEvals::Base(fb) => reduce_svo_rows_two::<EF, _>(fb, &bar_t_split, &e_split, sel_offset, svo_len),
-            FEvals::Ext(fe) => reduce_svo_rows_two::<EF, _>(fe, &bar_t_split, &e_split, sel_offset, svo_len),
-        };
+        let (sig_contrib, eq_contrib) = reduce_svo_rows_two::<EF>(f, &bar_t_split, &e_split, sel_offset, svo_len);
 
         // Bucket-C slice read at β_split = 1^{m_split}.
         let c_base = sel_offset + ((split_len - 1) << l_0);
         for bsvo in 0..svo_len {
-            s_omega[bsvo] += alpha_j * f.read(c_base + bsvo);
+            s_omega[bsvo] += alpha_j * f[c_base + bsvo];
         }
 
         for bsvo in 0..svo_len {

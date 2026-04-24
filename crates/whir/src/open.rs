@@ -517,13 +517,9 @@ where
         // Unpack evals (zero-copy for base) and build CompressedGroups.
         let unpacked_mle = evals.unpack();
         let unpacked_ref = unpacked_mle.by_ref();
-        let f_base_opt = unpacked_ref.as_base();
-        let f_ext_opt = unpacked_ref.as_extension();
-        let f = match (f_base_opt, f_ext_opt) {
-            (Some(b), _) => crate::svo::FEvals::Base(b),
-            (None, Some(e)) => crate::svo::FEvals::Ext(e),
-            _ => panic!("WHIR sumcheck input must be base or extension (no packed)"),
-        };
+        let f = unpacked_ref
+            .as_base()
+            .expect("WHIR committed polynomial must be base field");
 
         let groups = build_all_compressed_groups::<EF>(statement, combination_randomness, f, l, l_0);
         let accs = build_accumulators::<EF>(&groups, l_0);
@@ -545,14 +541,9 @@ where
         }
 
         // Single-pass tensor fold of `f` down to size 2^{l - l_0}. Base-field
-        // input stays at `EF · F` cost per multiply (instead of promoting to
+        // input keeps each multiply at `EF · F` cost (instead of promoting to
         // EF after round 0, which would force `EF · EF` on subsequent rounds).
-        let evals_ext: Vec<EF> = if let Some(base) = f_base_opt {
-            fold_by_tensor::<EF, _>(base, &challenges)
-        } else {
-            let ext = f_ext_opt.expect("WHIR sumcheck input must be base or extension (no packed)");
-            fold_by_tensor::<EF, _>(ext, &challenges)
-        };
+        let evals_ext: Vec<EF> = fold_by_tensor::<EF, _>(f, &challenges);
 
         let weights = build_post_svo_weights(statement, combination_randomness, &challenges);
         debug_assert_eq!(weights.len(), evals_ext.len());
@@ -708,7 +699,7 @@ where
 fn build_all_compressed_groups<EF>(
     statement: &[SparseStatement<EF>],
     gamma: EF,
-    f: crate::svo::FEvals<'_, EF>,
+    f: &[PF<EF>],
     l: usize,
     l_0: usize,
 ) -> Vec<CompressedGroup<EF>>
