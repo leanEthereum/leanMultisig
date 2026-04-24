@@ -4,8 +4,7 @@ use std::ops::{Mul, Sub};
 
 use ::utils::log2_strict_usize;
 use fiat_shamir::{FSProver, MerklePath, ProofResult};
-use field::PrimeCharacteristicRing;
-use field::{ExtensionField, Field, TwoAdicField};
+use field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
 use tracing::{info_span, instrument};
@@ -62,20 +61,18 @@ where
         prover_state: &mut impl FSProver<EF>,
         round_state: &mut RoundState<EF>,
     ) -> ProofResult<()> {
-        let folded_evaluations = &round_state.sumcheck_prover.evals;
-        let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
-
         if round_index == self.n_rounds() {
             return self.final_round(round_index, prover_state, round_state);
         }
 
+        let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
         let round_params = &self.round_parameters[round_index];
-
         let folding_factor_next = self.folding_factor.at_round(round_index + 1);
 
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
         let new_domain_size = round_state.domain_size / domain_reduction;
         let inv_rate = new_domain_size >> num_variables;
+        let folded_evaluations = &round_state.sumcheck_prover.evals;
         let folded_matrix = info_span!("FFT").in_scope(|| {
             reorder_and_dft(
                 &folded_evaluations.by_ref(),
@@ -107,12 +104,7 @@ where
         )?;
 
         let folding_randomness = round_state.folding_randomness(self.folding_factor.at_round(round_index));
-
-        let folding_randomness_reversed = {
-            let mut v = folding_randomness.0.clone();
-            v.reverse();
-            MultilinearPoint(v)
-        };
+        let folding_randomness_reversed = folding_randomness.reversed();
 
         let stir_evaluations: Vec<EF> =
             open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes)
@@ -177,35 +169,7 @@ where
             prover_state,
         );
 
-        let mut base_paths = Vec::new();
-        let mut ext_paths = Vec::new();
-        for challenge in final_challenge_indexes {
-            let (answer, sibling_hashes) = round_state.merkle_prover_data.open(challenge);
-
-            match answer {
-                MleOwned::Base(leaf) => {
-                    base_paths.push(MerklePath {
-                        leaf_data: leaf,
-                        sibling_hashes,
-                        leaf_index: challenge,
-                    });
-                }
-                MleOwned::Extension(leaf) => {
-                    ext_paths.push(MerklePath {
-                        leaf_data: leaf,
-                        sibling_hashes,
-                        leaf_index: challenge,
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
-        if !base_paths.is_empty() {
-            prover_state.hint_merkle_paths_base(base_paths);
-        }
-        if !ext_paths.is_empty() {
-            prover_state.hint_merkle_paths_extension(ext_paths);
-        }
+        open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &final_challenge_indexes);
 
         if self.final_sumcheck_rounds > 0 {
             let final_folding_randomness =
@@ -302,6 +266,25 @@ impl<EF: Field> SumcheckSingle<EF>
 where
     EF: ExtensionField<PF<EF>>,
 {
+    fn add_equality_inner<T: Copy>(
+        &mut self,
+        points: &[MultilinearPoint<T>],
+        evaluations: &[EF],
+        combination_randomness: &[EF],
+        eval_fn: impl Fn(&[T], &mut [EF], EF),
+    ) {
+        assert_eq!(combination_randomness.len(), points.len());
+        assert_eq!(evaluations.len(), points.len());
+        for (point, &rand) in points.iter().zip(combination_randomness) {
+            eval_fn(&point.0, &mut self.weights, rand);
+        }
+        self.sum += combination_randomness
+            .iter()
+            .zip(evaluations)
+            .map(|(&rand, &eval)| rand * eval)
+            .sum::<EF>();
+    }
+
     #[instrument(skip_all)]
     pub(crate) fn add_new_equality(
         &mut self,
@@ -309,21 +292,9 @@ where
         evaluations: &[EF],
         combination_randomness: &[EF],
     ) {
-        assert_eq!(combination_randomness.len(), points.len());
-        assert_eq!(evaluations.len(), points.len());
-
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand);
-            });
-
-        self.sum += combination_randomness
-            .iter()
-            .zip(evaluations.iter())
-            .map(|(&rand, &eval)| rand * eval)
-            .sum::<EF>();
+        self.add_equality_inner(points, evaluations, combination_randomness, |p, w, r| {
+            compute_eval_eq::<PF<EF>, EF, true>(p, w, r);
+        });
     }
 
     #[instrument(skip_all)]
@@ -333,21 +304,9 @@ where
         evaluations: &[EF],
         combination_randomness: &[EF],
     ) {
-        assert_eq!(combination_randomness.len(), points.len());
-        assert_eq!(evaluations.len(), points.len());
-
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq_base::<PF<EF>, EF, true>(&point.0, &mut self.weights, rand);
-            });
-
-        self.sum += combination_randomness
-            .iter()
-            .zip(evaluations.iter())
-            .map(|(&rand, &eval)| rand * eval)
-            .sum::<EF>();
+        self.add_equality_inner(points, evaluations, combination_randomness, |p, w, r| {
+            compute_eval_eq_base::<PF<EF>, EF, true>(p, w, r);
+        });
     }
 
     fn run_sumcheck_many_rounds(
@@ -482,6 +441,15 @@ where
     combined_sum
 }
 
+fn take_next_powers<EF: Field>(gamma_pow: &mut EF, gamma: EF, k: usize) -> Vec<EF> {
+    let mut out = Vec::with_capacity(k);
+    for _ in 0..k {
+        out.push(*gamma_pow);
+        *gamma_pow *= gamma;
+    }
+    out
+}
+
 fn build_post_svo_weights<EF>(statements: &[SparseStatement<EF>], gamma: EF, rhos: &[EF]) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>>,
@@ -501,54 +469,37 @@ where
             "build_post_svo_weights requires m >= l_0 (pre-relax eq spills)"
         );
 
-        let k = smt.values.len();
-        let mut alpha_powers: Vec<EF> = Vec::with_capacity(k);
-        for _ in 0..k {
-            alpha_powers.push(gamma_pow);
-            gamma_pow *= gamma;
-        }
+        let alpha_powers = take_next_powers(&mut gamma_pow, gamma, smt.values.len());
 
-        if smt.is_next {
+        let tail_eval: Vec<EF> = if smt.is_next {
             let mut buf = matrix_next_mle_folded(p);
             for &r in rhos {
-                let half = buf.len() / 2;
-                buf = (0..half)
-                    .into_par_iter()
-                    .map(|i| buf[2 * i] + r * (buf[2 * i + 1] - buf[2 * i]))
-                    .collect();
+                buf = lsb_fold(&buf, r);
             }
             debug_assert_eq!(buf.len(), 1usize << (m - l_0));
-            let tail_len = buf.len();
-            for (v, &alpha_j) in smt.values.iter().zip(alpha_powers.iter()) {
-                let base = v.selector * tail_len;
-                let slice = &mut out[base..base + tail_len];
-                slice
-                    .par_iter_mut()
-                    .zip(buf.par_iter())
-                    .for_each(|(o, &b)| *o += alpha_j * b);
-            }
+            buf
         } else {
-            let mut scalar_eq = EF::ONE;
-            for k in 0..l_0 {
-                let p_k = p[m - 1 - k];
-                let r_k = rhos[k];
-                scalar_eq *= p_k * r_k + (EF::ONE - p_k) * (EF::ONE - r_k);
-            }
+            let scalar_eq: EF = (0..l_0)
+                .map(|k| {
+                    let (p_k, r_k) = (p[m - 1 - k], rhos[k]);
+                    p_k * r_k + (EF::ONE - p_k) * (EF::ONE - r_k)
+                })
+                .product();
             let tail = &p[..m - l_0];
-            let tail_eval: Vec<EF> = if tail.is_empty() {
+            if tail.is_empty() {
                 vec![scalar_eq]
             } else {
                 eval_eq_scaled(tail, scalar_eq)
-            };
-            let tail_len = tail_eval.len();
-            for (v, &alpha_j) in smt.values.iter().zip(alpha_powers.iter()) {
-                let base = v.selector * tail_len;
-                let slice = &mut out[base..base + tail_len];
-                slice
-                    .par_iter_mut()
-                    .zip(tail_eval.par_iter())
-                    .for_each(|(o, &t)| *o += alpha_j * t);
             }
+        };
+
+        let tail_len = tail_eval.len();
+        for (v, &alpha_j) in smt.values.iter().zip(&alpha_powers) {
+            let base = v.selector * tail_len;
+            out[base..base + tail_len]
+                .par_iter_mut()
+                .zip(tail_eval.par_iter())
+                .for_each(|(o, &t)| *o += alpha_j * t);
         }
     }
 
@@ -571,19 +522,28 @@ where
     for smt in statement {
         let s = smt.selector_num_variables();
         assert!(s + l_0 <= l, "build_all_compressed_groups requires s + l_0 <= l");
-        let inner_point: Vec<EF> = smt.point.0.clone();
         let sel_bits: Vec<usize> = smt.values.iter().map(|v| v.selector).collect();
-        let mut alpha_powers: Vec<EF> = Vec::with_capacity(smt.values.len());
-        for _ in 0..smt.values.len() {
-            alpha_powers.push(gamma_pow);
-            gamma_pow *= gamma;
-        }
+        let alpha_powers = take_next_powers(&mut gamma_pow, gamma, smt.values.len());
         if smt.is_next {
-            let g = compress_next_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
-            groups.extend(g);
+            groups.extend(compress_next_claim::<EF>(
+                f,
+                &sel_bits,
+                &smt.point.0,
+                &alpha_powers,
+                l,
+                l_0,
+                s,
+            ));
         } else {
-            let g = compress_eq_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
-            groups.push(g);
+            groups.push(compress_eq_claim::<EF>(
+                f,
+                &sel_bits,
+                &smt.point.0,
+                &alpha_powers,
+                l,
+                l_0,
+                s,
+            ));
         }
     }
     groups

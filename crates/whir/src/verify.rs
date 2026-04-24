@@ -191,14 +191,8 @@ where
                 .collect(),
         );
 
-        // WHIR sumcheck folds LSB-first, so the cumulative challenges are in reverse polynomial-var
-        // order. eval_constraints_poly expects them in polynomial-var order, so reverse.
-        let folding_randomness_reversed = {
-            let mut v = folding_randomness.0.clone();
-            v.reverse();
-            MultilinearPoint(v)
-        };
-        let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness_reversed);
+        // WHIR sumcheck folds LSB-first; eval_constraints_poly expects polynomial-var order.
+        let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness.reversed());
 
         // Check the final sumcheck evaluation (coefficient form). For LSB-fold, the sumcheck
         // challenges are already in the order eval_multilinear_coeffs expects (point[0] is the
@@ -253,32 +247,19 @@ where
             verifier_state,
         );
 
-        // dbg!(&stir_challenges_indexes);
-        // dbg!(verifier_state.challenger().state());
-
-        let dimensions = vec![Dimensions {
+        let dimensions = Dimensions {
             height: params.domain_size >> params.folding_factor,
             width: 1 << params.folding_factor,
-        }];
+        };
         let answers = self.verify_merkle_proof::<F>(
             verifier_state,
             &commitment.root,
             &stir_challenges_indexes,
-            &dimensions,
+            dimensions,
             leafs_base_field,
-            round_index,
-            0,
         )?;
 
-        // Compute STIR Constraints. The leaf is laid out so that bit b of the leaf index is the
-        // polynomial's (n-b-1)-th var (LSB-cols matrix); the LSB-fold sumcheck produced these k
-        // challenges in the same order, so evaluate (which is MSB-first on the leaf vars) needs
-        // the reversed point.
-        let folding_randomness_reversed = {
-            let mut v = folding_randomness.0.clone();
-            v.reverse();
-            MultilinearPoint(v)
-        };
+        let folding_randomness_reversed = folding_randomness.reversed();
         let folds: Vec<_> = answers
             .into_iter()
             .map(|answers| answers.evaluate(&folding_randomness_reversed))
@@ -299,61 +280,52 @@ where
         Ok(stir_constraints)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn verify_merkle_proof<F>(
         &self,
         verifier_state: &mut impl FSVerifier<EF>,
         root: &[PF<EF>; DIGEST_ELEMS],
         indices: &[usize],
-        dimensions: &[Dimensions],
+        dimensions: Dimensions,
         leafs_base_field: bool,
-        _round_index: usize,
-        _var_shift: usize,
     ) -> ProofResult<Vec<Vec<EF>>>
     where
         F: Field + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
     {
-        let res = if leafs_base_field {
-            let mut answers = Vec::<Vec<F>>::new();
-            let mut merkle_proofs = Vec::new();
-
-            for _ in 0..indices.len() {
-                let opening = verifier_state.next_merkle_opening()?;
-                answers.push(pack_scalars_to_extension::<PF<EF>, F>(&opening.leaf_data));
-                merkle_proofs.push(opening.path);
-            }
-
-            for (i, &index) in indices.iter().enumerate() {
-                if !merkle_verify::<PF<EF>, F>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    return Err(ProofError::InvalidProof);
-                }
-            }
-
-            answers
+        if leafs_base_field {
+            let answers = self.open_and_verify_leaves::<F>(verifier_state, root, indices, dimensions)?;
+            Ok(answers
                 .into_iter()
-                .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
-                .collect()
+                .map(|inner| inner.into_iter().map(Into::into).collect())
+                .collect())
         } else {
-            let mut answers = vec![];
-            let mut merkle_proofs = Vec::new();
+            self.open_and_verify_leaves::<EF>(verifier_state, root, indices, dimensions)
+        }
+    }
 
-            for _ in 0..indices.len() {
-                let opening = verifier_state.next_merkle_opening()?;
-                answers.push(pack_scalars_to_extension::<PF<EF>, EF>(&opening.leaf_data));
-                merkle_proofs.push(opening.path);
+    fn open_and_verify_leaves<T>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF>,
+        root: &[PF<EF>; DIGEST_ELEMS],
+        indices: &[usize],
+        dimensions: Dimensions,
+    ) -> ProofResult<Vec<Vec<T>>>
+    where
+        T: Field + ExtensionField<PF<EF>>,
+    {
+        let mut answers = Vec::with_capacity(indices.len());
+        let mut paths = Vec::with_capacity(indices.len());
+        for _ in 0..indices.len() {
+            let opening = verifier_state.next_merkle_opening()?;
+            answers.push(pack_scalars_to_extension::<PF<EF>, T>(&opening.leaf_data));
+            paths.push(opening.path);
+        }
+        for (i, &index) in indices.iter().enumerate() {
+            if !merkle_verify::<PF<EF>, T>(*root, index, dimensions, answers[i].clone(), &paths[i]) {
+                return Err(ProofError::InvalidProof);
             }
-
-            for (i, &index) in indices.iter().enumerate() {
-                if !merkle_verify::<PF<EF>, EF>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
-                    return Err(ProofError::InvalidProof);
-                }
-            }
-
-            answers
-        };
-
-        Ok(res)
+        }
+        Ok(answers)
     }
 
     fn eval_constraints_poly(
