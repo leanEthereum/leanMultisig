@@ -472,12 +472,7 @@ where
         let alpha_powers = take_next_powers(&mut gamma_pow, gamma, smt.values.len());
 
         let tail_eval: Vec<EF> = if smt.is_next {
-            let mut buf = matrix_next_mle_folded(p);
-            for &r in rhos {
-                buf = lsb_fold(&buf, r);
-            }
-            debug_assert_eq!(buf.len(), 1usize << (m - l_0));
-            buf
+            rhos.iter().fold(matrix_next_mle_folded(p), |buf, &r| lsb_fold(&buf, r))
         } else {
             let scalar_eq: EF = (0..l_0)
                 .map(|k| {
@@ -554,20 +549,13 @@ where
     EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
     E: Copy + Send + Sync + Sub<E, Output = E>,
 {
-    let n = evals.len();
-    assert_eq!(n, weights.len());
-    assert!(n >= 2 && n.is_power_of_two());
-    let half = n / 2;
-    (0..half)
-        .into_par_iter()
-        .map(|i| {
-            let lo_e = evals[2 * i];
-            let hi_e = evals[2 * i + 1];
-            let lo_w = weights[2 * i];
-            let hi_w = weights[2 * i + 1];
-            // EF on the left so `Mul<E> for EF` is used (Algebra<F> for the base case).
-            (lo_w * lo_e, (hi_w - lo_w) * (hi_e - lo_e))
-        })
+    assert_eq!(evals.len(), weights.len());
+    assert!(evals.len() >= 2 && evals.len().is_power_of_two());
+    // EF on the left so `Mul<E> for EF` is used (Algebra<F> for the base case).
+    evals
+        .par_chunks_exact(2)
+        .zip(weights.par_chunks_exact(2))
+        .map(|(e, w)| (w[0] * e[0], (w[1] - w[0]) * (e[1] - e[0])))
         .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
 }
 
@@ -576,27 +564,15 @@ where
     EF: ExtensionField<PF<EF>> + Mul<E, Output = EF> + From<E>,
     E: Copy + Send + Sync,
 {
-    let l_0 = rhos.len();
-    assert!(evals.len() >= 1 << l_0);
-    let width = 1usize << l_0;
-    let out_len = evals.len() >> l_0;
-    if l_0 == 0 {
+    let width = 1usize << rhos.len();
+    assert!(evals.len() >= width && evals.len().is_multiple_of(width));
+    if rhos.is_empty() {
         return evals.iter().map(|&v| EF::from(v)).collect();
     }
-    let rhos_rev: Vec<EF> = rhos.iter().rev().copied().collect();
-    let tensor = eval_eq(&rhos_rev);
-    debug_assert_eq!(tensor.len(), width);
-
-    (0..out_len)
-        .into_par_iter()
-        .map(|j| {
-            let offset = j * width;
-            let mut acc = EF::ZERO;
-            for k in 0..width {
-                acc += tensor[k] * evals[offset + k];
-            }
-            acc
-        })
+    let tensor = eval_eq(&rhos.iter().rev().copied().collect::<Vec<_>>());
+    evals
+        .par_chunks_exact(width)
+        .map(|chunk| tensor.iter().zip(chunk).map(|(&t, &e)| t * e).sum())
         .collect()
 }
 

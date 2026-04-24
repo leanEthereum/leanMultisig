@@ -66,152 +66,13 @@ pub(crate) fn grid_expand_into<EF: Field>(f: &[EF], l: usize, out: &mut Vec<EF>,
     debug_assert_eq!(cur.len(), out_len);
 }
 
-fn round_fill_l1<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
-    debug_assert_eq!(q.len(), 2);
-    debug_assert_eq!(e.len(), 2);
-    let q_inf = q[1] - q[0];
-    let e_inf = e[1] - e[0];
-    (vec![q[0] * e[0]], vec![q_inf * e_inf])
-}
-
-fn round_fill_l2<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
-    debug_assert_eq!(q.len(), 4);
-    debug_assert_eq!(e.len(), 4);
-
-    // x_1 = 0 face: directly from Boolean evals.
-    let q_00 = q[0];
-    let q_10 = q[1];
-    let q_i0 = q[1] - q[0];
-    let e_00 = e[0];
-    let e_10 = e[1];
-    let e_i0 = e[1] - e[0];
-
-    // x_1 = ∞ face: q(x_0, x_1=∞) = q(x_0, 1) - q(x_0, 0).
-    let q_0i = q[2] - q[0];
-    let q_1i = q[3] - q[1];
-    let q_ii = q_1i - q_0i;
-    let e_0i = e[2] - e[0];
-    let e_1i = e[3] - e[1];
-    let e_ii = e_1i - e_0i;
-
-    (
-        vec![q_00 * e_00, q_10 * e_10, q_i0 * e_i0],
-        vec![q_0i * e_0i, q_1i * e_1i, q_ii * e_ii],
-    )
-}
-
-fn round_fill_l3<EF: Field>(q: &[EF], e: &[EF]) -> (Vec<EF>, Vec<EF>) {
-    debug_assert_eq!(q.len(), 8);
-    debug_assert_eq!(e.len(), 8);
-
-    // x_2 = 0 slice extended over (x_0, x_1) ∈ {0,1,∞}^2.
-    let q_000 = q[0];
-    let q_100 = q[1];
-    let q_010 = q[2];
-    let q_110 = q[3];
-    let q_i00 = q_100 - q_000;
-    let q_i10 = q_110 - q_010;
-    let q_0i0 = q_010 - q_000;
-    let q_1i0 = q_110 - q_100;
-    let q_ii0 = q_i10 - q_i00;
-
-    let e_000 = e[0];
-    let e_100 = e[1];
-    let e_010 = e[2];
-    let e_110 = e[3];
-    let e_i00 = e_100 - e_000;
-    let e_i10 = e_110 - e_010;
-    let e_0i0 = e_010 - e_000;
-    let e_1i0 = e_110 - e_100;
-    let e_ii0 = e_i10 - e_i00;
-
-    // x_2 = 1 slice (needed only to form x_2 = ∞).
-    let q_001 = q[4];
-    let q_101 = q[5];
-    let q_011 = q[6];
-    let q_111 = q[7];
-    let q_i01 = q_101 - q_001;
-    let q_i11 = q_111 - q_011;
-    let q_0i1 = q_011 - q_001;
-    let q_1i1 = q_111 - q_101;
-    let q_ii1 = q_i11 - q_i01;
-
-    let e_001 = e[4];
-    let e_101 = e[5];
-    let e_011 = e[6];
-    let e_111 = e[7];
-    let e_i01 = e_101 - e_001;
-    let e_i11 = e_111 - e_011;
-    let e_0i1 = e_011 - e_001;
-    let e_1i1 = e_111 - e_101;
-    let e_ii1 = e_i11 - e_i01;
-
-    // x_2 = ∞ slice: extrapolate `(..)_1 - (..)_0` pointwise.
-    let q_00i = q_001 - q_000;
-    let q_10i = q_101 - q_100;
-    let q_01i = q_011 - q_010;
-    let q_11i = q_111 - q_110;
-    let q_i0i = q_i01 - q_i00;
-    let q_i1i = q_i11 - q_i10;
-    let q_0ii = q_0i1 - q_0i0;
-    let q_1ii = q_1i1 - q_1i0;
-    let q_iii = q_ii1 - q_ii0;
-
-    let e_00i = e_001 - e_000;
-    let e_10i = e_101 - e_100;
-    let e_01i = e_011 - e_010;
-    let e_11i = e_111 - e_110;
-    let e_i0i = e_i01 - e_i00;
-    let e_i1i = e_i11 - e_i10;
-    let e_0ii = e_0i1 - e_0i0;
-    let e_1ii = e_1i1 - e_1i0;
-    let e_iii = e_ii1 - e_ii0;
-
-    // Output order: j = 3*x_0 + x_1; within each x_0 group, x_1 in {0, 1, ∞}.
-    (
-        vec![
-            q_000 * e_000,
-            q_010 * e_010,
-            q_0i0 * e_0i0,
-            q_100 * e_100,
-            q_110 * e_110,
-            q_1i0 * e_1i0,
-            q_i00 * e_i00,
-            q_i10 * e_i10,
-            q_ii0 * e_ii0,
-        ],
-        vec![
-            q_00i * e_00i,
-            q_01i * e_01i,
-            q_0ii * e_0ii,
-            q_10i * e_10i,
-            q_11i * e_11i,
-            q_1ii * e_1ii,
-            q_i0i * e_i0i,
-            q_i1i * e_i1i,
-            q_iii * e_iii,
-        ],
-    )
-}
-
 pub(crate) fn lagrange_tensor_extend<EF: Field>(out: &mut Vec<EF>, c: EF) {
-    // Lagrange basis at `c` for the evaluation set {0, 1, ∞}:
-    //   L_0(c)   = 1 - c
-    //   L_1(c)   = c
-    //   L_∞(c)   = c (c - 1)
+    // Lagrange basis at `c` for the evaluation set {0, 1, ∞}: L_0 = 1 - c, L_1 = c, L_∞ = c(c - 1).
     let l0 = EF::ONE - c;
-    let l1 = c;
     let l_inf = c * (c - EF::ONE);
-    let old_len = out.len();
-    out.resize(old_len * 3, EF::ZERO);
-    // Walk backwards so writes never overlap unread input.
-    for i in (0..old_len).rev() {
-        let v = out[i];
-        out[3 * i] = v * l0;
-        out[3 * i + 1] = v * l1;
-        out[3 * i + 2] = v * l_inf;
-    }
+    *out = out.iter().flat_map(|&v| [v * l0, v * c, v * l_inf]).collect();
 }
+
 fn reduce_svo_rows_one<EF>(
     rows: &[PF<EF>],
     eq_lo: &[EF],
@@ -389,13 +250,9 @@ where
         let sel_offset = sel_j << (l - s);
 
         let (sig_contrib, eq_contrib) = reduce_svo_rows_two::<EF>(f, &bar_t_split, &e_split, sel_offset, svo_len);
-
         let c_base = sel_offset + ((split_len - 1) << l_0);
         for bsvo in 0..svo_len {
             s_omega[bsvo] += alpha_j * f[c_base + bsvo];
-        }
-
-        for bsvo in 0..svo_len {
             sigma_split[bsvo] += alpha_j * sig_contrib[bsvo];
             p_eq[bsvo] += alpha_j * eq_contrib[bsvo];
         }
@@ -410,18 +267,16 @@ where
         let mut w = vec![EF::ZERO; l_0];
         w[..pivot_pos].copy_from_slice(&inner_point[m_split..m_split + pivot_pos]);
         w[pivot_pos] = EF::ONE;
-        let pb: Vec<EF> = p_eq.iter().map(|v| *v * cp).collect();
-        out.push(CompressedGroup { w_svo: w, p_bar: pb });
-    }
-    let mut pb = s_omega;
-    for v in pb.iter_mut() {
-        *v *= c_omega;
+        out.push(CompressedGroup {
+            w_svo: w,
+            p_bar: p_eq.iter().map(|v| *v * cp).collect(),
+        });
     }
     out.push(CompressedGroup {
         w_svo: vec![EF::ONE; l_0],
-        p_bar: pb,
+        p_bar: s_omega.into_iter().map(|v| v * c_omega).collect(),
     });
-    assert_eq!(out.len(), l_0 + 2);
+    debug_assert_eq!(out.len(), l_0 + 2);
     out
 }
 
@@ -446,12 +301,7 @@ fn build_bar_t_split<EF: Field>(p: &[EF], m_split: usize, m: usize) -> (Vec<EF>,
         if j + 1 < m_split {
             let p_j = p[j];
             let one_minus = EF::ONE - p_j;
-            let mut new_prefix = Vec::with_capacity(2 * prefix_len);
-            for &v in &prefix {
-                new_prefix.push(v * one_minus);
-                new_prefix.push(v * p_j);
-            }
-            prefix = new_prefix;
+            prefix = prefix.iter().flat_map(|&v| [v * one_minus, v * p_j]).collect();
         }
     }
     (bar_t, suf[0])
@@ -484,29 +334,22 @@ where
         e_buf.resize(1 << big_l, EF::ZERO);
         compute_eval_eq::<PF<EF>, EF, false>(&group.w_svo[r_f..], &mut e_buf, EF::ONE);
 
-        let (a, b) = match big_l {
-            1 => round_fill_l1(&q, &e_buf),
-            2 => round_fill_l2(&q, &e_buf),
-            3 => round_fill_l3(&q, &e_buf),
-            _ => {
-                grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
-                grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
+        grid_expand_into(&q, big_l, &mut tilde_q, &mut scratch_q);
+        grid_expand_into(&e_buf, big_l, &mut tilde_e, &mut scratch_e);
 
-                let s = 3_usize.pow(r as u32);
-                let mut a = EF::zero_vec(s);
-                let mut b = EF::zero_vec(s);
-                let fill = |(j, (a_j, b_j)): (usize, (&mut EF, &mut EF))| {
-                    *a_j = tilde_q[3 * j] * tilde_e[3 * j];
-                    *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
-                };
-                if s < PARALLEL_THRESHOLD {
-                    a.iter_mut().zip(b.iter_mut()).enumerate().for_each(fill);
-                } else {
-                    a.par_iter_mut().zip(b.par_iter_mut()).enumerate().for_each(fill);
-                }
-                (a, b)
-            }
+        // Keep only the x_{big_l-1}=0 face (indices 3j) and x_{big_l-1}=∞ face (indices 3j+2).
+        let s = 3_usize.pow(r as u32);
+        let mut a = EF::zero_vec(s);
+        let mut b = EF::zero_vec(s);
+        let fill = |(j, (a_j, b_j)): (usize, (&mut EF, &mut EF))| {
+            *a_j = tilde_q[3 * j] * tilde_e[3 * j];
+            *b_j = tilde_q[3 * j + 2] * tilde_e[3 * j + 2];
         };
+        if s < PARALLEL_THRESHOLD {
+            a.iter_mut().zip(b.iter_mut()).enumerate().for_each(fill);
+        } else {
+            a.par_iter_mut().zip(b.par_iter_mut()).enumerate().for_each(fill);
+        }
         acc_0[r] = a;
         acc_inf[r] = b;
 
@@ -532,24 +375,18 @@ where
 }
 
 pub(crate) fn round_message_with_tensor<EF: Field>(r: usize, lagrange: &[EF], accs: &[AccGroup<EF>]) -> (EF, EF) {
-    let s = 3_usize.pow(r as u32);
-    debug_assert_eq!(lagrange.len(), s);
-
-    let total_work = 2 * s * accs.len();
-    let group_reduce = |acc: &AccGroup<EF>| -> (EF, EF) {
-        debug_assert_eq!(acc.acc_0[r].len(), s);
-        debug_assert_eq!(acc.acc_inf[r].len(), s);
-        let mut c0 = EF::ZERO;
-        let mut c2 = EF::ZERO;
-        for j in 0..s {
-            let l = lagrange[j];
-            c0 += l * acc.acc_0[r][j];
-            c2 += l * acc.acc_inf[r][j];
-        }
-        (c0, c2)
+    debug_assert_eq!(lagrange.len(), 3_usize.pow(r as u32));
+    let group_reduce = |acc: &AccGroup<EF>| {
+        lagrange
+            .iter()
+            .zip(&acc.acc_0[r])
+            .zip(&acc.acc_inf[r])
+            .fold((EF::ZERO, EF::ZERO), |(c0, c2), ((&l, &a0), &ainf)| {
+                (c0 + l * a0, c2 + l * ainf)
+            })
     };
     let add2 = |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2);
-    if total_work < PARALLEL_THRESHOLD {
+    if 2 * lagrange.len() * accs.len() < PARALLEL_THRESHOLD {
         accs.iter().map(group_reduce).fold((EF::ZERO, EF::ZERO), add2)
     } else {
         accs.par_iter().map(group_reduce).reduce(|| (EF::ZERO, EF::ZERO), add2)
