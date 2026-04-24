@@ -198,13 +198,13 @@ where
 // eq-claim compression (Algorithm 1 "alg:compress_sparse" + merge).
 // =========================================================================
 
-/// One `CompressedGroup` per eq-claim group in the non-spill regime (`s <= l - l_0`).
+/// One `CompressedGroup` per eq-claim group. Requires the non-spill regime
+/// (`s <= l - l_0`) — eq spills are absorbed into the point upstream by
+/// [`relax_eq_spill_statements`] before reaching this function.
 /// Merges all `K` selectors via the shared `E_split` table (Algorithm 2 "alg:merge").
 ///
 /// `p_bar[bsvo] = Σ_j alpha_j * Σ_{b' ∈ {0,1}^{l - l_0 - s}} eq(b', p_split) * f(sel_j, b', bsvo)`
 /// where `p_split = p[0..m - l_0]` and `p_svo = p[m - l_0..m]`.
-///
-/// For `s > l - l_0` (selector spills into `wsvo`) use [`compress_eq_spill_claim`].
 pub(crate) fn compress_eq_claim<EF>(
     f: &[PF<EF>],
     sel_bits: &[usize],
@@ -240,57 +240,6 @@ where
         w_svo: p_svo.to_vec(),
         p_bar,
     }
-}
-
-/// Spill-regime eq-claim: `s > l - l_0`. Selector's top `l - l_0` bits pin
-/// the entire split block (boolean-indicator `eq`); the bottom `s - (l - l_0)`
-/// bits spill into `wsvo` as boolean EF coordinates. `inner_point` (length
-/// `m = l - s < l_0`) fills `wsvo`'s remaining trailing coords.
-///
-/// Emits **one CompressedGroup per claim** (claims with different spilled
-/// bits have different `wsvo` and cannot share a `p_bar`).
-pub(crate) fn compress_eq_spill_claim<EF>(
-    f: &[PF<EF>],
-    sel_bits: &[usize],
-    inner_point: &[EF],
-    alpha_powers: &[EF],
-    l: usize,
-    l_0: usize,
-    s: usize,
-) -> Vec<CompressedGroup<EF>>
-where
-    EF: ExtensionField<PF<EF>>,
-{
-    assert_eq!(sel_bits.len(), alpha_powers.len());
-    assert!(s > l - l_0, "compress_eq_spill_claim requires s > l - l_0");
-    let m = l - s;
-    assert_eq!(inner_point.len(), m);
-    let s_split_bool = l - l_0;
-    let s_svo_bool = s - s_split_bool;
-    debug_assert_eq!(s_svo_bool + m, l_0);
-
-    let svo_len = 1usize << l_0;
-    sel_bits
-        .iter()
-        .zip(alpha_powers.iter())
-        .map(|(&sel_j, &alpha_j)| {
-            let sel_top = sel_j >> s_svo_bool;
-            let sel_bot = sel_j & ((1usize << s_svo_bool) - 1);
-
-            // w_svo layout: [spilled bool bits (MSB first) | inner_point], total l_0.
-            let mut w_svo: Vec<EF> = (0..s_svo_bool)
-                .rev()
-                .map(|k| if (sel_bot >> k) & 1 == 1 { EF::ONE } else { EF::ZERO })
-                .collect();
-            w_svo.extend_from_slice(inner_point);
-            debug_assert_eq!(w_svo.len(), l_0);
-
-            // p_bar[bsvo] = alpha_j * f[sel_top * 2^{l_0} + bsvo].
-            let sel_offset = sel_top << l_0;
-            let p_bar: Vec<EF> = (0..svo_len).map(|bsvo| alpha_j * f[sel_offset + bsvo]).collect();
-            CompressedGroup { w_svo, p_bar }
-        })
-        .collect()
 }
 
 // =========================================================================
