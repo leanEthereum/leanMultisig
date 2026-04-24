@@ -65,17 +65,14 @@ where
         let folded_evaluations = &round_state.sumcheck_prover.evals;
         let num_variables = self.num_variables - self.folding_factor.total_number(round_index);
 
-        // Base case: final round reached
         if round_index == self.n_rounds() {
             return self.final_round(round_index, prover_state, round_state);
         }
 
         let round_params = &self.round_parameters[round_index];
 
-        // Compute the folding factors for later use
         let folding_factor_next = self.folding_factor.at_round(round_index + 1);
 
-        // Compute polynomial evaluations and build Merkle tree
         let domain_reduction = 1 << self.rs_reduction_factor(round_index);
         let new_domain_size = round_state.domain_size / domain_reduction;
         let inv_rate = new_domain_size >> num_variables;
@@ -93,7 +90,6 @@ where
 
         prover_state.add_base_scalars(&root);
 
-        // Handle OOD (Out-Of-Domain) samples
         let (ood_points, ood_answers) =
             sample_ood_points::<EF, _>(prover_state, round_params.ood_samples, num_variables, |point| {
                 info_span!("ood evaluation").in_scope(|| folded_evaluations.evaluate(point))
@@ -110,30 +106,20 @@ where
             round_index,
         )?;
 
-        let folding_randomness = round_state.folding_randomness(
-            self.folding_factor.at_round(round_index) + round_state.commitment_merkle_prover_data_b.is_some() as usize,
-        );
+        let folding_randomness = round_state.folding_randomness(self.folding_factor.at_round(round_index));
 
-        // LSB-fold WHIR: the leaf vars are the polynomial's last k vars (matrix LSB-cols), so
-        // evaluate needs the per-round challenges reversed.
         let folding_randomness_reversed = {
             let mut v = folding_randomness.0.clone();
             v.reverse();
             MultilinearPoint(v)
         };
 
-        if round_state.commitment_merkle_prover_data_b.is_some() {
-            // NOTE: the data_b path is unused in current WHIR (only the single-commitment path
-            // is exercised). Left untouched; would need its own LSB-fold-aware reversal logic.
-            unimplemented!("LSB-fold WHIR does not yet handle the data_b commitment path");
-        }
         let stir_evaluations: Vec<EF> =
             open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes)
                 .iter()
                 .map(|answer| answer.evaluate(&folding_randomness_reversed))
                 .collect();
 
-        // Randomness for combination
         let combination_randomness_gen: EF = prover_state.sample();
         let ood_combination_randomness: Vec<_> = combination_randomness_gen.powers().collect_n(ood_challenges.len());
         round_state
@@ -159,12 +145,10 @@ where
 
         round_state.randomness_vec.extend_from_slice(&next_folding_randomness.0);
 
-        // Update round state
         round_state.domain_size = new_domain_size;
         round_state.next_domain_gen =
             PF::<EF>::two_adic_generator(log2_strict_usize(new_domain_size) - folding_factor_next);
         round_state.merkle_prover_data = prover_data;
-        round_state.commitment_merkle_prover_data_b = None;
 
         Ok(())
     }
@@ -187,9 +171,7 @@ where
 
         prover_state.pow_grinding(self.final_query_pow_bits);
 
-        // Final verifier queries and answers. The indices are over the folded domain.
         let final_challenge_indexes = get_challenge_stir_queries(
-            // The size of the original domain before folding
             round_state.domain_size >> self.folding_factor.at_round(round_index),
             self.final_queries,
             prover_state,
@@ -225,7 +207,6 @@ where
             prover_state.hint_merkle_paths_extension(ext_paths);
         }
 
-        // Run final sumcheck if required
         if self.final_sumcheck_rounds > 0 {
             let final_folding_randomness =
                 round_state
@@ -312,11 +293,8 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
 
 #[derive(Debug, Clone)]
 pub struct SumcheckSingle<EF: ExtensionField<PF<EF>>> {
-    /// Evaluations of the polynomial `p(X)` (extension, unpacked).
     pub(crate) evals: MleOwned<EF>,
-    /// Evaluations of the equality polynomial used for enforcing constraints.
     pub(crate) weights: Vec<EF>,
-    /// Accumulated sum incorporating equality constraints.
     pub(crate) sum: EF,
 }
 
@@ -372,8 +350,6 @@ where
             .sum::<EF>();
     }
 
-    /// LSB-fold sumcheck: each round folds bit 0 of the eval/weight indices.
-    /// No SIMD packing — operates on plain `Vec<EF>`.
     fn run_sumcheck_many_rounds(
         &mut self,
         prover_state: &mut impl FSProver<EF>,
@@ -400,18 +376,6 @@ where
         MultilinearPoint(challenges)
     }
 
-    /// SVO + split-eq variant of the initial WHIR sumcheck rounds. Replaces
-    /// the per-round `(c0, c2)` scan over the weight polynomial with a ternary
-    /// accumulator pipeline (see `svo.rs` / `misc/whir_sumcheck.tex`).
-    ///
-    /// Eq-claims with `m < l_0` (selector spilling into the SVO block) are
-    /// transparently relaxed to `m = l_0` by [`relax_eq_spill_statements`]
-    /// before the accumulator pipeline runs — so all downstream code can
-    /// assume `s + l_0 <= l` for eq claims. Nxt-claims with `m < l_0` are
-    /// rejected: `next_mle` does not admit the same boolean-prefix
-    /// absorption, and in practice nxt points always satisfy `m >= l_0`
-    /// (their `m` is the length of the committed trace point, which is
-    /// larger than the first folding factor).
     #[instrument(skip_all)]
     pub(crate) fn run_initial_sumcheck_rounds_svo(
         evals: &MleRef<'_, EF>,
@@ -421,30 +385,18 @@ where
         folding_factor: usize,
         pow_bits: usize,
     ) -> (Self, MultilinearPoint<EF>) {
-        assert_ne!(folding_factor, 0);
         let l = statement[0].total_num_variables;
         let l_0 = folding_factor;
 
-        // Nxt-claims require `m >= l_0`: the bucketed algorithm's geometric
-        // picture needs a non-empty svo block inside the inner point, and
-        // `next_mle` does not factor under boolean-prefix absorption. This
-        // is a caller contract — in practice nxt points come from committed
-        // trace rows with `m` well above the first folding factor.
         assert!(
             statement.iter().all(|e| !e.is_next || e.inner_num_variables() >= l_0),
-            "nxt-spill is not supported by SVO: every nxt statement must have inner_num_variables >= folding_factor",
+            "next-spill is currently unimplemented",
         );
 
         let relaxed_statement = relax_eq_spill_statements(statement, l_0);
 
-        // Phase 3: compute the initial running sum directly from the
-        // statements (Σ γ^i · value_i) — we do not need the structured
-        // `SplitWeights` representation during the SVO rounds. The post-SVO
-        // weight vector is built once, at the end, via
-        // [`build_post_svo_weights`].
         let mut sum = build_initial_sum(&relaxed_statement, combination_randomness);
 
-        // Unpack evals (zero-copy for base) and build CompressedGroups.
         let unpacked_mle = evals.unpack();
         let unpacked_ref = unpacked_mle.by_ref();
         let f = unpacked_ref
@@ -456,10 +408,6 @@ where
 
         let mut challenges: Vec<EF> = Vec::with_capacity(l_0);
 
-        // Run all l_0 SVO rounds using only the accumulator pipeline — no
-        // per-round fold of `f`. Challenges are collected in natural sampling
-        // order (ρ_0, ρ_1, .., ρ_{l_0 - 1}). A persistent Lagrange tensor is
-        // extended once per round instead of rebuilt from scratch.
         let mut lagrange: Vec<EF> = vec![EF::ONE];
         while challenges.len() < l_0 {
             let r = challenges.len();
@@ -470,9 +418,6 @@ where
             lagrange_tensor_extend(&mut lagrange, rho);
         }
 
-        // Single-pass tensor fold of `f` down to size 2^{l - l_0}. Base-field
-        // input keeps each multiply at `EF · F` cost (instead of promoting to
-        // EF after round 0, which would force `EF · EF` on subsequent rounds).
         let evals_ext: Vec<EF> = fold_by_tensor::<EF, _>(f, &challenges);
 
         let weights = build_post_svo_weights(&relaxed_statement, combination_randomness, &challenges);
@@ -486,28 +431,6 @@ where
     }
 }
 
-/// Rewrite any eq statement with `m < l_0` (selector spills into the SVO
-/// block) into one sub-statement per value, each with `m = l_0` and a residual
-/// selector of `l - l_0` bits. Identity for statements already satisfying
-/// `m >= l_0` and for nxt statements (which are gated out before this point).
-///
-/// For a value with selector `sel` of `s = l - m` bits, let `extra = l_0 - m`.
-/// Split `sel = top · bot` where `top` holds the upper `s - extra = l - l_0`
-/// bits and `bot` holds the lower `extra` bits. Using `eq(sel, x_{1..s}) =
-/// eq(top, x_{1..s-extra}) · eq(bot, x_{s-extra+1..s})`, the `eq(bot, ·)`
-/// factor moves into the point as `extra` boolean coordinates prepended to
-/// the original point. The new statement has point
-/// `[bit_{extra-1}, …, bit_0, p[0], …, p[m-1]]` (length `l_0`) and a single
-/// value `(selector = top, value = v.value)`.
-///
-/// Bit ordering: bit `k` of `bot` lives at point index `extra - 1 - k`,
-/// matching the selector-to-variable convention used by the verifier in
-/// `eval_constraints_poly` (selector bit `s-1` pairs with the leading
-/// coordinate of its variable block).
-///
-/// Emitting one sub-statement per value (rather than merging by `bot`)
-/// preserves the original value order, so `Σ γ^i · v_i` — and hence the
-/// verifier's `combined_sum` — is unchanged.
 fn relax_eq_spill_statements<EF>(statements: &[SparseStatement<EF>], l_0: usize) -> Vec<SparseStatement<EF>>
 where
     EF: ExtensionField<PF<EF>>,
@@ -545,8 +468,6 @@ where
     out
 }
 
-/// Initial running sum `Σ γ^i · value_i` matching
-/// [`SplitWeights::from_statements`]'s `combined_sum` output.
 fn build_initial_sum<EF>(statements: &[SparseStatement<EF>], gamma: EF) -> EF
 where
     EF: ExtensionField<PF<EF>>,
@@ -562,22 +483,6 @@ where
     combined_sum
 }
 
-/// Build the post-SVO weight vector of size `2^{n - l_0}` directly from the
-/// sparse statements and the sampled `rhos = (ρ_0, .., ρ_{l_0 - 1})`.
-///
-/// Equivalent to `SplitWeights::from_statements(statement, γ).fold(ρ_0)...
-/// .fold(ρ_{l_0-1}).into_flat(2^{n - l_0})`, but skips the per-round
-/// `Θ(2^{n - r})` fold of the dense buffer (see Phase 3 in
-/// `whir_sumcheck_optim.md`).
-///
-/// Per-claim contribution to the post-SVO weight slice at selector `sel_j`:
-/// - **eq:** `α_j · scalar_eq · eval_eq(p[..m - l_0])` where
-///   `scalar_eq = Π_{k=0}^{l_0 - 1} eq(p[m - 1 - k], ρ_k)`.
-/// - **nxt:** `α_j · next_folded`, where `next_folded` is
-///   `matrix_next_mle_folded(p)` folded `l_0` times by the `ρ`s.
-///
-/// Requires `m >= l_0` for every statement — caller must pre-relax eq spills
-/// via [`relax_eq_spill_statements`] and gate out nxt spills.
 fn build_post_svo_weights<EF>(statements: &[SparseStatement<EF>], gamma: EF, rhos: &[EF]) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>>,
@@ -605,8 +510,6 @@ where
         }
 
         if smt.is_next {
-            // Materialize and fold `l_0` times. The dense `2^n` OOD buffer
-            // is never folded — the nxt inner poly has size `2^m ≤ 2^n`.
             let mut buf = matrix_next_mle_folded(p);
             for &r in rhos {
                 let half = buf.len() / 2;
@@ -626,7 +529,6 @@ where
                     .for_each(|(o, &b)| *o += alpha_j * b);
             }
         } else {
-            // scalar_eq = Π_{k=0}^{l_0-1} eq(p[m-1-k], ρ_k).
             let mut scalar_eq = EF::ONE;
             for k in 0..l_0 {
                 let p_k = p[m - 1 - k];
@@ -654,13 +556,6 @@ where
     out
 }
 
-/// Translate `SparseStatement`s into SVO-ready `CompressedGroup`s, preserving
-/// the per-claim `gamma`-power order of [`SplitWeights::from_statements`] (so
-/// the `(c0, c2)` output of the two paths matches exactly).
-///
-/// Requires `s + l_0 <= l` for every claim: eq spills must be relaxed upstream
-/// via [`relax_eq_spill_statements`], and nxt spills must be gated to the
-/// flat-path fallback.
 #[instrument(skip_all)]
 fn build_all_compressed_groups<EF>(
     statement: &[SparseStatement<EF>],
@@ -685,7 +580,7 @@ where
             gamma_pow *= gamma;
         }
         if smt.is_next {
-            let g = compress_next_claim_bucketed::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
+            let g = compress_next_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
             groups.extend(g);
         } else {
             let g = compress_eq_claim::<EF>(f, &sel_bits, &inner_point, &alpha_powers, l, l_0, s);
@@ -695,13 +590,6 @@ where
     groups
 }
 
-/// Compute the `(c0, c2)` coefficients of the LSB-fold round polynomial from a flat weight vector.
-///
-/// The round polynomial is `p(z) = c0 + c1·z + c2·z^2` where `c1 = sum - 2·c0 - c2`. We return
-/// only `c0` and `c2`; the caller derives `c1` from the running sum.
-///
-/// Generic over the eval type: `E = EF` uses EF · EF, `E = PF<EF>` uses `EF · F` via
-/// `Algebra<F>` (5× cheaper per mul on EF5/KoalaBear) for the round-0 hot loop.
 fn round_coeffs_flat<EF, E>(evals: &[E], weights: &[EF]) -> (EF, EF)
 where
     EF: ExtensionField<PF<EF>> + Mul<E, Output = EF>,
@@ -724,13 +612,7 @@ where
         .reduce(|| (EF::ZERO, EF::ZERO), |(a0, a2), (b0, b2)| (a0 + b0, a2 + b2))
 }
 
-/// Fold an evaluation table by `l_0` LSB-fold challenges in a single pass via the eq-tensor
-/// `eval_eq([ρ_{l_0-1}, .., ρ_0])`.
-///
-/// Equivalent to iterating `lsb_fold_base_to_ext(evals, ρ_0)` followed by `lsb_fold(.., ρ_k)` for
-/// k = 1..l_0, but reads each `evals` entry exactly once. For `E = PF<EF>` the inner mul is
-/// `EF · F` (via `Algebra<F>`), ~5× cheaper than the iterated fold which promotes to `EF · EF`
-/// after round 0.
+
 fn fold_by_tensor<EF, E>(evals: &[E], rhos: &[EF]) -> Vec<EF>
 where
     EF: ExtensionField<PF<EF>> + Mul<E, Output = EF> + From<E>,
@@ -760,8 +642,6 @@ where
         .collect()
 }
 
-/// Finish a sumcheck round given the computed `(c0, c2)`: derive `c1`, send the polynomial over
-/// Fiat-Shamir, grind, sample the challenge, update the running `sum`, and return the challenge.
 fn sumcheck_finish_round<EF: ExtensionField<PF<EF>>>(
     c0: EF,
     c2: EF,
@@ -778,8 +658,6 @@ fn sumcheck_finish_round<EF: ExtensionField<PF<EF>>>(
     r
 }
 
-/// Compute one LSB-fold sumcheck round for the product `evals * weights`,
-/// send the round polynomial, sample a challenge, and update `sum` to its evaluation at the challenge.
 #[instrument(skip_all)]
 fn lsb_sumcheck_round<EF: ExtensionField<PF<EF>>>(
     evals: &[EF],
@@ -805,7 +683,6 @@ where
     domain_size: usize,
     next_domain_gen: PF<EF>,
     sumcheck_prover: SumcheckSingle<EF>,
-    commitment_merkle_prover_data_b: Option<MerkleData<EF>>,
     merkle_prover_data: MerkleData<EF>,
     randomness_vec: Vec<EF>,
 }
@@ -855,7 +732,6 @@ where
             ),
             sumcheck_prover,
             merkle_prover_data: witness.prover_data,
-            commitment_merkle_prover_data_b: None,
             randomness_vec: folding_randomness.0.clone(),
         })
     }
