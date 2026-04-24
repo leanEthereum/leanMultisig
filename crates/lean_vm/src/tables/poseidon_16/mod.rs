@@ -207,8 +207,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     fn degree_air(&self) -> usize {
         9
     }
-    fn low_degree_air(&self) -> Option<usize> {
-        Some(3)
+    fn low_degree_air(&self) -> Option<(usize, usize)> {
+        // Each partial round contributes one `assert_eq_low` per round (1 S-box / round), of degree 3 (= the "low" degree part)
+        Some((3, PARTIAL_ROUNDS))
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
@@ -283,33 +284,33 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
         );
     }
 
-    if builder.is_skip_low() {
-        let cached = builder.get_cached_state();
-        state[..WIDTH].copy_from_slice(&cached[..WIDTH]);
-        for _ in 0..PARTIAL_ROUNDS {
-            builder.assert_eq_low(AB::IF::ZERO, AB::IF::ZERO);
-        }
-    } else {
+    // --- Sparse partial rounds ---
+    // Transition: add first-round constants, multiply by m_i
+    builder.low_degree_block(&mut state, |b, state| {
+        let state: &mut [AB::IF; WIDTH] = state.try_into().unwrap();
+
         let frc = poseidon1_sparse_first_round_constants();
         for (s, &c) in state.iter_mut().zip(frc.iter()) {
             add_kb(s, c);
         }
-        dense_mat_vec_air_16(poseidon1_sparse_m_i(), &mut state);
+        dense_mat_vec_air_16(poseidon1_sparse_m_i(), state);
 
         let first_rows = poseidon1_sparse_first_row();
         let v_vecs = poseidon1_sparse_v();
         let scalar_rc = poseidon1_sparse_scalar_round_constants();
         for round in 0..PARTIAL_ROUNDS {
+            // S-box on state[0]
             state[0] = state[0].cube();
-            builder.assert_eq_low(state[0], local.partial_rounds[round]);
+            b.assert_eq_low(state[0], local.partial_rounds[round]);
             state[0] = local.partial_rounds[round];
+            // Scalar round constant (not on last round)
             if round < PARTIAL_ROUNDS - 1 {
                 add_kb(&mut state[0], scalar_rc[round]);
             }
-            sparse_mat_air_16(&mut state, &first_rows[round], &v_vecs[round]);
+            // Sparse matrix: new_s0 = dot(first_row, state), state[i] += old_s0 * v[i-1]
+            sparse_mat_air_16(state, &first_rows[round], &v_vecs[round]);
         }
-        builder.store_cached_state(&state);
-    }
+    });
 
     let final_constants = poseidon1_final_constants();
     for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {
