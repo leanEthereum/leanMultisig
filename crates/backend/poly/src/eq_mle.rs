@@ -85,7 +85,6 @@ where
 /// If INITIALIZED is:
 /// - false: the result is directly set to the `out` buffer
 /// - true: the result is added to the `out` buffer
-#[inline]
 pub fn compute_eval_eq<F, EF, const INITIALIZED: bool>(eval: &[EF], out: &mut [EF], scalar: EF)
 where
     F: Field,
@@ -113,41 +112,42 @@ where
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
-    } else {
-        let log_packing_width = log2_strict_usize(packing_width);
-        let eval_len_min_packing = eval.len() - log_packing_width;
-
-        // We split eval into three parts:
-        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
-        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
-        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
-
-        // The middle elements are the ones which will be computed in parallel.
-        // The last log_packing_width elements are the ones which will be packed.
-
-        // We make a buffer of elements of size `NUM_THREADS`.
-        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
-
-        // Compute the equality polynomial corresponding to the last log_packing_width elements
-        // and pack these.
-        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
-
-        // Update the buffer so it contains the evaluations of the equality polynomial
-        // with respect to parts one and three.
-        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
-
-        // Finally do all computations involving the middle elements in parallel.
-        out.par_chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                eval_eq_with_packed_scalar::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                );
-            });
+        return;
     }
+
+    let log_packing_width = log2_strict_usize(packing_width);
+    let eval_len_min_packing = eval.len() - log_packing_width;
+
+    // We split eval into three parts:
+    // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
+    // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
+    // - eval[eval_len_min_packing..] (the last log_packing_width elements)
+
+    // The middle elements are the ones which will be computed in parallel.
+    // The last log_packing_width elements are the ones which will be packed.
+
+    // We make a buffer of elements of size `NUM_THREADS`.
+    let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
+    let out_chunk_size = out.len() / NUM_THREADS;
+
+    // Compute the equality polynomial corresponding to the last log_packing_width elements
+    // and pack these.
+    parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], scalar);
+
+    // Update the buffer so it contains the evaluations of the equality polynomial
+    // with respect to parts one and three.
+    fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
+
+    // Finally do all computations involving the middle elements in parallel.
+    out.par_chunks_exact_mut(out_chunk_size)
+        .zip(parallel_buffer.par_iter())
+        .for_each(|(out_chunk, buffer_val)| {
+            eval_eq_with_packed_scalar::<_, _, INITIALIZED>(
+                &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                out_chunk,
+                *buffer_val,
+            );
+        });
 }
 
 #[inline]
@@ -241,7 +241,6 @@ where
 /// If INITIALIZED is:
 /// - false: the result is directly set to the `out` buffer
 /// - true: the result is added to the `out` buffer
-#[inline]
 pub fn compute_eval_eq_base<F, EF, const INITIALIZED: bool>(eval: &[F], out: &mut [EF], scalar: EF)
 where
     F: Field,
@@ -259,45 +258,46 @@ where
     if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
-    } else {
-        let log_packing_width = log2_strict_usize(packing_width);
-        let eval_len_min_packing = eval.len() - log_packing_width;
-
-        // We split eval into three parts:
-        // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
-        // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
-        // - eval[eval_len_min_packing..] (the last log_packing_width elements)
-
-        // The middle elements are the ones which will be computed in parallel.
-        // The last log_packing_width elements are the ones which will be packed.
-
-        // We make a buffer of PackedField elements of size `NUM_THREADS`.
-        // Note that this is a slightly different strategy to `eval_eq` which instead
-        // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
-        // operations, it seems to be faster in practice due to less data moving around.
-        let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
-
-        // Compute the equality polynomial corresponding to the last log_packing_width elements
-        // and pack these.
-        parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], F::ONE);
-
-        // Update the buffer so it contains the evaluations of the equality polynomial
-        // with respect to parts one and three.
-        fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
-
-        // Finally do all computations involving the middle elements in parallel.
-        out.par_chunks_exact_mut(out_chunk_size)
-            .zip(parallel_buffer.par_iter())
-            .for_each(|(out_chunk, buffer_val)| {
-                base_eval_eq_packed::<_, _, INITIALIZED>(
-                    &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
-                    out_chunk,
-                    *buffer_val,
-                    scalar,
-                );
-            });
+        return;
     }
+
+    let log_packing_width = log2_strict_usize(packing_width);
+    let eval_len_min_packing = eval.len() - log_packing_width;
+
+    // We split eval into three parts:
+    // - eval[..LOG_NUM_THREADS] (the first LOG_NUM_THREADS elements)
+    // - eval[LOG_NUM_THREADS..eval_len_min_packing] (the middle elements)
+    // - eval[eval_len_min_packing..] (the last log_packing_width elements)
+
+    // The middle elements are the ones which will be computed in parallel.
+    // The last log_packing_width elements are the ones which will be packed.
+
+    // We make a buffer of PackedField elements of size `NUM_THREADS`.
+    // Note that this is a slightly different strategy to `eval_eq` which instead
+    // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
+    // operations, it seems to be faster in practice due to less data moving around.
+    let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
+    let out_chunk_size = out.len() / NUM_THREADS;
+
+    // Compute the equality polynomial corresponding to the last log_packing_width elements
+    // and pack these.
+    parallel_buffer[0] = packed_eq_poly(&eval[eval_len_min_packing..], F::ONE);
+
+    // Update the buffer so it contains the evaluations of the equality polynomial
+    // with respect to parts one and three.
+    fill_buffer(eval[..LOG_NUM_THREADS].iter().rev(), &mut parallel_buffer);
+
+    // Finally do all computations involving the middle elements in parallel.
+    out.par_chunks_exact_mut(out_chunk_size)
+        .zip(parallel_buffer.par_iter())
+        .for_each(|(out_chunk, buffer_val)| {
+            base_eval_eq_packed::<_, _, INITIALIZED>(
+                &eval[LOG_NUM_THREADS..(eval.len() - log_packing_width)],
+                out_chunk,
+                *buffer_val,
+                scalar,
+            );
+        });
 }
 
 #[inline]
