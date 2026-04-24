@@ -185,208 +185,18 @@ where
         RowMajorMatrix::new(V::reconstitute_from_base(base_dft_output.values), init_width)
     }
 
-    /// Fused "prepare + initial FFT layers" pass.
+    /// DFT of `source` duplicated `2^log_inv_rate` times along the row axis.
     ///
-    /// Background: the standard pipeline duplicates each source row `2^log_inv_rate` times
-    /// into a full-size buffer (height `h = source_rows << log_inv_rate`) and then runs the
-    /// size-h FFT. The first `log_inv_rate` butterfly layers pair identical rows and are
-    /// no-ops, so the first non-trivial layer is layer `log_inv_rate`, which pairs source
-    /// rows `2c` and `2c+1` using `2^log_inv_rate` twiddles. The subsequent cache-resident
-    /// layers (up through `log_num_par_rows - 1`) can run inside the same L1-sized chunk.
+    /// Rather than materialise the `h = source_rows << log_inv_rate` expanded buffer, we
+    /// note that layers `0..log_inv_rate` of the size-`h` FFT act on identical row pairs
+    /// and are no-ops — so the first non-trivial layer is `log_inv_rate`, which pairs
+    /// source rows `2c` and `2c+1` via `2^log_inv_rate` twiddles. This function fuses the
+    /// expansion with that layer (and as many subsequent cache-resident layers as fit in
+    /// an L1-sized "super-chunk") in one pass over the output buffer. Remaining layers are
+    /// then handed to the standard parallel DFT.
     ///
-    /// This function does all of the above in a single pass over L1-sized super-chunks:
-    ///   1. Allocate the full-size output buffer (uninitialised).
-    ///   2. For each super-chunk (`num_par_rows` rows, i.e. the size `par_initial_layers`
-    ///      would use), compute layer `log_inv_rate` directly from the compact source and
-    ///      write the resulting `chunks_per_super` layer-r chunks into the super-chunk.
-    ///   3. Within the same super-chunk, run layers `log_inv_rate + 1`..`log_num_par_rows -
-    ///      1` normally (strides small enough to stay inside the super-chunk).
-    ///
-    /// Because each rayon iteration covers `num_par_rows` rows and executes
-    /// `log_num_par_rows - log_inv_rate` butterfly layers, scheduling overhead is amortised
-    /// and the data stays L1-resident across those layers — the same property that makes
-    /// `par_initial_layers` fast in the regular pipeline.
-    ///
-    /// The caller should then run the remaining layers `log_num_par_rows..log_h - 1` via
-    /// `dft_batch_by_evals_skip_initial_with_zero_tail` with `skip_initial = log_num_par_rows`
-    /// and the returned `zero_start_rows` hint.
-    ///
-    /// `source` has `source_rows * w` elements laid out in row-major order.
-    /// `non_zero_prefix_rows` is the number of source rows that may be non-zero; rows past
-    /// that are promised to be zero, so the corresponding super-chunks are zero-filled and
-    /// the subsequent layers can skip them.
-    pub(crate) fn fused_prepare_and_initial_layers(
-        &self,
-        source: &[F],
-        w: usize,
-        log_inv_rate: usize,
-        non_zero_prefix_rows: usize,
-    ) -> (Vec<F>, usize, usize) {
-        assert!(log_inv_rate >= 1);
-        debug_assert_eq!(source.len() % w, 0);
-        let source_rows = source.len() / w;
-        debug_assert!(source_rows.is_power_of_two());
-        let h = source_rows << log_inv_rate;
-        let out_len = h * w;
-        let log_h = log2_strict_usize(h);
-        assert!(log_inv_rate < log_h);
-
-        // Match `dft_batch_by_evals`'s L1-tuned chunking.
-        let num_par_rows = estimate_num_rows_in_l1::<F>(h, w);
-        let log_num_par_rows = log2_strict_usize(num_par_rows).min(log_h);
-
-        // If the super-chunk is too small to hold even one layer-`log_inv_rate` chunk, we
-        // can't fuse subsequent layers in — fall back to the one-layer variant handled
-        // separately below.
-        if log_num_par_rows <= log_inv_rate {
-            let (vec, zero_start_rows) =
-                self.fused_prepare_and_single_layer(source, w, log_inv_rate, non_zero_prefix_rows);
-            return (vec, zero_start_rows, log_inv_rate + 1);
-        }
-
-        let super_chunk_size = num_par_rows * w;
-        let layer_r_chunk_size = (2 << log_inv_rate) * w; // = 2^(log_inv_rate+1) * w
-        let chunks_per_super = num_par_rows >> (log_inv_rate + 1); // layer-r chunks that fit in a super-chunk
-
-        // Number of initial layers executed in the fused step: layer `log_inv_rate`, plus
-        // (`log_num_par_rows - log_inv_rate - 1`) further layers that fit inside the L1
-        // super-chunk, for a total of `log_num_par_rows - log_inv_rate` layers.
-        let layers_done = log_num_par_rows;
-
-        // Round `non_zero_prefix_rows` up to an even number so every layer-r chunk reads two
-        // source rows that are either both in the data region or both in the zero tail.
-        let non_zero_rows = non_zero_prefix_rows.next_multiple_of(2).min(source_rows);
-        let non_zero_chunks_r = non_zero_rows / 2;
-        // A super-chunk is fully zero when every layer-r chunk inside it is in the zero
-        // region, i.e. its first layer-r chunk index is >= `non_zero_chunks_r`.
-        let non_zero_super_chunks = non_zero_chunks_r.div_ceil(chunks_per_super);
-
-        self.update_twiddles(h);
-        let root_table_guard = self.twiddles.read().unwrap();
-        let len = root_table_guard.len();
-        // Layer `log_inv_rate` twiddles (2^log_inv_rate elements).
-        let layer_r_twiddles: &[EvalsButterfly<F>] =
-            unsafe { as_base_slice::<EvalsButterfly<F>, F>(&root_table_guard[len - 1 - log_inv_rate]) };
-        // Twiddle tables for layers `log_inv_rate + 1`..`log_num_par_rows - 1`. In the global
-        // table, layer `i` of the size-h FFT uses the entry at `len - 1 - i`. Iterated in
-        // reverse by `initial_layers`, the smallest index corresponds to the earliest layer.
-        let post_r_root_table: &[Vec<F>] = &root_table_guard[len - log_num_par_rows..len - 1 - log_inv_rate];
-
-        let mut out = unsafe { uninitialized_vec::<F>(out_len) };
-
-        out.par_chunks_exact_mut(super_chunk_size)
-            .enumerate()
-            .for_each(|(sc, super_chunk)| {
-                if sc >= non_zero_super_chunks {
-                    // Every layer-r chunk in this super-chunk is fully zero, and all
-                    // subsequent butterflies in the fused layers are zero-preserving, so
-                    // just zero the super-chunk and skip the rest of the work.
-                    super_chunk.fill(F::ZERO);
-                    return;
-                }
-
-                // Phase 1: compute layer `log_inv_rate` for each layer-r chunk in this
-                // super-chunk, reading from the compact source.
-                for local_c in 0..chunks_per_super {
-                    let global_c = sc * chunks_per_super + local_c;
-                    let chunk_slot = &mut super_chunk[local_c * layer_r_chunk_size..(local_c + 1) * layer_r_chunk_size];
-
-                    if global_c < non_zero_chunks_r {
-                        let src_left = &source[2 * global_c * w..(2 * global_c + 1) * w];
-                        let src_right = &source[(2 * global_c + 1) * w..(2 * global_c + 2) * w];
-                        let (left_half, right_half) = chunk_slot.split_at_mut(layer_r_chunk_size / 2);
-                        for (j, twiddle) in layer_r_twiddles.iter().enumerate() {
-                            let out_left = &mut left_half[j * w..(j + 1) * w];
-                            let out_right = &mut right_half[j * w..(j + 1) * w];
-                            if j == 0 {
-                                butterfly_out_of_place(
-                                    TwiddleFreeEvalsButterfly,
-                                    src_left,
-                                    src_right,
-                                    out_left,
-                                    out_right,
-                                );
-                            } else {
-                                butterfly_out_of_place(*twiddle, src_left, src_right, out_left, out_right);
-                            }
-                        }
-                    } else {
-                        // Individual layer-r chunk in zero region; phase-2 layers would just
-                        // keep it zero, so zero it here and continue.
-                        chunk_slot.fill(F::ZERO);
-                    }
-                }
-
-                // Phase 2: run the remaining cache-local layers (`log_inv_rate + 1` through
-                // `log_num_par_rows - 1`) inside this super-chunk. This is exactly what
-                // `initial_layers` would run if it had been handed the super-chunk.
-                if !post_r_root_table.is_empty() {
-                    initial_layers(super_chunk, post_r_root_table, w);
-                }
-            });
-
-        drop(root_table_guard);
-
-        // After `layers_done` layers, the non-zero region has been rounded up to the
-        // containing super-chunk boundary.
-        let zero_start_rows = non_zero_super_chunks.saturating_mul(num_par_rows).min(h);
-        (out, zero_start_rows, layers_done)
-    }
-
-    /// Fallback used when `log_num_par_rows <= log_inv_rate`, so only layer `log_inv_rate`
-    /// itself is run in the fused pass. Produces the same output as the standard
-    /// `prepare -> dft_batch(skip_initial = log_inv_rate)` pipeline up through layer
-    /// `log_inv_rate`.
-    fn fused_prepare_and_single_layer(
-        &self,
-        source: &[F],
-        w: usize,
-        log_inv_rate: usize,
-        non_zero_prefix_rows: usize,
-    ) -> (Vec<F>, usize) {
-        let source_rows = source.len() / w;
-        let h = source_rows << log_inv_rate;
-        let out_len = h * w;
-
-        self.update_twiddles(h);
-        let twiddles: Vec<EvalsButterfly<F>> = {
-            let root_table = self.twiddles.read().unwrap();
-            let len = root_table.len();
-            let raw: &[F] = &root_table[len - 1 - log_inv_rate];
-            unsafe { as_base_slice::<EvalsButterfly<F>, F>(raw) }.to_vec()
-        };
-
-        let non_zero_rows = non_zero_prefix_rows.next_multiple_of(2).min(source_rows);
-        let non_zero_chunks = non_zero_rows / 2;
-        let chunk_size = (2 << log_inv_rate) * w;
-        let mut out = unsafe { uninitialized_vec::<F>(out_len) };
-
-        out.par_chunks_exact_mut(chunk_size)
-            .enumerate()
-            .for_each(|(c, output_chunk)| {
-                if c < non_zero_chunks {
-                    let src_left = &source[2 * c * w..(2 * c + 1) * w];
-                    let src_right = &source[(2 * c + 1) * w..(2 * c + 2) * w];
-                    let (left_half, right_half) = output_chunk.split_at_mut(chunk_size / 2);
-                    for (j, twiddle) in twiddles.iter().enumerate() {
-                        let out_left = &mut left_half[j * w..(j + 1) * w];
-                        let out_right = &mut right_half[j * w..(j + 1) * w];
-                        if j == 0 {
-                            butterfly_out_of_place(TwiddleFreeEvalsButterfly, src_left, src_right, out_left, out_right);
-                        } else {
-                            butterfly_out_of_place(*twiddle, src_left, src_right, out_left, out_right);
-                        }
-                    }
-                } else {
-                    output_chunk.fill(F::ZERO);
-                }
-            });
-
-        let zero_start_rows = non_zero_chunks << (log_inv_rate + 1);
-        (out, zero_start_rows)
-    }
-
-    /// Runs the fused initial pass and then the remaining FFT layers.
+    /// `non_zero_prefix_rows` promises that source rows past that index are zero, so the
+    /// corresponding super-chunks are zero-filled and the later layers skip them.
     #[instrument(skip_all)]
     pub(crate) fn fused_prepare_and_dft(
         &self,
@@ -395,29 +205,78 @@ where
         log_inv_rate: usize,
         non_zero_prefix_rows: usize,
     ) -> RowMajorMatrix<F> {
-        if log_inv_rate == 0 {
-            // No duplication to exploit; fall back to the standard path (prepare + DFT).
-            let mut out = source.to_vec();
-            let h = source.len() / w;
-            let non_zero_rows = non_zero_prefix_rows.min(h);
-            out[non_zero_rows * w..].fill(F::ZERO);
-            return self.dft_batch_by_evals_skip_initial_with_zero_tail(RowMajorMatrix::new(out, w), 0, non_zero_rows);
-        }
-
-        let (mat_values, zero_start_rows, layers_done) =
-            self.fused_prepare_and_initial_layers(source, w, log_inv_rate, non_zero_prefix_rows);
-
-        let h = mat_values.len() / w;
+        debug_assert_eq!(source.len() % w, 0);
+        let source_rows = source.len() / w;
+        debug_assert!(source_rows.is_power_of_two());
+        let h = source_rows << log_inv_rate;
         let log_h = log2_strict_usize(h);
+        assert!(log_inv_rate < log_h);
 
-        if layers_done >= log_h {
-            // The fused pass ran every FFT layer — nothing else to do.
-            return RowMajorMatrix::new(mat_values, w);
+        // Super-chunk must hold at least one layer-r chunk (`2 << log_inv_rate` output
+        // rows). L1 budget above that improves cache locality for the in-chunk layers.
+        let num_par_rows = estimate_num_rows_in_l1::<F>(h, w).max(2 << log_inv_rate).min(h);
+        let log_num_par_rows = log2_strict_usize(num_par_rows);
+        let super_chunk_size = num_par_rows * w;
+        let layer_r_chunk_size = (2 << log_inv_rate) * w;
+        let chunks_per_super = num_par_rows >> (log_inv_rate + 1);
+
+        // Round up to pair boundary so each layer-r butterfly's two source rows are both
+        // in the data region or both in the zero tail.
+        let non_zero_rows = non_zero_prefix_rows.next_multiple_of(2).min(source_rows);
+        let non_zero_chunks_r = non_zero_rows / 2;
+        let non_zero_super_chunks = non_zero_chunks_r.div_ceil(chunks_per_super);
+
+        self.update_twiddles(h);
+        let root_table = self.twiddles.read().unwrap();
+        let len = root_table.len();
+        let layer_r_twiddles: &[EvalsButterfly<F>] = unsafe { as_base_slice(&root_table[len - 1 - log_inv_rate]) };
+        let post_r_root_table = &root_table[len - log_num_par_rows..len - 1 - log_inv_rate];
+
+        let mut out = unsafe { uninitialized_vec::<F>(h * w) };
+
+        out.par_chunks_exact_mut(super_chunk_size)
+            .enumerate()
+            .for_each(|(sc, super_chunk)| {
+                if sc >= non_zero_super_chunks {
+                    super_chunk.fill(F::ZERO);
+                    return;
+                }
+                // Phase 1: compute layer `log_inv_rate` for each layer-r chunk in this
+                // super-chunk, reading directly from the compact source.
+                for local_c in 0..chunks_per_super {
+                    let global_c = sc * chunks_per_super + local_c;
+                    let chunk_slot = &mut super_chunk[local_c * layer_r_chunk_size..(local_c + 1) * layer_r_chunk_size];
+                    if global_c >= non_zero_chunks_r {
+                        chunk_slot.fill(F::ZERO);
+                        continue;
+                    }
+                    let src_left = &source[2 * global_c * w..(2 * global_c + 1) * w];
+                    let src_right = &source[(2 * global_c + 1) * w..(2 * global_c + 2) * w];
+                    let (left_half, right_half) = chunk_slot.split_at_mut(layer_r_chunk_size / 2);
+                    for (j, twiddle) in layer_r_twiddles.iter().enumerate() {
+                        let out_left = &mut left_half[j * w..(j + 1) * w];
+                        let out_right = &mut right_half[j * w..(j + 1) * w];
+                        if j == 0 {
+                            butterfly_out_of_place(TwiddleFreeEvalsButterfly, src_left, src_right, out_left, out_right);
+                        } else {
+                            butterfly_out_of_place(*twiddle, src_left, src_right, out_left, out_right);
+                        }
+                    }
+                }
+                // Phase 2: remaining cache-local layers (strides fit in the super-chunk).
+                if !post_r_root_table.is_empty() {
+                    initial_layers(super_chunk, post_r_root_table, w);
+                }
+            });
+        drop(root_table);
+
+        let zero_start_rows = non_zero_super_chunks.saturating_mul(num_par_rows).min(h);
+        if log_num_par_rows >= log_h {
+            return RowMajorMatrix::new(out, w);
         }
-
         self.dft_batch_by_evals_skip_initial_with_zero_tail(
-            RowMajorMatrix::new(mat_values, w),
-            layers_done,
+            RowMajorMatrix::new(out, w),
+            log_num_par_rows,
             zero_start_rows,
         )
     }
@@ -450,11 +309,7 @@ fn par_initial_layers<F: Field>(
 
 #[inline]
 fn advance_zero_boundary(zero_start_elem: usize, largest_block: usize) -> usize {
-    if zero_start_elem == usize::MAX {
-        usize::MAX
-    } else {
-        zero_start_elem.div_ceil(largest_block).saturating_mul(largest_block)
-    }
+    zero_start_elem.div_ceil(largest_block) * largest_block
 }
 
 #[inline]
@@ -851,10 +706,9 @@ pub trait Butterfly<F: Field>: Copy + Send + Sync {
     }
 }
 
-/// Out-of-place variant of [`Butterfly::apply_to_rows`]. Reads from two input rows and
-/// writes the butterfly results to two separate destination rows, with one write per
-/// destination cell. Used by `fused_prepare_and_layer` so that duplicating each source row
-/// for every butterfly in a chunk only touches each source element once.
+/// Out-of-place SIMD butterfly: reads two input rows, writes the butterfly results to two
+/// separate destination rows. Used by `fused_prepare_and_dft` to duplicate each source row
+/// into its butterfly outputs in a single pass (one read, one write per destination cell).
 #[inline]
 fn butterfly_out_of_place<F: Field, B: Butterfly<F>>(
     butterfly: B,
@@ -863,34 +717,19 @@ fn butterfly_out_of_place<F: Field, B: Butterfly<F>>(
     out_1: &mut [F],
     out_2: &mut [F],
 ) {
-    debug_assert_eq!(in_1.len(), in_2.len());
-    debug_assert_eq!(in_1.len(), out_1.len());
-    debug_assert_eq!(in_1.len(), out_2.len());
     let width = F::Packing::WIDTH;
     let n_packed = in_1.len() / width;
-    let packed_end = n_packed * width;
-    // Reinterpret the prefix of each slice as a packed-field slice so the butterfly runs
-    // with SIMD lanes. Safe because `PackedField` is `#[repr(transparent)]` over
-    // `[F::Scalar; WIDTH]` and the prefix length is an exact multiple of `WIDTH`.
+    // SAFETY: `PackedField` is `#[repr(transparent)]` over `[F::Scalar; WIDTH]`, and the
+    // prefix of length `n_packed * width` fits an exact number of SIMD lanes.
     let packed_in_1 = unsafe { std::slice::from_raw_parts(in_1.as_ptr().cast::<F::Packing>(), n_packed) };
     let packed_in_2 = unsafe { std::slice::from_raw_parts(in_2.as_ptr().cast::<F::Packing>(), n_packed) };
     let packed_out_1 = unsafe { std::slice::from_raw_parts_mut(out_1.as_mut_ptr().cast::<F::Packing>(), n_packed) };
     let packed_out_2 = unsafe { std::slice::from_raw_parts_mut(out_2.as_mut_ptr().cast::<F::Packing>(), n_packed) };
-    for (((&i_1, &i_2), o_1), o_2) in packed_in_1
-        .iter()
-        .zip(packed_in_2)
-        .zip(packed_out_1.iter_mut())
-        .zip(packed_out_2.iter_mut())
-    {
-        let (r_1, r_2) = butterfly.apply(i_1, i_2);
-        *o_1 = r_1;
-        *o_2 = r_2;
+    for (((&i_1, &i_2), o_1), o_2) in packed_in_1.iter().zip(packed_in_2).zip(packed_out_1).zip(packed_out_2) {
+        (*o_1, *o_2) = butterfly.apply(i_1, i_2);
     }
-    // Handle the scalar suffix that didn't fit an even number of packed lanes.
-    for i in packed_end..in_1.len() {
-        let (r_1, r_2) = butterfly.apply(in_1[i], in_2[i]);
-        out_1[i] = r_1;
-        out_2[i] = r_2;
+    for i in n_packed * width..in_1.len() {
+        (out_1[i], out_2[i]) = butterfly.apply(in_1[i], in_2[i]);
     }
 }
 
