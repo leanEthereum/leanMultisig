@@ -76,36 +76,50 @@ impl<F> EvalsDft<F>
 where
     F: TwoAdicField,
 {
-    pub(crate) fn dft_batch_by_evals(&self, mut mat: RowMajorMatrix<F>) -> RowMajorMatrix<F> {
+    pub(crate) fn dft_batch_by_evals_skip_initial_with_zero_tail(
+        &self,
+        mut mat: RowMajorMatrix<F>,
+        skip_initial: usize,
+        zero_start_rows: usize,
+    ) -> RowMajorMatrix<F> {
         let h = mat.height();
         let w = mat.width();
         let log_h = log2_strict_usize(h);
+        assert!(skip_initial < log_h);
+        let effective_log_h = log_h - skip_initial;
+
+        let zero_start_rows = zero_start_rows.min(h);
+        let mut zero_start_elem = zero_start_rows.saturating_mul(w);
 
         self.update_twiddles(h);
         let root_table = self.twiddles.read().unwrap();
         let len = root_table.len();
-        let root_table = &root_table[len - log_h..];
+        let root_table = &root_table[len - log_h..len - skip_initial];
 
         // Find the number of rows which can roughly fit in L1 cache.
         // The strategy is the same as `dft_batch` but in reverse.
-        // We start by moving `num_par_rows` rows onto each thread and doing
-        // `num_par_rows` layers of the DFT. After this we recombine and do
-        // a standard round-by-round parallelization for the remaining layers.
+        // We start by moving `num_par_rows` rows onto each thread and doing a handful of
+        // consecutive layers within each chunk. After this we recombine and do a standard
+        // round-by-round parallelization for the remaining layers.
         let num_par_rows = estimate_num_rows_in_l1::<F>(h, w);
         let log_num_par_rows = log2_strict_usize(num_par_rows);
         let chunk_size = num_par_rows * w;
 
+        let par_initial_layer_count = log_num_par_rows.saturating_sub(skip_initial).min(effective_log_h);
+
         // For the initial blocks, they are small enough that we can split the matrix
         // into chunks of size `chunk_size` and process them in parallel.
         // This avoids passing data between threads, which can be expensive.
-        // We also divide by the height of the matrix while the data is nicely partitioned
-        // on each core.
-        par_initial_layers(
-            &mut mat.values,
-            chunk_size,
-            &root_table[root_table.len() - log_num_par_rows..],
-            w,
-        );
+        if par_initial_layer_count > 0 {
+            par_initial_layers(
+                &mut mat.values,
+                chunk_size,
+                &root_table[root_table.len() - par_initial_layer_count..],
+                w,
+                zero_start_elem,
+            );
+            zero_start_elem = advance_zero_boundary(zero_start_elem, chunk_size);
+        }
 
         // For the layers involving blocks larger than `num_par_rows`, we will
         // parallelize across the blocks.
@@ -113,18 +127,29 @@ where
         let multi_layer_dft = MyMultiLayerButterfly {};
 
         // If the total number of layers is not a multiple of `LAYERS_PER_GROUP`,
-        // we need to handle the initial layers separately.
-        let corr = (log_h - log_num_par_rows) % LAYERS_PER_GROUP;
-        dft_layer_par_extra_layers(
-            &mut mat.as_view_mut(),
-            &root_table[root_table.len() - log_num_par_rows - corr..root_table.len() - log_num_par_rows],
-            multi_layer_dft,
-            w,
-        );
+        // we need to handle a few extra layers separately before entering the main loop.
+        let remaining = effective_log_h - par_initial_layer_count;
+        let corr = remaining % LAYERS_PER_GROUP;
+        if corr > 0 {
+            let extra_root_table = &root_table
+                [root_table.len() - par_initial_layer_count - corr..root_table.len() - par_initial_layer_count];
+            dft_layer_par_extra_layers(
+                &mut mat.as_view_mut(),
+                extra_root_table,
+                multi_layer_dft,
+                w,
+                zero_start_elem,
+            );
+            if !extra_root_table.is_empty() {
+                let largest_block = extra_root_table[0].len() * 2 * w;
+                zero_start_elem = advance_zero_boundary(zero_start_elem, largest_block);
+            }
+        }
 
         // We do `LAYERS_PER_GROUP` layers of the DFT at once, to minimize how much data we need to transfer
         // between threads.
-        for (twiddles_small, twiddles_med, twiddles_large) in root_table[..root_table.len() - log_num_par_rows - corr]
+        for (twiddles_small, twiddles_med, twiddles_large) in root_table
+            [..root_table.len() - par_initial_layer_count - corr]
             .iter()
             .rev()
             .map(|slice| unsafe { as_base_slice::<EvalsButterfly<F>, F>(slice) })
@@ -137,20 +162,36 @@ where
                 twiddles_large,
                 multi_layer_dft,
                 w,
+                zero_start_elem,
             );
+            let largest_block = twiddles_large.len() * 2 * w;
+            zero_start_elem = advance_zero_boundary(zero_start_elem, largest_block);
         }
 
         mat
     }
 
-    #[instrument(skip_all)]
+    #[cfg(test)]
     pub(crate) fn dft_algebra_batch_by_evals<V: BasedVectorSpace<F> + Clone + Send + Sync>(
         &self,
         mat: RowMajorMatrix<V>,
     ) -> RowMajorMatrix<V> {
+        self.dft_algebra_batch_by_evals_skip_initial_with_zero_tail(mat, 0, usize::MAX)
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) fn dft_algebra_batch_by_evals_skip_initial_with_zero_tail<
+        V: BasedVectorSpace<F> + Clone + Send + Sync,
+    >(
+        &self,
+        mat: RowMajorMatrix<V>,
+        skip_initial: usize,
+        zero_start_rows: usize,
+    ) -> RowMajorMatrix<V> {
         let init_width = mat.width();
         let base_mat = RowMajorMatrix::new(V::flatten_to_base(mat.values), init_width * V::DIMENSION);
-        let base_dft_output = self.dft_batch_by_evals(base_mat);
+        let base_dft_output =
+            self.dft_batch_by_evals_skip_initial_with_zero_tail(base_mat, skip_initial, zero_start_rows);
         RowMajorMatrix::new(V::reconstitute_from_base(base_dft_output.values), init_width)
     }
 }
@@ -163,10 +204,30 @@ where
 /// Basically identical to [par_remaining_layers] but in reverse and we
 /// also divide by the height.
 #[inline]
-fn par_initial_layers<F: Field>(mat: &mut [F], chunk_size: usize, root_table: &[Vec<F>], width: usize) {
-    mat.par_chunks_exact_mut(chunk_size).for_each(|chunk| {
-        initial_layers(chunk, root_table, width);
-    });
+fn par_initial_layers<F: Field>(
+    mat: &mut [F],
+    chunk_size: usize,
+    root_table: &[Vec<F>],
+    width: usize,
+    zero_start_elem: usize,
+) {
+    mat.par_chunks_exact_mut(chunk_size)
+        .enumerate()
+        .for_each(|(idx, chunk)| {
+            if idx * chunk_size >= zero_start_elem {
+                return;
+            }
+            initial_layers(chunk, root_table, width);
+        });
+}
+
+#[inline]
+fn advance_zero_boundary(zero_start_elem: usize, largest_block: usize) -> usize {
+    if zero_start_elem == usize::MAX {
+        usize::MAX
+    } else {
+        zero_start_elem.div_ceil(largest_block).saturating_mul(largest_block)
+    }
 }
 
 #[inline]
@@ -196,16 +257,22 @@ fn dft_layer<F: Field, B: Butterfly<F>>(vec: &mut [F], twiddles: &[B], width: us
 }
 
 #[inline]
-fn dft_layer_par<F: Field, B: Butterfly<F>>(vec: &mut [F], twiddles: &[B], width: usize) {
-    vec.par_chunks_exact_mut(twiddles.len() * 2 * width).for_each(|block| {
-        let (left, right) = block.split_at_mut(twiddles.len() * width);
-        left.par_chunks_exact_mut(width)
-            .zip(right.par_chunks_exact_mut(width))
-            .zip(twiddles.par_iter())
-            .for_each(|((hi_chunk, lo_chunk), twiddle)| {
-                twiddle.apply_to_rows(hi_chunk, lo_chunk);
-            });
-    });
+fn dft_layer_par<F: Field, B: Butterfly<F>>(vec: &mut [F], twiddles: &[B], width: usize, zero_start_elem: usize) {
+    let block_size = twiddles.len() * 2 * width;
+    vec.par_chunks_exact_mut(block_size)
+        .enumerate()
+        .for_each(|(idx, block)| {
+            if idx * block_size >= zero_start_elem {
+                return;
+            }
+            let (left, right) = block.split_at_mut(twiddles.len() * width);
+            left.par_chunks_exact_mut(width)
+                .zip(right.par_chunks_exact_mut(width))
+                .zip(twiddles.par_iter())
+                .for_each(|((hi_chunk, lo_chunk), twiddle)| {
+                    twiddle.apply_to_rows(hi_chunk, lo_chunk);
+                });
+        });
 }
 
 /// Applies two layers of the Radix-2 FFT butterfly network making use of parallelization.
@@ -226,6 +293,7 @@ fn dft_layer_par_double<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<F, B>>
     twiddles_large: &[B],
     multi_butterfly: M,
     width: usize,
+    zero_start_elem: usize,
 ) {
     debug_assert!(
         mat.height().is_multiple_of(twiddles_small.len()),
@@ -234,10 +302,13 @@ fn dft_layer_par_double<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<F, B>>
 
     assert_eq!(twiddles_large.len(), twiddles_small.len() * 2);
 
+    let block_size = twiddles_large.len() * 2 * width;
     // TODO optimal workload size with L1 cache
     mat.values
-        .par_chunks_exact_mut(twiddles_large.len() * 2 * width)
-        .for_each(|block| {
+        .par_chunks_exact_mut(block_size)
+        .enumerate()
+        .filter(move |(idx, _)| idx * block_size < zero_start_elem)
+        .for_each(|(_, block)| {
             // (0..twiddles_small.len()).into_par_iter().for_each(|ind| {
             //     let hi_hi = slice_ref_mut(block, ind * width, width);
             //     let hi_lo = slice_ref_mut(block, (ind + twiddles_small.len()) * width, width);
@@ -290,6 +361,7 @@ fn dft_layer_par_triple<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<F, B>>
     twiddles_large: &[B],
     multi_butterfly: M,
     width: usize,
+    zero_start_elem: usize,
 ) {
     debug_assert!(
         mat.height().is_multiple_of(twiddles_small.len()),
@@ -303,9 +375,12 @@ fn dft_layer_par_triple<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<F, B>>
     // let inner_chunk_size =
     //     (workload_size::<F>().next_power_of_two() / 8).min(eighth_outer_block_size);
 
+    let block_size = twiddles_large.len() * 2 * width;
     mat.values
-        .par_chunks_exact_mut(twiddles_large.len() * 2 * width)
-        .for_each(|block| {
+        .par_chunks_exact_mut(block_size)
+        .enumerate()
+        .filter(move |(idx, _)| idx * block_size < zero_start_elem)
+        .for_each(|(_, block)| {
             let (hi_blocks, lo_blocks) = block.split_at_mut(twiddles_small.len() * width * 4);
             let (hi_hi_blocks, hi_lo_blocks) = hi_blocks.split_at_mut(twiddles_small.len() * width * 2);
             let (lo_hi_blocks, lo_lo_blocks) = lo_blocks.split_at_mut(twiddles_small.len() * width * 2);
@@ -352,12 +427,13 @@ fn dft_layer_par_extra_layers<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<
     root_table: &[Vec<F>],
     multi_layer: M,
     width: usize,
+    zero_start_elem: usize,
 ) {
     match root_table.len() {
         1 => {
             // Safe as DitButterfly is #[repr(transparent)]
             let fft_layer: &[B] = unsafe { as_base_slice(&root_table[0]) };
-            dft_layer_par(mat.values, fft_layer, width);
+            dft_layer_par(mat.values, fft_layer, width, zero_start_elem);
         }
         2 => {
             let twiddles_small: &[B] = unsafe { as_base_slice(&root_table[1]) };
@@ -368,6 +444,7 @@ fn dft_layer_par_extra_layers<F: Field, B: Butterfly<F>, M: MultiLayerButterfly<
                 twiddles_large,
                 multi_layer,
                 width,
+                zero_start_elem,
             );
         }
         0 => {}

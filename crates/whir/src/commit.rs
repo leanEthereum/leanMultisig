@@ -58,14 +58,25 @@ where
 {
     #[instrument(skip_all)]
     pub fn commit(&self, prover_state: &mut impl FSProver<EF>, polynomial: &MleOwned<EF>) -> Witness<EF> {
+        self.commit_with_prefix_len(prover_state, polynomial, 1 << self.num_variables)
+    }
+
+    #[instrument(skip_all)]
+    pub fn commit_with_prefix_len(
+        &self,
+        prover_state: &mut impl FSProver<EF>,
+        polynomial: &MleOwned<EF>,
+        non_zero_prefix_len: usize,
+    ) -> Witness<EF> {
         let n_blocks = 1usize << self.folding_factor.at_round(0);
 
         let folded_matrix = info_span!("FFT").in_scope(|| {
-            reorder_and_dft(
+            reorder_and_dft_with_prefix_len(
                 &polynomial.by_ref(),
                 self.folding_factor.at_round(0),
                 self.starting_log_inv_rate,
                 n_blocks,
+                non_zero_prefix_len,
             )
         });
 
