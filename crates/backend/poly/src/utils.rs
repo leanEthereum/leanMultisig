@@ -16,41 +16,43 @@ pub const PARALLEL_THRESHOLD: usize = 1 << 9;
 
 pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking<EF>> {
     let width = packing_width::<EF>();
+    let n_packed = slice.len() / width;
+    let mut out: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(n_packed) };
+    let write = |slot: &mut EFPacking<EF>, chunk: &[EF]| {
+        *slot = EFPacking::<EF>::from_ext_slice(chunk);
+    };
     if slice.len() < PARALLEL_THRESHOLD {
-        slice
-            .chunks_exact(width)
-            .map(EFPacking::<EF>::from_ext_slice)
-            .collect::<Vec<_>>()
+        for (slot, chunk) in out.iter_mut().zip(slice.chunks_exact(width)) {
+            write(slot, chunk);
+        }
     } else {
-        slice
-            .par_chunks_exact(width)
-            .map(EFPacking::<EF>::from_ext_slice)
-            .collect::<Vec<_>>()
+        out.par_iter_mut()
+            .zip(slice.par_chunks_exact(width))
+            .for_each(|(slot, chunk)| write(slot, chunk));
     }
+    out
 }
 
 pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
     let width = packing_width::<EF>();
-    let total_elements = vec.len() * width;
-    if total_elements < PARALLEL_THRESHOLD {
-        vec.iter()
-            .flat_map(|x| {
-                let packed_coeffs = x.as_basis_coefficients_slice();
-                (0..width)
-                    .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+    let total = vec.len() * width;
+    let mut out: Vec<EF> = unsafe { uninitialized_vec(total) };
+    let write = |out_chunk: &mut [EF], x: &EFPacking<EF>| {
+        let packed_coeffs = x.as_basis_coefficients_slice();
+        for (lane, slot) in out_chunk.iter_mut().enumerate() {
+            *slot = EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[lane]);
+        }
+    };
+    if total < PARALLEL_THRESHOLD {
+        for (chunk, x) in out.chunks_exact_mut(width).zip(vec.iter()) {
+            write(chunk, x);
+        }
     } else {
-        vec.par_iter()
-            .flat_map(|x| {
-                let packed_coeffs = x.as_basis_coefficients_slice();
-                (0..width)
-                    .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+        out.par_chunks_exact_mut(width)
+            .zip(vec.par_iter())
+            .for_each(|(chunk, x)| write(chunk, x));
     }
+    out
 }
 
 pub const fn packing_log_width<EF: Field>() -> usize {
@@ -89,6 +91,73 @@ pub fn batch_fold_multilinears<
     }
 }
 
+pub fn fold_multilinear_lsb<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    Mul: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    m: &[IF],
+    alpha: EF,
+    mul_if_of: &Mul,
+) -> Vec<OF> {
+    let new_size = m.len() / 2;
+    let mut res = unsafe { uninitialized_vec(new_size) };
+    let compute = |(c, r_v): (&[IF], &mut OF)| {
+        *r_v = mul_if_of(c[1] - c[0], alpha) + c[0];
+    };
+    if new_size < PARALLEL_THRESHOLD {
+        m.chunks_exact(2).zip(res.iter_mut()).for_each(compute);
+    } else {
+        m.par_chunks_exact(2).zip(res.par_iter_mut()).for_each(compute);
+    }
+    res
+}
+
+pub fn fold_multilinear_at_bit<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    Mul: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    m: &[IF],
+    alpha: EF,
+    bit: usize,
+    mul_if_of: &Mul,
+) -> Vec<OF> {
+    let new_size = m.len() / 2;
+    assert!(m.len() >= 2 * (1 << bit), "bit out of range for slice length");
+
+    if bit == 0 {
+        return fold_multilinear_lsb(m, alpha, mul_if_of);
+    }
+
+    let stride = 1usize << bit;
+    let lo_mask = stride - 1;
+    let mut res = unsafe { uninitialized_vec(new_size) };
+
+    let compute = |new_j: usize| {
+        let i_hi = new_j >> bit;
+        let i_lo = new_j & lo_mask;
+        let i0 = (i_hi << (bit + 1)) | i_lo;
+        let i1 = i0 | stride;
+        mul_if_of(m[i1] - m[i0], alpha) + m[i0]
+    };
+
+    if new_size < PARALLEL_THRESHOLD {
+        for (new_j, res_v) in res.iter_mut().enumerate() {
+            *res_v = compute(new_j);
+        }
+    } else {
+        (0..new_size)
+            .into_par_iter()
+            .with_min_len(PARALLEL_THRESHOLD)
+            .map(compute)
+            .collect_into_vec(&mut res);
+    }
+    res
+}
+
 pub fn fold_multilinear<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
@@ -116,6 +185,31 @@ pub fn fold_multilinear<
     res
 }
 
+pub fn batch_fold_multilinears_at_bit<
+    EF: PrimeCharacteristicRing + Copy + Send + Sync,
+    IF: Copy + Sub<Output = IF> + Send + Sync,
+    OF: Copy + Add<IF, Output = OF> + Send + Sync,
+    F: Fn(IF, EF) -> OF + Sync + Send,
+>(
+    polys: &[&[IF]],
+    alpha: EF,
+    bit: usize,
+    mul_if_of: F,
+) -> Vec<Vec<OF>> {
+    let total_size: usize = polys.iter().map(|p| p.len()).sum();
+    if total_size < PARALLEL_THRESHOLD {
+        polys
+            .iter()
+            .map(|poly| fold_multilinear_at_bit(poly, alpha, bit, &mul_if_of))
+            .collect()
+    } else {
+        polys
+            .par_iter()
+            .map(|poly| fold_multilinear_at_bit(poly, alpha, bit, &mul_if_of))
+            .collect()
+    }
+}
+
 /// Returns a vector of uninitialized elements of type `A` with the specified length.
 /// # Safety
 /// Entries should be overwritten before use.
@@ -126,21 +220,6 @@ pub unsafe fn uninitialized_vec<A>(len: usize) -> Vec<A> {
         let mut vec = Vec::with_capacity(len);
         vec.set_len(len);
         vec
-    }
-}
-
-pub fn parallel_clone<A: Clone + Send + Sync>(src: &[A], dst: &mut [A]) {
-    if src.len() < PARALLEL_THRESHOLD {
-        // sequential copy
-        dst.clone_from_slice(src);
-    } else {
-        assert_eq!(src.len(), dst.len());
-        let chunk_size = src.len() / rayon::current_num_threads().max(1);
-        dst.par_chunks_mut(chunk_size)
-            .zip(src.par_chunks(chunk_size))
-            .for_each(|(d, s)| {
-                d.clone_from_slice(s);
-            });
     }
 }
 

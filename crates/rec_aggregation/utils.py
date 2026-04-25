@@ -71,7 +71,6 @@ def product_first_n(values, n):
     res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 33), lambda i: product_first_n_const(values, i))
     return res
 
-
 @inline
 def product_first_n_const(values, n):
     debug_assert(n != 0)

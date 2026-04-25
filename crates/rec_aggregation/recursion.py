@@ -411,7 +411,7 @@ def continue_recursion_ordered(
 
     n_max = log_n_cycles # extension table is always the biggest
     # Batched AIR sumcheck:
-    fs, all_challenges, batched_air_final_value = sumcheck_verify(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
+    fs, all_challenges, batched_air_final_value = sumcheck_verify_reversed(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
 
     check_sum: Mut = embed_in_ef(0)
     for sorted_pos in unroll(0, N_TABLES):
@@ -432,11 +432,9 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
         bus_point = pcs_points[table_index][0]
-        suffix_start = n_max - log_n_rows
-        challenge_suffix = all_challenges + suffix_start * DIM
-        eq_val = eq_mle_extension(bus_point, challenge_suffix, log_n_rows)
+        eq_val = eq_mle_extension(bus_point, all_challenges, log_n_rows)
 
-        k_t = product_first_n(all_challenges, suffix_start)
+        k_t = product_first_n(all_challenges + log_n_rows * DIM, n_max - log_n_rows)
 
         contribution = mul_extension_ret(
             mul_extension_ret(eta_powers + sorted_pos * DIM, k_t),
@@ -444,7 +442,7 @@ def continue_recursion_ordered(
         )
         check_sum = add_extension_ret(check_sum, contribution)
 
-        pcs_points[table_index].push(challenge_suffix)
+        pcs_points[table_index].push(all_challenges)
         pcs_values[table_index].push(DynArray([]))
         pcs_values_down[table_index].push(DynArray([]))
         last_index = len(pcs_values[table_index]) - 1
@@ -720,7 +718,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
-    fs, postponed_value = sumcheck_verify_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
+    fs, postponed_value = sumcheck_verify_reversed_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point)
     fs, inner_evals = fs_receive_ef_inlined(fs, 4)
     a_num = inner_evals
     b_num = inner_evals + DIM
@@ -729,7 +727,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = eq_mle_extension(point, postponed_point + DIM, n_vars)
+    eq_factor = eq_mle_extension(point, postponed_point, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
@@ -738,7 +736,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
-    copy_ef(beta, postponed_point)
+    copy_ef(beta, postponed_point + n_vars * DIM)
 
     return fs, postponed_point, new_claim_num, new_claim_den
 

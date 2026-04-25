@@ -68,8 +68,8 @@ where
         0,
     );
 
+    let final_folds_f = final_folds_f.by_ref().unpack().as_owned_or_clone();
     let final_folds = final_folds_f
-        .by_ref()
         .as_extension()
         .unwrap()
         .iter()
@@ -115,9 +115,7 @@ where
 
     let mut challenges = Vec::new();
     for _ in 0..n_rounds {
-        if multilinears.by_ref().is_packed() && must_unpack_multilinears::<EF>(n_vars) {
-            multilinears = multilinears.by_ref().unpack().as_owned_or_clone().into();
-        }
+        multilinears.unpack_if_needed();
 
         let ps = compute_and_send_polynomial(
             &mut multilinears,
@@ -178,9 +176,6 @@ where
 
     let sc_params = SumcheckComputeParams {
         split_eq: eq_factor_and_split.as_ref().map(|(_, split_eq)| split_eq),
-        first_eq_factor: eq_factor_and_split
-            .as_ref()
-            .map(|(first_eq_factor, _)| first_eq_factor[0]),
         computation,
         extra_data,
         missing_mul_factor,

@@ -30,7 +30,7 @@ def main():
         a[i] = 1
     w.push(DynArray([a]))
     b = Array(DIM)
-    copy_5(w[5][0], b)
+    copy_ef(w[5][0], b)
     return
 
 
