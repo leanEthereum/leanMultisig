@@ -123,14 +123,8 @@ impl AggregatedXMSS {
         postcard::from_bytes(&decompressed).ok()
     }
 
-    pub(crate) fn input_data(
-        &self,
-        pub_keys: &[XmssPublicKey],
-        message: &[F; MESSAGE_LEN_FE],
-        slot: u32,
-        log_inv_rate: usize,
-    ) -> Vec<F> {
-        let bytecode = get_aggregation_bytecode(log_inv_rate);
+    pub(crate) fn input_data(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+        let bytecode = get_aggregation_bytecode();
         let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -162,14 +156,8 @@ impl AggregatedXMSS {
     }
 
     /// The 1-digest public input that the verifier passes to `verify_execution`.
-    pub fn public_input_hash(
-        &self,
-        pub_keys: &[XmssPublicKey],
-        message: &[F; MESSAGE_LEN_FE],
-        slot: u32,
-        log_inv_rate: usize,
-    ) -> Vec<F> {
-        hash_input_data(&self.input_data(pub_keys, message, slot, log_inv_rate)).to_vec()
+    pub fn public_input_hash(&self, pub_keys: &[XmssPublicKey], message: &[F; MESSAGE_LEN_FE], slot: u32) -> Vec<F> {
+        hash_input_data(&self.input_data(pub_keys, message, slot)).to_vec()
     }
 }
 
@@ -178,13 +166,12 @@ pub fn xmss_verify_aggregation(
     agg_sig: &AggregatedXMSS,
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
-    log_inv_rate: usize,
 ) -> Result<ProofVerificationDetails, ProofError> {
     if !pub_keys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let public_input = agg_sig.public_input_hash(pub_keys, message, slot, log_inv_rate);
-    let bytecode = get_aggregation_bytecode(log_inv_rate);
+    let public_input = agg_sig.public_input_hash(pub_keys, message, slot);
+    let bytecode = get_aggregation_bytecode();
     verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
 
@@ -204,7 +191,7 @@ pub fn xmss_aggregate(
     let raw_count = raw_xmss.len();
     let whir_config = lean_prover::default_whir_config(log_inv_rate);
 
-    let bytecode = get_aggregation_bytecode(log_inv_rate);
+    let bytecode = get_aggregation_bytecode();
     let bytecode_point_n_vars = bytecode.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
@@ -224,7 +211,7 @@ pub fn xmss_aggregate(
     let mut child_bytecode_evals = vec![];
     let mut child_raw_proofs = vec![];
     for (child_pub_keys, child) in children {
-        let input_data = child.input_data(child_pub_keys, message, slot, log_inv_rate);
+        let input_data = child.input_data(child_pub_keys, message, slot);
         let input_data_hash = hash_input_data(&input_data);
         let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, child.proof.clone()).unwrap();
         child_bytecode_evals.push(verif.bytecode_evaluation);

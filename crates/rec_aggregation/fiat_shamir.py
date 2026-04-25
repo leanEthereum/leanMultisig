@@ -97,6 +97,14 @@ def fs_sample_many_ef(fs, n):
     return new_fs, sampled
 
 
+# Const variant: caller passes `n` as a compile-time constant. Skips the runtime
+# match_range dispatch by computing `n_chunks` at compile time.
+def fs_sample_many_ef_const(fs, n: Const):
+    n_chunks = div_ceil(n * DIM, 8)
+    new_fs, sampled = fs_sample_chunks(fs, n_chunks)
+    return new_fs, sampled
+
+
 @inline
 def fs_hint(fs, n):
     # return the updated fiat-shamir, and a pointer to n field elements from the transcript
@@ -188,5 +196,13 @@ def fs_sample_queries(fs, n_samples):
     total_chunks = floor_div + has_remainder
     # Sample exactly the needed chunks (dispatch via match_range to keep n_chunks const)
     sampled = match_range(total_chunks, range(0, 65), lambda nc: fs_sample_data_with_offset(fs, nc, 0))
+    new_fs = fs_finalize_sample(fs, total_chunks)
+    return sampled, new_fs
+
+
+# Const variant: skips runtime bit decomposition + match_range when n_samples is known at compile time.
+def fs_sample_queries_const(fs, n_samples: Const):
+    total_chunks = div_ceil(n_samples, 8)
+    sampled = fs_sample_data_with_offset(fs, total_chunks, 0)
     new_fs = fs_finalize_sample(fs, total_chunks)
     return sampled, new_fs

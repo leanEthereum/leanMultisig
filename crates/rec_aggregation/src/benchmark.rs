@@ -314,10 +314,10 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     assert!(cache.len() >= n_sigs);
     let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].iter().cloned().unzip();
 
-    init_aggregation_bytecode(topology.log_inv_rate);
+    init_aggregation_bytecode();
     println!(
         "Aggregation program: {} instructions\n",
-        pretty_integer(get_aggregation_bytecode(topology.log_inv_rate).instructions.len())
+        pretty_integer(get_aggregation_bytecode().instructions.len())
     );
 
     // Build display
@@ -339,7 +339,6 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         &aggregated_sigs,
         &message_for_benchmark(),
         BENCHMARK_SLOT,
-        topology.log_inv_rate,
     )
     .unwrap();
     time
@@ -379,8 +378,8 @@ mod macos_activity {
 fn test_aggregation_throughput_per_num_xmss() {
     let log_inv_rate = 1;
     precompute_dft_twiddles::<F>(1 << 24);
-    init_aggregation_bytecode(log_inv_rate);
-    let _ = get_aggregation_bytecode(log_inv_rate);
+    init_aggregation_bytecode();
+    let _ = get_aggregation_bytecode();
     let mut num_xmss_and_time = vec![];
     let mut indexes = vec![];
     for i in 1..100 {

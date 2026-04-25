@@ -15,6 +15,11 @@ use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRI
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
 
+// WHIR config the recursion verifier is specialized for. Inner proofs that
+// don't match these values fail the runtime asserts in `recursion.py`.
+pub const RECUR_LOG_INV_RATE: usize = 2;
+pub const RECUR_STACKED_N_VARS: usize = 25;
+
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 
 pub fn get_aggregation_bytecode() -> &'static Bytecode {
@@ -160,6 +165,60 @@ fn build_replacements(
         format!("[{}]", all_potential_folding_grinding.join(", ")),
     );
     replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
+
+    // WHIR config specialization for the recursion verifier.
+    //
+    // Whir-split-eq makes WHIR parameters dynamic via match_range, but the recursion
+    // verifier always verifies a fixed-shape proof with a single (log_inv_rate,
+    // stacked_n_vars). Hardcoding the per-round WHIR parameters lets `whir.py` fully
+    // unroll `whir_open` for the recursion path. Runtime asserts in the Python
+    // verifier guard the mismatch case.
+    let recur_log_inv_rate: usize = RECUR_LOG_INV_RATE;
+    let recur_stacked_n_vars: usize = RECUR_STACKED_N_VARS;
+    let whir_config_builder = default_whir_config(recur_log_inv_rate);
+    let recur_cfg = WhirConfig::<EF>::new(&whir_config_builder, recur_stacked_n_vars);
+    let recur_n_rounds = recur_cfg.round_parameters.len();
+    let recur_n_final_vars =
+        recur_stacked_n_vars - WHIR_INITIAL_FOLDING_FACTOR - recur_n_rounds * WHIR_SUBSEQUENT_FOLDING_FACTOR;
+    let mut recur_num_queries: Vec<usize> = recur_cfg.round_parameters.iter().map(|r| r.num_queries).collect();
+    recur_num_queries.push(recur_cfg.final_queries);
+    let mut recur_query_grinding: Vec<usize> = recur_cfg.round_parameters.iter().map(|r| r.query_pow_bits).collect();
+    recur_query_grinding.push(recur_cfg.final_query_pow_bits);
+    let mut recur_num_oods: Vec<usize> = vec![recur_cfg.commitment_ood_samples];
+    recur_num_oods.extend(recur_cfg.round_parameters.iter().map(|r| r.ood_samples));
+    let mut recur_folding_grinding: Vec<usize> = vec![recur_cfg.starting_folding_pow_bits];
+    recur_folding_grinding.extend(recur_cfg.round_parameters.iter().map(|r| r.folding_pow_bits));
+
+    let join_usize = |v: &[usize]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    replacements.insert(
+        "RECUR_LOG_INV_RATE_PLACEHOLDER".to_string(),
+        recur_log_inv_rate.to_string(),
+    );
+    replacements.insert(
+        "RECUR_STACKED_N_VARS_PLACEHOLDER".to_string(),
+        recur_stacked_n_vars.to_string(),
+    );
+    replacements.insert("RECUR_N_ROUNDS_PLACEHOLDER".to_string(), recur_n_rounds.to_string());
+    replacements.insert(
+        "RECUR_N_FINAL_VARS_PLACEHOLDER".to_string(),
+        recur_n_final_vars.to_string(),
+    );
+    replacements.insert(
+        "RECUR_NUM_QUERIES_PLACEHOLDER".to_string(),
+        format!("[{}]", join_usize(&recur_num_queries)),
+    );
+    replacements.insert(
+        "RECUR_QUERY_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", join_usize(&recur_query_grinding)),
+    );
+    replacements.insert(
+        "RECUR_NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", join_usize(&recur_num_oods)),
+    );
+    replacements.insert(
+        "RECUR_FOLDING_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", join_usize(&recur_folding_grinding)),
+    );
 
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());

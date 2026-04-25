@@ -97,20 +97,50 @@ def poly_eq_extension(point, n: Const):
     return res + (2**n - 1) * DIM
 
 
-def eq_mle_extension(a, b, n):
+@inline
+def eq_mle_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
+    match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, dst, i))
+    return
+
+
+def eq_mle_extension(a, b, n):
     res = Array(DIM)
-    match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, res, i))
+    eq_mle_extension_to(a, b, res, n)
+    return res
+
+
+# Like `eq_mle_extension` but skips the runtime match_range dispatch.
+# Use only when `n` is a compile-time constant at the call site
+# (e.g. inside an `@inline` function called with literal arg, or inside `unroll`).
+@inline
+def eq_mle_extension_inlined(a, b, n):
+    res = Array(DIM)
+    poly_eq_ee(a, b, res, n)
+    return res
+
+
+# Same as above but for base/extension equality.
+@inline
+def eq_mle_base_extension_inlined(a, b, n):
+    res = Array(DIM)
+    poly_eq_be(a, b, res, n)
     return res
 
 
 @inline
-def eq_mle_base_extension(a, b, n):
+def eq_mle_base_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
+    match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, dst, i))
+    return
+
+
+@inline
+def eq_mle_base_extension(a, b, n):
     res = Array(DIM)
-    match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, res, i))
+    eq_mle_base_extension_to(a, b, res, n)
     return res
 
 
@@ -151,6 +181,7 @@ def expand_from_univariate_ext(alpha, n):
     return res
 
 
+# Compile-time-unrolled variant of expand_from_univariate_ext.
 def expand_from_univariate_ext_const(alpha, n: Const):
     res = Array(n * DIM)
     copy_5(alpha, res)
@@ -184,27 +215,16 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     return result
 
 
+@inline
 def dot_product_be_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_be(a, b, res, i))
     return
 
-
-def dot_product_be_const(a, b, res, n: Const):
-    dot_product_be(a, b, res, n)
-    return
-
-
 def dot_product_ee_dynamic(a, b, res, n):
     debug_assert(n < 400)
     match_range(n, range(1, 400), lambda i: dot_product_ee(a, b, res, i))
     return
-
-
-def dot_product_ee_const(a, b, res, n: Const):
-    dot_product_ee(a, b, res, n)
-    return
-
 
 def mle_of_01234567_etc(point, n):
     if n == 0:
@@ -489,12 +509,32 @@ def checked_decompose_bits(a):
     return bits, partial_sums_24
 
 
+@inline
+def whir_4_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
+    whir_do_4_merkle_levels(v, state_in, path_chunk, state_out)
+    return ROOT ** (power_shift * v)
+
 
 @inline
-def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
-    """Fused decomposition + Merkle verification + root power computation.
-    Processes each nibble only once (single match_range dispatch per nibble)."""
-    # Step 1: Decompose and verify
+def whir_3_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
+    whir_do_3_merkle_levels(v, state_in, path_chunk, state_out)
+    return ROOT ** (power_shift * (v % 8))
+
+
+@inline
+def whir_2_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
+    whir_do_2_merkle_levels(v, state_in, path_chunk, state_out)
+    return ROOT ** (power_shift * (v % 4))
+
+
+@inline
+def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
+    whir_do_1_merkle_level(v, state_in, path_chunk, state_out)
+    return ROOT ** (power_shift * (v % 2))
+
+
+@inline
+def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     nibbles = Array(6)
     hint_decompose_bits_merkle_whir(nibbles, a, 4)
 
@@ -506,13 +546,13 @@ def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
         partial_sum += nibbles[i] * 16**i
 
     # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
+    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
     # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
     top7 = (partial_sum - a) * 127
     assert top7 < 2**7
     if top7 == 2**7 - 1:
         assert partial_sum == 0
 
-    # Step 2: Hint and hash Merkle leaf
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
     leaf_hash = slice_hash(leaf_data, num_chunks)
@@ -520,61 +560,66 @@ def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
     merkle_path = Array(domain_size * DIGEST_LEN)
     hint_witness("merkle_path", merkle_path)
 
-    n_full_nibbles = (domain_size - domain_size % 4) / 4
     n_nibbles = div_ceil(domain_size, 4)
     states = Array((n_nibbles - 1) * DIGEST_LEN)
 
-    # Step 3: Fused root power + Merkle (single match_range per nibble)
     prod: Mut = 1
 
     # First nibble: leaf_hash -> states[0]
-    nib_pow = match_range(nibbles[0], range(0, 16),
-        lambda v: whir_do_4_merkle_levels_ret(v, leaf_hash, merkle_path, states,
-            ROOT ** (2 ** (TWO_ADICITY - domain_size) * v)))
+    nib_pow = match_range(
+        nibbles[0],
+        range(0, 16),
+        lambda v: whir_4_merkle_step_and_pow(v, leaf_hash, merkle_path, states, 2 ** (TWO_ADICITY - domain_size)),
+    )
     prod *= nib_pow
 
     # Middle nibbles: states[k-1] -> states[k]
     for k in unroll(1, n_nibbles - 1):
-        nib_pow = match_range(nibbles[k], range(0, 16),
-            lambda v: whir_do_4_merkle_levels_ret(v,
+        nib_pow = match_range(
+            nibbles[k],
+            range(0, 16),
+            lambda v: whir_4_merkle_step_and_pow(
+                v,
                 states + (k - 1) * DIGEST_LEN,
                 merkle_path + 4 * k * DIGEST_LEN,
                 states + k * DIGEST_LEN,
-                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * k) * v)))
+                2 ** (TWO_ADICITY - domain_size + 4 * k),
+            ),
+        )
         prod *= nib_pow
 
-    # Last nibble: states[-1] -> root
+    # Last nibble: states[-1] -> prev_root
+    last_k = n_nibbles - 1
+    last_state_in = states + (last_k - 1) * DIGEST_LEN
+    last_path = merkle_path + 4 * last_k * DIGEST_LEN
+    last_power_shift = 2 ** (TWO_ADICITY - domain_size + 4 * last_k)
     if domain_size % 4 == 0:
-        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
-            lambda v: whir_do_4_merkle_levels_ret(v,
-                states + (n_nibbles - 2) * DIGEST_LEN,
-                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
-                prev_root,
-                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * (n_nibbles - 1)) * v)))
+        nib_pow = match_range(
+            nibbles[last_k],
+            range(0, 16),
+            lambda v: whir_4_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
+        )
         prod *= nib_pow
     elif domain_size % 4 == 1:
-        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
-            lambda v: whir_do_1_merkle_level_ret(v,
-                states + (n_nibbles - 2) * DIGEST_LEN,
-                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
-                prev_root,
-                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 1))))
+        nib_pow = match_range(
+            nibbles[last_k],
+            range(0, 16),
+            lambda v: whir_1_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
+        )
         prod *= nib_pow
     elif domain_size % 4 == 2:
-        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
-            lambda v: whir_do_2_merkle_levels_ret(v,
-                states + (n_nibbles - 2) * DIGEST_LEN,
-                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
-                prev_root,
-                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 2))))
+        nib_pow = match_range(
+            nibbles[last_k],
+            range(0, 16),
+            lambda v: whir_2_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
+        )
         prod *= nib_pow
     elif domain_size % 4 == 3:
-        nib_pow = match_range(nibbles[n_nibbles - 1], range(0, 16),
-            lambda v: whir_do_3_merkle_levels_ret(v,
-                states + (n_nibbles - 2) * DIGEST_LEN,
-                merkle_path + 4 * (n_nibbles - 1) * DIGEST_LEN,
-                prev_root,
-                ROOT ** (2 ** (TWO_ADICITY - domain_size + 4 * n_full_nibbles) * (v % 2 ** 3))))
+        nib_pow = match_range(
+            nibbles[last_k],
+            range(0, 16),
+            lambda v: whir_3_merkle_step_and_pow(v, last_state_in, last_path, prev_root, last_power_shift),
+        )
         prod *= nib_pow
 
     return leaf_data, prod
@@ -617,7 +662,7 @@ def dot_product_ee_ret(a, b, n):
 def sum_continuous_ef(slice_ef, len):
     debug_assert(len <= NUM_REPEATED_ONES)
     res = Array(DIM)
-    dot_product_be_dynamic(REPEATED_ONES_PTR, slice_ef, res, len)
+    dot_product_be(REPEATED_ONES_PTR, slice_ef, res, len)
     return res
 
 
@@ -660,46 +705,84 @@ def embed_in_ef(f):
     return res
 
 
-@inline
-def next_mle_const(x, y, n):
+def next_mle(x, y, n):
     # x and y are pointers to n elements of extension field
-    # Same as next_mle but with compile-time n (uses unroll instead of range)
 
     # Build eq_prefix[0..n+1] where eq_prefix[i] = prod_{j<i} eq(x[j], y[j])
+    # and eq(a,b) = a*b + (1-a)*(1-b)
     eq_prefix = Array((n + 1) * DIM)
     set_to_one(eq_prefix)
-    for i in unroll(0, n):
+    for i in range(0, n):
+        xi = x + i * DIM
+        yi = y + i * DIM
         eq_i = Array(DIM)
-        poly_eq_ee(x + i * DIM, y + i * DIM, eq_i)
+        poly_eq_ee(xi, yi, eq_i)
         mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
 
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
     low_suffix = Array((n + 1) * DIM)
     set_to_one(low_suffix + n * DIM)
-    for i in unroll(0, n):
+    for i in range(0, n):
         idx = n - 1 - i
-        one_minus_y = one_minus_self_extension_ret(y + idx * DIM)
-        x_one_minus_y = mul_extension_ret(x + idx * DIM, one_minus_y)
+        xi = x + idx * DIM
+        yi = y + idx * DIM
+        one_minus_y = one_minus_self_extension_ret(yi)
+        x_one_minus_y = mul_extension_ret(xi, one_minus_y)
         mul_extension(low_suffix + (idx + 1) * DIM, x_one_minus_y, low_suffix + idx * DIM)
 
     # Compute sum = Σ_{arr=0..n} (eq_prefix[arr] * (1-x[arr]) * y[arr] * low_suffix[arr+1])
     sum: Mut = ZERO_VEC_PTR
-    for arr in unroll(0, n):
-        one_minus_x = one_minus_self_extension_ret(x + arr * DIM)
-        carry = mul_extension_ret(one_minus_x, y + arr * DIM)
+    for arr in range(0, n):
+        x_arr = x + arr * DIM
+        y_arr = y + arr * DIM
+        one_minus_x = one_minus_self_extension_ret(x_arr)
+        carry = mul_extension_ret(one_minus_x, y_arr)
         eq_carry = mul_extension_ret(eq_prefix + arr * DIM, carry)
         term = mul_extension_ret(eq_carry, low_suffix + (arr + 1) * DIM)
         sum = add_extension_ret(sum, term)
 
     # Compute prod = product of all x[i] * product of all y[i]
-    prod: Mut = Array(DIM)
-    set_to_one(prod)
-    for i in unroll(0, n):
-        prod = mul_extension_ret(prod, x + i * DIM)
-    for i in unroll(0, n):
-        prod = mul_extension_ret(prod, y + i * DIM)
+    prod = mul_extension_ret(product_first_n(x, n), product_first_n(y, n))
 
-    return add_extension_ret(sum, prod)
+    result = add_extension_ret(sum, prod)
+    return result
+
+
+# Compile-time-unrolled variant of next_mle (caller must pass `n` as a literal const).
+def next_mle_const(x, y, n: Const):
+    eq_prefix = Array((n + 1) * DIM)
+    set_to_one(eq_prefix)
+    for i in unroll(0, n):
+        xi = x + i * DIM
+        yi = y + i * DIM
+        eq_i = Array(DIM)
+        poly_eq_ee(xi, yi, eq_i)
+        mul_extension(eq_prefix + i * DIM, eq_i, eq_prefix + (i + 1) * DIM)
+
+    low_suffix = Array((n + 1) * DIM)
+    set_to_one(low_suffix + n * DIM)
+    for i in unroll(0, n):
+        idx = n - 1 - i
+        xi = x + idx * DIM
+        yi = y + idx * DIM
+        one_minus_y = one_minus_self_extension_ret(yi)
+        x_one_minus_y = mul_extension_ret(xi, one_minus_y)
+        mul_extension(low_suffix + (idx + 1) * DIM, x_one_minus_y, low_suffix + idx * DIM)
+
+    sum: Mut = ZERO_VEC_PTR
+    for arr in unroll(0, n):
+        x_arr = x + arr * DIM
+        y_arr = y + arr * DIM
+        one_minus_x = one_minus_self_extension_ret(x_arr)
+        carry = mul_extension_ret(one_minus_x, y_arr)
+        eq_carry = mul_extension_ret(eq_prefix + arr * DIM, carry)
+        term = mul_extension_ret(eq_carry, low_suffix + (arr + 1) * DIM)
+        sum = add_extension_ret(sum, term)
+
+    prod = mul_extension_ret(product_first_n_const(x, n), product_first_n_const(y, n))
+
+    result = add_extension_ret(sum, prod)
+    return result
 
 
 def _verify_log2_small(n, partial_sums_24, log2: Const):

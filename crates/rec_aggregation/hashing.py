@@ -7,10 +7,10 @@ DIGEST_LEN = 8
 # `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]...
 PUBLIC_INPUT_LEN = DIGEST_LEN
 ZERO_VEC_PTR = PUBLIC_INPUT_LEN
-ZERO_VEC_LEN = 16
+ZERO_VEC_LEN = ZERO_VEC_LEN_PLACEHOLDER
 SAMPLING_DOMAIN_SEPARATOR_PTR = ZERO_VEC_PTR + ZERO_VEC_LEN
 ONE_EF_PTR = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN
-NUM_REPEATED_ONES = 16
+NUM_REPEATED_ONES = NUM_REPEATED_ONES_PLACEHOLDER
 REPEATED_ONES_PTR = ONE_EF_PTR + DIM
 PREAMBLE_MEMORY_END = REPEATED_ONES_PTR + NUM_REPEATED_ONES
 PREAMBLE_MEMORY_LEN = PREAMBLE_MEMORY_END - PUBLIC_INPUT_LEN
@@ -123,9 +123,8 @@ def modulo_8(n, n_bits: Const):
     return partial_sums[2]
 
 
-# Fused Merkle + root power: same Merkle processing but also return a passed-in value
 @inline
-def whir_do_4_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
+def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -133,74 +132,87 @@ def whir_do_4_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
     b2 = r2 % 2
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
+
     temps = Array(3 * DIGEST_LEN)
+
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temps)
     else:
         poseidon16_compress(path_chunk, state_in, temps)
+
     if b1 == 0:
         poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+
     if b2 == 0:
         poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
+
     if b3 == 0:
         poseidon16_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
-    return ret_val
+    return
 
 
 @inline
-def whir_do_3_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
+def whir_do_3_merkle_levels(b, state_in, path_chunk, state_out):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
     r2 = (r1 - b1) / 2
     b2 = r2 % 2
+
     temps = Array(2 * DIGEST_LEN)
+
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temps)
     else:
         poseidon16_compress(path_chunk, state_in, temps)
+
     if b1 == 0:
         poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+
     if b2 == 0:
         poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, state_out)
-    return ret_val
+    return
 
 
 @inline
-def whir_do_2_merkle_levels_ret(b, state_in, path_chunk, state_out, ret_val):
+def whir_do_2_merkle_levels(b, state_in, path_chunk, state_out):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
+
     temp = Array(DIGEST_LEN)
+
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, temp)
     else:
         poseidon16_compress(path_chunk, state_in, temp)
+
     if b1 == 0:
         poseidon16_compress(temp, path_chunk + DIGEST_LEN, state_out)
     else:
         poseidon16_compress(path_chunk + DIGEST_LEN, temp, state_out)
-    return ret_val
+    return
 
 
 @inline
-def whir_do_1_merkle_level_ret(b, state_in, path_chunk, state_out, ret_val):
+def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
     b0 = b % 2
+
     if b0 == 0:
         poseidon16_compress(state_in, path_chunk, state_out)
     else:
         poseidon16_compress(path_chunk, state_in, state_out)
-    return ret_val
+    return
 
 
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):

@@ -181,7 +181,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     claimed_sum = Array(DIM)
     dot_product_ee_dynamic(all_values, alpha_powers, claimed_sum, n_bytecode_claims)
 
-    reduction_fs, challenges, final_eval = sumcheck_verify_unrolled(reduction_fs, BYTECODE_POINT_N_VARS, claimed_sum, 2)
+    reduction_fs, challenges, final_eval = sumcheck_verify(reduction_fs, BYTECODE_POINT_N_VARS, claimed_sum, 2)
 
     # Verify: final_eval == bytecode(r) * w(r)
     eq_evals = Array(n_bytecode_claims * DIM)
