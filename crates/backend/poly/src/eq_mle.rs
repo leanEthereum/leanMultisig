@@ -12,6 +12,8 @@ const LOG_NUM_THREADS: usize = 5;
 /// The number of threads to spawn for parallel computations.
 const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
 
+const LOG_BATCHED_TILE_SIZE: usize = 14;
+
 /// Given `evals` = (α_1, ..., α_n), returns a multilinear polynomial P in n variables,
 /// defined on the boolean hypercube by: ∀ (x_1, ..., x_n) ∈ {0, 1}^n,
 /// P(x_1, ..., x_n) = Π_{i=1}^{n} (x_i.α_i + (1 - x_i).(1 - α_i))
@@ -369,6 +371,53 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
                 );
             });
     }
+}
+
+#[inline]
+pub fn compute_eval_eq_base_batched<F, EF>(evals: &[MultilinearPoint<F>], out: &mut [EF], scalars: &[EF])
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    assert_eq!(evals.len(), scalars.len());
+    if evals.is_empty() {
+        return;
+    }
+
+    let n = evals[0].len();
+    let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
+    assert!(log_packing_width <= n);
+    assert_eq!(out.len(), 1 << n);
+
+    let k = n.min(LOG_BATCHED_TILE_SIZE);
+
+    if k <= log_packing_width || k >= n {
+        for (eval, &scalar) in evals.iter().zip(scalars) {
+            compute_eval_eq_base::<F, EF, true>(eval, out, scalar);
+        }
+        return;
+    }
+
+    let n_prefix_levels = n - k;
+    let tile_size = 1 << k;
+
+    let per_query: Vec<_> = evals
+        .iter()
+        .zip(scalars)
+        .map(|(eval, &scalar)| {
+            let middle = &eval[n_prefix_levels..n - log_packing_width];
+            let eq_suffix = packed_eq_poly::<F, F>(&eval[n - log_packing_width..], F::ONE);
+            let mut eq_prefix: Vec<EF> = unsafe { uninitialized_vec(1 << n_prefix_levels) };
+            eval_eq_basic::<F, F, EF, false>(&eval[..n_prefix_levels], &mut eq_prefix, scalar);
+            (eq_prefix, middle, eq_suffix)
+        })
+        .collect();
+
+    out.par_chunks_exact_mut(tile_size).enumerate().for_each(|(tile_idx, out_tile)| {
+        for (eq_prefix, middle, eq_suffix) in &per_query {
+            base_eval_eq_packed::<F, EF, true>(middle, out_tile, *eq_suffix, eq_prefix[tile_idx]);
+        }
+    });
 }
 
 /// Fills the `buffer` with evaluations of the equality polynomial

@@ -304,9 +304,16 @@ where
         evaluations: &[EF],
         combination_randomness: &[EF],
     ) {
-        self.add_equality_inner(points, evaluations, combination_randomness, |p, w, r| {
-            compute_eval_eq_base::<PF<EF>, EF, true>(p, w, r);
-        });
+        assert_eq!(combination_randomness.len(), points.len());
+        assert_eq!(evaluations.len(), points.len());
+
+        compute_eval_eq_base_batched::<PF<EF>, EF>(points, &mut self.weights, combination_randomness);
+
+        self.sum += combination_randomness
+            .iter()
+            .zip(evaluations.iter())
+            .map(|(&rand, &eval)| rand * eval)
+            .sum::<EF>();
     }
 
     fn run_sumcheck_many_rounds(
