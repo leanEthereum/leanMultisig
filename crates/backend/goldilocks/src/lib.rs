@@ -11,6 +11,9 @@ mod goldilocks;
 mod helpers;
 mod poseidon1;
 
+#[cfg(test)]
+mod benchmark_poseidons_goldilocks;
+
 pub use cubic_extension::*;
 pub use goldilocks::*;
 pub use helpers::*;
