@@ -100,8 +100,7 @@ where
     //
     // Be careful: this means code relying on packing optimizations should **not assume**
     // `packing_width > 1` is always true.
-    let packing_width = F::Packing::WIDTH;
-    // debug_assert!(packing_width > 1);
+    let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
 
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -109,13 +108,12 @@ where
 
     // If the number of variables is small, there is no need to use
     // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+    if eval.len() <= log_packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
         return;
     }
 
-    let log_packing_width = log2_strict_usize(packing_width);
     let eval_len_min_packing = eval.len() - log_packing_width;
 
     // We split eval into three parts:
@@ -173,7 +171,7 @@ where
 
     // If the number of variables is small, there is no need to use
     // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+    if eval.len() <= log_packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         let mut output_no_packing = EF::zero_vec(1 << eval.len());
         eval_eq_basic::<_, _, _, false>(eval, &mut output_no_packing, scalar);
@@ -187,7 +185,6 @@ where
                 }
             });
     } else {
-        let log_packing_width = log2_strict_usize(packing_width);
         let eval_len_min_packing = eval.len() - log_packing_width;
 
         // We split eval into three parts:
@@ -247,7 +244,7 @@ where
     EF: ExtensionField<F>,
 {
     // we assume that packing_width is a power of 2.
-    let packing_width = F::Packing::WIDTH;
+    let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
 
     // Ensure that the output buffer size is correct:
     // It should be of size `2^n`, where `n` is the number of variables.
@@ -255,13 +252,12 @@ where
 
     // If the number of variables is small, there is no need to use
     // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+    if eval.len() <= log_packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         eval_eq_basic::<_, _, _, INITIALIZED>(eval, out, scalar);
         return;
     }
 
-    let log_packing_width = log2_strict_usize(packing_width);
     let eval_len_min_packing = eval.len() - log_packing_width;
 
     // We split eval into three parts:
@@ -321,7 +317,7 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
 
     // If the number of variables is small, there is no need to use
     // parallelization or packings.
-    if eval.len() <= packing_width + 1 + LOG_NUM_THREADS {
+    if eval.len() <= log_packing_width + 1 + LOG_NUM_THREADS {
         // A basic recursive approach.
         let mut output_no_packing = EF::zero_vec(1 << eval.len());
         eval_eq_basic::<_, _, _, false>(eval, &mut output_no_packing, scalar);
@@ -335,7 +331,6 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
                 }
             });
     } else {
-        let log_packing_width = log2_strict_usize(packing_width);
         let eval_len_min_packing = eval.len() - log_packing_width;
 
         // We split eval into three parts:
