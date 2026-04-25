@@ -413,11 +413,13 @@ where
         })
         .collect();
 
-    out.par_chunks_exact_mut(tile_size).enumerate().for_each(|(tile_idx, out_tile)| {
-        for (eq_prefix, middle, eq_suffix) in &per_query {
-            base_eval_eq_packed::<F, EF, true>(middle, out_tile, *eq_suffix, eq_prefix[tile_idx]);
-        }
-    });
+    out.par_chunks_exact_mut(tile_size)
+        .enumerate()
+        .for_each(|(tile_idx, out_tile)| {
+            for (eq_prefix, middle, eq_suffix) in &per_query {
+                base_eval_eq_packed::<F, EF, true>(middle, out_tile, *eq_suffix, eq_prefix[tile_idx]);
+            }
+        });
 }
 
 /// Fills the `buffer` with evaluations of the equality polynomial
