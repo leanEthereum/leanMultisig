@@ -11,9 +11,9 @@ use core::{array, fmt};
 use field::integers::QuotientMap;
 use field::op_assign_macros::{impl_add_assign, impl_div_methods, impl_mul_methods, impl_sub_assign};
 use field::{
-    Field, InjectiveMonomial, Packable, PermutationMonomial, PrimeCharacteristicRing, PrimeField,
-    PrimeField64, RawDataSerializable, TwoAdicField, impl_raw_serializable_primefield64,
-    quotient_map_large_iint, quotient_map_large_uint, quotient_map_small_int,
+    Field, InjectiveMonomial, Packable, PermutationMonomial, PrimeCharacteristicRing, PrimeField, PrimeField64,
+    RawDataSerializable, TwoAdicField, impl_raw_serializable_primefield64, quotient_map_large_iint,
+    quotient_map_large_uint, quotient_map_small_int,
 };
 use num_bigint::BigUint;
 use rand::Rng;
@@ -60,9 +60,7 @@ impl Goldilocks {
 
     /// Convert a `[[u64; N]; M]` array to a 2D array of field elements.
     #[inline]
-    pub const fn new_2d_array<const N: usize, const M: usize>(
-        input: [[u64; N]; M],
-    ) -> [[Self; N]; M] {
+    pub const fn new_2d_array<const N: usize, const M: usize>(input: [[u64; N]; M]) -> [[Self; N]; M] {
         let mut output = [[Self::ZERO; N]; M];
         let mut i = 0;
         while i < M {
@@ -255,11 +253,7 @@ impl PrimeCharacteristicRing for Goldilocks {
                 let long_prod_1 = (lhs[1].value as u128) * (rhs[1].value as u128);
                 let (sum, over) = long_prod_0.overflowing_add(long_prod_1);
                 let sum_corr = sum.wrapping_sub(OFFSET);
-                if over {
-                    reduce128(sum_corr)
-                } else {
-                    reduce128(sum)
-                }
+                if over { reduce128(sum_corr) } else { reduce128(sum) }
             }
             _ => {
                 let (lo_plus_hi, hi) = lhs

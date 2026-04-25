@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use fiat_shamir::{ProverState, VerifierState};
 use field::{Field, TwoAdicField};
-use goldilocks::{Goldilocks, CubicExtensionFieldGL, default_goldilocks_poseidon1_8};
+use goldilocks::{CubicExtensionFieldGL, Goldilocks, default_goldilocks_poseidon1_8};
 use mt_whir::*;
 use poly::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};

@@ -1,6 +1,6 @@
 use crate::{
-    DIMENSION, EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ,
-    ExtraDataForBuses, eval_virtual_bus_column,
+    DIMENSION, EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses,
+    eval_virtual_bus_column,
     tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile},
 };
 use backend::*;

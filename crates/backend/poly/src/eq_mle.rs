@@ -1210,8 +1210,10 @@ mod tests {
                 compute_eval_eq_packed::<_, true>(&eval, &mut out_2, scalar);
                 println!("EXTENSION PACKED: {:?}", time.elapsed());
 
-                let unpacked_out_2: Vec<EF> =
-                    <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter_vec(out_2.clone());
+                let unpacked_out_2: Vec<EF> = <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<
+                    F,
+                    EF,
+                >>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);
@@ -1245,8 +1247,10 @@ mod tests {
                 compute_eval_eq_base_packed::<F, _, true>(&eval, &mut out_2, scalar);
                 println!("BASE PACKED: {:?}", time.elapsed());
 
-                let unpacked_out_2: Vec<EF> =
-                    <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::to_ext_iter_vec(out_2.clone());
+                let unpacked_out_2: Vec<EF> = <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<
+                    F,
+                    EF,
+                >>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);

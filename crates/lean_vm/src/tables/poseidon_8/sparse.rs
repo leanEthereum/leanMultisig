@@ -15,8 +15,8 @@
 use std::sync::OnceLock;
 
 use backend::{
-    Field, GOLDILOCKS_POSEIDON1_RC_8, MDS8_ROW, PrimeCharacteristicRing,
-    POSEIDON1_HALF_FULL_ROUNDS, POSEIDON1_PARTIAL_ROUNDS,
+    Field, GOLDILOCKS_POSEIDON1_RC_8, MDS8_ROW, POSEIDON1_HALF_FULL_ROUNDS, POSEIDON1_PARTIAL_ROUNDS,
+    PrimeCharacteristicRing,
 };
 
 use crate::F;
@@ -72,10 +72,7 @@ fn matrix_transpose(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; WIDTH] {
     r
 }
 
-fn matrix_mul(
-    a: &[[F; WIDTH]; WIDTH],
-    b: &[[F; WIDTH]; WIDTH],
-) -> [[F; WIDTH]; WIDTH] {
+fn matrix_mul(a: &[[F; WIDTH]; WIDTH], b: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; WIDTH] {
     let mut c = [[F::ZERO; WIDTH]; WIDTH];
     for i in 0..WIDTH {
         for j in 0..WIDTH {
@@ -192,11 +189,7 @@ fn submatrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH - 1]; WIDTH - 1] {
 fn compute_equivalent_matrices(
     mds: &[[F; WIDTH]; WIDTH],
     rounds_p: usize,
-) -> (
-    [[F; WIDTH]; WIDTH],
-    Vec<[F; WIDTH]>,
-    Vec<[F; WIDTH]>,
-) {
+) -> ([[F; WIDTH]; WIDTH], Vec<[F; WIDTH]>, Vec<[F; WIDTH]>) {
     let mut v_collection: Vec<[F; WIDTH]> = Vec::with_capacity(rounds_p);
     let mut w_hat_collection: Vec<[F; WIDTH]> = Vec::with_capacity(rounds_p);
 
@@ -207,13 +200,7 @@ fn compute_equivalent_matrices(
     for _ in 0..rounds_p {
         // v = first row of m_mul (excl [0,0]). In the transposed domain this is
         // the first column of M'' in the non-transposed view.
-        let v_arr: [F; WIDTH] = std::array::from_fn(|j| {
-            if j < WIDTH - 1 {
-                m_mul[0][j + 1]
-            } else {
-                F::ZERO
-            }
-        });
+        let v_arr: [F; WIDTH] = std::array::from_fn(|j| if j < WIDTH - 1 { m_mul[0][j + 1] } else { F::ZERO });
 
         // w = first column of m_mul (excl [0,0]).
         let mut w = [F::ZERO; WIDTH - 1];
@@ -263,10 +250,7 @@ fn compute_equivalent_matrices(
 
 /// Backward-substitute partial round constants through M^{-1}, producing the
 /// full first-round vector and per-round scalar offsets.
-fn equivalent_round_constants(
-    partial_rc: &[[F; WIDTH]],
-    mds_inv: &[[F; WIDTH]; WIDTH],
-) -> ([F; WIDTH], Vec<F>) {
+fn equivalent_round_constants(partial_rc: &[[F; WIDTH]], mds_inv: &[[F; WIDTH]; WIDTH]) -> ([F; WIDTH], Vec<F>) {
     let rounds_p = partial_rc.len();
     let mut opt_partial_rc = vec![F::ZERO; rounds_p];
 
@@ -293,10 +277,8 @@ fn compute_partial_constants() -> PartialConstants {
         .map(|r| GOLDILOCKS_POSEIDON1_RC_8[POSEIDON1_HALF_FULL_ROUNDS + r])
         .collect();
 
-    let (first_round_constants, round_constants_vec) =
-        equivalent_round_constants(&partial_rc, &mds_inv);
-    let (m_i, v_collection, w_hat_collection) =
-        compute_equivalent_matrices(&mds, PARTIAL_ROUNDS);
+    let (first_round_constants, round_constants_vec) = equivalent_round_constants(&partial_rc, &mds_inv);
+    let (m_i, v_collection, w_hat_collection) = compute_equivalent_matrices(&mds, PARTIAL_ROUNDS);
 
     // sparse_first_row[r] = [mds[0][0], w_hat[r][0], …, w_hat[r][W-2]].
     let mds_0_0 = mds[0][0];
@@ -400,9 +382,8 @@ mod tests {
         let mut seed = 0u64;
         for trial in 0..4 {
             seed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let input: [F; WIDTH] = std::array::from_fn(|i| {
-                F::from_u64(seed.wrapping_mul(i as u64 + 1 + trial as u64))
-            });
+            let input: [F; WIDTH] =
+                std::array::from_fn(|i| F::from_u64(seed.wrapping_mul(i as u64 + 1 + trial as u64)));
             let a = textbook_partial_phase(input);
             let b = sparse_partial_phase(input);
             for i in 0..WIDTH {

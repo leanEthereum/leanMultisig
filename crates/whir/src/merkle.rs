@@ -8,7 +8,7 @@ use field::BasedVectorSpace;
 use field::ExtensionField;
 use field::Field;
 use field::PackedValue;
-use goldilocks::{Goldilocks, CubicExtensionFieldGL, default_goldilocks_poseidon1_8};
+use goldilocks::{CubicExtensionFieldGL, Goldilocks, default_goldilocks_poseidon1_8};
 use poly::*;
 
 use rayon::prelude::*;
@@ -62,7 +62,7 @@ fn build_merkle_tree_goldilocks(
     effective_base_width: usize,
 ) -> RoundMerkleTree<Goldilocks> {
     let perm = default_goldilocks_poseidon1_8();
-    let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 8;
+    let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 4;
     let first_layer = if n_zero_suffix_rate_chunks >= 2 {
         let scalar_state = symetric::precompute_zero_suffix_state::<Goldilocks, _, 8, 4, DIGEST_ELEMS>(
             &perm,

@@ -1,5 +1,5 @@
-use crate::*;
 use crate::execution::memory::MemoryAccess;
+use crate::*;
 use backend::*;
 use utils::{ToUsize, poseidon8_compress};
 
@@ -7,7 +7,7 @@ mod sparse;
 mod trace_gen;
 pub use trace_gen::fill_trace_poseidon_8;
 
-use sparse::{get_partial_constants, PARTIAL_ROUNDS as SPARSE_PARTIAL_ROUNDS};
+use sparse::{PARTIAL_ROUNDS as SPARSE_PARTIAL_ROUNDS, get_partial_constants};
 
 pub(super) const WIDTH: usize = 8;
 pub(super) const DIGEST: usize = DIGEST_LEN; // 4
@@ -53,8 +53,7 @@ const FULL_ROUND_COLS: usize = WIDTH; // 8 post-state
 const PARTIAL_ROUND_COLS: usize = 1; // post_sbox
 
 pub const fn is_full_round(r: usize) -> bool {
-    r < POSEIDON1_HALF_FULL_ROUNDS
-        || r >= POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS
+    r < POSEIDON1_HALF_FULL_ROUNDS || r >= POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS
 }
 
 /// First column index of round `r`'s data.
@@ -198,8 +197,7 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
             },
             LookupIntoMemory {
                 index: POSEIDON_8_COL_INDEX_INPUT_RIGHT,
-                values: (POSEIDON_8_COL_INPUT_START + DIGEST..POSEIDON_8_COL_INPUT_START + DIGEST * 2)
-                    .collect(),
+                values: (POSEIDON_8_COL_INPUT_START + DIGEST..POSEIDON_8_COL_INPUT_START + DIGEST * 2).collect(),
             },
             LookupIntoMemory {
                 index: POSEIDON_8_COL_INDEX_INPUT_RES,
@@ -320,8 +318,7 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         let inputs: [AB::IF; WIDTH];
         let outputs: [AB::IF; DIGEST];
         // Per full round: `post[0..W]`. Per partial round: `post_sbox`.
-        let mut full_posts: Vec<[AB::IF; WIDTH]> =
-            Vec::with_capacity(2 * POSEIDON1_HALF_FULL_ROUNDS);
+        let mut full_posts: Vec<[AB::IF; WIDTH]> = Vec::with_capacity(2 * POSEIDON1_HALF_FULL_ROUNDS);
         let mut partial_post_sboxes: Vec<AB::IF> = Vec::with_capacity(SPARSE_PARTIAL_ROUNDS);
         {
             let up = builder.up();
@@ -373,8 +370,7 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         // ---- Initial full rounds ----
         for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
             let sbox_out: [AB::IF; WIDTH] = std::array::from_fn(|i| {
-                let x = state[i]
-                    + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[round][i].as_canonical_u64());
+                let x = state[i] + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[round][i].as_canonical_u64());
                 // x⁷ = x · (x²)² · x² — 4 Mul nodes in the symbolic DAG.
                 let x2 = x * x;
                 let x4 = x2 * x2;
@@ -382,11 +378,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             });
             let post = full_posts[round];
             for i in 0..WIDTH {
-                let mut acc = sbox_out[0]
-                    * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+                let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
                 for j in 1..WIDTH {
-                    let coeff =
-                        AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
                     acc = acc + sbox_out[j] * coeff;
                 }
                 builder.assert_zero(post[i] - acc);
@@ -396,8 +390,7 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
 
         // ---- Partial phase: first_round_constants, m_i, sparse-matmul loop ----
         for i in 0..WIDTH {
-            state[i] = state[i]
-                + AB::F::from_u64(c.first_round_constants[i].as_canonical_u64());
+            state[i] = state[i] + AB::F::from_u64(c.first_round_constants[i].as_canonical_u64());
         }
         {
             let mut after: [AB::IF; WIDTH] = std::array::from_fn(|i| {
@@ -421,26 +414,20 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
 
             // state[0] becomes post_sbox (+ scalar RC, except last round).
             state[0] = if r < SPARSE_PARTIAL_ROUNDS - 1 {
-                post_sbox
-                    + AB::F::from_u64(c.round_constants[r].as_canonical_u64())
+                post_sbox + AB::F::from_u64(c.round_constants[r].as_canonical_u64())
             } else {
                 post_sbox
             };
 
             // cheap_matmul.
             let old_s0 = state[0];
-            let mut new_s0 = state[0]
-                * AB::F::from_u64(c.sparse_first_row[r][0].as_canonical_u64());
+            let mut new_s0 = state[0] * AB::F::from_u64(c.sparse_first_row[r][0].as_canonical_u64());
             for j in 1..WIDTH {
-                new_s0 = new_s0
-                    + state[j]
-                        * AB::F::from_u64(c.sparse_first_row[r][j].as_canonical_u64());
+                new_s0 = new_s0 + state[j] * AB::F::from_u64(c.sparse_first_row[r][j].as_canonical_u64());
             }
             state[0] = new_s0;
             for i in 1..WIDTH {
-                state[i] = state[i]
-                    + old_s0
-                        * AB::F::from_u64(c.v[r][i - 1].as_canonical_u64());
+                state[i] = state[i] + old_s0 * AB::F::from_u64(c.v[r][i - 1].as_canonical_u64());
             }
         }
 
@@ -448,19 +435,16 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
             let abs = POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS + round;
             let sbox_out: [AB::IF; WIDTH] = std::array::from_fn(|i| {
-                let x = state[i]
-                    + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[abs][i].as_canonical_u64());
+                let x = state[i] + AB::F::from_u64(GOLDILOCKS_POSEIDON1_RC_8[abs][i].as_canonical_u64());
                 let x2 = x * x;
                 let x4 = x2 * x2;
                 x4 * x2 * x
             });
             let post = full_posts[POSEIDON1_HALF_FULL_ROUNDS + round];
             for i in 0..WIDTH {
-                let mut acc = sbox_out[0]
-                    * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+                let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
                 for j in 1..WIDTH {
-                    let coeff =
-                        AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
                     acc = acc + sbox_out[j] * coeff;
                 }
                 builder.assert_zero(post[i] - acc);

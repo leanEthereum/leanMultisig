@@ -574,7 +574,7 @@ impl<F: Field> Butterfly<F> for EvalsButterfly<F> {
 #[cfg(test)]
 mod tests {
     use field::{PrimeCharacteristicRing, TwoAdicField};
-    use goldilocks::{Goldilocks, CubicExtensionFieldGL};
+    use goldilocks::{CubicExtensionFieldGL, Goldilocks};
     use poly::*;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 

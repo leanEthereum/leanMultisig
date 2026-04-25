@@ -35,7 +35,7 @@ def main():
 
 
 @inline
-def copy_5(a, b):
+def copy_ef(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     return
 

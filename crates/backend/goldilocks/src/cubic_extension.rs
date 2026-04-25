@@ -98,9 +98,7 @@ impl BasedVectorSpace<Goldilocks> for CubicExtensionFieldGL {
     }
 
     #[inline]
-    fn from_basis_coefficients_iter<I: ExactSizeIterator<Item = Goldilocks>>(
-        mut iter: I,
-    ) -> Option<Self> {
+    fn from_basis_coefficients_iter<I: ExactSizeIterator<Item = Goldilocks>>(mut iter: I) -> Option<Self> {
         (iter.len() == 3).then(|| Self::new(array::from_fn(|_| iter.next().unwrap())))
     }
 

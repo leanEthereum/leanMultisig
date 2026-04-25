@@ -158,9 +158,7 @@ impl CustomHint {
                 for i in 0..num_fe {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.as_canonical_u64();
                     for j in 0..chunks_per_fe {
-                        let chunk = F::from_u64(
-                            (value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1),
-                        );
+                        let chunk = F::from_u64((value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1));
                         ctx.memory.set(memory_index_decomposed, chunk)?;
                         memory_index_decomposed += 1;
                     }
@@ -176,9 +174,7 @@ impl CustomHint {
                 let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(num_chunks * chunk_size <= F::bits());
                 for j in 0..num_chunks {
-                    let chunk = F::from_u64(
-                        (value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1),
-                    );
+                    let chunk = F::from_u64((value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1));
                     ctx.memory.set(decomposed_ptr + j, chunk)?;
                 }
             }

@@ -197,6 +197,33 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     initial_pending_r: Option<EF>,
 ) -> (Vec<EF>, [EF; 4]) {
     let w = packing_log_width::<EF>();
+    // When `w == 0` (no SIMD packing, e.g. Goldilocks), a `PackedBr(0)` layer
+    // can reach this function. In that case the data is already in natural,
+    // unpacked form, the inner loop has no rounds to run, and the
+    // `eq_outer` / `padding_sum` computed below would also panic on the slice
+    // — so skip phase 1 entirely and go straight to phase 2.
+    if layer_chunk_log == 0 {
+        debug_assert_eq!(w, 0);
+        debug_assert!(initial_pending_r.is_none());
+        debug_assert!(precomputed_eq_outer.is_none());
+        let nums_nat = unpack_extension::<EF>(nums.as_ref());
+        let dens_nat = unpack_extension::<EF>(dens.as_ref());
+        let (num_l, num_r) = even_odd_split(&nums_nat);
+        let (den_l, den_r) = even_odd_split(&dens_nat);
+        return run_phase2_sumcheck(
+            prover_state,
+            num_l,
+            num_r,
+            den_l,
+            den_r,
+            remaining_eq,
+            q_natural,
+            alpha,
+            sum,
+            mmf,
+        );
+    }
+
     let head_len = (remaining_eq.len() + 1).saturating_sub(layer_chunk_log);
     let outer_point: Vec<EF> = remaining_eq[..head_len].to_vec();
     let eq_outer: Vec<EF> = precomputed_eq_outer.unwrap_or_else(|| eval_eq(&outer_point));

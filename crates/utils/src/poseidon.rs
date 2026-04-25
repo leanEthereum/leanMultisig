@@ -26,10 +26,7 @@ pub fn poseidon8_compress(input: [Goldilocks; 8]) -> [Goldilocks; 4] {
     state[0..4].try_into().unwrap()
 }
 
-pub fn poseidon8_compress_pair(
-    left: &[Goldilocks; 4],
-    right: &[Goldilocks; 4],
-) -> [Goldilocks; 4] {
+pub fn poseidon8_compress_pair(left: &[Goldilocks; 4], right: &[Goldilocks; 4]) -> [Goldilocks; 4] {
     let mut input = [Goldilocks::default(); 8];
     input[..4].copy_from_slice(left);
     input[4..].copy_from_slice(right);
