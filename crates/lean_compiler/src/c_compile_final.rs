@@ -116,6 +116,13 @@ pub fn compile_to_low_level_bytecode(
     for (pc_start, block) in code_blocks {
         compile_block(&compiler, &block, pc_start, &mut instructions, &mut hints);
     }
+
+    let min_bytecode_size = 1 << MIN_BYTECODE_LOG_SIZE;
+    if instructions.len() < min_bytecode_size {
+        let last = instructions.last().unwrap().clone();
+        instructions.resize(min_bytecode_size, last);
+    }
+
     let instructions_encoded = instructions.par_iter().map(field_representation).collect::<Vec<_>>();
 
     let mut instructions_multilinear = vec![];

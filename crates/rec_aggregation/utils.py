@@ -70,7 +70,6 @@ def product_first_n(values, n):
     res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 33), lambda i: product_first_n_const(values, i))
     return res
 
-
 @inline
 def product_first_n_const(values, n):
     debug_assert(n != 0)
@@ -516,7 +515,7 @@ def decompose_and_verify_query_const(a, domain_size, prev_root, num_chunks):
     # Step 2: Hint and hash Merkle leaf
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
-    leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
+    leaf_hash = slice_hash(leaf_data, num_chunks)
 
     merkle_path = Array(domain_size * DIGEST_LEN)
     hint_witness("merkle_path", merkle_path)

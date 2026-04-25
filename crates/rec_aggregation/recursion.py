@@ -44,125 +44,6 @@ BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
 INNER_PUBLIC_MEMORY_LOG_SIZE = 3 # public input = 1 hash digest = 8 field elements
 PUB_INPUT_SIZE = DIGEST_LEN  # the public input is a single digest
 
-# Inner proof dims (filled by Rust, assertions verify at runtime)
-INNER_LOG_MEMORY = INNER_LOG_MEMORY_PLACEHOLDER
-INNER_LOG_BYTECODE_PADDED = INNER_LOG_BYTECODE_PADDED_PLACEHOLDER
-INNER_LOG_N_CYCLES = INNER_LOG_N_CYCLES_PLACEHOLDER
-# Sorted table log heights (sorted by descending height: exec, poseidon, extop)
-INNER_SORTED_LOG_ROWS_0 = INNER_SORTED_LOG_ROWS_0_PLACEHOLDER
-INNER_SORTED_LOG_ROWS_1 = INNER_SORTED_LOG_ROWS_1_PLACEHOLDER
-INNER_SORTED_LOG_ROWS_2 = INNER_SORTED_LOG_ROWS_2_PLACEHOLDER
-# Sorted AIR degrees
-INNER_SORTED_AIR_DEGREE_0 = INNER_SORTED_AIR_DEGREE_0_PLACEHOLDER
-INNER_SORTED_AIR_DEGREE_1 = INNER_SORTED_AIR_DEGREE_1_PLACEHOLDER
-INNER_SORTED_AIR_DEGREE_2 = INNER_SORTED_AIR_DEGREE_2_PLACEHOLDER
-# GKR vars
-N_VARS_LOGUP_GKR = N_VARS_LOGUP_GKR_PLACEHOLDER
-
-# Hardcoded bit decompositions for multilinear_location_prefix_inlined
-# Call site 0: prefix_pub_mem (offset=0, n_vars=25-INNER_PUBLIC_MEMORY_LOG_SIZE)
-PREFIX_0_N_BITS = PREFIX_0_N_BITS_PLACEHOLDER
-PREFIX_0_BITS = PREFIX_0_BITS_PLACEHOLDER
-# Call site 1: prefix_bytecode_acc (offset=2^(log_memory+1)/2^log_bytecode, n_vars=25-log_bytecode)
-PREFIX_1_N_BITS = PREFIX_1_N_BITS_PLACEHOLDER
-PREFIX_1_BITS = PREFIX_1_BITS_PLACEHOLDER
-# Call site 2: prefix_pc_start
-PREFIX_2_N_BITS = PREFIX_2_N_BITS_PLACEHOLDER
-PREFIX_2_BITS = PREFIX_2_BITS_PLACEHOLDER
-# Call site 3: prefix_pc_end
-PREFIX_3_N_BITS = PREFIX_3_N_BITS_PLACEHOLDER
-PREFIX_3_BITS = PREFIX_3_BITS_PLACEHOLDER
-# Table loop prefix bits: per sorted_pos, indexed by column j
-TABLE_PREFIX_0_N_BITS = TBL_PFX_0_N_BITS_PLACEHOLDER
-TABLE_PREFIX_0_BITS = TBL_PFX_0_BITS_PLACEHOLDER
-TABLE_PREFIX_1_N_BITS = TBL_PFX_1_N_BITS_PLACEHOLDER
-TABLE_PREFIX_1_BITS = TBL_PFX_1_BITS_PLACEHOLDER
-TABLE_PREFIX_2_N_BITS = TBL_PFX_2_N_BITS_PLACEHOLDER
-TABLE_PREFIX_2_BITS = TBL_PFX_2_BITS_PLACEHOLDER
-
-# Hardcoded bit decompositions for multilinear_location_prefix (non-inlined)
-# Simple call sites
-PREFIX_4_N_BITS = PREFIX_4_N_BITS_PLACEHOLDER  # memory_and_acc_prefix (GKR)
-PREFIX_4_BITS = PREFIX_4_BITS_PLACEHOLDER
-PREFIX_5_N_BITS = PREFIX_5_N_BITS_PLACEHOLDER  # bytecode prefix (GKR)
-PREFIX_5_BITS = PREFIX_5_BITS_PLACEHOLDER
-PREFIX_6_N_BITS = PREFIX_6_N_BITS_PLACEHOLDER  # bytecode padded prefix (GKR)
-PREFIX_6_BITS = PREFIX_6_BITS_PLACEHOLDER
-PREFIX_7_N_BITS = PREFIX_7_N_BITS_PLACEHOLDER  # prefix_memory (stacked)
-PREFIX_7_BITS = PREFIX_7_BITS_PLACEHOLDER
-PREFIX_8_N_BITS = PREFIX_8_N_BITS_PLACEHOLDER  # prefix_acc_memory (stacked)
-PREFIX_8_BITS = PREFIX_8_BITS_PLACEHOLDER
-# Bytecode prefix (execution only, GKR table loop)
-PREFIX_9_N_BITS = PREFIX_9_N_BITS_PLACEHOLDER
-PREFIX_9_BITS = PREFIX_9_BITS_PLACEHOLDER
-# Bus prefixes (GKR table loop, per sorted_pos)
-GKR_BUS_0_N_BITS = GKR_BUS_0_N_BITS_PLACEHOLDER
-GKR_BUS_0_BITS = GKR_BUS_0_BITS_PLACEHOLDER
-GKR_BUS_1_N_BITS = GKR_BUS_1_N_BITS_PLACEHOLDER
-GKR_BUS_1_BITS = GKR_BUS_1_BITS_PLACEHOLDER
-GKR_BUS_2_N_BITS = GKR_BUS_2_N_BITS_PLACEHOLDER
-GKR_BUS_2_BITS = GKR_BUS_2_BITS_PLACEHOLDER
-# Lookup prefixes (GKR table loop, 3D: [lookup_f_index][value_index][bit])
-GKR_LOOKUP_0_N_BITS = GKR_LOOKUP_0_N_BITS_PLACEHOLDER
-GKR_LOOKUP_0_BITS = GKR_LOOKUP_0_BITS_PLACEHOLDER
-GKR_LOOKUP_1_N_BITS = GKR_LOOKUP_1_N_BITS_PLACEHOLDER
-GKR_LOOKUP_1_BITS = GKR_LOOKUP_1_BITS_PLACEHOLDER
-GKR_LOOKUP_2_N_BITS = GKR_LOOKUP_2_N_BITS_PLACEHOLDER
-GKR_LOOKUP_2_BITS = GKR_LOOKUP_2_BITS_PLACEHOLDER
-
-
-
-@inline
-def eq_mle_extension_inlined(a, b, n):
-    res = Array(DIM)
-    poly_eq_ee(a, b, res, n)
-    return res
-
-
-@inline
-def eq_mle_base_extension_inlined(a, b, n):
-    res = Array(DIM)
-    poly_eq_be(a, b, res, n)
-    return res
-
-@inline
-def sumcheck_verify_unrolled(start_fs, n_steps, start_claimed_sum, degree):
-    fs: Mut = start_fs
-    claimed_sum: Mut = start_claimed_sum
-    challenges = Array(n_steps * DIM)
-    for sc_round in unroll(0, n_steps):
-        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
-        fs, rand = fs_sample_ef(fs)
-        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
-        copy_5(rand, challenges + sc_round * DIM)
-    return fs, challenges, claimed_sum
-
-
-@inline
-def sumcheck_verify_helper_unrolled(starting_fs, n_steps, start_claimed_sum, degree, challenges):
-    fs: Mut = starting_fs
-    claimed_sum: Mut = start_claimed_sum
-    for sc_round in unroll(0, n_steps):
-        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
-        fs, rand = fs_sample_ef(fs)
-        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
-        copy_5(rand, challenges + sc_round * DIM)
-
-    return fs, claimed_sum
-
-
-@inline
-def parse_whir_commitment_const(old_fs, num_ood):
-    fs: Mut = old_fs
-    fs, root = fs_receive_chunks(fs, 1)
-    fs, ood_points = fs_sample_many_ef(fs, num_ood)
-    fs, ood_evals = fs_receive_ef_inlined(fs, num_ood)
-    return fs, root, ood_points, ood_evals
-
 
 def recursion(inner_public_memory, bytecode_hash_domsep):
     proof_transcript_size_buf = Array(1)
@@ -208,10 +89,9 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
-    debug_assert(stacked_n_vars == WHIR_OPEN_N_VARS)
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
-    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_whir_commitment_const(fs, WHIR_OPEN_COMMITMENT_OOD)
+    fs, whir_base_root, whir_base_ood_points, whir_base_ood_evals = parse_commitment(fs, num_ood_at_commitment)
 
     fs, logup_c = fs_sample_ef(fs)
 
@@ -222,62 +102,30 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     # GENERIC LOGUP
 
     n_vars_logup_gkr = compute_total_gkr_n_vars(log_memory, log_bytecode_padded, table_heights)
-    # Will fail if dimensions change — update GKR and AIR constants below
-    assert n_vars_logup_gkr == N_VARS_LOGUP_GKR
 
-    # verify_gkr_quotient inlined
-    fs, gkr_nums = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
-    fs, gkr_denoms = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
+    fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, n_vars_logup_gkr)
+    set_to_5_zeros(quotient_gkr)
 
-    initial_quotients = Array(LOGUP_GKR_N_COEFFS_SENT * DIM)
-    for k in unroll(0, LOGUP_GKR_N_COEFFS_SENT):
-        div_extension(gkr_nums + k * DIM, gkr_denoms + k * DIM, initial_quotients + k * DIM)
-    debug_assert(NUM_REPEATED_ONES <= LOGUP_GKR_N_COEFFS_SENT)
-    debug_assert(LOGUP_GKR_N_COEFFS_SENT % NUM_REPEATED_ONES == 0)
-    quotient_gkr: Mut = ZERO_VEC_PTR
-    for k in unroll(0, LOGUP_GKR_N_COEFFS_SENT / NUM_REPEATED_ONES):
-        quotient_gkr = add_extension_ret(quotient_gkr, sum_continuous_ef(initial_quotients + k * NUM_REPEATED_ONES * DIM, NUM_REPEATED_ONES))
-
-    gkr_points = Array(N_VARS_LOGUP_GKR)
-    gkr_claims_num = Array(N_VARS_LOGUP_GKR)
-    gkr_claims_den = Array(N_VARS_LOGUP_GKR)
-
-    fs, initial_gkr_point = fs_sample_many_ef(fs, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
-    gkr_points[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = initial_gkr_point
-    gkr_point_poly_eq = poly_eq_extension(initial_gkr_point, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
-    gkr_claims_num[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = dot_product_ee_ret(gkr_nums, gkr_point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
-    gkr_claims_den[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = dot_product_ee_ret(gkr_denoms, gkr_point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
-    for i in unroll(LOGUP_GKR_N_VARS_TO_SEND_COEFFS, N_VARS_LOGUP_GKR):
-        fs, gkr_points[i], gkr_claims_num[i], gkr_claims_den[i] = verify_gkr_quotient_step(fs, i, gkr_points[i - 1], gkr_claims_num[i - 1], gkr_claims_den[i - 1])
-    point_gkr = gkr_points[N_VARS_LOGUP_GKR - 1]
-    numerators_value = gkr_claims_num[23]
-    denominators_value = gkr_claims_den[23]
-
-    memory_and_acc_prefix_bits = Array(PREFIX_4_N_BITS)
-    for i_b in unroll(0, PREFIX_4_N_BITS):
-        memory_and_acc_prefix_bits[i_b] = PREFIX_4_BITS[i_b]
-    memory_and_acc_prefix = eq_mle_base_extension_inlined(memory_and_acc_prefix_bits, point_gkr, PREFIX_4_N_BITS)
+    memory_and_acc_prefix = multilinear_location_prefix(0, n_vars_logup_gkr - log_memory, point_gkr)
 
     fs, value_acc = fs_receive_ef_inlined(fs, 1)
     fs, value_memory = fs_receive_ef_inlined(fs, 1)
 
     retrieved_numerators_value: Mut = opposite_extension_ret(mul_extension_ret(memory_and_acc_prefix, value_acc))
 
-    value_index = mle_of_01234567_etc(point_gkr + (n_vars_logup_gkr - log_memory) * DIM, INNER_LOG_MEMORY)
+    value_index = mle_of_01234567_etc(point_gkr + (n_vars_logup_gkr - log_memory) * DIM, log_memory)
     fingerprint_memory = fingerprint_2(LOGUP_MEMORY_DOMAINSEP, value_memory, value_index, logup_alphas_eq_poly)
     retrieved_denominators_value: Mut = mul_extension_ret(memory_and_acc_prefix, sub_extension_ret(logup_c, fingerprint_memory))
 
     offset: Mut = two_exp(log_memory)
 
     bytecode_and_acc_point = point_gkr + (n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN) * DIM
-    bytecode_mlp_bits = Array(PREFIX_5_N_BITS)
-    for i_b in unroll(0, PREFIX_5_N_BITS):
-        bytecode_mlp_bits[i_b] = PREFIX_5_BITS[i_b]
-    bytecode_multilinear_location_prefix = eq_mle_base_extension_inlined(bytecode_mlp_bits, point_gkr, PREFIX_5_N_BITS)
-    bytecode_padded_mlp_bits = Array(PREFIX_6_N_BITS)
-    for i_b in unroll(0, PREFIX_6_N_BITS):
-        bytecode_padded_mlp_bits[i_b] = PREFIX_6_BITS[i_b]
-    bytecode_padded_multilinear_location_prefix = eq_mle_base_extension_inlined(bytecode_padded_mlp_bits, point_gkr, PREFIX_6_N_BITS)
+    bytecode_multilinear_location_prefix = multilinear_location_prefix(
+        offset / 2**LOG_GUEST_BYTECODE_LEN, n_vars_logup_gkr - LOG_GUEST_BYTECODE_LEN, point_gkr
+    )
+    bytecode_padded_multilinear_location_prefix = multilinear_location_prefix(
+        offset / two_exp(log_bytecode_padded), n_vars_logup_gkr - log_bytecode_padded, point_gkr
+    )
     # Build padded claim data: [point | value | zero padding]
     bytecode_claim = Array(BYTECODE_CLAIM_SIZE_PADDED)
     copy_many_ef(bytecode_and_acc_point, bytecode_claim, LOG_GUEST_BYTECODE_LEN)
@@ -330,11 +178,39 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     offset += two_exp(log_bytecode_padded)
 
     # Dispatch based on table height ordering (sorted by descending height)
-    # Hardcoded: poseidon(17) > extop(14), so second_table=2, third_table=1
-    assert table_log_heights[2] != table_log_heights[1]
-    # Hardcoded ordering: poseidon > extop
-    assert maximum(table_log_heights[1], table_log_heights[2]) != table_log_heights[1]
-    continue_recursion_ordered(
+    if maximum(table_log_heights[1], table_log_heights[2]) == table_log_heights[1]:
+        continue_recursion_ordered(
+            1,
+            2,
+            fs,
+            offset,
+            retrieved_numerators_value,
+            retrieved_denominators_value,
+            table_heights,
+            table_log_heights,
+            point_gkr,
+            n_vars_logup_gkr,
+            logup_alphas_eq_poly,
+            logup_c,
+            numerators_value,
+            denominators_value,
+            log_memory,
+            inner_public_memory,
+            stacked_n_vars,
+            whir_log_inv_rate,
+            whir_base_root,
+            whir_base_ood_points,
+            whir_base_ood_evals,
+            num_ood_at_commitment,
+            log_n_cycles,
+            log_bytecode_padded,
+            bytecode_and_acc_point,
+            value_memory,
+            value_acc,
+            value_bytecode_acc,
+        )
+    else:
+        continue_recursion_ordered(
             2,
             1,
             fs,
@@ -433,10 +309,7 @@ def continue_recursion_ordered(
 
         if table_index == EXECUTION_TABLE_INDEX:
             # 0] Bytecode lookup
-            bytecode_prefix_bits = Array(PREFIX_9_N_BITS)
-            for i_b in unroll(0, PREFIX_9_N_BITS):
-                bytecode_prefix_bits[i_b] = PREFIX_9_BITS[i_b]
-            bytecode_prefix = eq_mle_base_extension_inlined(bytecode_prefix_bits, point_gkr, PREFIX_9_N_BITS)
+            bytecode_prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
 
             fs, eval_on_pc = fs_receive_ef_inlined(fs, 1)
             pcs_values[EXECUTION_TABLE_INDEX][0][COL_PC].push(eval_on_pc)
@@ -452,22 +325,7 @@ def continue_recursion_ordered(
             )
             offset += n_rows
 
-        prefix: Imu
-        if sorted_pos == 0:
-            bus_bits_0 = Array(GKR_BUS_0_N_BITS)
-            for i_b in unroll(0, GKR_BUS_0_N_BITS):
-                bus_bits_0[i_b] = GKR_BUS_0_BITS[i_b]
-            prefix = eq_mle_base_extension_inlined(bus_bits_0, point_gkr, GKR_BUS_0_N_BITS)
-        if sorted_pos == 1:
-            bus_bits_1 = Array(GKR_BUS_1_N_BITS)
-            for i_b in unroll(0, GKR_BUS_1_N_BITS):
-                bus_bits_1[i_b] = GKR_BUS_1_BITS[i_b]
-            prefix = eq_mle_base_extension_inlined(bus_bits_1, point_gkr, GKR_BUS_1_N_BITS)
-        if sorted_pos == 2:
-            bus_bits_2 = Array(GKR_BUS_2_N_BITS)
-            for i_b in unroll(0, GKR_BUS_2_N_BITS):
-                bus_bits_2[i_b] = GKR_BUS_2_BITS[i_b]
-            prefix = eq_mle_base_extension_inlined(bus_bits_2, point_gkr, GKR_BUS_2_N_BITS)
+        prefix = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)
 
         fs, eval_on_selector = fs_receive_ef_inlined(fs, 1)
         retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, mul_extension_ret(prefix, eval_on_selector))
@@ -494,22 +352,7 @@ def continue_recursion_ordered(
                 debug_assert(len(pcs_values[table_index][0][col_index]) == 0)
                 pcs_values[table_index][0][col_index].push(value_eval)
 
-                pref: Imu
-                if sorted_pos == 0:
-                    lk0_bits = Array(GKR_LOOKUP_0_N_BITS)
-                    for i_b in unroll(0, GKR_LOOKUP_0_N_BITS):
-                        lk0_bits[i_b] = GKR_LOOKUP_0_BITS[lookup_f_index][i][i_b]
-                    pref = eq_mle_base_extension_inlined(lk0_bits, point_gkr, GKR_LOOKUP_0_N_BITS)
-                if sorted_pos == 1:
-                    lk1_bits = Array(GKR_LOOKUP_1_N_BITS)
-                    for i_b in unroll(0, GKR_LOOKUP_1_N_BITS):
-                        lk1_bits[i_b] = GKR_LOOKUP_1_BITS[lookup_f_index][i][i_b]
-                    pref = eq_mle_base_extension_inlined(lk1_bits, point_gkr, GKR_LOOKUP_1_N_BITS)
-                if sorted_pos == 2:
-                    lk2_bits = Array(GKR_LOOKUP_2_N_BITS)
-                    for i_b in unroll(0, GKR_LOOKUP_2_N_BITS):
-                        lk2_bits[i_b] = GKR_LOOKUP_2_BITS[lookup_f_index][i][i_b]
-                    pref = eq_mle_base_extension_inlined(lk2_bits, point_gkr, GKR_LOOKUP_2_N_BITS)
+                pref = multilinear_location_prefix(offset / n_rows, n_vars_logup_gkr - log_n_rows, point_gkr)  # TODO there is some duplication here
                 retrieved_numerators_value = add_extension_ret(retrieved_numerators_value, pref)
                 fingerp = fingerprint_2(
                     LOGUP_MEMORY_DOMAINSEP,
@@ -565,9 +408,9 @@ def continue_recursion_ordered(
         )
         initial_sum = add_extension_ret(initial_sum, mul_extension_ret(eta_powers + sorted_pos * DIM, bus_final_value))
 
-    # Batched AIR sumcheck over n_max = INNER_LOG_N_CYCLES variables
-    assert log_n_cycles == INNER_LOG_N_CYCLES
-    fs, all_challenges, batched_air_final_value = sumcheck_verify_unrolled(fs, INNER_LOG_N_CYCLES, initial_sum, MAX_AIR_FULL_DEGREE)
+    n_max = log_n_cycles # extension table is always the biggest
+    # Batched AIR sumcheck:
+    fs, all_challenges, batched_air_final_value = sumcheck_verify_reversed(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
 
     check_sum: Mut = embed_in_ef(0)
     for sorted_pos in unroll(0, N_TABLES):
@@ -578,6 +421,7 @@ def continue_recursion_ordered(
             table_index = second_table
         if sorted_pos == 2:
             table_index = third_table
+        log_n_rows = table_log_heights[table_index]
         total_num_cols = NUM_COLS_AIR[table_index]
         n_up_columns = N_AIR_COLUMNS[table_index]
         n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
@@ -587,30 +431,9 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
         bus_point = pcs_points[table_index][0]
-        eq_val: Imu
-        k_t: Imu
-        challenge_suffix: Imu
-        if sorted_pos == 0:
-            challenge_suffix = all_challenges + (INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_0) * DIM
-            eq_val = eq_mle_extension_inlined(bus_point, challenge_suffix, INNER_SORTED_LOG_ROWS_0)
-            if INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_0 == 0:
-                k_t = ONE_EF_PTR
-            else:
-                k_t = product_first_n_const(all_challenges, INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_0)
-        if sorted_pos == 1:
-            challenge_suffix = all_challenges + (INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_1) * DIM
-            eq_val = eq_mle_extension_inlined(bus_point, challenge_suffix, INNER_SORTED_LOG_ROWS_1)
-            if INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_1 == 0:
-                k_t = ONE_EF_PTR
-            else:
-                k_t = product_first_n_const(all_challenges, INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_1)
-        if sorted_pos == 2:
-            challenge_suffix = all_challenges + (INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_2) * DIM
-            eq_val = eq_mle_extension_inlined(bus_point, challenge_suffix, INNER_SORTED_LOG_ROWS_2)
-            if INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_2 == 0:
-                k_t = ONE_EF_PTR
-            else:
-                k_t = product_first_n_const(all_challenges, INNER_LOG_N_CYCLES - INNER_SORTED_LOG_ROWS_2)
+        eq_val = eq_mle_extension(bus_point, all_challenges, log_n_rows)
+
+        k_t = product_first_n(all_challenges + log_n_rows * DIM, n_max - log_n_rows)
 
         contribution = mul_extension_ret(
             mul_extension_ret(eta_powers + sorted_pos * DIM, k_t),
@@ -618,7 +441,7 @@ def continue_recursion_ordered(
         )
         check_sum = add_extension_ret(check_sum, contribution)
 
-        pcs_points[table_index].push(challenge_suffix)
+        pcs_points[table_index].push(all_challenges)
         pcs_values[table_index].push(DynArray([]))
         pcs_values_down[table_index].push(DynArray([]))
         last_index = len(pcs_values[table_index]) - 1
@@ -638,15 +461,15 @@ def continue_recursion_ordered(
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
     public_memory_eval = Array(DIM)
-    dot_product_be_const(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
+    dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
     # WHIR BASE
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
-    combination_randomness_powers: Mut = powers_const(combination_randomness_gen, 2 ** log2_ceil(2 + TOTAL_WHIR_STATEMENTS))
+    combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS)
     whir_sum: Mut = Array(DIM)
-    dot_product_ee(whir_base_ood_evals, combination_randomness_powers, whir_sum, 2)
-    curr_randomness: Mut = combination_randomness_powers + 2 * DIM
+    dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
+    curr_randomness: Mut = combination_randomness_powers + num_ood_at_commitment * DIM
 
     whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum)
     curr_randomness += DIM
@@ -704,42 +527,33 @@ def continue_recursion_ordered(
         whir_sum,
     )
 
-    curr_randomness = combination_randomness_powers + 2 * DIM
+    curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
 
     eq_memory_and_acc_point = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
         memory_and_acc_point,
         log_memory,
     )
-    prefix_memory_bits = Array(PREFIX_7_N_BITS)
-    for i_b in unroll(0, PREFIX_7_N_BITS):
-        prefix_memory_bits[i_b] = PREFIX_7_BITS[i_b]
-    prefix_memory = eq_mle_base_extension_inlined(prefix_memory_bits, folding_randomness_global, PREFIX_7_N_BITS)
+    prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
-    prefix_acc_memory_bits = Array(PREFIX_8_N_BITS)
-    for i_b in unroll(0, PREFIX_8_N_BITS):
-        prefix_acc_memory_bits[i_b] = PREFIX_8_BITS[i_b]
-    prefix_acc_memory = eq_mle_base_extension_inlined(prefix_acc_memory_bits, folding_randomness_global, PREFIX_8_N_BITS)
+    prefix_acc_memory = multilinear_location_prefix(1, stacked_n_vars - log_memory, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_acc_memory), eq_memory_and_acc_point),
     )
     curr_randomness += DIM
 
-    eq_pub_mem = eq_mle_extension_inlined(
+    eq_pub_mem = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE) * DIM,
         public_memory_random_point,
         INNER_PUBLIC_MEMORY_LOG_SIZE,
     )
-    prefix_pub_mem_bits = Array(PREFIX_0_N_BITS)
-    for i in unroll(0, PREFIX_0_N_BITS):
-        prefix_pub_mem_bits[i] = PREFIX_0_BITS[i]
-    prefix_pub_mem = eq_mle_base_extension_inlined(prefix_pub_mem_bits, folding_randomness_global, PREFIX_0_N_BITS)
+    prefix_pub_mem = multilinear_location_prefix(0, stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_pub_mem), eq_pub_mem),
@@ -748,15 +562,16 @@ def continue_recursion_ordered(
 
     offset = two_exp(log_memory) * 2  # memory and acc_memory
 
-    eq_bytecode_acc = eq_mle_extension_inlined(
+    eq_bytecode_acc = eq_mle_extension(
         folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
         bytecode_and_acc_point,
         LOG_GUEST_BYTECODE_LEN,
     )
-    prefix_bytecode_acc_bits = Array(PREFIX_1_N_BITS)
-    for i in unroll(0, PREFIX_1_N_BITS):
-        prefix_bytecode_acc_bits[i] = PREFIX_1_BITS[i]
-    prefix_bytecode_acc = eq_mle_base_extension_inlined(prefix_bytecode_acc_bits, folding_randomness_global, PREFIX_1_N_BITS)
+    prefix_bytecode_acc = multilinear_location_prefix(
+        offset / 2**LOG_GUEST_BYTECODE_LEN,
+        stacked_n_vars - LOG_GUEST_BYTECODE_LEN,
+        folding_randomness_global,
+    )
     s = add_extension_ret(
         s,
         mul_extension_ret(mul_extension_ret(curr_randomness, prefix_bytecode_acc), eq_bytecode_acc),
@@ -764,17 +579,19 @@ def continue_recursion_ordered(
     curr_randomness += DIM
     offset += two_exp(log_bytecode_padded)
 
-    prefix_pc_start_bits = Array(PREFIX_2_N_BITS)
-    for i in unroll(0, PREFIX_2_N_BITS):
-        prefix_pc_start_bits[i] = PREFIX_2_BITS[i]
-    prefix_pc_start = eq_mle_base_extension_inlined(prefix_pc_start_bits, folding_randomness_global, PREFIX_2_N_BITS)
+    prefix_pc_start = multilinear_location_prefix(
+        offset + COL_PC * two_exp(log_n_cycles),
+        stacked_n_vars,
+        folding_randomness_global,
+    )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_start))
     curr_randomness += DIM
 
-    prefix_pc_end_bits = Array(PREFIX_3_N_BITS)
-    for i in unroll(0, PREFIX_3_N_BITS):
-        prefix_pc_end_bits[i] = PREFIX_3_BITS[i]
-    prefix_pc_end = eq_mle_base_extension_inlined(prefix_pc_end_bits, folding_randomness_global, PREFIX_3_N_BITS)
+    prefix_pc_end = multilinear_location_prefix(
+        offset + (COL_PC + 1) * two_exp(log_n_cycles) - 1,
+        stacked_n_vars,
+        folding_randomness_global,
+    )
     s = add_extension_ret(s, mul_extension_ret(curr_randomness, prefix_pc_end))
     curr_randomness += DIM
 
@@ -791,66 +608,34 @@ def continue_recursion_ordered(
         total_num_cols = NUM_COLS_AIR[table_index]
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
+            inner_folding = folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM
             n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
-
-            # next_mle (down) values come first
+            # TODO: cache prefixes for down columns to avoid recomputing them in the eq pass below
+            
+            # next_mle (down) values
             if n_down_columns != 0:
-                next_factor: Imu
-                if sorted_pos == 0:
-                    next_factor = next_mle_const(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_0) * DIM, INNER_SORTED_LOG_ROWS_0)
-                if sorted_pos == 1:
-                    next_factor = next_mle_const(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_1) * DIM, INNER_SORTED_LOG_ROWS_1)
-                if sorted_pos == 2:
-                    next_factor = next_mle_const(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_2) * DIM, INNER_SORTED_LOG_ROWS_2)
+                next_factor = next_mle(point, inner_folding, log_n_rows)
                 for j in unroll(0, total_num_cols):
                     if len(pcs_values_down[table_index][i][j]) == 1:
-                        prefix_down: Imu
-                        if sorted_pos == 0:
-                            tp0_bits_d = Array(TABLE_PREFIX_0_N_BITS)
-                            for k in unroll(0, TABLE_PREFIX_0_N_BITS):
-                                tp0_bits_d[k] = TABLE_PREFIX_0_BITS[j][k]
-                            prefix_down = eq_mle_base_extension_inlined(tp0_bits_d, folding_randomness_global, TABLE_PREFIX_0_N_BITS)
-                        if sorted_pos == 1:
-                            tp1_bits_d = Array(TABLE_PREFIX_1_N_BITS)
-                            for k in unroll(0, TABLE_PREFIX_1_N_BITS):
-                                tp1_bits_d[k] = TABLE_PREFIX_1_BITS[j][k]
-                            prefix_down = eq_mle_base_extension_inlined(tp1_bits_d, folding_randomness_global, TABLE_PREFIX_1_N_BITS)
-                        if sorted_pos == 2:
-                            tp2_bits_d = Array(TABLE_PREFIX_2_N_BITS)
-                            for k in unroll(0, TABLE_PREFIX_2_N_BITS):
-                                tp2_bits_d[k] = TABLE_PREFIX_2_BITS[j][k]
-                            prefix_down = eq_mle_base_extension_inlined(tp2_bits_d, folding_randomness_global, TABLE_PREFIX_2_N_BITS)
+                        prefix = multilinear_location_prefix(
+                            offset / n_rows + j,
+                            stacked_n_vars - log_n_rows,
+                            folding_randomness_global,
+                        )
                         s = add_extension_ret(
                             s,
-                            mul_extension_ret(mul_extension_ret(curr_randomness, prefix_down), next_factor),
+                            mul_extension_ret(mul_extension_ret(curr_randomness, prefix), next_factor),
                         )
                         curr_randomness += DIM
-
-            eq_factor: Imu
-            if sorted_pos == 0:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_0) * DIM, INNER_SORTED_LOG_ROWS_0)
-            if sorted_pos == 1:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_1) * DIM, INNER_SORTED_LOG_ROWS_1)
-            if sorted_pos == 2:
-                eq_factor = eq_mle_extension_inlined(point, folding_randomness_global + (WHIR_OPEN_N_VARS - INNER_SORTED_LOG_ROWS_2) * DIM, INNER_SORTED_LOG_ROWS_2)
+            # eq (up) values
+            eq_factor = eq_mle_extension(point, inner_folding, log_n_rows)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
-                    prefix: Imu
-                    if sorted_pos == 0:
-                        tp0_bits = Array(TABLE_PREFIX_0_N_BITS)
-                        for k in unroll(0, TABLE_PREFIX_0_N_BITS):
-                            tp0_bits[k] = TABLE_PREFIX_0_BITS[j][k]
-                        prefix = eq_mle_base_extension_inlined(tp0_bits, folding_randomness_global, TABLE_PREFIX_0_N_BITS)
-                    if sorted_pos == 1:
-                        tp1_bits = Array(TABLE_PREFIX_1_N_BITS)
-                        for k in unroll(0, TABLE_PREFIX_1_N_BITS):
-                            tp1_bits[k] = TABLE_PREFIX_1_BITS[j][k]
-                        prefix = eq_mle_base_extension_inlined(tp1_bits, folding_randomness_global, TABLE_PREFIX_1_N_BITS)
-                    if sorted_pos == 2:
-                        tp2_bits = Array(TABLE_PREFIX_2_N_BITS)
-                        for k in unroll(0, TABLE_PREFIX_2_N_BITS):
-                            tp2_bits[k] = TABLE_PREFIX_2_BITS[j][k]
-                        prefix = eq_mle_base_extension_inlined(tp2_bits, folding_randomness_global, TABLE_PREFIX_2_N_BITS)
+                    prefix = multilinear_location_prefix(
+                        offset / n_rows + j,
+                        stacked_n_vars - log_n_rows,
+                        folding_randomness_global,
+                    )
                     s = add_extension_ret(
                         s,
                         mul_extension_ret(mul_extension_ret(curr_randomness, prefix), eq_factor),
@@ -862,6 +647,12 @@ def continue_recursion_ordered(
     return
 
 
+def multilinear_location_prefix(offset, n_vars, point):
+    bits = checked_decompose_bits_small_value(offset, n_vars)
+    res = eq_mle_base_extension(bits, point, n_vars)
+    return res
+
+
 def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     buff = Array(DIM * 2)
     copy_5(data_1, buff)
@@ -871,6 +662,7 @@ def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     return res
 
 
+@inline
 def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
     res: Mut = dot_product_ee_ret(instr_evals, logup_alphas_eq_poly, N_INSTRUCTION_COLUMNS)
     res = add_extension_ret(res, mul_extension_ret(eval_on_pc, logup_alphas_eq_poly + N_INSTRUCTION_COLUMNS * DIM))
@@ -882,7 +674,6 @@ def fingerprint_bytecode(instr_evals, eval_on_pc, logup_alphas_eq_poly):
 
 
 def verify_gkr_quotient(fs: Mut, n_vars):
-    assert n_vars == N_VARS_LOGUP_GKR
     fs, nums = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
     fs, denoms = fs_receive_ef_inlined(fs, LOGUP_GKR_N_COEFFS_SENT)
 
@@ -895,9 +686,9 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     for k in unroll(0, LOGUP_GKR_N_COEFFS_SENT / NUM_REPEATED_ONES):
         quotient = add_extension_ret(quotient, sum_continuous_ef(initial_quotients + k * NUM_REPEATED_ONES * DIM, NUM_REPEATED_ONES))
 
-    points = Array(N_VARS_LOGUP_GKR)
-    claims_num = Array(N_VARS_LOGUP_GKR)
-    claims_den = Array(N_VARS_LOGUP_GKR)
+    points = Array(n_vars)
+    claims_num = Array(n_vars)
+    claims_den = Array(n_vars)
 
     fs, initial_point = fs_sample_many_ef(fs, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
     points[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = initial_point
@@ -909,26 +700,24 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     claims_num[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = first_claim_num
     claims_den[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = first_claim_den
 
-    for i in unroll(LOGUP_GKR_N_VARS_TO_SEND_COEFFS, N_VARS_LOGUP_GKR):
+    for i in range(LOGUP_GKR_N_VARS_TO_SEND_COEFFS, n_vars):
         fs, points[i], claims_num[i], claims_den[i] = verify_gkr_quotient_step(fs, i, points[i - 1], claims_num[i - 1], claims_den[i - 1])
 
     return (
         fs,
         quotient,
-        points[N_VARS_LOGUP_GKR - 1],
-        claims_num[N_VARS_LOGUP_GKR - 1],
-        claims_den[N_VARS_LOGUP_GKR - 1],
+        points[n_vars - 1],
+        claims_num[n_vars - 1],
+        claims_den[n_vars - 1],
     )
 
 
-@inline
-def verify_gkr_quotient_step(start_fs, n_vars, point, claim_num, claim_den):
-    fs: Mut = start_fs
+def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
     postponed_point = Array((n_vars + 1) * DIM)
-    fs, postponed_value = sumcheck_verify_helper_unrolled(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point + DIM)
+    fs, postponed_value = sumcheck_verify_reversed_helper(fs, n_vars, num_plus_alpha_mul_claim_den, 3, postponed_point)
     fs, inner_evals = fs_receive_ef_inlined(fs, 4)
     a_num = inner_evals
     b_num = inner_evals + DIM
@@ -937,16 +726,16 @@ def verify_gkr_quotient_step(start_fs, n_vars, point, claim_num, claim_den):
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = eq_mle_extension_inlined(point, postponed_point + DIM, n_vars)
+    eq_factor = eq_mle_extension(point, postponed_point, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
 
-    point_poly_eq = poly_eq_extension_inlined(beta, 1)
+    point_poly_eq = poly_eq_extension(beta, 1)
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
-    copy_5(beta, postponed_point)
+    copy_5(beta, postponed_point + n_vars * DIM)
 
     return fs, postponed_point, new_claim_num, new_claim_den
 

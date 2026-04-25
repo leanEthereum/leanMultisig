@@ -58,6 +58,10 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
+    if bytecode.log_size() < MIN_BYTECODE_LOG_SIZE {
+        return Err(ProofError::InvalidProof);
+    }
+
     let parsed_commitment = stacked_pcs_parse_commitment(
         &whir_config,
         &mut verifier_state,
@@ -149,11 +153,17 @@ pub fn verify_execution(
         let constraint_eval = delegate_to_inner!(&vd.table => eval_constraint);
 
         let bus_point = from_end(gkr_point, table_n_vars[&vd.table]);
-        my_air_final_value +=
-            back_loaded_table_contribution(bus_point, &sumcheck_air_point.0, constraint_eval, vd.eta_power);
+        let natural_ordering_point = natural_ordering_point_for_session(&sumcheck_air_point.0, table_n_vars[&vd.table]);
+        my_air_final_value += back_loaded_table_contribution(
+            bus_point,
+            &sumcheck_air_point.0,
+            &natural_ordering_point,
+            constraint_eval,
+            vd.eta_power,
+        );
 
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &sumcheck_air_point.0, table_n_vars[&vd.table]) }};
+            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_ordering_point) }};
         }
         let claim = delegate_to_inner!(&vd.table => split);
 
@@ -217,4 +227,21 @@ pub fn verify_execution(
         },
         verifier_state.into_raw_proof(),
     ))
+}
+
+fn back_loaded_table_contribution<EF: ExtensionField<PF<EF>>>(
+    bus_point: &[EF],
+    sumcheck_air_point: &[EF],
+    natural_ordering_point: &[EF],
+    constraint_eval: EF,
+    eta_power: EF,
+) -> EF {
+    let n_t = bus_point.len();
+    let n_max = sumcheck_air_point.len();
+    let suffix_start = n_max - n_t;
+    assert_eq!(natural_ordering_point.len(), n_t);
+    let eq_val =
+        MultilinearPoint(bus_point.to_vec()).eq_poly_outside(&MultilinearPoint(natural_ordering_point.to_vec()));
+    let k_t: EF = sumcheck_air_point[..suffix_start].iter().copied().product();
+    eta_power * k_t * eq_val * constraint_eval
 }

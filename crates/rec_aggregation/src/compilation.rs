@@ -1,49 +1,40 @@
 use backend::*;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
-use lean_prover::{WHIR_INITIAL_FOLDING_FACTOR, default_whir_config};
+use lean_prover::{
+    GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
+    WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
+};
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, total_whir_statements};
+use std::sync::OnceLock;
+use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, V_GRINDING, W};
 
 use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
 
-static BYTECODES: OnceLock<Mutex<HashMap<usize, &'static Bytecode>>> = OnceLock::new();
+static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 
-fn bytecodes() -> &'static Mutex<HashMap<usize, &'static Bytecode>> {
-    BYTECODES.get_or_init(|| Mutex::new(HashMap::new()))
+pub fn get_aggregation_bytecode() -> &'static Bytecode {
+    BYTECODE
+        .get()
+        .unwrap_or_else(|| panic!("call init_aggregation_bytecode() first"))
 }
 
-pub fn get_aggregation_bytecode(log_inv_rate: usize) -> &'static Bytecode {
-    bytecodes()
-        .lock()
-        .unwrap()
-        .get(&log_inv_rate)
-        .copied()
-        .unwrap_or_else(|| panic!("call init_aggregation_bytecode({log_inv_rate}) first"))
+pub fn init_aggregation_bytecode() {
+    BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-pub fn init_aggregation_bytecode(log_inv_rate: usize) {
-    let mut map = bytecodes().lock().unwrap();
-    if map.contains_key(&log_inv_rate) {
-        return;
-    }
-    let bytecode = compile_main_program_self_referential(log_inv_rate);
-    map.insert(log_inv_rate, Box::leak(Box::new(bytecode)));
-}
-
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F, log_inv_rate: usize) -> Bytecode {
+fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
     let input_data_size =
         1 + DIGEST_LEN + MESSAGE_LEN_FE + 2 + N_MERKLE_CHUNKS_FOR_SLOT + claim_data_size_padded + DIGEST_LEN;
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded, log_inv_rate);
+    let replacements = build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -54,11 +45,11 @@ fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F, lo
 }
 
 #[instrument(skip_all)]
-fn compile_main_program_self_referential(log_inv_rate: usize) -> Bytecode {
+fn compile_main_program_self_referential() -> Bytecode {
     let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
-        let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval, log_inv_rate);
+        let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
         assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
         if actual_log_size == log_size_guess {
@@ -77,10 +68,98 @@ fn build_replacements(
     inner_program_log_size: usize,
     bytecode_zero_eval: F,
     input_data_size_padded: usize,
-    log_inv_rate: usize,
 ) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
+
     let log_inner_bytecode = inner_program_log_size;
+    let min_stacked = min_stacked_n_vars(log_inner_bytecode);
+
+    let mut all_potential_num_queries = vec![];
+    let mut all_potential_query_grinding = vec![];
+    let mut all_potential_num_oods = vec![];
+    let mut all_potential_folding_grinding = vec![];
+    let mut too_much_grinding = false;
+    for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
+        let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
+        let whir_config_builder = default_whir_config(log_inv_rate);
+
+        let mut queries_for_rate = vec![];
+        let mut query_grinding_for_rate = vec![];
+        let mut oods_for_rate = vec![];
+        let mut folding_grinding_for_rate = vec![];
+        for n_vars in min_stacked..=max_n_vars {
+            let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
+            if cfg.max_folding_pow_bits() > GRINDING_BITS {
+                too_much_grinding = true;
+            }
+
+            let mut num_queries = vec![];
+            let mut query_grinding_bits = vec![];
+            let mut oods = vec![cfg.commitment_ood_samples];
+            let mut folding_grinding = vec![cfg.starting_folding_pow_bits];
+            for round in &cfg.round_parameters {
+                num_queries.push(round.num_queries);
+                query_grinding_bits.push(round.query_pow_bits);
+                oods.push(round.ood_samples);
+                folding_grinding.push(round.folding_pow_bits);
+            }
+            num_queries.push(cfg.final_queries);
+            query_grinding_bits.push(cfg.final_query_pow_bits);
+
+            queries_for_rate.push(format!(
+                "[{}]",
+                num_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ")
+            ));
+            query_grinding_for_rate.push(format!(
+                "[{}]",
+                query_grinding_bits
+                    .iter()
+                    .map(|q| q.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            oods_for_rate.push(format!(
+                "[{}]",
+                oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
+            ));
+            folding_grinding_for_rate.push(format!(
+                "[{}]",
+                folding_grinding
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        all_potential_num_queries.push(format!("[{}]", queries_for_rate.join(", ")));
+        all_potential_query_grinding.push(format!("[{}]", query_grinding_for_rate.join(", ")));
+        all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
+        all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
+    }
+    if too_much_grinding {
+        tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
+    }
+    replacements.insert(
+        "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
+        RS_DOMAIN_INITIAL_REDUCTION_FACTOR.to_string(),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_NUM_QUERIES_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_num_queries.join(", ")),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_QUERY_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_query_grinding.join(", ")),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_num_oods.join(", ")),
+    );
+    replacements.insert(
+        "WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER".to_string(),
+        format!("[{}]", all_potential_folding_grinding.join(", ")),
+    );
+    replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
@@ -101,12 +180,20 @@ fn build_replacements(
         MAX_WHIR_LOG_INV_RATE.to_string(),
     );
     replacements.insert(
+        "MAX_NUM_VARIABLES_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
+        MAX_NUM_VARIABLES_TO_SEND_COEFFS.to_string(),
+    );
+    replacements.insert(
         "LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER".to_string(),
         N_VARS_TO_SEND_GKR_COEFFS.to_string(),
     );
     replacements.insert(
         "WHIR_INITIAL_FOLDING_FACTOR_PLACEHOLDER".to_string(),
         WHIR_INITIAL_FOLDING_FACTOR.to_string(),
+    );
+    replacements.insert(
+        "WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER".to_string(),
+        WHIR_SUBSEQUENT_FOLDING_FACTOR.to_string(),
     );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
@@ -255,120 +342,6 @@ fn build_replacements(
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
-    // WHIR open parameters for inner proof verification
-    // n_vars=25 is fixed; log_inv_rate is threaded in from the CLI / topology
-    let whir_open_n_vars: usize = 25;
-    let whir_open_log_inv_rate: usize = log_inv_rate;
-    let whir_open_builder = default_whir_config(whir_open_log_inv_rate);
-    let whir_open: WhirConfig<EF> = WhirConfig::new(&whir_open_builder, whir_open_n_vars);
-    assert_eq!(whir_open.n_rounds(), 2, "WHIR open code assumes exactly 2 rounds");
-
-    replacements.insert("WHIR_OPEN_N_VARS_PLACEHOLDER".into(), whir_open_n_vars.to_string());
-    replacements.insert(
-        "WHIR_OPEN_LOG_INV_RATE_PLACEHOLDER".into(),
-        whir_open_log_inv_rate.to_string(),
-    );
-    replacements.insert(
-        "WHIR_OPEN_COMMITMENT_OOD_PLACEHOLDER".into(),
-        whir_open.commitment_ood_samples.to_string(),
-    );
-    replacements.insert(
-        "WHIR_OPEN_STARTING_FGRIND_PLACEHOLDER".into(),
-        whir_open.starting_folding_pow_bits.to_string(),
-    );
-
-    // Round 0
-    let r0 = &whir_open.round_parameters[0];
-    replacements.insert("WHIR_OPEN_R0_QUERIES_PLACEHOLDER".into(), r0.num_queries.to_string());
-    replacements.insert("WHIR_OPEN_R0_OOD_PLACEHOLDER".into(), r0.ood_samples.to_string());
-    replacements.insert("WHIR_OPEN_R0_QGRIND_PLACEHOLDER".into(), r0.query_pow_bits.to_string());
-    replacements.insert(
-        "WHIR_OPEN_R0_FGRIND_PLACEHOLDER".into(),
-        r0.folding_pow_bits.to_string(),
-    );
-    let r0_domain_log = r0.domain_size.ilog2() as usize;
-    replacements.insert("WHIR_OPEN_R0_DOMAIN_LOG_PLACEHOLDER".into(), r0_domain_log.to_string());
-    let r0_folded_domain_log = r0_domain_log - r0.folding_factor;
-    replacements.insert(
-        "WHIR_OPEN_R0_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
-        r0_folded_domain_log.to_string(),
-    );
-    // Round 0 is base field: leaf_chunks = 2^fold / DIGEST_LEN
-    let r0_leaf_chunks = (1usize << r0.folding_factor) / DIGEST_LEN;
-    replacements.insert(
-        "WHIR_OPEN_R0_LEAF_CHUNKS_PLACEHOLDER".into(),
-        r0_leaf_chunks.to_string(),
-    );
-    let r0_sample_chunks = r0.num_queries.div_ceil(DIGEST_LEN);
-    replacements.insert(
-        "WHIR_OPEN_R0_SAMPLE_CHUNKS_PLACEHOLDER".into(),
-        r0_sample_chunks.to_string(),
-    );
-
-    // Round 1
-    let r1 = &whir_open.round_parameters[1];
-    replacements.insert("WHIR_OPEN_R1_FOLD_PLACEHOLDER".into(), r1.folding_factor.to_string());
-    replacements.insert("WHIR_OPEN_R1_QUERIES_PLACEHOLDER".into(), r1.num_queries.to_string());
-    replacements.insert("WHIR_OPEN_R1_OOD_PLACEHOLDER".into(), r1.ood_samples.to_string());
-    replacements.insert("WHIR_OPEN_R1_QGRIND_PLACEHOLDER".into(), r1.query_pow_bits.to_string());
-    replacements.insert(
-        "WHIR_OPEN_R1_FGRIND_PLACEHOLDER".into(),
-        r1.folding_pow_bits.to_string(),
-    );
-    let r1_domain_log = r1.domain_size.ilog2() as usize;
-    replacements.insert("WHIR_OPEN_R1_DOMAIN_LOG_PLACEHOLDER".into(), r1_domain_log.to_string());
-    let r1_folded_domain_log = r1_domain_log - r1.folding_factor;
-    replacements.insert(
-        "WHIR_OPEN_R1_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
-        r1_folded_domain_log.to_string(),
-    );
-    // Round 1+ is extension field: leaf_chunks = 2^fold * DIMENSION / DIGEST_LEN
-    let r1_leaf_chunks = (1usize << r1.folding_factor) * DIMENSION / DIGEST_LEN;
-    replacements.insert(
-        "WHIR_OPEN_R1_LEAF_CHUNKS_PLACEHOLDER".into(),
-        r1_leaf_chunks.to_string(),
-    );
-    let r1_sample_chunks = r1.num_queries.div_ceil(DIGEST_LEN);
-    replacements.insert(
-        "WHIR_OPEN_R1_SAMPLE_CHUNKS_PLACEHOLDER".into(),
-        r1_sample_chunks.to_string(),
-    );
-
-    // Final STIR round
-    let final_config = whir_open.final_round_config();
-    replacements.insert(
-        "WHIR_OPEN_FINAL_QUERIES_PLACEHOLDER".into(),
-        whir_open.final_queries.to_string(),
-    );
-    replacements.insert(
-        "WHIR_OPEN_FINAL_QGRIND_PLACEHOLDER".into(),
-        whir_open.final_query_pow_bits.to_string(),
-    );
-    let final_domain_log = final_config.domain_size.ilog2() as usize;
-    replacements.insert(
-        "WHIR_OPEN_FINAL_DOMAIN_LOG_PLACEHOLDER".into(),
-        final_domain_log.to_string(),
-    );
-    let final_folded_domain_log = final_domain_log - final_config.folding_factor;
-    replacements.insert(
-        "WHIR_OPEN_FINAL_FOLDED_DOMAIN_LOG_PLACEHOLDER".into(),
-        final_folded_domain_log.to_string(),
-    );
-    let final_sample_chunks = whir_open.final_queries.div_ceil(DIGEST_LEN);
-    replacements.insert(
-        "WHIR_OPEN_FINAL_SAMPLE_CHUNKS_PLACEHOLDER".into(),
-        final_sample_chunks.to_string(),
-    );
-
-    // Final polynomial
-    let n_final_vars = whir_open.final_sumcheck_rounds;
-    replacements.insert("WHIR_OPEN_N_FINAL_VARS_PLACEHOLDER".into(), n_final_vars.to_string());
-    let final_coeffs_chunks = (1usize << n_final_vars) * DIMENSION / DIGEST_LEN;
-    replacements.insert(
-        "WHIR_OPEN_FINAL_COEFFS_CHUNKS_PLACEHOLDER".into(),
-        final_coeffs_chunks.to_string(),
-    );
-
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
     replacements.insert("V_GRINDING_PLACEHOLDER".to_string(), V_GRINDING.to_string());
@@ -393,188 +366,7 @@ fn build_replacements(
         NUM_REPEATED_ONES.to_string(),
     );
 
-    // Fixed inner proof dimensions (verified by assertions at runtime)
-    let inner_log_memory: usize = 22;
-    let inner_log_bytecode_padded: usize = 19;
-    let inner_log_n_cycles: usize = 19;
-    let inner_public_memory_log_size: usize = 3;
-    // Sorted table log heights (descending): execution, poseidon16, extension_op
-    let inner_sorted_log_rows: [usize; 3] = [19, 17, 14];
-
-    replacements.insert("INNER_LOG_MEMORY_PLACEHOLDER".into(), inner_log_memory.to_string());
-    replacements.insert("INNER_LOG_BYTECODE_PADDED_PLACEHOLDER".into(), inner_log_bytecode_padded.to_string());
-    replacements.insert("INNER_LOG_N_CYCLES_PLACEHOLDER".into(), inner_log_n_cycles.to_string());
-
-    for (sp, &log_rows) in inner_sorted_log_rows.iter().enumerate() {
-        replacements.insert(format!("INNER_SORTED_LOG_ROWS_{}_PLACEHOLDER", sp), log_rows.to_string());
-    }
-
-    // Sorted AIR sumcheck degrees (= degree_air + 1 for the zerocheck eq factor)
-    let sorted_tables = [Table::execution(), Table::poseidon16(), Table::extension_op()];
-    for (sp, table) in sorted_tables.iter().enumerate() {
-        replacements.insert(
-            format!("INNER_SORTED_AIR_DEGREE_{}_PLACEHOLDER", sp),
-            (table.degree_air() + 1).to_string(),
-        );
-    }
-
-    // GKR n_vars (log2_ceil of total GKR surface)
-    let n_vars_logup_gkr: usize = 24;
-    replacements.insert("N_VARS_LOGUP_GKR_PLACEHOLDER".into(), n_vars_logup_gkr.to_string());
-
-    // Hardcoded bit decompositions for multilinear_location_prefix_inlined
-
-    // Call site 0: prefix_pub_mem (offset=0, n_vars=25-3)
-    let prefix_0_n_bits = whir_open_n_vars - inner_public_memory_log_size;
-    let prefix_0_bits = decompose_bits_be(0, prefix_0_n_bits);
-    insert_prefix_replacement(&mut replacements, 0, prefix_0_n_bits, &prefix_0_bits);
-
-    // Call site 1: prefix_bytecode_acc (offset=2^(log_memory+1) / 2^log_bytecode, n_vars=25-log_bytecode)
-    let prefix_1_offset = (1usize << (inner_log_memory + 1)) >> log_inner_bytecode;
-    let prefix_1_n_bits = whir_open_n_vars - log_inner_bytecode;
-    let prefix_1_bits = decompose_bits_be(prefix_1_offset, prefix_1_n_bits);
-    insert_prefix_replacement(&mut replacements, 1, prefix_1_n_bits, &prefix_1_bits);
-
-    // Call site 2: prefix_pc_start
-    let mut stacking_offset = 1usize << (inner_log_memory + 1); // memory + acc_memory
-    stacking_offset += 1 << inner_log_bytecode_padded; // bytecode
-    let prefix_2_offset = stacking_offset + COL_PC * (1 << inner_log_n_cycles);
-    let prefix_2_n_bits = whir_open_n_vars;
-    insert_prefix_replacement(&mut replacements, 2, prefix_2_n_bits, &decompose_bits_be(prefix_2_offset, prefix_2_n_bits));
-
-    // Call site 3: prefix_pc_end
-    let prefix_3_offset = stacking_offset + (COL_PC + 1) * (1 << inner_log_n_cycles) - 1;
-    let prefix_3_n_bits = whir_open_n_vars;
-    insert_prefix_replacement(&mut replacements, 3, prefix_3_n_bits, &decompose_bits_be(prefix_3_offset, prefix_3_n_bits));
-
-    // Table loop prefix bits (sorted_pos 0,1,2)
-    // Hardcoded table ordering: execution(19), poseidon16(17), extension_op(14)
-    let table_order: [(Table, usize); 3] = [
-        (Table::execution(), 19),
-        (Table::poseidon16(), 17),
-        (Table::extension_op(), 14),
-    ];
-    for (sp, (table, log_n_rows)) in table_order.iter().enumerate() {
-        let n_rows = 1usize << log_n_rows;
-        let n_cols = table.n_columns();
-        let n_bits = whir_open_n_vars - log_n_rows;
-        let offset_base = stacking_offset / n_rows;
-        let bits_2d: Vec<Vec<usize>> = (0..n_cols)
-            .map(|j| decompose_bits_be(offset_base + j, n_bits))
-            .collect();
-        replacements.insert(
-            format!("TBL_PFX_{}_N_BITS_PLACEHOLDER", sp),
-            n_bits.to_string(),
-        );
-        replacements.insert(
-            format!("TBL_PFX_{}_BITS_PLACEHOLDER", sp),
-            format!(
-                "[{}]",
-                bits_2d
-                    .iter()
-                    .map(|row| format!("[{}]", row.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        );
-        stacking_offset += n_rows * n_cols;
-    }
-
-    // Hardcoded bit decompositions for multilinear_location_prefix (non-inlined)
-    // n_vars_logup_gkr = 24 (asserted in Python)
-    let n_vars_logup_gkr: usize = 24;
-
-    // PREFIX_4: memory_and_acc_prefix (offset=0, n_vars=24-22=2)
-    insert_prefix_replacement(&mut replacements, 4, n_vars_logup_gkr - inner_log_memory, &decompose_bits_be(0, n_vars_logup_gkr - inner_log_memory));
-
-    // PREFIX_5: bytecode prefix (GKR) (offset=2^22/2^19=8, n_vars=24-19=5)
-    let gkr_bytecode_offset = (1usize << inner_log_memory) >> log_inner_bytecode;
-    insert_prefix_replacement(&mut replacements, 5, n_vars_logup_gkr - log_inner_bytecode, &decompose_bits_be(gkr_bytecode_offset, n_vars_logup_gkr - log_inner_bytecode));
-
-    // PREFIX_6: bytecode padded prefix (GKR) (offset=2^22/2^19=8, n_vars=24-19=5)
-    let gkr_bytecode_padded_offset = (1usize << inner_log_memory) >> inner_log_bytecode_padded;
-    insert_prefix_replacement(&mut replacements, 6, n_vars_logup_gkr - inner_log_bytecode_padded, &decompose_bits_be(gkr_bytecode_padded_offset, n_vars_logup_gkr - inner_log_bytecode_padded));
-
-    // PREFIX_7: prefix_memory (stacked) (offset=0, n_vars=25-22=3)
-    insert_prefix_replacement(&mut replacements, 7, whir_open_n_vars - inner_log_memory, &decompose_bits_be(0, whir_open_n_vars - inner_log_memory));
-
-    // PREFIX_8: prefix_acc_memory (stacked) (offset=1, n_vars=25-22=3)
-    insert_prefix_replacement(&mut replacements, 8, whir_open_n_vars - inner_log_memory, &decompose_bits_be(1, whir_open_n_vars - inner_log_memory));
-
-    // GKR table loop prefixes
-    // Offset entering continue_recursion_ordered = 2^22 + 2^19
-    let mut gkr_offset = (1usize << inner_log_memory) + (1usize << inner_log_bytecode_padded);
-    let gkr_table_order: [(Table, usize); 3] = [
-        (Table::execution(), 19),  // sorted_pos=0
-        (Table::poseidon16(), 17), // sorted_pos=1
-        (Table::extension_op(), 14), // sorted_pos=2
-    ];
-
-    for (sp, (table, log_n_rows)) in gkr_table_order.iter().enumerate() {
-        let n_rows = 1usize << log_n_rows;
-        let n_bits = n_vars_logup_gkr - log_n_rows;
-
-        // Bytecode prefix (execution only, sp=0)
-        if sp == 0 {
-            let bc_offset = gkr_offset / n_rows;
-            insert_prefix_replacement(&mut replacements, 9, n_bits, &decompose_bits_be(bc_offset, n_bits));
-            gkr_offset += n_rows;
-        }
-
-        // Bus prefix
-        let bus_offset = gkr_offset / n_rows;
-        replacements.insert(format!("GKR_BUS_{}_N_BITS_PLACEHOLDER", sp), n_bits.to_string());
-        replacements.insert(
-            format!("GKR_BUS_{}_BITS_PLACEHOLDER", sp),
-            format!("[{}]", decompose_bits_be(bus_offset, n_bits).iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")),
-        );
-        gkr_offset += n_rows;
-
-        // Lookup prefixes (3D: [lookup_f_index][value_index][bit])
-        let lookups = table.lookups();
-        let mut lookup_bits_3d: Vec<Vec<Vec<usize>>> = Vec::new();
-        for lookup in &lookups {
-            let mut values_bits: Vec<Vec<usize>> = Vec::new();
-            for _vi in 0..lookup.values.len() {
-                let lk_offset = gkr_offset / n_rows;
-                values_bits.push(decompose_bits_be(lk_offset, n_bits));
-                gkr_offset += n_rows;
-            }
-            lookup_bits_3d.push(values_bits);
-        }
-        replacements.insert(format!("GKR_LOOKUP_{}_N_BITS_PLACEHOLDER", sp), n_bits.to_string());
-        replacements.insert(
-            format!("GKR_LOOKUP_{}_BITS_PLACEHOLDER", sp),
-            format!(
-                "[{}]",
-                lookup_bits_3d.iter().map(|lf| {
-                    format!(
-                        "[{}]",
-                        lf.iter().map(|vi| {
-                            format!("[{}]", vi.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", "))
-                        }).collect::<Vec<_>>().join(", ")
-                    )
-                }).collect::<Vec<_>>().join(", ")
-            ),
-        );
-    }
-
     replacements
-}
-
-fn decompose_bits_be(value: usize, n_bits: usize) -> Vec<usize> {
-    (0..n_bits).map(|i| (value >> (n_bits - 1 - i)) & 1).collect()
-}
-
-fn insert_prefix_replacement(replacements: &mut BTreeMap<String, String>, index: usize, n_bits: usize, bits: &[usize]) {
-    replacements.insert(
-        format!("PREFIX_{}_N_BITS_PLACEHOLDER", index),
-        n_bits.to_string(),
-    );
-    replacements.insert(
-        format!("PREFIX_{}_BITS_PLACEHOLDER", index),
-        format!("[{}]", bits.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ")),
-    );
 }
 
 pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {

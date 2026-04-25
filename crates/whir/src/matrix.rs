@@ -2,12 +2,11 @@
 
 use std::{
     borrow::{Borrow, BorrowMut},
-    iter,
     marker::PhantomData,
     ops::Deref,
 };
 
-use field::{ExtensionField, Field, PackedValue};
+use field::PackedValue;
 use itertools::Itertools;
 
 pub trait Matrix<T: Send + Sync + Clone>: Send + Sync {
@@ -94,20 +93,13 @@ pub trait Matrix<T: Send + Sync + Clone>: Send + Sync {
     // }
 
     #[inline]
-    fn vertically_packed_row_rtl<P>(
-        &self,
-        r: usize,
-        effective_width: usize,
-        n_leading_zeros: usize,
-    ) -> impl Iterator<Item = P>
+    fn vertically_packed_row<P>(&self, r: usize, width: usize) -> impl Iterator<Item = P>
     where
         T: Copy,
         P: PackedValue<Value = T> + Default,
     {
         let rows = self.wrapping_row_slices(r, P::WIDTH);
-        (0..n_leading_zeros)
-            .map(|_| P::default())
-            .chain((0..effective_width).rev().map(move |c| P::from_fn(|i| rows[i][c])))
+        (0..width).map(move |c| P::from_fn(|i| rows[i][c]))
     }
 }
 
@@ -120,88 +112,6 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> DenseMatrix<T, S> {
         S: BorrowMut<[T]>,
     {
         RowMajorMatrixViewMut::new(self.values.borrow_mut(), self.width)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FlatMatrixView<F, EF, Inner>(Inner, PhantomData<(F, EF)>);
-
-impl<F, EF, Inner> FlatMatrixView<F, EF, Inner> {
-    pub const fn new(inner: Inner) -> Self {
-        Self(inner, PhantomData)
-    }
-}
-
-impl<F, EF, Inner> Deref for FlatMatrixView<F, EF, Inner> {
-    type Target = Inner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<F, EF, Inner> Matrix<F> for FlatMatrixView<F, EF, Inner>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-    Inner: Matrix<EF>,
-{
-    fn width(&self) -> usize {
-        self.0.width() * EF::DIMENSION
-    }
-
-    fn height(&self) -> usize {
-        self.0.height()
-    }
-
-    unsafe fn row_subseq_unchecked(
-        &self,
-        r: usize,
-        start: usize,
-        end: usize,
-    ) -> impl IntoIterator<Item = F, IntoIter = impl Iterator<Item = F> + Send + Sync> {
-        // We can skip the first start / EF::DIMENSION elements in the row.
-        let len = end - start;
-        let inner_start = start / EF::DIMENSION;
-        unsafe {
-            // Safety: The caller must ensure that r < self.height(), start <= end and end < self.width().
-            FlatIter {
-                inner: self
-                    .0
-                    // We set end to be the width of the inner matrix and use take to ensure we get the right
-                    // number of elements.
-                    .row_subseq_unchecked(r, inner_start, self.0.width())
-                    .into_iter()
-                    .peekable(),
-                idx: start,
-                _phantom: PhantomData,
-            }
-            .take(len)
-        }
-    }
-}
-
-pub struct FlatIter<F, I: Iterator> {
-    inner: iter::Peekable<I>,
-    idx: usize,
-    _phantom: PhantomData<F>,
-}
-
-impl<F, EF, I> Iterator for FlatIter<F, I>
-where
-    F: Field,
-    EF: ExtensionField<F>,
-    I: Iterator<Item = EF>,
-{
-    type Item = F;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx == EF::DIMENSION {
-            self.idx = 0;
-            self.inner.next();
-        }
-        let value = self.inner.peek()?.as_basis_coefficients_slice()[self.idx];
-        self.idx += 1;
-        Some(value)
     }
 }
 

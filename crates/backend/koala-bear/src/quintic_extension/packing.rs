@@ -8,7 +8,7 @@ use crate::KoalaBear;
     all(target_arch = "aarch64", target_feature = "neon"),
     all(target_arch = "x86_64", target_feature = "avx2",)
 )))]
-#[inline]
+#[inline(always)]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
     use field::PrimeCharacteristicRing;
     *res = super::extension::quintic_mul(a, b, KoalaBear::dot_product::<5>);
@@ -16,7 +16,7 @@ pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &m
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
 /// Multiplication in a quintic binomial extension field.
-#[inline]
+#[inline(always)]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
     // TODO: This could likely be optimised further with more effort.
     // in particular it would benefit from a custom AVX2 implementation.
@@ -73,7 +73,7 @@ pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &m
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 /// Multiplication in a quintic binomial extension field.
-#[inline]
+#[inline(always)]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
     use crate::{PackedMontyField31AVX512, dot_product_2};
     use field::PrimeCharacteristicRing;
@@ -157,7 +157,7 @@ pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &m
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 /// Multiplication in a quintic binomial extension field.
-#[inline]
+#[inline(always)]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
     // TODO: This could be optimised further with a custom NEON implementation.
 
