@@ -204,31 +204,6 @@ impl<T: Clone + Send + Sync, S: DenseStorage<T>> Matrix<T> for DenseMatrix<T, S>
     {
         RowMajorMatrix::new(self.values.to_vec(), self.width)
     }
-
-    #[inline]
-    fn vertically_packed_row_rtl<P>(
-        &self,
-        r: usize,
-        effective_width: usize,
-        n_leading_zeros: usize,
-    ) -> impl Iterator<Item = P>
-    where
-        T: Copy,
-        P: PackedValue<Value = T> + Default,
-    {
-        let height = self.height();
-        let w = self.width;
-        let vals = self.values.borrow();
-        let mut row_offsets = [0usize; 64];
-        for (i, offset) in row_offsets.iter_mut().enumerate().take(P::WIDTH) {
-            *offset = ((r + i) % height) * w;
-        }
-        (0..n_leading_zeros).map(|_| P::default()).chain(
-            (0..effective_width)
-                .rev()
-                .map(move |c| P::from_fn(|i| unsafe { *vals.get_unchecked(row_offsets[i] + c) })),
-        )
-    }
 }
 
 pub trait DenseStorage<T>: Borrow<[T]> + Send + Sync {
