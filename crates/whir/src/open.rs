@@ -366,11 +366,8 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        // Batched update: process all query points in a single tiled pass over the weight
-        // buffer, keeping L2-sized tiles hot across all queries instead of 274 full sweeps.
-        let eval_slices: Vec<&[PF<EF>]> = points.iter().map(|p| p.0.as_slice()).collect();
         compute_eval_eq_base_packed_batched::<PF<EF>, EF>(
-            &eval_slices,
+            points,
             self.weights.as_extension_packed_mut().unwrap(),
             combination_randomness,
         );
