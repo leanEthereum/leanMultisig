@@ -366,14 +366,11 @@ where
         assert_eq!(combination_randomness.len(), points.len());
         assert_eq!(evaluations.len(), points.len());
 
-        // Parallel update of weight buffer
-
-        points
-            .iter()
-            .zip(combination_randomness.iter())
-            .for_each(|(point, &rand)| {
-                compute_eval_eq_base_packed::<_, _, true>(point, self.weights.as_extension_packed_mut().unwrap(), rand);
-            });
+        compute_eval_eq_base_packed_batched::<PF<EF>, EF>(
+            points,
+            self.weights.as_extension_packed_mut().unwrap(),
+            combination_randomness,
+        );
 
         // Accumulate the weighted sum (cheap, done sequentially)
         self.sum += combination_randomness
