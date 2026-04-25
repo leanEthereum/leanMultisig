@@ -13,7 +13,7 @@ const PACKING_WIDTH: usize = <FPacking as PackedValue>::WIDTH;
 #[test]
 #[ignore]
 fn bench_poseidon() {
-    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons::bench_poseidon --exact --nocapture --ignored
+    // cargo test --release --package mt-koala-bear --lib -- benchmark_poseidons_koalabear::bench_poseidon --exact --nocapture --ignored
 
     let n = 1 << 23;
     let poseidon1_16 = default_koalabear_poseidon1_16();
