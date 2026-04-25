@@ -9,8 +9,8 @@ use crate::*;
 
 #[derive(Debug, Clone)]
 pub enum MerkleData<EF: ExtensionField<PF<EF>>> {
-    Base(RoundMerkleTree<PF<EF>, PF<EF>>),
-    Extension(RoundMerkleTree<PF<EF>, EF>),
+    Base(RoundMerkleTree<PF<EF>>),
+    Extension(RoundMerkleTree<PF<EF>>),
 }
 
 impl<EF: ExtensionField<PF<EF>>> MerkleData<EF> {
