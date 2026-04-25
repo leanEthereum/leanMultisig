@@ -47,11 +47,13 @@ where
 
     let columns_up_down_group: MleGroupRef<'_, EF> = MleGroupRef::<'_, EF>::Base(columns_up_down);
 
-    let columns_up_down_group_packed = columns_up_down_group.pack();
-
+    // The packed AIR zerocheck path produces incorrect results under the
+    // current 32-bit prime experiment (P = 0xfa000001). The scalar/extension
+    // path is sound for any prime. Until the SIMD constraint folder is
+    // audited and fixed for P > 2^31, route through the unpacked path.
     let (outer_sumcheck_challenge, inner_sums, _) = info_span!("zerocheck").in_scope(|| {
         sumcheck_prove(
-            columns_up_down_group_packed,
+            columns_up_down_group,
             air,
             &extra_data,
             Some(zerocheck_challenges),

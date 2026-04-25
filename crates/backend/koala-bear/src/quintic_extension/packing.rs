@@ -15,144 +15,31 @@ pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &m
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
-/// Multiplication in a quintic binomial extension field.
+/// Multiplication in a quintic binomial extension field F[X]/(X^5 + 2).
+///
+/// The packed (vectorized) AVX dot-product helpers used by previous
+/// implementations assume P < 2^31. With the current 32-bit prime
+/// (P = 0xfa000001 ≈ 2^32), summing two 32-bit-prime products in a u64
+/// can overflow, so we route this multiplication through the scalar
+/// path which uses u128 accumulation.
 #[inline]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
-    // TODO: This could likely be optimised further with more effort.
-    // in particular it would benefit from a custom AVX2 implementation.
-
-    use crate::PackedMontyField31AVX2;
     use field::PrimeCharacteristicRing;
-
-    // Constant term = a0*b0 + a1*b4 + a2*b3 + a3*b2 + a4*b1 - a4*b4
-    // Linear term = a0*b1 + a1*b0 + a2*b4 + a3*b3 + a4*b2
-    // Square term = a0*b2 + a1*b1 - a1*b4 + a2*b0 - a2*b3 + a3*b4 - a3*b2 + a4*b3 - a4*b1 + a4*b4
-    // Cubic term = a0*b3 + a1*b2 + a2*b1 - a2*b4 + a3*b0 - a3*b3 + a4*b4 - a4*b2
-    // Quartic term = a0*b4 + a1*b3 + a2*b2 + a3*b1 - a3*b4 + a4*b0 - a4*b3
-
-    let zero = KoalaBear::ZERO;
-    let b0_minus_b3 = b[0] - b[3];
-    let b1_minus_b4 = b[1] - b[4];
-    let b4_minus_b2 = b[4] - b[2];
-    let b3_plus_b4_minus_b_1 = b[3] - b1_minus_b4;
-
-    let lhs = [
-        PackedMontyField31AVX2([a[0], a[0], a[0], a[0], a[0], a[4], a[4], a[4]]),
-        PackedMontyField31AVX2([a[1], a[1], a[1], a[1], a[1], zero, zero, zero]),
-        PackedMontyField31AVX2([a[2], a[2], a[2], a[2], a[2], zero, zero, zero]),
-        PackedMontyField31AVX2([a[3], a[3], a[3], a[3], a[3], zero, zero, zero]),
-    ];
-    let rhs = [
-        PackedMontyField31AVX2([b[0], b[1], b[2], b[3], b[4], b1_minus_b4, b[2], b3_plus_b4_minus_b_1]),
-        PackedMontyField31AVX2([b[4], b[0], b1_minus_b4, b[2], b[3], zero, zero, zero]),
-        PackedMontyField31AVX2([b[3], b[4], b0_minus_b3, b1_minus_b4, b[2], zero, zero, zero]),
-        PackedMontyField31AVX2([b[2], b[3], b4_minus_b2, b0_minus_b3, b1_minus_b4, zero, zero, zero]),
-    ];
-
-    let dot_res = unsafe { PackedMontyField31AVX2::from_vector(crate::dot_product_4(lhs, rhs)) };
-
-    // We managed to compute 3 of the extra terms in the last 3 places of the dot product.
-    // This leaves us with 2 terms remaining we need to compute manually.
-    let extra1 = b4_minus_b2 * a[4];
-    let extra2 = b0_minus_b3 * a[4];
-
-    let extra_addition = PackedMontyField31AVX2([
-        dot_res.0[5],
-        dot_res.0[6],
-        dot_res.0[7],
-        extra1,
-        extra2,
-        zero,
-        zero,
-        zero,
-    ]);
-    let total = dot_res + extra_addition;
-
-    res.copy_from_slice(&total.0[..5]);
+    *res = super::extension::quintic_mul(a, b, KoalaBear::dot_product::<5>);
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-/// Multiplication in a quintic binomial extension field.
+/// Multiplication in a quintic binomial extension field F[X]/(X^5 + 2).
+///
+/// The packed (vectorized) AVX dot-product helpers used by previous
+/// implementations assume P < 2^31. With the current 32-bit prime
+/// (P = 0xfa000001 ≈ 2^32), summing two 32-bit-prime products in a u64
+/// can overflow, so we route this multiplication through the scalar
+/// path which uses u128 accumulation.
 #[inline]
 pub(crate) fn quintic_mul_packed(a: &[KoalaBear; 5], b: &[KoalaBear; 5], res: &mut [KoalaBear; 5]) {
-    use crate::{PackedMontyField31AVX512, dot_product_2};
     use field::PrimeCharacteristicRing;
-
-    // TODO: It's plausible that this could be improved by folding the computation of packed_b into
-    // the custom AVX512 implementation. Moreover, AVX512 is really a bit to large so we are wasting a lot
-    // of space. A custom implementation which mixes AVX512 and AVX2 code might well be able to
-    // improve one that is here.
-    let zero = KoalaBear::ZERO;
-    let b0_minus_b3 = b[0] - b[3];
-    let b1_minus_b4 = b[1] - b[4];
-    let b4_minus_b2 = b[4] - b[2];
-    let b3_plus_b4_minus_b_1 = b[3] - b1_minus_b4;
-
-    // Constant term = a0*b0 + a1*b4 + a2*b3 + a3*b2 + a4*b1 - a4*b4
-    // Linear term = a0*b1 + a1*b0 + a2*b4 + a3*b3 + a4*b2
-    // Square term = a0*b2 + a1*b1 - a1*b4 + a2*b0 - a2*b3 + a3*b4 - a3*b2 + a4*b3 - a4*b1 + a4*b4
-    // Cubic term = a0*b3 + a1*b2 + a2*b1 - a2*b4 + a3*b0 - a3*b3 + a4*b4 - a4*b2
-    // Quartic term = a0*b4 + a1*b3 + a2*b2 + a3*b1 - a3*b4 + a4*b0 - a4*b3
-
-    // Each packed vector can do 8 multiplications at once. As we have
-    // 25 multiplications to do we will need to use at least 3 packed vectors
-    // but we might as well use 4 so we can make use of dot_product_2.
-    // TODO: This can probably be improved by using a custom function.
-    let lhs = [
-        PackedMontyField31AVX512([
-            a[0], a[2], a[0], a[2], a[0], a[2], a[0], a[2], a[0], a[2], a[4], a[4], a[4], a[4], a[4], zero,
-        ]),
-        PackedMontyField31AVX512([
-            a[1], a[3], a[1], a[3], a[1], a[3], a[1], a[3], a[1], a[3], zero, zero, zero, zero, zero, zero,
-        ]),
-    ];
-    let rhs = [
-        PackedMontyField31AVX512([
-            b[0],
-            b[3],
-            b[1],
-            b[4],
-            b[2],
-            b0_minus_b3,
-            b[3],
-            b1_minus_b4,
-            b[4],
-            b[2],
-            b1_minus_b4,
-            b[2],
-            b3_plus_b4_minus_b_1,
-            b4_minus_b2,
-            b0_minus_b3,
-            zero,
-        ]),
-        PackedMontyField31AVX512([
-            b[4],
-            b[2],
-            b[0],
-            b[3],
-            b1_minus_b4,
-            b4_minus_b2,
-            b[2],
-            b0_minus_b3,
-            b[3],
-            b1_minus_b4,
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-            zero,
-        ]),
-    ];
-
-    let dot = unsafe { PackedMontyField31AVX512::from_vector(dot_product_2(lhs, rhs)).0 };
-
-    let sumand1 = PackedMontyField31AVX512::from_monty_array([dot[0], dot[2], dot[4], dot[6], dot[8]]);
-    let sumand2 = PackedMontyField31AVX512::from_monty_array([dot[1], dot[3], dot[5], dot[7], dot[9]]);
-    let sumand3 = PackedMontyField31AVX512::from_monty_array([dot[10], dot[11], dot[12], dot[13], dot[14]]);
-    let sum = sumand1 + sumand2 + sumand3;
-
-    res.copy_from_slice(&sum.0[..5]);
+    *res = super::extension::quintic_mul(a, b, KoalaBear::dot_product::<5>);
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]

@@ -61,6 +61,10 @@ pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
 }
 
+pub const fn must_unpack_multilinears<EF: Field>(n_vars: usize) -> bool {
+    n_vars <= 1 + packing_log_width::<EF>()
+}
+
 pub fn batch_fold_multilinears<
     EF: PrimeCharacteristicRing + Copy + Send + Sync,
     IF: Copy + Sub<Output = IF> + Send + Sync,
