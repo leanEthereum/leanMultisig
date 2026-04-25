@@ -7,7 +7,7 @@ def main():
     i, j, k = func_1(x, y)
     assert i == 2
     assert j == 3
-    assert k == 2130706432
+    assert k == 4194304000
 
     g = Array(8)
     h = Array(8)

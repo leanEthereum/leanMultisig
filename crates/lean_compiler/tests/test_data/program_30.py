@@ -9,7 +9,7 @@ def main():
     for i in unroll(0, 2):
         res = f1(ARR[i])
         buff[i + 1] = res
-    assert buff[2] == 1390320454
+    assert buff[2] == 1365390346
     return
 
 

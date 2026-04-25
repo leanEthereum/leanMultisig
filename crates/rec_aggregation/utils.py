@@ -1,10 +1,10 @@
 from snark_lib import *
 from hashing import *
 
-F_BITS = 31  # koala-bear = 31 bits
+F_BITS = 32  # koala-bear (32-bit prime experiment) = 32 bits
 
-TWO_ADICITY = 24
-ROOT = 1791270792  # of order 2^TWO_ADICITY
+TWO_ADICITY = 25
+ROOT = 1177770062  # of order 2^TWO_ADICITY (= 0x4633584e)
 
 
 def div_ceil_dynamic(a, b: Const):
@@ -401,17 +401,12 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     return sum_num, common_den
 
 
-# p = 2^31 - 2^24 + 1
-# in binary: p = 1111111000000000000000000000001
-#        p - 1 = 1111111000000000000000000000000
-#        p - 2 = 1111110111111111111111111111111
-#        p - 3 = 1111110111111111111111111111110
-#        ...
-# Any field element (< p) is either:
-# -   1111111    | 00...00
-# - not(1111111) | xx...xx
+# p = 0xfa000001 = 11111010_00000000_00000000_00000001
+# p - 1 = 0xfa000000 = 11111010_00000000_00000000_00000000
+# Any field element x in [0, p) decomposed into 32 bits has top 8 bits ≤ 0xfa = 250.
+# Within that, top_8 = 0xfa requires the lower 24 bits = 0 (since x ≤ p - 1 = 0xfa000000).
 def checked_decompose_bits(a):
-    # return a pointer to the 31 bits of a
+    # return a pointer to the 32 bits of a
     # .. and the first 24 partial sums of these bits
     bits = Array(F_BITS)
     hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
@@ -422,14 +417,19 @@ def checked_decompose_bits(a):
     partial_sums_24[0] = bits[0]
     for i in unroll(1, 24):
         partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
-    sum_7: Mut = bits[24]
-    for i in unroll(1, 7):
-        sum_7 += bits[24 + i] * 2**i
-    if sum_7 == 127:
-        assert partial_sums_24[23] == 0
+
+    # TODO
+    top_5_all_one = bits[27] * bits[28] * bits[29] * bits[30] * bits[31]
+    assert top_5_all_one * bits[26] == 0
+    assert top_5_all_one * bits[24] * bits[25] == 0
+    is_top_eq_fa = top_5_all_one * bits[25]
+    assert is_top_eq_fa * partial_sums_24[23] == 0
 
     # TODO put it again
-    # assert a == partial_sums_24[23] + sum_7 * 2**24
+    # top_8: Mut = bits[24]
+    # for i in unroll(1, 8):
+    #     top_8 += bits[24 + i] * 2**i
+    # assert a == partial_sums_24[23] + top_8 * 2**24
     return bits, partial_sums_24
 
 
