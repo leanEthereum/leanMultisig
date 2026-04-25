@@ -19,13 +19,7 @@ pub trait SumcheckComputation<EF: ExtensionField<PF<EF>>>: Sync {
 macro_rules! impl_air_eval {
     ($self:expr, $point_f:expr, $extra_data:expr, $folder_ty:ident) => {{
         let n_cols = $self.n_columns();
-        let mut folder = $folder_ty {
-            up: &$point_f[..n_cols],
-            down: &$point_f[n_cols..],
-            extra_data: $extra_data,
-            accumulator: Default::default(),
-            constraint_index: 0,
-        };
+        let mut folder = $folder_ty::new(&$point_f[..n_cols], &$point_f[n_cols..], $extra_data);
         Air::eval($self, &mut folder, $extra_data);
         folder.accumulator
     }};
@@ -165,148 +159,8 @@ fn handle_product_computation_with_fold<'a, EF: ExtensionField<PF<EF>>>(
     (poly_to_evals(&poly), folded_f)
 }
 
-fn handle_gkr_quotient<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
-    group: &MleGroupRef<'a, EF>,
-    extra_data: &ED,
-    first_eq_factor: EF,
-    split_eq: &SplitEq<EF>,
-    missing_mul_factor: Option<EF>,
-    sum: EF,
-) -> Vec<EF> {
-    let alpha = extra_data.alpha_powers()[1];
-    let mul_factor = missing_mul_factor.unwrap_or(EF::ONE);
-
-    let poly = match group {
-        MleGroupRef::Extension(m) => {
-            // Materialize eq for unpacked path (small table at this stage)
-            let eq_vals: Vec<EF> = (0..m[0].len() / 2).map(|i| split_eq.get_unpacked(i)).collect();
-            compute_gkr_quotient_sumcheck_polynomial(
-                m[0],
-                m[1],
-                m[2],
-                m[3],
-                alpha,
-                first_eq_factor,
-                &eq_vals,
-                mul_factor,
-                sum,
-                identity_decompose,
-            )
-        }
-        MleGroupRef::ExtensionPacked(m) if split_eq.is_remainder_mode() => {
-            let unpack = |s: &[EFPacking<EF>]| -> Vec<EF> { EFPacking::<EF>::to_ext_iter(s.iter().copied()).collect() };
-            let (m0, m1, m2, m3) = (unpack(m[0]), unpack(m[1]), unpack(m[2]), unpack(m[3]));
-            let eq_vals: Vec<EF> = (0..m0.len() / 2).map(|i| split_eq.get_unpacked(i)).collect();
-            compute_gkr_quotient_sumcheck_polynomial(
-                &m0,
-                &m1,
-                &m2,
-                &m3,
-                alpha,
-                first_eq_factor,
-                &eq_vals,
-                mul_factor,
-                sum,
-                identity_decompose,
-            )
-        }
-        MleGroupRef::ExtensionPacked(m) => compute_gkr_quotient_sumcheck_polynomial_split_eq(
-            m[0],
-            m[1],
-            m[2],
-            m[3],
-            alpha,
-            first_eq_factor,
-            split_eq,
-            mul_factor,
-            sum,
-        ),
-        _ => unimplemented!(),
-    };
-    poly_to_evals(&poly)
-}
-
-#[allow(clippy::type_complexity)]
-fn handle_gkr_quotient_with_fold<'a, EF: ExtensionField<PF<EF>>, ED: AlphaPowers<EF>>(
-    group: &MleGroupRef<'a, EF>,
-    prev_folding_factor: EF,
-    extra_data: &ED,
-    first_eq_factor: EF,
-    split_eq: &SplitEq<EF>,
-    missing_mul_factor: Option<EF>,
-    sum: EF,
-) -> (Vec<EF>, MleGroupOwned<EF>) {
-    let alpha = extra_data.alpha_powers()[1];
-    let mul_factor = missing_mul_factor.unwrap_or(EF::ONE);
-
-    let (poly, folded_f) = match group {
-        MleGroupRef::Extension(m) => {
-            // Materialize eq for the fold+compute path (small table, already halved)
-            let eq_vals: Vec<EF> = (0..m[0].len() / 4).map(|i| split_eq.get_unpacked(i)).collect();
-            let (poly, folded) = fold_and_compute_gkr_quotient_sumcheck_polynomial(
-                prev_folding_factor,
-                m[0],
-                m[1],
-                m[2],
-                m[3],
-                alpha,
-                first_eq_factor,
-                &eq_vals,
-                mul_factor,
-                sum,
-                identity_decompose,
-            );
-            (poly, MleGroupOwned::Extension(folded))
-        }
-        MleGroupRef::ExtensionPacked(m) if split_eq.is_remainder_mode() => {
-            let unpack = |s: &[EFPacking<EF>]| -> Vec<EF> { EFPacking::<EF>::to_ext_iter(s.iter().copied()).collect() };
-            let (m0, m1, m2, m3) = (unpack(m[0]), unpack(m[1]), unpack(m[2]), unpack(m[3]));
-            let eq_vals: Vec<EF> = (0..m0.len() / 4).map(|i| split_eq.get_unpacked(i)).collect();
-            let (poly, folded) = fold_and_compute_gkr_quotient_sumcheck_polynomial(
-                prev_folding_factor,
-                &m0,
-                &m1,
-                &m2,
-                &m3,
-                alpha,
-                first_eq_factor,
-                &eq_vals,
-                mul_factor,
-                sum,
-                identity_decompose,
-            );
-            (poly, MleGroupOwned::Extension(folded))
-        }
-        MleGroupRef::ExtensionPacked(m) => {
-            let r = prev_folding_factor;
-            let fold_ext = |u: &[EFPacking<EF>], i: usize, half: usize, quarter: usize| {
-                let left = (u[i + half] - u[i]) * r + u[i];
-                let right = (u[i + half + quarter] - u[i + quarter]) * r + u[i + quarter];
-                (left, right)
-            };
-            let (poly, folded) = fold_and_compute_gkr_quotient_split_eq(
-                m[0],
-                m[1],
-                m[2],
-                m[3],
-                fold_ext,
-                fold_ext,
-                alpha,
-                first_eq_factor,
-                split_eq,
-                mul_factor,
-                sum,
-            );
-            (poly, MleGroupOwned::ExtensionPacked(folded))
-        }
-        _ => unimplemented!(),
-    };
-    (poly_to_evals(&poly), folded_f)
-}
-
 pub struct SumcheckComputeParams<'a, EF: ExtensionField<PF<EF>>, SC: SumcheckComputation<EF>> {
     pub split_eq: Option<&'a SplitEq<EF>>,
-    pub first_eq_factor: Option<EF>,
     pub computation: &'a SC,
     pub extra_data: &'a SC::ExtraData,
     pub missing_mul_factor: Option<EF>,
@@ -324,7 +178,6 @@ where
 {
     let SumcheckComputeParams {
         split_eq,
-        first_eq_factor,
         computation,
         extra_data,
         missing_mul_factor,
@@ -344,20 +197,6 @@ where
         assert!(extra_data.alpha_powers().is_empty());
         assert_eq!(group.n_columns(), 2);
         return handle_product_computation(group, sum);
-    }
-
-    // Handle GKRQuotientComputation special case
-    if TypeId::of::<SC>() == TypeId::of::<GKRQuotientComputation>() {
-        assert!(split_eq.is_some());
-        assert_eq!(group.n_columns(), 4);
-        return handle_gkr_quotient(
-            group,
-            extra_data,
-            first_eq_factor.unwrap(),
-            split_eq.unwrap(),
-            missing_mul_factor,
-            sum,
-        );
     }
 
     match group {
@@ -443,7 +282,6 @@ where
 {
     let SumcheckComputeParams {
         split_eq,
-        first_eq_factor,
         computation,
         extra_data,
         missing_mul_factor,
@@ -463,21 +301,6 @@ where
         assert!(extra_data.alpha_powers().is_empty());
         assert_eq!(group.n_columns(), 2);
         return handle_product_computation_with_fold(group, prev_folding_factor, sum);
-    }
-
-    // Handle GKRQuotientComputation special case
-    if TypeId::of::<SC>() == TypeId::of::<GKRQuotientComputation>() {
-        assert!(split_eq.is_some());
-        assert_eq!(group.n_columns(), 4);
-        return handle_gkr_quotient_with_fold(
-            group,
-            prev_folding_factor,
-            extra_data,
-            first_eq_factor.unwrap(),
-            split_eq.unwrap(),
-            missing_mul_factor,
-            sum,
-        );
     }
 
     match group {
@@ -604,7 +427,7 @@ where
                 let lo = m[i];
                 let hi = m[i + fold_size];
                 let diff_hi_lo = hi - lo;
-                [lo, diff_hi_lo, diff_hi_lo]
+                [lo, diff_hi_lo, hi]
             })
             .collect::<Vec<_>>();
 
@@ -618,12 +441,12 @@ where
         let mut evals = Vec::with_capacity(degree);
         evals.push(eval_0);
 
-        // z = 2, 3 ...
+        // z = 2, 3, ...
         for _ in 1..degree {
-            for [_, diff_hi_lo, acc] in &mut rows {
-                *acc += *diff_hi_lo;
+            for [_, diff_hi_lo, running] in &mut rows {
+                *running += *diff_hi_lo;
             }
-            let point_f = rows.iter().map(|row| row[0] + row[2]).collect::<Vec<_>>();
+            let point_f = rows.iter().map(|row| row[2]).collect::<Vec<_>>();
             let mut eval = eval_fn(computation, point_f, extra_data);
             if let Some(eq) = eq_val {
                 eval *= eq;
@@ -680,7 +503,7 @@ where
                     *ptr.add(i + compute_fold_size) = hi;
                 }
                 let diff_hi_lo = hi - lo;
-                [lo, diff_hi_lo, diff_hi_lo]
+                [lo, diff_hi_lo, hi]
             })
             .collect();
 
@@ -694,12 +517,12 @@ where
         let mut evals = Vec::with_capacity(degree);
         evals.push(eval_0);
 
-        // z = 2, 3 ...
+        // z = 2, 3, ...
         for _ in 1..degree {
-            for [_, diff_hi_lo, acc] in &mut rows_f {
-                *acc += *diff_hi_lo;
+            for [_, diff_hi_lo, running] in &mut rows_f {
+                *running += *diff_hi_lo;
             }
-            let point_f = rows_f.iter().map(|row| row[0] + row[2]).collect::<Vec<FT>>();
+            let point_f = rows_f.iter().map(|row| row[2]).collect::<Vec<FT>>();
             let mut eval = eval_fn(computation, point_f, extra_data);
             if let Some(eq) = eq_mle_eval {
                 eval *= eq;
@@ -760,7 +583,7 @@ where
                         let lo = m[i];
                         let hi = m[i + fold_size];
                         let diff = hi - lo;
-                        [lo, diff, diff]
+                        [lo, diff, hi]
                     })
                     .collect::<Vec<_>>();
 
@@ -772,10 +595,10 @@ where
 
                 // z = 2, 3, ...
                 for d in 1..degree {
-                    for [_, diff, acc] in &mut rows {
-                        *acc += *diff;
+                    for [_, diff, running] in &mut rows {
+                        *running += *diff;
                     }
-                    let pf = rows.iter().map(|r| r[0] + r[2]).collect();
+                    let pf = rows.iter().map(|r| r[2]).collect();
                     let mut ev = eval_fn(computation, pf, extra_data);
                     ev *= eq_val;
                     block_acc[d] += ev;
@@ -853,7 +676,7 @@ where
                             *ptr.add(i + compute_fold_size) = hi;
                         }
                         let diff = hi - lo;
-                        [lo, diff, diff]
+                        [lo, diff, hi]
                     })
                     .collect();
 
@@ -863,10 +686,10 @@ where
                 block_acc[0] += e0;
 
                 for d in 1..degree {
-                    for [_, diff, acc] in &mut rows_f {
-                        *acc += *diff;
+                    for [_, diff, running] in &mut rows_f {
+                        *running += *diff;
                     }
-                    let pf = rows_f.iter().map(|r| r[0] + r[2]).collect();
+                    let pf = rows_f.iter().map(|r| r[2]).collect();
                     let mut ev = eval_fn(computation, pf, extra_data);
                     ev *= eq_val;
                     block_acc[d] += ev;

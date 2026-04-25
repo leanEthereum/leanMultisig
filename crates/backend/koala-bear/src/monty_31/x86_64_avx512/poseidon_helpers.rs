@@ -5,10 +5,8 @@
 use core::arch::x86_64::{self, __m512i};
 use core::mem::transmute;
 
-use crate::{
-    MontyParameters, PackedMontyField31AVX512, PackedMontyParameters, apply_func_to_even_odd, packed_exp_3,
-    packed_exp_5, packed_exp_7,
-};
+use super::{apply_func_to_even_odd, packed_exp_3, packed_exp_5, packed_exp_7};
+use crate::{MontyParameters, PackedMontyField31AVX512, PackedMontyParameters};
 
 /// A specialized representation of the Poseidon state for a width of 16.
 ///
@@ -30,29 +28,6 @@ impl<PMP: PackedMontyParameters> InternalLayer16<PMP> {
     #[inline]
     #[must_use]
     pub(crate) fn from_packed_field_array(vector: [PackedMontyField31AVX512<PMP>; 16]) -> Self {
-        unsafe { transmute(vector) }
-    }
-}
-
-/// A specialized representation of the Poseidon state for a width of 24.
-///
-/// Same split as `InternalLayer16` but for width 24.
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct InternalLayer24<PMP: PackedMontyParameters> {
-    pub(crate) s0: PackedMontyField31AVX512<PMP>,
-    pub(crate) s_hi: [__m512i; 23],
-}
-
-impl<PMP: PackedMontyParameters> InternalLayer24<PMP> {
-    #[inline]
-    pub(crate) unsafe fn to_packed_field_array(self) -> [PackedMontyField31AVX512<PMP>; 24] {
-        unsafe { transmute(self) }
-    }
-
-    #[inline]
-    #[must_use]
-    pub(crate) fn from_packed_field_array(vector: [PackedMontyField31AVX512<PMP>; 24]) -> Self {
         unsafe { transmute(vector) }
     }
 }
@@ -92,5 +67,17 @@ pub(crate) fn add_rc_and_sbox<PMP: PackedMontyParameters, const D: u64>(
         let val_plus_rc = x86_64::_mm512_add_epi32(vec_val, rc);
         let output = apply_func_to_even_odd::<PMP>(val_plus_rc, exp_small::<PMP, D>);
         *val = PackedMontyField31AVX512::<PMP>::from_vector(output);
+    }
+}
+
+/// Applies the S-Box `x -> x^D` to a packed vector. Output is in canonical form.
+#[inline(always)]
+pub(crate) fn sbox<PMP: PackedMontyParameters, const D: u64>(
+    val: PackedMontyField31AVX512<PMP>,
+) -> PackedMontyField31AVX512<PMP> {
+    unsafe {
+        let vec = val.to_vector();
+        let out = apply_func_to_even_odd::<PMP>(vec, exp_small::<PMP, D>);
+        PackedMontyField31AVX512::<PMP>::from_vector(out)
     }
 }

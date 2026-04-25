@@ -68,8 +68,8 @@ where
         0,
     );
 
+    let final_folds_f = final_folds_f.by_ref().unpack().as_owned_or_clone();
     let final_folds = final_folds_f
-        .by_ref()
         .as_extension()
         .unwrap()
         .iter()
@@ -115,9 +115,7 @@ where
 
     let mut challenges = Vec::new();
     for _ in 0..n_rounds {
-        if multilinears.by_ref().is_packed() && must_unpack_multilinears::<EF>(n_vars) {
-            multilinears = multilinears.by_ref().unpack().as_owned_or_clone().into();
-        }
+        multilinears.unpack_if_needed();
 
         let ps = compute_and_send_polynomial(
             &mut multilinears,
@@ -153,13 +151,15 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compute_and_send_polynomial<'a, EF, SC>(
+/// Compute the round polynomial (bare, i.e. without the eq linear factor)
+/// without sending it.  `multilinears` is folded-in-place if a
+/// `prev_folding_factor` is provided.
+pub fn compute_round_polynomial<'a, EF, SC>(
     multilinears: &mut MleGroup<'a, EF>,
     prev_folding_factor: Option<EF>,
     computation: &SC,
     eq_factor_and_split: &Option<(Vec<EF>, SplitEq<EF>)>,
     extra_data: &SC::ExtraData,
-    prover_state: &mut impl FSProver<EF>,
     sum: EF,
     missing_mul_factor: Option<EF>,
 ) -> DensePolynomial<EF>
@@ -176,9 +176,6 @@ where
 
     let sc_params = SumcheckComputeParams {
         split_eq: eq_factor_and_split.as_ref().map(|(_, split_eq)| split_eq),
-        first_eq_factor: eq_factor_and_split
-            .as_ref()
-            .map(|(first_eq_factor, _)| first_eq_factor[0]),
         computation,
         extra_data,
         missing_mul_factor,
@@ -205,21 +202,48 @@ where
     };
     p_evals.insert(1, p_at_1);
 
-    let poly = DensePolynomial::lagrange_interpolation(
+    DensePolynomial::lagrange_interpolation(
         &p_evals
             .iter()
             .enumerate()
             .map(|(i, &val)| (PF::<EF>::from_usize(i), val))
             .collect::<Vec<_>>(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_and_send_polynomial<'a, EF, SC>(
+    multilinears: &mut MleGroup<'a, EF>,
+    prev_folding_factor: Option<EF>,
+    computation: &SC,
+    eq_factor_and_split: &Option<(Vec<EF>, SplitEq<EF>)>,
+    extra_data: &SC::ExtraData,
+    prover_state: &mut impl FSProver<EF>,
+    sum: EF,
+    missing_mul_factor: Option<EF>,
+) -> DensePolynomial<EF>
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<EF> + 'static,
+    SC::ExtraData: AlphaPowers<EF>,
+{
+    let poly = compute_round_polynomial(
+        multilinears,
+        prev_folding_factor,
+        computation,
+        eq_factor_and_split,
+        extra_data,
+        sum,
+        missing_mul_factor,
+    );
     let eq_alpha = eq_factor_and_split.as_ref().map(|(p, _)| p[0]);
     prover_state.add_sumcheck_polynomial(&poly.coeffs, eq_alpha);
     poly
 }
 
 #[allow(clippy::too_many_arguments)]
-fn on_challenge_received<'a, EF: ExtensionField<PF<EF>>>(
+pub fn on_challenge_received<'a, EF: ExtensionField<PF<EF>>>(
     multilinears: &mut MleGroup<'a, EF>,
     n_vars: &mut usize,
     eq_factor: &mut Option<(Vec<EF>, SplitEq<EF>)>,

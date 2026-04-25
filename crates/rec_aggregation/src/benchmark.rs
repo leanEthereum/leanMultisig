@@ -298,6 +298,11 @@ fn build_aggregation(
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
+    // Tell macOS this is a user-initiated, latency-critical computation and
+    // should not be throttled / App-Napped.
+    #[cfg(target_os = "macos")]
+    let _activity = macos_activity::Activity::begin("lean-multisig benchmark");
+
     if tracing {
         utils::init_tracing();
     }
@@ -337,6 +342,35 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     )
     .unwrap();
     time
+}
+
+// TODO is there a better fix?
+#[cfg(target_os = "macos")]
+mod macos_activity {
+    use objc2::rc::Retained;
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+
+    pub struct Activity {
+        process_info: Retained<NSProcessInfo>,
+        token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+    }
+
+    impl Activity {
+        pub fn begin(reason: &str) -> Self {
+            let process_info = NSProcessInfo::processInfo();
+            let reason = NSString::from_str(reason);
+            let options = NSActivityOptions::UserInitiated | NSActivityOptions::LatencyCritical;
+            let token = process_info.beginActivityWithOptions_reason(options, &reason);
+            Self { process_info, token }
+        }
+    }
+
+    impl Drop for Activity {
+        fn drop(&mut self) {
+            unsafe { self.process_info.endActivity(&self.token) };
+        }
+    }
 }
 
 #[test]

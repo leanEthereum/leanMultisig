@@ -1,16 +1,29 @@
+use std::collections::BTreeMap;
+
 use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
+use rec_aggregation::{NUM_REPEATED_ONES, PREAMBLE_MEMORY_LEN, ZERO_VEC_LEN};
 
 #[test]
 fn test_log2_ceil() {
     let path = format!("{}/tests/test_log2_ceil.py", env!("CARGO_MANIFEST_DIR"));
-    let bytecode = compile_program(&ProgramSource::Filepath(path));
-
+    let replacements = BTreeMap::from([
+        ("ZERO_VEC_LEN_PLACEHOLDER".to_string(), ZERO_VEC_LEN.to_string()),
+        (
+            "NUM_REPEATED_ONES_PLACEHOLDER".to_string(),
+            NUM_REPEATED_ONES.to_string(),
+        ),
+    ]);
+    let bytecode = compile_program_with_flags(&ProgramSource::Filepath(path), CompilationFlags { replacements });
+    let witness = ExecutionWitness {
+        preamble_memory_len: PREAMBLE_MEMORY_LEN,
+        hints: Default::default(),
+    };
     let run = |n: usize| {
         let expected = log2_ceil_usize(n);
         let public_input = vec![F::from_usize(n), F::from_usize(expected)];
-        execute_bytecode(&bytecode, &public_input, &ExecutionWitness::empty(), false);
+        execute_bytecode(&bytecode, &public_input, &witness, false);
     };
 
     // small values (n > 2)

@@ -15,7 +15,6 @@ xmss.workspace = true
 rand.workspace = true
 
 tracing.workspace = true
-air.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
@@ -24,3 +23,7 @@ backend.workspace = true
 postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.4", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }

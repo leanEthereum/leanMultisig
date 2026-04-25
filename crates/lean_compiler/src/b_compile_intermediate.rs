@@ -508,14 +508,9 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Precompile { table, args, .. } => {
-                match table {
-                    Table::ExtensionOp(_) => assert_eq!(args.len(), 5),
-                    Table::Poseidon16(_) => assert_eq!(args.len(), 3),
-                    Table::Execution(_) => unreachable!(),
-                }
-                // if arg_c is constant, create a variable (in memory) to hold it
-                let arg_c = if let SimpleExpr::Constant(cst) = &args[2] {
+            SimpleLine::Precompile(precompile) => {
+                // if res is constant, create a variable (in memory) to hold it
+                let res = if let SimpleExpr::Constant(cst) = &precompile.res {
                     instructions.push(IntermediateInstruction::Computation {
                         operation: Operation::Add,
                         arg_a: IntermediateValue::Constant(cst.clone()),
@@ -528,27 +523,25 @@ fn compile_lines(
                     compiler.stack_pos += 1;
                     IntermediateValue::MemoryAfterFp { offset: offset.into() }
                 } else {
-                    try_precompile_fp_relative(&args[2], compiler)
-                        .unwrap_or_else(|| IntermediateValue::from_simple_expr(&args[2], compiler))
+                    try_precompile_fp_relative(&precompile.res, compiler)
+                        .unwrap_or_else(|| IntermediateValue::from_simple_expr(&precompile.res, compiler))
                 };
-                let (arg_a, arg_b) = match (
-                    try_precompile_fp_relative(&args[0], compiler),
-                    try_precompile_fp_relative(&args[1], compiler),
+                let (left, right) = match (
+                    try_precompile_fp_relative(&precompile.arg_0, compiler),
+                    try_precompile_fp_relative(&precompile.arg_1, compiler),
                 ) {
                     (Some(a), Some(b)) => (a, b),
                     _ => (
-                        IntermediateValue::from_simple_expr(&args[0], compiler),
-                        IntermediateValue::from_simple_expr(&args[1], compiler),
+                        IntermediateValue::from_simple_expr(&precompile.arg_0, compiler),
+                        IntermediateValue::from_simple_expr(&precompile.arg_1, compiler),
                     ),
                 };
-                instructions.push(IntermediateInstruction::Precompile {
-                    table: *table,
-                    arg_a,
-                    arg_b,
-                    arg_c,
-                    aux_1: args.get(3).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
-                    aux_2: args.get(4).unwrap_or(&SimpleExpr::zero()).as_constant().unwrap(),
-                });
+                instructions.push(IntermediateInstruction::Precompile(PrecompileArgs {
+                    arg_0: left,
+                    arg_1: right,
+                    res,
+                    data: precompile.data.clone(),
+                }));
             }
 
             SimpleLine::FunctionRet { return_data } => {
@@ -587,17 +580,35 @@ fn compile_lines(
             }
             SimpleLine::ConstMalloc { var, size, label } => {
                 let size = size.naive_eval().unwrap().to_usize();
-                if !compiler.dead_fp_relative_vars.contains(var) {
-                    compiler.register_var_if_needed(var);
-                }
                 handle_const_malloc(&mut instructions, compiler, var, size, label);
             }
             SimpleLine::CustomHint(hint, args) => {
                 let simplified_args = args
                     .iter()
-                    .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
+                    .map(|expr| {
+                        try_precompile_fp_relative(expr, compiler)
+                            .unwrap_or_else(|| IntermediateValue::from_simple_expr(expr, compiler))
+                    })
                     .collect::<Vec<_>>();
                 instructions.push(IntermediateInstruction::CustomHint(*hint, simplified_args));
+            }
+            SimpleLine::HintWitness { destination, name } => {
+                let SimpleExpr::Memory(VarOrConstMallocAccess::Var(ptr_var)) = destination else {
+                    panic!("hint_witness: destination must be a plain variable, got {destination}")
+                };
+                let hint_destination = if let Some(IntermediateValue::FpRelative { offset }) =
+                    try_precompile_fp_relative(destination, compiler)
+                {
+                    HintWitnessDestination::Inline { offset }
+                } else {
+                    HintWitnessDestination::Indirect {
+                        ptr_offset: compiler.get_offset(&ptr_var.clone().into()),
+                    }
+                };
+                instructions.push(IntermediateInstruction::HintWitness {
+                    name: name.clone(),
+                    destination: hint_destination,
+                });
             }
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
@@ -618,6 +629,18 @@ fn compile_lines(
                     right: IntermediateValue::from_simple_expr(&boolean.right, compiler),
                 };
                 instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *location));
+            }
+            SimpleLine::AssertEq { left, right, .. } => {
+                let register_if_var = |expr: &SimpleExpr, c: &mut Compiler| {
+                    if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = expr {
+                        c.register_var_if_needed(v);
+                    }
+                };
+                register_if_var(left, compiler);
+                register_if_var(right, compiler);
+                let left_iv = IntermediateValue::from_simple_expr(left, compiler);
+                let right_iv = IntermediateValue::from_simple_expr(right, compiler);
+                instructions.push(IntermediateInstruction::equality(left_iv, right_iv));
             }
             SimpleLine::RangeCheck { val, bound } => {
                 // Range check for val <= bound compiles to:
@@ -715,15 +738,18 @@ fn handle_const_malloc(
     var: &Var,
     size: usize,
     label: &ConstMallocLabel,
-) {
-    compiler.const_mallocs.insert(*label, compiler.stack_pos);
-    compiler
-        .const_malloc_vars
-        .insert(var.clone(), compiler.stack_pos as isize);
-    if !compiler.dead_fp_relative_vars.contains(var) {
+) -> usize {
+    let is_live = !compiler.dead_fp_relative_vars.contains(var);
+    if is_live {
+        compiler.register_var_if_needed(var);
+    }
+    let data_fp_offset = compiler.stack_pos;
+    compiler.const_mallocs.insert(*label, data_fp_offset);
+    compiler.const_malloc_vars.insert(var.clone(), data_fp_offset as isize);
+    if is_live {
         instructions.push(IntermediateInstruction::Computation {
             operation: Operation::Add,
-            arg_a: IntermediateValue::Constant(compiler.stack_pos.into()),
+            arg_a: IntermediateValue::Constant(data_fp_offset.into()),
             arg_b: IntermediateValue::FpRelative {
                 offset: ConstExpression::zero(),
             },
@@ -733,6 +759,7 @@ fn handle_const_malloc(
         });
     }
     compiler.stack_pos += size;
+    data_fp_offset
 }
 
 fn setup_function_call(
@@ -886,24 +913,42 @@ fn collect_use_info(
             }
         }
 
-        if let SimpleLine::Precompile { args, .. } = line {
-            // args[0] & args[1] count only if both are fp-rel-capable
-            let both_capable = args[..2]
+        if let SimpleLine::Precompile(precompile) = line {
+            let exprs = precompile.operand_exprs();
+            // exprs[0] & exprs[1] count only if both are fp-rel-capable
+            let both_capable = exprs[..2]
                 .iter()
                 .all(|a| matches!(a, SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) if fp_rel_capable.contains(v)));
             if both_capable {
-                for arg in &args[..2] {
+                for arg in &exprs[..2] {
                     if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = arg {
                         *fp_rel_uses.entry(v.clone()).or_default() += 1;
                     }
                 }
             }
-            // args[2]: independently fp-rel-capable
-            if let Some(SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) = args.get(2)
+            // exprs[2]: independently fp-rel-capable
+            if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = exprs[2]
                 && fp_rel_capable.contains(v)
             {
                 *fp_rel_uses.entry(v.clone()).or_default() += 1;
             }
+        }
+
+        if let SimpleLine::CustomHint(_, args) = line {
+            for arg in args {
+                if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = arg
+                    && fp_rel_capable.contains(v)
+                {
+                    *fp_rel_uses.entry(v.clone()).or_default() += 1;
+                }
+            }
+        }
+
+        if let SimpleLine::HintWitness { destination, .. } = line
+            && let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = destination
+            && fp_rel_capable.contains(v)
+        {
+            *fp_rel_uses.entry(v.clone()).or_default() += 1;
         }
 
         for block in line.nested_blocks() {

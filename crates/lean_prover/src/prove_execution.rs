@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 
 use crate::*;
-use air::prove_air;
 use lean_vm::*;
 
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
-use utils::build_prover_state;
+use utils::{build_prover_state, from_end};
 #[derive(Debug)]
 pub struct ExecutionProof {
     pub proof: Proof<F>,
@@ -18,7 +17,7 @@ pub struct ExecutionProof {
 pub fn prove_execution(
     bytecode: &Bytecode,
     public_input: &[F],
-    witness: &ExecutionWitness<'_>,
+    witness: &ExecutionWitness,
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> ExecutionProof {
@@ -119,13 +118,16 @@ pub fn prove_execution(
         &bytecode_acc,
         &traces,
     );
+    let gkr_point = &logup_statements.gkr_point;
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
+        let log_n_rows = traces[&table].log_n_rows;
         committed_statements.insert(
             table,
             vec![(
-                logup_statements.points[&table].clone(),
+                MultilinearPoint(from_end(gkr_point, log_n_rows).to_vec()),
                 logup_statements.columns_values[&table].clone(),
+                BTreeMap::new(),
             )],
         );
     }
@@ -133,25 +135,72 @@ pub fn prove_execution(
     let bus_beta = prover_state.sample();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    let air_eta: EF = prover_state.sample();
 
     let tables_log_heights: BTreeMap<Table, VarCount> =
         traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_sorted = sort_tables_by_height(&tables_log_heights);
-    for (table, _) in &tables_sorted {
-        let trace = &traces[table];
-        let this_air_claims = prove_bus_and_air(
-            &mut prover_state,
-            table,
-            trace,
-            logup_c,
-            &logup_alphas_eq_poly,
-            bus_beta,
-            air_alpha_powers.clone(),
-            &logup_statements.points[table],
-            logup_statements.bus_numerators_values[table],
-            logup_statements.bus_denominators_values[table],
-        );
-        committed_statements.get_mut(table).unwrap().extend(this_air_claims);
+
+    let column_refs: Vec<Vec<&[F]>> = tables_sorted
+        .iter()
+        .map(|(table, _)| {
+            traces[table].columns[..table.n_columns()]
+                .iter()
+                .map(Vec::as_slice)
+                .collect()
+        })
+        .collect();
+    let _span = info_span!("Computing shifted columns for AIR sumcheck").entered();
+    let shifted_rows: Vec<Vec<Vec<F>>> = tables_sorted
+        .par_iter()
+        .zip(&column_refs)
+        .map(|((table, _), cols)| compute_shifted_columns(&table.down_column_indexes(), cols))
+        .collect();
+    std::mem::drop(_span);
+    let mut sessions = Vec::with_capacity(tables_sorted.len());
+    for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
+        let bus_numerator_value = logup_statements.bus_numerators_values[table];
+        let bus_denominator_value = logup_statements.bus_denominators_values[table];
+        let bus_final_value = bus_numerator_value
+            * match table.bus().direction {
+                BusDirection::Pull => EF::NEG_ONE,
+                BusDirection::Push => EF::ONE,
+            }
+            + bus_beta * (bus_denominator_value - logup_c);
+
+        let eq_suffix = from_end(gkr_point, *log_n_rows).to_vec();
+
+        let extra_data = ExtraDataForBuses::new(logup_alphas_eq_poly.clone(), bus_beta, air_alpha_powers.clone());
+
+        let mut up_down: Vec<&[PF<EF>]> = column_refs[idx].to_vec();
+        up_down.extend(shifted_rows[idx].iter().map(Vec::as_slice));
+        let packed = MleGroupRef::<EF>::Base(up_down).pack();
+
+        let non_padded = traces[table].non_padded_n_rows;
+
+        macro_rules! make_session {
+            ($t:expr) => {{
+                let session = AirSumcheckSession::new(packed, eq_suffix, bus_final_value, *$t, extra_data, non_padded);
+                Box::new(session) as Box<dyn OuterSumcheckSession<EF> + '_>
+            }};
+        }
+        sessions.push(delegate_to_inner!(table => make_session));
+    }
+
+    let sumcheck_air_point = info_span!("batched AIR sumcheck")
+        .in_scope(|| prove_batched_air_sumcheck(&mut prover_state, &mut sessions, air_eta));
+
+    for (idx, (table, _)) in tables_sorted.iter().enumerate() {
+        let col_evals = sessions[idx].final_column_evals();
+        prover_state.add_extension_scalars(&col_evals);
+
+        let natural_ordering_point =
+            natural_ordering_point_for_session(&sumcheck_air_point.0, traces[table].log_n_rows);
+        macro_rules! split {
+            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_ordering_point) }};
+        }
+        let claim = delegate_to_inner!(table => split);
+        committed_statements.get_mut(table).unwrap().push(claim);
     }
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
@@ -201,70 +250,4 @@ pub fn prove_execution(
         proof: prover_state.into_proof(),
         metadata,
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::type_complexity)]
-fn prove_bus_and_air(
-    prover_state: &mut impl FSProver<EF>,
-    table: &Table,
-    trace: &TableTrace,
-    logup_c: EF,
-    logup_alphas_eq_poly: &[EF],
-    bus_beta: EF,
-    air_alpha_powers: Vec<EF>,
-    bus_point: &MultilinearPoint<EF>,
-    bus_numerator_value: EF,
-    bus_denominator_value: EF,
-) -> Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)> {
-    let bus_final_value = bus_numerator_value
-        * match table.bus().direction {
-            BusDirection::Pull => EF::NEG_ONE,
-            BusDirection::Push => EF::ONE,
-        }
-        + bus_beta * (bus_denominator_value - logup_c);
-
-    let bus_virtual_statement = Evaluation::new(bus_point.clone(), bus_final_value);
-
-    let extra_data = ExtraDataForBuses {
-        logup_alphas_eq_poly: logup_alphas_eq_poly.to_vec(),
-        logup_alphas_eq_poly_packed: logup_alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect(),
-        bus_beta,
-        bus_beta_packed: EFPacking::<EF>::from(bus_beta),
-        alpha_powers: air_alpha_powers,
-    };
-
-    let air_claims = info_span!("AIR proof", table = table.name()).in_scope(|| {
-        macro_rules! prove_air_for_table {
-            ($t:expr) => {
-                prove_air(
-                    prover_state,
-                    $t,
-                    extra_data,
-                    &trace.columns[..$t.n_columns()],
-                    Some(bus_virtual_statement),
-                    $t.n_columns() + $t.n_down_columns() > 5, // heuristic
-                )
-            };
-        }
-        delegate_to_inner!(table => prove_air_for_table)
-    });
-
-    let mut res = vec![];
-    if let Some(down_point) = air_claims.down_point {
-        assert_eq!(air_claims.evals_on_down_columns.len(), table.n_down_columns());
-        let mut down_evals = BTreeMap::new();
-        for (value_f, col_index) in air_claims.evals_on_down_columns.iter().zip(table.down_column_indexes()) {
-            down_evals.insert(col_index, *value_f);
-        }
-
-        res.push((down_point, down_evals));
-    }
-
-    assert_eq!(air_claims.evals.len(), table.n_columns());
-    let evals = air_claims.evals.iter().copied().enumerate().collect::<BTreeMap<_, _>>();
-
-    res.push((air_claims.point.clone(), evals));
-
-    res
 }

@@ -2,13 +2,13 @@ use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::RunnerError;
 use crate::execution::ExecutionHistory;
 use crate::execution::memory::MemoryAccess;
-use crate::isa::operands::MemOrConstant;
+use crate::isa::operands::{MemOrConstant, MemOrFpOrConstant};
 use backend::*;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
-use utils::{ToUsize, to_big_endian_in_field, to_little_endian_in_field};
-use xmss::SIG_SIZE_FE;
+use utils::ToUsize;
 
 /// VM hints provide execution guidance and debugging information, but does not appear
 /// in the verified bytecode.
@@ -46,7 +46,7 @@ pub enum Hint {
     },
     /// Assert a boolean expression for debugging purposes
     DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
-    Custom(CustomHint, Vec<MemOrConstant>),
+    Custom(CustomHint, Vec<MemOrFpOrConstant>),
     /// Deref hint for range checks - records a constraint to be resolved at end of execution
     /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
     /// The runner resolves all these constraints at the end, in the correct order.
@@ -69,6 +69,29 @@ pub enum Hint {
         /// End value of the loop: either `m[fp + offset]` (runtime) or a constant.
         end_value: MemOrConstant,
     },
+    HintWitness {
+        name: String,
+        destination: HintWitnessDestination<usize>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum HintWitnessDestination<T> {
+    /// Write directly at `m[fp + fp_offset ..]
+    Inline { offset: T },
+    /// Load the destination address from `m[fp + ptr_offset]` and write there
+    Indirect { ptr_offset: T },
+}
+
+impl<T> HintWitnessDestination<T> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> HintWitnessDestination<U> {
+        match self {
+            Self::Inline { offset } => HintWitnessDestination::Inline { offset: f(offset) },
+            Self::Indirect { ptr_offset } => HintWitnessDestination::Indirect {
+                ptr_offset: f(ptr_offset),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,20 +106,14 @@ pub enum CustomHint {
     DecomposeBits,
     LessThan,
     Log2Ceil,
-    PrivateInputStart,
-    Xmss,
-    Merkle,
 }
 
-pub const CUSTOM_HINTS: [CustomHint; 8] = [
+pub const CUSTOM_HINTS: [CustomHint; 5] = [
     CustomHint::DecomposeBitsXMSS,
     CustomHint::DecomposeBitsMerkleWhir,
     CustomHint::DecomposeBits,
     CustomHint::LessThan,
     CustomHint::Log2Ceil,
-    CustomHint::PrivateInputStart,
-    CustomHint::Xmss,
-    CustomHint::Merkle,
 ];
 
 impl CustomHint {
@@ -107,40 +124,32 @@ impl CustomHint {
             Self::DecomposeBits => "hint_decompose_bits",
             Self::LessThan => "hint_less_than",
             Self::Log2Ceil => "hint_log2_ceil",
-            Self::PrivateInputStart => "hint_private_input_start",
-            Self::Xmss => "hint_xmss",
-            Self::Merkle => "hint_merkle",
         }
     }
 
     pub fn n_args(&self) -> usize {
         match self {
-            Self::DecomposeBitsXMSS => 5,
-            Self::DecomposeBitsMerkleWhir => 4,
+            Self::DecomposeBitsXMSS => 4,
+            Self::DecomposeBitsMerkleWhir => 3,
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
-            Self::PrivateInputStart => 1,
-            Self::Xmss => 1,
-            Self::Merkle => 2,
         }
     }
 
     pub fn execute<M: MemoryAccess>(
         &self,
-        args: &[MemOrConstant],
-        ctx: &mut HintExecutionContext<'_, '_, M>,
+        args: &[MemOrFpOrConstant],
+        ctx: &mut HintExecutionContext<'_, '_, '_, M>,
     ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let remaining_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let to_decompose_ptr = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let num_to_decompose = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let to_decompose_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let num_to_decompose = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
-                let mut memory_index_remaining = remaining_ptr;
                 #[allow(clippy::explicit_counter_loop)]
                 for i in 0..num_to_decompose {
                     let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
@@ -149,14 +158,12 @@ impl CustomHint {
                         ctx.memory.set(memory_index_decomposed, value)?;
                         memory_index_decomposed += 1;
                     }
-                    ctx.memory.set(memory_index_remaining, F::from_usize(value >> 24))?;
-                    memory_index_remaining += 1;
                 }
             }
             Self::DecomposeBitsMerkleWhir => {
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let value = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
                 assert!(24_usize.is_multiple_of(chunk_size));
                 let mut memory_index_decomposed = decomposed_ptr;
                 #[allow(clippy::explicit_counter_loop)]
@@ -165,8 +172,6 @@ impl CustomHint {
                     ctx.memory.set(memory_index_decomposed, value)?;
                     memory_index_decomposed += 1;
                 }
-                ctx.memory
-                    .set(args[1].memory_address(ctx.fp)?, F::from_usize(value >> 24))?;
             }
             Self::DecomposeBits => {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -199,43 +204,6 @@ impl CustomHint {
                 let n = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let res_ptr = args[1].memory_address(ctx.fp)?;
                 ctx.memory.set(res_ptr, F::from_usize(log2_ceil_usize(n)))?;
-            }
-            Self::PrivateInputStart => {
-                let res_ptr = args[0].memory_address(ctx.fp)?;
-                ctx.memory.set(res_ptr, F::from_usize(ctx.hints.private_input_start))?;
-            }
-            Self::Xmss => {
-                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.xmss_hint_index;
-                assert!(
-                    index < ctx.hints.xmss_signatures.len(),
-                    "hint_xmss: not enough XMSS signatures (index={})",
-                    index
-                );
-                let sig = &ctx.hints.xmss_signatures[index];
-                assert_eq!(sig.len(), SIG_SIZE_FE);
-                ctx.memory.set_slice(buf_ptr, sig)?;
-                *ctx.hints.xmss_hint_index += 1;
-            }
-            Self::Merkle => {
-                let buf_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let n = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let index = *ctx.hints.merkle_hint_index;
-                assert!(
-                    index < ctx.hints.merkle_paths.len(),
-                    "hint_merkle: not enough Merkle paths (index={})",
-                    index
-                );
-                let path = &ctx.hints.merkle_paths[index];
-                assert_eq!(
-                    path.len(),
-                    n,
-                    "hint_merkle: path length mismatch (expected={}, got={})",
-                    n,
-                    path.len()
-                );
-                ctx.memory.set_slice(buf_ptr, path)?;
-                *ctx.hints.merkle_hint_index += 1;
             }
         }
         Ok(())
@@ -270,19 +238,27 @@ pub struct DiagnosticState<'a> {
     pub checkpoint_ap: &'a mut usize,
 }
 
-#[derive(Debug)]
-pub struct HintState<'a> {
-    pub diagnostics: Option<DiagnosticState<'a>>,
-    pub private_input_start: usize,
-    pub xmss_signatures: &'a [Vec<F>],
-    pub xmss_hint_index: &'a mut usize,
-    pub merkle_paths: &'a [Vec<F>],
-    pub merkle_hint_index: &'a mut usize,
+#[derive(Debug, Clone, Copy)]
+pub struct NamedHintCursor<'a> {
+    pub entries: &'a [Vec<F>],
+    pub index: usize,
+}
+
+impl<'a> NamedHintCursor<'a> {
+    pub fn new(entries: &'a [Vec<F>]) -> Self {
+        Self { entries, index: 0 }
+    }
 }
 
 #[derive(Debug)]
-pub struct HintExecutionContext<'a, 'h, M: MemoryAccess> {
-    pub hints: &'a mut HintState<'h>,
+pub struct HintState<'a, 'h> {
+    pub diagnostics: Option<DiagnosticState<'a>>,
+    pub named_hints: &'a mut HashMap<String, NamedHintCursor<'h>>,
+}
+
+#[derive(Debug)]
+pub struct HintExecutionContext<'a, 'h, 'hh, M: MemoryAccess> {
+    pub hints: &'a mut HintState<'h, 'hh>,
     pub memory: &'a mut M,
     pub fp: usize,
     pub ap: &'a mut usize,
@@ -293,7 +269,10 @@ pub struct HintExecutionContext<'a, 'h, M: MemoryAccess> {
 impl Hint {
     /// Execute this hint within the given execution context
     #[inline(always)]
-    pub fn execute_hint<M: MemoryAccess>(&self, ctx: &mut HintExecutionContext<'_, '_, M>) -> Result<(), RunnerError> {
+    pub fn execute_hint<M: MemoryAccess>(
+        &self,
+        ctx: &mut HintExecutionContext<'_, '_, '_, M>,
+    ) -> Result<(), RunnerError> {
         match self {
             Self::RequestMemory { offset, size } => {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
@@ -380,9 +359,32 @@ impl Hint {
             }
             // Handled by the runner's parallel dispatch; no-op in sequential mode.
             Self::ParallelBatchStart { .. } => {}
+            Self::HintWitness { name, destination } => {
+                let data = consume_next_hint_entry(ctx.hints.named_hints, name);
+                let dest_addr = match destination {
+                    HintWitnessDestination::Inline { offset } => ctx.fp + *offset,
+                    HintWitnessDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
+                };
+                ctx.memory.set_slice(dest_addr, data)?;
+            }
         }
         Ok(())
     }
+}
+
+fn consume_next_hint_entry<'h>(named_hints: &mut HashMap<String, NamedHintCursor<'h>>, name: &str) -> &'h [F] {
+    let cursor = named_hints.get_mut(name).unwrap_or_else(|| {
+        panic!("hint_witness: no hint named '{name}'");
+    });
+    let entries = cursor.entries;
+    let index = cursor.index;
+    assert!(
+        index < entries.len(),
+        "hint_witness: exhausted entries for '{name}' (index={index}, len={})",
+        entries.len()
+    );
+    cursor.index += 1;
+    &entries[index]
 }
 
 impl Display for Hint {
@@ -433,7 +435,32 @@ impl Display for Hint {
             Self::ParallelBatchStart { n_args, end_value } => {
                 write!(f, "parallel_batch_start(n_args={n_args}, end={end_value})")
             }
+            Self::HintWitness {
+                name,
+                destination: HintWitnessDestination::Inline { offset },
+            } => {
+                write!(f, "m[fp + {offset} ..] = hint_witness(\"{name}\")")
+            }
+            Self::HintWitness {
+                name,
+                destination: HintWitnessDestination::Indirect { ptr_offset },
+            } => {
+                write!(f, "m[m[fp + {ptr_offset}] ..] = hint_witness(\"{name}\")")
+            }
         }
+    }
+}
+
+impl<E> BooleanExpr<E> {
+    pub fn try_eval<T: PartialEq + PartialOrd>(&self, eval: impl Fn(&E) -> Option<T>) -> Option<bool> {
+        let left = eval(&self.left)?;
+        let right = eval(&self.right)?;
+        Some(match self.kind {
+            Boolean::Equal => left == right,
+            Boolean::Different => left != right,
+            Boolean::LessThan => left < right,
+            Boolean::LessOrEqual => left <= right,
+        })
     }
 }
 

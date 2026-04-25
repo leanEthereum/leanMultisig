@@ -10,6 +10,7 @@ impl IntermediateInstruction {
             Self::RequestMemory { .. }
             | Self::Print { .. }
             | Self::CustomHint { .. }
+            | Self::HintWitness { .. }
             | Self::Inverse { .. }
             | Self::LocationReport { .. }
             | Self::DebugAssert { .. }
@@ -21,7 +22,7 @@ impl IntermediateInstruction {
             | Self::Deref { .. }
             | Self::JumpIfNotZero { .. }
             | Self::Jump { .. }
-            | Self::Precompile { .. } => false,
+            | Self::Precompile(..) => false,
         }
     }
 }
@@ -115,6 +116,13 @@ pub fn compile_to_low_level_bytecode(
     for (pc_start, block) in code_blocks {
         compile_block(&compiler, &block, pc_start, &mut instructions, &mut hints);
     }
+
+    let min_bytecode_size = 1 << MIN_BYTECODE_LOG_SIZE;
+    if instructions.len() < min_bytecode_size {
+        let last = instructions.last().unwrap().clone();
+        instructions.resize(min_bytecode_size, last);
+    }
+
     let instructions_encoded = instructions.par_iter().map(field_representation).collect::<Vec<_>>();
 
     let mut instructions_multilinear = vec![];
@@ -275,28 +283,23 @@ fn compile_block(
                 let one = ConstExpression::one().into();
                 codegen_jump(hints, low_level_bytecode, one, dest, updated_fp)
             }
-            IntermediateInstruction::Precompile {
-                table,
-                arg_a,
-                arg_b,
-                arg_c,
-                aux_1,
-                aux_2,
-            } => {
-                low_level_bytecode.push(Instruction::Precompile {
-                    table,
-                    arg_a: arg_a.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    arg_b: arg_b.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
-                    aux_1: eval_const_expression_usize(&aux_1, compiler),
-                    aux_2: eval_const_expression_usize(&aux_2, compiler),
-                });
+            IntermediateInstruction::Precompile(precompile) => {
+                let data = precompile
+                    .data
+                    .map_size(|size| eval_const_expression_usize(&size, compiler));
+                let args = PrecompileArgs {
+                    arg_0: precompile.arg_0.try_into_mem_or_fp_or_constant(compiler).unwrap(),
+                    arg_1: precompile.arg_1.try_into_mem_or_fp_or_constant(compiler).unwrap(),
+                    res: precompile.res.try_into_mem_or_fp_or_constant(compiler).unwrap(),
+                    data,
+                };
+                low_level_bytecode.push(Instruction::Precompile(args));
             }
             IntermediateInstruction::CustomHint(hint, args) => {
                 let hint = Hint::Custom(
                     hint,
                     args.into_iter()
-                        .map(|expr| try_as_mem_or_constant(&expr).unwrap())
+                        .map(|expr| expr.try_into_mem_or_fp_or_constant(compiler).unwrap())
                         .collect(),
                 );
                 hints.entry(pc).or_default().push(hint);
@@ -315,6 +318,13 @@ fn compile_block(
                     size,
                 };
                 hints.entry(pc).or_default().push(hint);
+            }
+            IntermediateInstruction::HintWitness { name, destination } => {
+                let destination = destination.map(|offset| eval_const_expression_usize(&offset, compiler));
+                hints
+                    .entry(pc)
+                    .or_default()
+                    .push(Hint::HintWitness { name, destination });
             }
             IntermediateInstruction::Print { line_info, content } => {
                 let hint = Hint::Print {

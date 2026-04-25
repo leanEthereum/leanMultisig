@@ -106,6 +106,14 @@ impl SimpleExpr {
         }
     }
 
+    pub fn as_var(&self) -> Option<&Var> {
+        if let Self::Memory(VarOrConstMallocAccess::Var(name)) = self {
+            Some(name)
+        } else {
+            None
+        }
+    }
+
     pub fn try_vec_as_constant(vec: &[Self]) -> Option<Vec<ConstExpression>> {
         let mut const_elems = Vec::new();
         for expr in vec {
@@ -158,6 +166,7 @@ impl TryFrom<Expression> for ConstExpression {
             Expression::FunctionCall { .. } => Err(()),
             Expression::Len { .. } => Err(()),
             Expression::Lambda { .. } => Err(()),
+            Expression::HintWitness { .. } => Err(()),
         }
     }
 }
@@ -217,53 +226,10 @@ impl From<ConstantValue> for ConstExpression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Condition {
-    AssumeBoolean(Expression),
-    Comparison(BooleanExpr<Expression>),
-}
-
-impl Display for Condition {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AssumeBoolean(expr) => write!(f, "{expr}"),
-            Self::Comparison(cmp) => write!(f, "{cmp}"),
-        }
-    }
-}
-
-impl Condition {
-    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        match self {
-            Self::AssumeBoolean(expr) => vec![expr],
-            Self::Comparison(cmp) => vec![&mut cmp.left, &mut cmp.right],
-        }
-    }
-
-    pub fn eval_with(&self, eval_expr: &impl Fn(&Expression) -> Option<F>) -> Option<bool> {
-        match self {
-            Self::AssumeBoolean(expr) => {
-                let val = eval_expr(expr)?;
-                Some(val != F::ZERO)
-            }
-            Self::Comparison(cmp) => {
-                let left = eval_expr(&cmp.left)?;
-                let right = eval_expr(&cmp.right)?;
-                Some(match cmp.kind {
-                    Boolean::Equal => left == right,
-                    Boolean::Different => left != right,
-                    Boolean::LessThan => left < right,
-                    Boolean::LessOrEqual => left <= right,
-                })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(SimpleExpr),
     ArrayAccess {
-        array: Var,
+        array: SimpleExpr,
         index: Vec<Self>, // multi-dimensional array access
     },
     MathExpr(MathOperation, Vec<Self>),
@@ -280,6 +246,12 @@ pub enum Expression {
     Lambda {
         param: Var,
         body: Box<Self>,
+    },
+    /// `hint_witness("name", ptr)` — writes the next witness entry for `name`
+    /// into the buffer pointed to by `ptr`.
+    HintWitness {
+        name: String,
+        ptr: Box<Self>,
     },
 }
 
@@ -343,6 +315,9 @@ impl Display for MathOperation {
 impl MathOperation {
     pub fn is_unary(&self) -> bool {
         self.num_args() == 1
+    }
+    pub const fn supports_runtime(&self) -> bool {
+        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
     }
     pub fn num_args(&self) -> usize {
         match self {
@@ -416,7 +391,7 @@ impl Expression {
         self.eval_with(
             &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
             &|arr, indexes| {
-                let array = const_arrays.get(arr)?;
+                let array = const_arrays.get(arr.as_var()?)?;
                 assert_eq!(indexes.len(), array.depth());
                 array.navigate(&indexes)?.as_scalar()
             },
@@ -426,7 +401,7 @@ impl Expression {
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
     where
         ValueFn: Fn(&SimpleExpr) -> Option<F>,
-        ArrayFn: Fn(&Var, Vec<F>) -> Option<F>,
+        ArrayFn: Fn(&SimpleExpr, Vec<F>) -> Option<F>,
     {
         match self {
             Self::Value(value) => value_fn(value),
@@ -447,6 +422,7 @@ impl Expression {
             Self::FunctionCall { .. } => None,
             Self::Len { .. } => None,
             Self::Lambda { .. } => None, // Lambdas are only used in match_range, not evaluated directly
+            Self::HintWitness { .. } => None,
         }
     }
 
@@ -458,6 +434,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter_mut().collect(),
             Self::Len { indices, .. } => indices.iter_mut().collect(),
             Self::Lambda { body, .. } => vec![body.as_mut()],
+            Self::HintWitness { ptr, .. } => vec![ptr.as_mut()],
         }
     }
 
@@ -469,6 +446,7 @@ impl Expression {
             Self::FunctionCall { args, .. } => args.iter().collect(),
             Self::Lambda { body, .. } => vec![body.as_ref()],
             Self::Len { indices, .. } => indices.iter().collect(),
+            Self::HintWitness { ptr, .. } => vec![ptr.as_ref()],
         }
     }
 
@@ -505,7 +483,7 @@ impl Expression {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssignmentTarget {
     Var { var: Var, is_mutable: bool },
-    ArrayAccess { array: Var, index: Box<Expression> }, // always immutable
+    ArrayAccess { array: SimpleExpr, index: Box<Expression> }, // always immutable
 }
 
 impl Display for AssignmentTarget {
@@ -601,7 +579,7 @@ pub enum Line {
         location: SourceLocation,
     },
     IfCondition {
-        condition: Condition,
+        condition: BooleanExpr<Expression>,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
         location: SourceLocation,
@@ -713,6 +691,9 @@ impl Display for Expression {
             }
             Self::Lambda { param, body } => {
                 write!(f, "lambda {param}: {body}")
+            }
+            Self::HintWitness { name, ptr } => {
+                write!(f, "hint_witness(\"{name}\", {ptr})")
             }
         }
     }
@@ -922,7 +903,7 @@ impl Line {
                 exprs
             }
             Self::Assert { boolean, .. } => vec![&mut boolean.left, &mut boolean.right],
-            Self::IfCondition { condition, .. } => condition.expressions_mut(),
+            Self::IfCondition { condition, .. } => vec![&mut condition.left, &mut condition.right],
             Self::ForLoop {
                 start, end, loop_kind, ..
             } => {

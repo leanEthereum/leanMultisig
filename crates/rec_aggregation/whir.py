@@ -113,8 +113,7 @@ def whir_open(
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
         expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
-        ood_rec = eq_mle_extension(expanded_from_univariate, folding_randomness_global, n_vars)
-        copy_5(ood_rec, all_ood_recovered_evals + i * DIM)
+        eq_mle_extension_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
     s: Mut = Array(DIM)
     dot_product_ee_dynamic(
         all_ood_recovered_evals,
@@ -132,8 +131,7 @@ def whir_open(
         my_folding_randomness += folding_factors[i] * DIM
         for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
-            ood_rec = eq_mle_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
-            copy_5(ood_rec, my_ood_recovered_evals + j * DIM)
+            eq_mle_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
             my_ood_recovered_evals,
@@ -146,8 +144,7 @@ def whir_open(
         circle_value_i = all_circle_values[i]
         for j in range(0, num_queries[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
-            temp = eq_mle_base_extension(expanded_from_univariate, my_folding_randomness, n_vars_remaining)
-            copy_5(temp, s6s + j * DIM)
+            eq_mle_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
         s7 = Array(DIM)
         dot_product_ee_dynamic(
             s6s,
@@ -181,6 +178,24 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + sc_round * DIM)
+
+    return fs, claimed_sum
+
+
+def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
+    challenges = Array(n_steps * DIM)
+    fs, new_claimed_sum = sumcheck_verify_reversed_helper(fs, n_steps, claimed_sum, degree, challenges)
+    return fs, challenges, new_claimed_sum
+
+
+def sumcheck_verify_reversed_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in range(0, n_steps):
+        fs, poly = fs_receive_ef_inlined(fs, degree + 1)
+        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
+        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        fs, rand = fs_sample_ef(fs)
+        claimed_sum = univariate_polynomial_eval(poly, rand, degree)
+        copy_5(rand, challenges + (n_steps - 1 - sc_round) * DIM)
 
     return fs, claimed_sum
 
@@ -238,8 +253,7 @@ def decompose_and_verify_merkle_batch_with_height(num_queries, sampled, root, he
 
 def decompose_and_verify_merkle_batch_const(num_queries, sampled, root, height: Const, num_chunks: Const, circle_values, merkle_leaves):
     for i in range(0, num_queries):
-        nibbles, circle_values[i] = checked_decompose_bits_and_compute_root_pow_const(sampled[i], height)
-        merkle_leaves[i] = hash_and_verify_merkle_hint(nibbles, root, height, num_chunks)
+        merkle_leaves[i], circle_values[i] = decompose_and_verify_merkle_query(sampled[i], height, root, num_chunks)
     return
 
 

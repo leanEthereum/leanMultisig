@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
-use crate::execution::memory::MemoryAccess;
 use crate::*;
+use crate::{execution::memory::MemoryAccess, tables::poseidon_16::trace_gen::generate_trace_rows_for_perm};
 use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
@@ -82,7 +82,7 @@ fn mul_kb<A: PrimeCharacteristicRing + 'static>(a: A, value: F) -> A {
 }
 
 mod trace_gen;
-pub use trace_gen::{default_poseidon_16_row, fill_trace_poseidon_16};
+pub use trace_gen::fill_trace_poseidon_16;
 
 pub(super) const WIDTH: usize = 16;
 const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
@@ -98,12 +98,14 @@ pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 3;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 4;
 pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 
+pub const POSEIDON16_NAME: &str = "poseidon16_compress";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Poseidon16Precompile<const BUS: bool>;
 
 impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     fn name(&self) -> &'static str {
-        "poseidon16_compress"
+        POSEIDON16_NAME
     }
 
     fn table(&self) -> Table {
@@ -128,22 +130,35 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         ]
     }
 
+    #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
+        let mut data = Vec::with_capacity(4);
+        data.push(BusData::Constant(POSEIDON_PRECOMPILE_DATA));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT));
+        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES));
         Bus {
             direction: BusDirection::Pull,
             selector: POSEIDON_16_COL_FLAG,
-            data: vec![
-                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT),
-                BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES),
-            ],
+            data,
         }
     }
 
-    fn padding_row(&self) -> Vec<F> {
-        // depends on null_poseidon_16_hash_ptr (cf lean_prover/trace_gen.rs)
-        unreachable!()
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
+        let mut row = vec![F::ZERO; num_cols_poseidon_16()];
+        let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
+            .map(|i| unsafe { row.as_mut_ptr().add(i) })
+            .collect();
+
+        let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
+        perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
+        *perm.flag = F::ZERO;
+        *perm.index_a = F::from_usize(zero_vec_ptr);
+        *perm.index_b = F::from_usize(zero_vec_ptr);
+        *perm.index_res = F::from_usize(null_hash_ptr);
+
+        generate_trace_rows_for_perm(perm);
+        row
     }
 
     #[inline(always)]
@@ -152,8 +167,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        _: usize,
-        _: usize,
+        _: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
@@ -192,6 +206,10 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     }
     fn degree_air(&self) -> usize {
         9
+    }
+    fn low_degree_air(&self) -> Option<(usize, usize)> {
+        // Each partial round contributes one `assert_eq_low` per round (1 S-box / round), of degree 3 (= the "low" degree part)
+        Some((3, PARTIAL_ROUNDS))
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
@@ -268,27 +286,31 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
 
     // --- Sparse partial rounds ---
     // Transition: add first-round constants, multiply by m_i
-    let frc = poseidon1_sparse_first_round_constants();
-    for (s, &c) in state.iter_mut().zip(frc.iter()) {
-        add_kb(s, c);
-    }
-    dense_mat_vec_air_16(poseidon1_sparse_m_i(), &mut state);
+    builder.low_degree_block(&mut state, |b, state| {
+        let state: &mut [AB::IF; WIDTH] = state.try_into().unwrap();
 
-    let first_rows = poseidon1_sparse_first_row();
-    let v_vecs = poseidon1_sparse_v();
-    let scalar_rc = poseidon1_sparse_scalar_round_constants();
-    for round in 0..PARTIAL_ROUNDS {
-        // S-box on state[0]
-        state[0] = state[0].cube();
-        builder.assert_eq(state[0], local.partial_rounds[round]);
-        state[0] = local.partial_rounds[round];
-        // Scalar round constant (not on last round)
-        if round < PARTIAL_ROUNDS - 1 {
-            add_kb(&mut state[0], scalar_rc[round]);
+        let frc = poseidon1_sparse_first_round_constants();
+        for (s, &c) in state.iter_mut().zip(frc.iter()) {
+            add_kb(s, c);
         }
-        // Sparse matrix: new_s0 = dot(first_row, state), state[i] += old_s0 * v[i-1]
-        sparse_mat_air_16(&mut state, &first_rows[round], &v_vecs[round]);
-    }
+        dense_mat_vec_air_16(poseidon1_sparse_m_i(), state);
+
+        let first_rows = poseidon1_sparse_first_row();
+        let v_vecs = poseidon1_sparse_v();
+        let scalar_rc = poseidon1_sparse_scalar_round_constants();
+        for round in 0..PARTIAL_ROUNDS {
+            // S-box on state[0]
+            state[0] = state[0].cube();
+            b.assert_eq_low(state[0], local.partial_rounds[round]);
+            state[0] = local.partial_rounds[round];
+            // Scalar round constant (not on last round)
+            if round < PARTIAL_ROUNDS - 1 {
+                add_kb(&mut state[0], scalar_rc[round]);
+            }
+            // Sparse matrix: new_s0 = dot(first_row, state), state[i] += old_s0 * v[i-1]
+            sparse_mat_air_16(state, &first_rows[round], &v_vecs[round]);
+        }
+    });
 
     let final_constants = poseidon1_final_constants();
     for round in 0..HALF_FINAL_FULL_ROUNDS - 1 {

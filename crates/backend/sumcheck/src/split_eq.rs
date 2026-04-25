@@ -1,6 +1,7 @@
 use field::{ExtensionField, PackedFieldExtension};
 use poly::*;
 
+#[derive(Debug)]
 pub struct SplitEq<EF: ExtensionField<PF<EF>>> {
     pub eq_lo: Vec<EF>,
     pub eq_hi_packed: Vec<EFPacking<EF>>,

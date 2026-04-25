@@ -146,22 +146,15 @@ pub fn compile_program(input: &ProgramSource) -> Bytecode {
     try_compile_program(input).unwrap()
 }
 
-pub fn try_compile_and_run(
-    input: &ProgramSource,
-    (public_input, private_input): (&[F], &[F]),
-    profiler: bool,
-) -> Result<String, Error> {
+pub fn try_compile_and_run(input: &ProgramSource, public_input: &[F], profiler: bool) -> Result<String, Error> {
     let bytecode = try_compile_program(input)?;
-    let witness = ExecutionWitness {
-        private_input,
-        ..ExecutionWitness::empty()
-    };
+    let witness = ExecutionWitness::default();
     let result = try_execute_bytecode(&bytecode, public_input, &witness, profiler)?;
     println!("{}", result.metadata.display());
     Ok(result.metadata.display())
 }
 
-pub fn compile_and_run(input: &ProgramSource, (public_input, private_input): (&[F], &[F]), profiler: bool) {
-    let summary = try_compile_and_run(input, (public_input, private_input), profiler).unwrap();
+pub fn compile_and_run(input: &ProgramSource, public_input: &[F], profiler: bool) {
+    let summary = try_compile_and_run(input, public_input, profiler).unwrap();
     println!("{summary}");
 }

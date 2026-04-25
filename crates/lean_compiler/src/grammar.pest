@@ -78,9 +78,7 @@ assignment_target = { (identifier ~ mut_annotation) | array_access_expr | identi
 
 if_statement = { "if" ~ condition ~ ":" ~ newline ~ statement* ~ end_block ~ elif_clause* ~ else_clause? }
 
-condition = { assumed_bool_expr | "(" ~ comparison ~ ")" | comparison }
-
-assumed_bool_expr = { "!!assume_bool" ~ "(" ~ expression ~ ")" }
+condition = { "(" ~ comparison ~ ")" | comparison }
 
 // Comparisons (shared between conditions and assertions)
 comparison = { add_expr ~ comparison_op ~ add_expr }
@@ -119,6 +117,7 @@ exp_expr = { primary ~ ("**" ~ primary)* }
 primary = {
     "(" ~ expression ~ ")" |
     lambda_expr |
+    hint_witness_expr |
     log2_ceil_expr |
     next_multiple_of_expr |
     div_ceil_expr |
@@ -137,6 +136,7 @@ lambda_expr = { "lambda" ~ identifier ~ ":" ~ expression }
 vec_literal = { "DynArray" ~ "(" ~ "[" ~ (vec_element ~ ("," ~ vec_element)* ~ ","?)? ~ "]" ~ ")" }
 vec_element = { vec_literal | expression }
 function_call_expr = { identifier ~ "(" ~ tuple_expression? ~ ")" }
+hint_witness_expr = { "hint_witness" ~ "(" ~ string_literal ~ "," ~ expression ~ ")" }
 log2_ceil_expr = { "log2_ceil" ~ "(" ~ expression ~ ")" }
 next_multiple_of_expr = { "next_multiple_of" ~ "(" ~ expression ~ "," ~ expression ~ ")" }
 div_ceil_expr = { "div_ceil" ~ "(" ~ expression ~ "," ~ expression ~ ")" }

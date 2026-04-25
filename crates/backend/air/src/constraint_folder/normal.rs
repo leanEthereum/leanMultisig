@@ -11,6 +11,22 @@ pub struct ConstraintFolder<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData: Alpha
     pub constraint_index: usize,
 }
 
+impl<'a, IF, EF, ExtraData> ConstraintFolder<'a, IF, EF, ExtraData>
+where
+    EF: ExtensionField<PF<EF>>,
+    ExtraData: AlphaPowers<EF>,
+{
+    pub fn new(up: &'a [IF], down: &'a [IF], extra_data: &'a ExtraData) -> Self {
+        Self {
+            up,
+            down,
+            extra_data,
+            accumulator: EF::ZERO,
+            constraint_index: 0,
+        }
+    }
+}
+
 impl<'a, IF, EF, ExtraData> AirBuilder for ConstraintFolder<'a, IF, EF, ExtraData>
 where
     IF: Algebra<PF<EF>> + 'static,

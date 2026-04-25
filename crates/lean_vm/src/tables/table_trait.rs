@@ -1,5 +1,5 @@
 use crate::execution::memory::MemoryAccess;
-use crate::{EF, F, InstructionContext, RunnerError, Table};
+use crate::{EF, F, InstructionContext, PrecompileCompTimeArgs, RunnerError, Table};
 use backend::*;
 
 use std::{any::TypeId, cmp::Reverse, collections::BTreeMap, mem::transmute};
@@ -7,7 +7,9 @@ use utils::VarCount;
 
 pub type ColIndex = usize;
 
-pub type CommittedStatements = BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>)>>;
+/// Each entry: (point, eval, eval at 'shifted-down' column).
+pub type CommittedStatements =
+    BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>)>>;
 
 #[derive(Debug)]
 pub struct LookupIntoMemory {
@@ -76,6 +78,18 @@ pub struct ExtraDataForBuses<EF: ExtensionField<PF<EF>>> {
     pub bus_beta_packed: EFPacking<EF>,
     pub alpha_powers: Vec<EF>,
 }
+impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
+    pub fn new(logup_alphas_eq_poly: Vec<EF>, bus_beta: EF, alpha_powers: Vec<EF>) -> Self {
+        let logup_alphas_eq_poly_packed = logup_alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
+        Self {
+            logup_alphas_eq_poly,
+            logup_alphas_eq_poly_packed,
+            bus_beta,
+            bus_beta_packed: EFPacking::<EF>::from(bus_beta),
+            alpha_powers,
+        }
+    }
+}
 
 impl AlphaPowersMut<EF> for ExtraDataForBuses<EF> {
     fn alpha_powers_mut(&mut self) -> &mut Vec<EF> {
@@ -112,14 +126,13 @@ pub trait TableT: Air {
     fn table(&self) -> Table;
     fn lookups(&self) -> Vec<LookupIntoMemory>;
     fn bus(&self) -> Bus;
-    fn padding_row(&self) -> Vec<F>;
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F>;
     fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
         arg_b: F,
         arg_c: F,
-        aux_1: usize,
-        aux_2: usize,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError>;
 

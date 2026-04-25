@@ -1,4 +1,4 @@
-use crate::{prove_gkr_quotient, verify_gkr_quotient};
+use crate::{ENDIANNESS_PIVOT_GKR, prove_gkr_quotient, verify_gkr_quotient};
 use backend::*;
 use lean_vm::*;
 use std::collections::BTreeMap;
@@ -15,7 +15,7 @@ pub struct GenericLogupStatements {
     pub value_bytecode_acc: EF,
     pub bus_numerators_values: BTreeMap<Table, EF>,
     pub bus_denominators_values: BTreeMap<Table, EF>,
-    pub points: BTreeMap<Table, MultilinearPoint<EF>>,
+    pub gkr_point: Vec<EF>,
     pub columns_values: BTreeMap<Table, BTreeMap<ColIndex, EF>>,
     // Used in recursion
     pub total_gkr_n_vars: usize,
@@ -34,7 +34,6 @@ pub fn prove_generic_logup(
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
-    assert!(memory[0].is_zero());
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
@@ -43,14 +42,15 @@ pub fn prove_generic_logup(
     let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_log_heights_sorted = sort_tables_by_height(&tables_log_heights);
 
-    let total_gkr_n_vars = compute_total_gkr_n_vars(
+    let total_active_len = compute_total_active_len(
         log2_strict_usize(memory.len()),
         log_bytecode,
-        &tables_log_heights_sorted.iter().cloned().collect(),
+        &tables_log_heights_sorted,
     );
-    let mut numerators = F::zero_vec(1 << total_gkr_n_vars);
+    let total_gkr_n_vars = log2_ceil_usize(total_active_len);
+    let mut numerators: Vec<F> = unsafe { uninitialized_vec(total_active_len) };
     let width = packing_width::<EF>();
-    let mut denominators_packed = EFPacking::<EF>::zero_vec((1 << total_gkr_n_vars) / width);
+    let mut denominators: Vec<EFPacking<EF>> = unsafe { uninitialized_vec(total_active_len / width) };
     let c_packed = EFPacking::<EF>::from(c);
     let alphas_packed: Vec<EFPacking<EF>> = alphas_eq_poly.iter().map(|a| EFPacking::<EF>::from(*a)).collect();
     let alpha_last = *alphas_eq_poly.last().unwrap();
@@ -58,121 +58,115 @@ pub fn prove_generic_logup(
     let bytecode_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_BYTECODE_DOMAINSEP));
     let precompile_contrib = EFPacking::<EF>::from(alpha_last * F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP));
 
+    let min_section_log = log_bytecode.min(tables_log_heights_sorted.last().unwrap().1);
+    if min_section_log < ENDIANNESS_PIVOT_GKR {
+        tracing::info!("TODO: suboptimal GKR pivot (could be improved).");
+    }
+    let pivot = ENDIANNESS_PIVOT_GKR.min(min_section_log);
+    let chunk_size = 1usize << pivot;
+    let chunk_shift = usize::BITS as usize - pivot;
+    let chunk_mask = chunk_size - 1;
+    let max_table_height = 1 << tables_log_heights_sorted[0].1;
+
+    let src_idx = |p: usize, w: usize| -> usize {
+        let x = p * width + w;
+        (x & !chunk_mask) | ((x & chunk_mask).reverse_bits() >> chunk_shift)
+    };
+
+    let fill_num_from = |dst: &mut [F], src: &[F], neg: bool| {
+        dst.par_chunks_exact_mut(chunk_size)
+            .enumerate()
+            .for_each(|(c, dst_chunk)| {
+                let src_chunk = &src[c * chunk_size..][..chunk_size];
+                for (i, slot) in dst_chunk.iter_mut().enumerate() {
+                    let v = src_chunk[i.reverse_bits() >> chunk_shift];
+                    *slot = if neg { -v } else { v };
+                }
+            });
+    };
+
     let mut offset = 0;
 
-    // Memory: ...
+    // Memory section.
     assert_eq!(memory.len(), memory_acc.len());
-    numerators[offset..][..memory.len()]
-        .par_iter_mut()
-        .zip(memory_acc)
-        .for_each(|(num, a)| *num = -*a); // Note the negative sign here 
-    denominators_packed[offset / width..][..memory.len() / width]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(chunk_idx, denom_packed)| {
-            let base_i = chunk_idx * width;
-            *denom_packed = c_packed
-                - finger_print_packed::<EF>(
-                    memory_contrib,
-                    &[
-                        PFPacking::<EF>::from_fn(|w| memory[base_i + w]),
-                        PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w)),
-                    ],
-                    &alphas_packed,
-                );
-        });
+    fill_num_from(&mut numerators[offset..][..memory.len()], memory_acc, true);
+    fill_denoms(&mut denominators[offset / width..][..memory.len() / width], |p| {
+        c_packed
+            - finger_print_packed::<EF>(
+                memory_contrib,
+                &[
+                    PFPacking::<EF>::from_fn(|w| memory[src_idx(p, w)]),
+                    PFPacking::<EF>::from_fn(|w| F::from_usize(src_idx(p, w))),
+                ],
+                &alphas_packed,
+            )
+    });
     offset += memory.len();
 
-    // Bytecode
+    // Bytecode section.
     assert_eq!(1 << log_bytecode, bytecode_acc.len());
-    numerators[offset..][..bytecode_acc.len()]
-        .par_iter_mut()
-        .zip(bytecode_acc)
-        .for_each(|(num, a)| *num = -*a); // Note the negative sign here
-    {
-        let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
-        denominators_packed[offset / width..][..(1 << log_bytecode) / width]
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(chunk_idx, denom_packed)| {
-                let base_i = chunk_idx * width;
-                let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
-                for k in 0..N_INSTRUCTION_COLUMNS {
-                    data[k] = PFPacking::<EF>::from_fn(|w| bytecode_multilinear[(base_i + w) * bytecode_stride + k]);
-                }
-                data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| F::from_usize(base_i + w));
-                *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
-            });
-    }
-    let max_table_height = 1 << tables_log_heights_sorted[0].1;
+    fill_num_from(&mut numerators[offset..][..bytecode_acc.len()], bytecode_acc, true);
+    let bytecode_stride = N_INSTRUCTION_COLUMNS.next_power_of_two();
+    fill_denoms(
+        &mut denominators[offset / width..][..(1 << log_bytecode) / width],
+        |p| {
+            let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+            for k in 0..N_INSTRUCTION_COLUMNS {
+                data[k] = PFPacking::<EF>::from_fn(|w| bytecode_multilinear[src_idx(p, w) * bytecode_stride + k]);
+            }
+            data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| F::from_usize(src_idx(p, w)));
+            c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed)
+        },
+    );
     if 1 << log_bytecode < max_table_height {
         // padding
-        denominators_packed[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
+        numerators[offset + (1 << log_bytecode)..offset + max_table_height]
+            .par_iter_mut()
+            .for_each(|n| *n = F::ZERO);
+        denominators[(offset + (1 << log_bytecode)) / width..(offset + max_table_height) / width]
             .par_iter_mut()
             .for_each(|d| *d = EFPacking::<EF>::ONE);
     }
     offset += max_table_height.max(1 << log_bytecode);
-    // ... Rest of the tables:
+
     for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
         if *table == Table::execution() {
-            // 0] bytecode lookup
             let pc_column = &trace.columns[COL_PC];
             let bytecode_columns = &trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS];
-            numerators[offset..][..1 << log_n_rows].par_iter_mut().for_each(|num| {
-                *num = F::ONE;
-            }); // TODO embedding overhead
-            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
+            numerators[offset..][..1 << log_n_rows]
                 .par_iter_mut()
-                .enumerate()
-                .for_each(|(chunk_idx, denom_packed)| {
-                    let base_i = chunk_idx * width;
-                    let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
-                    for k in 0..N_INSTRUCTION_COLUMNS {
-                        data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][base_i + w]);
-                    }
-                    data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[base_i + w]);
-                    *denom_packed = c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed);
-                });
+                .for_each(|n| *n = F::ONE);
+            fill_denoms(&mut denominators[offset / width..][..(1 << log_n_rows) / width], |p| {
+                let mut data = [PFPacking::<EF>::ZERO; N_INSTRUCTION_COLUMNS + 1];
+                for k in 0..N_INSTRUCTION_COLUMNS {
+                    data[k] = PFPacking::<EF>::from_fn(|w| bytecode_columns[k][src_idx(p, w)]);
+                }
+                data[N_INSTRUCTION_COLUMNS] = PFPacking::<EF>::from_fn(|w| pc_column[src_idx(p, w)]);
+                c_packed - finger_print_packed::<EF>(bytecode_contrib, &data, &alphas_packed)
+            });
             offset += 1 << log_n_rows;
         }
 
-        // I] Bus for precompiles (data flow between tables)
+        // I] Bus
         let bus = table.bus();
-        numerators[offset..][..1 << log_n_rows]
-            .par_iter_mut()
-            .zip(&trace.columns[bus.selector])
-            .for_each(|(num, selector)| {
-                *num = F::from(match bus.direction {
-                    BusDirection::Pull => -*selector,
-                    BusDirection::Push => *selector,
-                })
-            }); // TODO embedding overhead
-        {
-            let bus_data_entries = &bus.data;
-            denominators_packed[offset / width..][..(1 << log_n_rows) / width]
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(chunk_idx, denom_packed)| {
-                    let base_i = chunk_idx * width;
-                    let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
-                    for (j, entry) in bus_data_entries.iter().enumerate() {
-                        bus_data[j] = match entry {
-                            BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][base_i + w]),
-                            BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
-                        };
-                    }
-                    *denom_packed = c_packed
-                        + finger_print_packed::<EF>(
-                            precompile_contrib,
-                            &bus_data[..bus_data_entries.len()],
-                            &alphas_packed,
-                        );
-                });
-        }
-
+        let selector = &trace.columns[bus.selector];
+        let pull = matches!(bus.direction, BusDirection::Pull);
+        fill_num_from(&mut numerators[offset..][..1 << log_n_rows], selector, pull);
+        let bus_data_entries = &bus.data;
+        fill_denoms(&mut denominators[offset / width..][..(1 << log_n_rows) / width], |p| {
+            let mut bus_data = [PFPacking::<EF>::ZERO; MAX_PRECOMPILE_BUS_WIDTH];
+            for (j, entry) in bus_data_entries.iter().enumerate() {
+                bus_data[j] = match entry {
+                    BusData::Column(col) => PFPacking::<EF>::from_fn(|w| trace.columns[*col][src_idx(p, w)]),
+                    BusData::Constant(val) => PFPacking::<EF>::from(F::from_usize(*val)),
+                };
+            }
+            c_packed
+                + finger_print_packed::<EF>(precompile_contrib, &bus_data[..bus_data_entries.len()], &alphas_packed)
+        });
         offset += 1 << log_n_rows;
 
         // II] Lookup into memory
@@ -181,38 +175,30 @@ pub fn prove_generic_logup(
         for (col_index, col_values) in index_columns.iter().zip(&value_columns) {
             numerators[offset..][..col_values.len() << log_n_rows]
                 .par_iter_mut()
-                .for_each(|num| {
-                    *num = F::ONE;
-                }); // TODO embedding overhead
-            {
-                let packed_chunk_size = (1 << log_n_rows) / width;
-                denominators_packed[offset / width..][..col_values.len() * packed_chunk_size]
-                    .par_chunks_exact_mut(packed_chunk_size)
-                    .enumerate()
-                    .for_each(|(i, denom_chunk)| {
-                        let i_field = F::from_usize(i);
-                        denom_chunk
-                            .par_iter_mut()
-                            .enumerate()
-                            .for_each(|(chunk_idx, denom_packed)| {
-                                let base_j = chunk_idx * width;
-                                *denom_packed = c_packed
-                                    - finger_print_packed::<EF>(
-                                        memory_contrib,
-                                        &[
-                                            PFPacking::<EF>::from_fn(|w| col_values[i][base_j + w]),
-                                            PFPacking::<EF>::from_fn(|w| col_index[base_j + w] + i_field),
-                                        ],
-                                        &alphas_packed,
-                                    );
-                            });
+                .for_each(|n| *n = F::ONE);
+            let packed_chunk_size = (1 << log_n_rows) / width;
+            denominators[offset / width..][..col_values.len() * packed_chunk_size]
+                .par_chunks_exact_mut(packed_chunk_size)
+                .enumerate()
+                .for_each(|(i, denom_chunk)| {
+                    let i_field = F::from_usize(i);
+                    denom_chunk.par_iter_mut().enumerate().for_each(|(p, slot)| {
+                        *slot = c_packed
+                            - finger_print_packed::<EF>(
+                                memory_contrib,
+                                &[
+                                    PFPacking::<EF>::from_fn(|w| col_values[i][src_idx(p, w)]),
+                                    PFPacking::<EF>::from_fn(|w| col_index[src_idx(p, w)] + i_field),
+                                ],
+                                &alphas_packed,
+                            );
                     });
-            }
+                });
             offset += col_values.len() << log_n_rows;
         }
     }
 
-    assert_eq!(log2_ceil_usize(offset), total_gkr_n_vars);
+    assert_eq!(offset, total_active_len);
     tracing::info!(
         "{}",
         format!(
@@ -224,17 +210,12 @@ pub fn prove_generic_logup(
         .blue()
     );
 
-    denominators_packed[offset / width..]
-        .par_iter_mut()
-        .for_each(|d| *d = EFPacking::<EF>::ONE); // padding
-
-    let numerators_packed = MleRef::Base(&numerators).pack();
-    let denom_ref = MleRef::<EF>::ExtensionPacked(&denominators_packed);
-
-    let (sum, claim_point_gkr, numerators_value, denominators_value) =
-        prove_gkr_quotient(prover_state, &numerators_packed.by_ref(), &denom_ref);
-
-    let _ = (numerators_value, denominators_value); // TODO use it to avoid some computation below
+    let (sum, claim_point_gkr) = prove_gkr_quotient::<EF>(
+        prover_state,
+        PFPacking::<EF>::pack_slice(&numerators),
+        &denominators,
+        pivot,
+    );
 
     // sanity check
     assert_eq!(sum, EF::ZERO);
@@ -253,12 +234,9 @@ pub fn prove_generic_logup(
 
     // evaluation on bytecode itself can be done directly by the verifier
 
-    // ... Rest of the tables:
-    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
-    let mut offset = memory.len() + max_table_height.max(1 << log_bytecode);
     for (table, _) in &tables_log_heights_sorted {
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
@@ -267,7 +245,6 @@ pub fn prove_generic_logup(
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == &Table::execution() {
-            // 0] bytecode lookup
             let pc_column = &trace.columns[COL_PC];
             let bytecode_columns = trace.columns[N_RUNTIME_COLUMNS..][..N_INSTRUCTION_COLUMNS]
                 .iter()
@@ -288,18 +265,25 @@ pub fn prove_generic_logup(
                 assert!(!table_values.contains_key(&global_index));
                 table_values.insert(global_index, *eval_on_instr_col);
             }
-
-            offset += 1 << log_n_rows;
         }
 
-        // I] Bus (data flow between tables)
-        let eval_on_selector =
-            trace.columns[table.bus().selector].evaluate(&inner_point) * table.bus().direction.to_field_flag();
+        let bus = table.bus();
+        let eval_on_selector = trace.columns[bus.selector].evaluate(&inner_point) * bus.direction.to_field_flag();
         prover_state.add_extension_scalar(eval_on_selector);
 
-        let eval_on_data =
-            MleRef::<EF>::ExtensionPacked(&denominators_packed[offset / width..][..(1 << log_n_rows) / width])
-                .evaluate(&inner_point);
+        let bus_data_evals: Vec<EF> = bus
+            .data
+            .iter()
+            .map(|entry| match entry {
+                BusData::Column(col) => trace.columns[*col].evaluate(&inner_point),
+                BusData::Constant(val) => EF::from(F::from_usize(*val)),
+            })
+            .collect();
+        let eval_on_data = c + finger_print::<F, EF, EF>(
+            F::from_usize(LOGUP_PRECOMPILE_DOMAINSEP),
+            &bus_data_evals,
+            alphas_eq_poly,
+        );
         prover_state.add_extension_scalar(eval_on_data);
 
         bus_numerators_values.insert(*table, eval_on_selector);
@@ -320,10 +304,7 @@ pub fn prove_generic_logup(
             }
         }
 
-        points.insert(*table, inner_point);
         columns_values.insert(*table, table_values);
-
-        offset += offset_for_table(table, log_n_rows);
     }
 
     GenericLogupStatements {
@@ -334,7 +315,7 @@ pub fn prove_generic_logup(
         value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
-        points,
+        gkr_point: claim_point_gkr.0,
         columns_values,
         total_gkr_n_vars,
         bytecode_evaluation: None,
@@ -353,11 +334,11 @@ pub fn verify_generic_logup(
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
-    let total_gkr_n_vars = compute_total_gkr_n_vars(
+    let total_gkr_n_vars = log2_ceil_usize(compute_total_active_len(
         log_memory,
         log_bytecode,
-        &tables_heights_sorted.iter().cloned().collect(),
-    );
+        &tables_heights_sorted,
+    ));
 
     let (sum, point_gkr, numerators_value, denominators_value) = verify_gkr_quotient(verifier_state, total_gkr_n_vars)?;
 
@@ -368,11 +349,14 @@ pub fn verify_generic_logup(
     let mut retrieved_numerators_value = EF::ZERO;
     let mut retrieved_denominators_value = EF::ZERO;
 
-    // Memory ...
+    let pref_at = |offset: usize, log_height: usize| {
+        let n_missing = total_gkr_n_vars - log_height;
+        let bits = to_big_endian_in_field::<EF>(offset >> log_height, n_missing);
+        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..n_missing].to_vec()))
+    };
+
     let memory_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
-    let bits = to_big_endian_in_field::<EF>(0, total_gkr_n_vars - log_memory);
-    let pref =
-        MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_memory].to_vec()));
+    let pref = pref_at(0, log_memory);
 
     let value_memory_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_memory_acc;
@@ -387,17 +371,10 @@ pub fn verify_generic_logup(
         ));
     let mut offset = 1 << log_memory;
 
-    // Bytecode
     let log_bytecode_padded = log_bytecode.max(tables_heights_sorted[0].1);
     let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
-    let bits = to_big_endian_in_field::<EF>(offset >> log_bytecode, total_gkr_n_vars - log_bytecode);
-    let pref = MultilinearPoint(bits)
-        .eq_poly_outside(&MultilinearPoint(point_gkr[..total_gkr_n_vars - log_bytecode].to_vec()));
-    let bits_padded =
-        to_big_endian_in_field::<EF>(offset >> log_bytecode_padded, total_gkr_n_vars - log_bytecode_padded);
-    let pref_padded = MultilinearPoint(bits_padded).eq_poly_outside(&MultilinearPoint(
-        point_gkr[..total_gkr_n_vars - log_bytecode_padded].to_vec(),
-    ));
+    let pref = pref_at(offset, log_bytecode);
+    let pref_padded = pref_at(offset, log_bytecode_padded);
 
     let value_bytecode_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_bytecode_acc;
@@ -424,16 +401,10 @@ pub fn verify_generic_logup(
     offset += 1 << log_bytecode_padded;
 
     // ... Rest of the tables:
-    let mut points = BTreeMap::new();
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
     for &(table, log_n_rows) in &tables_heights_sorted {
-        let n_missing_vars = total_gkr_n_vars - log_n_rows;
-        let inner_point = MultilinearPoint(from_end(&point_gkr, log_n_rows).to_vec());
-        let missing_point = MultilinearPoint(point_gkr[..n_missing_vars].to_vec());
-
-        points.insert(table, inner_point.clone());
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == Table::execution() {
@@ -443,12 +414,10 @@ pub fn verify_generic_logup(
 
             let instr_evals = verifier_state.next_extension_scalars_vec(N_INSTRUCTION_COLUMNS)?;
             for (i, eval_on_instr_col) in instr_evals.iter().enumerate() {
-                let global_index = N_RUNTIME_COLUMNS + i;
-                table_values.insert(global_index, *eval_on_instr_col);
+                table_values.insert(N_RUNTIME_COLUMNS + i, *eval_on_instr_col);
             }
 
-            let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-            let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+            let pref = pref_at(offset, log_n_rows);
             retrieved_numerators_value += pref; // numerator is 1
             retrieved_denominators_value += pref
                 * (c - finger_print(
@@ -462,9 +431,7 @@ pub fn verify_generic_logup(
 
         // I] Bus (data flow between tables)
         let eval_on_selector = verifier_state.next_extension_scalar()?;
-
-        let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-        let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+        let pref = pref_at(offset, log_n_rows);
         retrieved_numerators_value += pref * eval_on_selector;
 
         let eval_on_data = verifier_state.next_extension_scalar()?;
@@ -486,8 +453,7 @@ pub fn verify_generic_logup(
                 assert!(!table_values.contains_key(col_index));
                 table_values.insert(*col_index, value_eval);
 
-                let bits = to_big_endian_in_field::<EF>(offset >> log_n_rows, n_missing_vars);
-                let pref = MultilinearPoint(bits).eq_poly_outside(&missing_point);
+                let pref = pref_at(offset, log_n_rows);
                 retrieved_numerators_value += pref; // numerator is 1
                 retrieved_denominators_value += pref
                     * (c - finger_print(
@@ -502,7 +468,8 @@ pub fn verify_generic_logup(
         columns_values.insert(table, table_values);
     }
 
-    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr); // to compensate for the final padding: XYZ111111...1
+    // Compensates for the final padding `xxx..xxx111...1`
+    retrieved_denominators_value += mle_of_zeros_then_ones(offset, &point_gkr);
     if retrieved_numerators_value != numerators_value {
         return Err(ProofError::InvalidProof);
     }
@@ -518,7 +485,7 @@ pub fn verify_generic_logup(
         value_bytecode_acc,
         bus_numerators_values,
         bus_denominators_values,
-        points,
+        gkr_point: point_gkr.0,
         columns_values,
         total_gkr_n_vars,
         bytecode_evaluation: Some(Evaluation::new(bytecode_point, bytecode_value)),
@@ -530,17 +497,30 @@ fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
     num_cols << log_n_rows
 }
 
-fn compute_total_gkr_n_vars(
+fn compute_total_active_len(
     log_memory: usize,
     log_bytecode: usize,
-    tables_log_heights: &BTreeMap<Table, VarCount>,
+    tables_heights_sorted: &[(Table, VarCount)],
 ) -> usize {
-    let max_table_height = 1 << tables_log_heights.values().copied().max().unwrap();
-    let total_len = (1 << log_memory)
-        + (1 << log_bytecode).max(max_table_height) + (1 << tables_log_heights[&Table::execution()]) // bytecode
-        + tables_log_heights
+    let max_table_height = 1 << tables_heights_sorted[0].1;
+    let log_n_cycles = tables_heights_sorted
+        .iter()
+        .find(|(table, _)| *table == Table::execution())
+        .unwrap()
+        .1;
+    (1 << log_memory)
+        + (1 << log_bytecode).max(max_table_height)
+        + (1 << log_n_cycles)
+        + tables_heights_sorted
             .iter()
             .map(|(table, log_n_rows)| offset_for_table(table, *log_n_rows))
-            .sum::<usize>();
-    log2_ceil_usize(total_len)
+            .sum::<usize>()
+}
+
+#[inline]
+fn fill_denoms<Build>(dst: &mut [EFPacking<EF>], build: Build)
+where
+    Build: Fn(usize) -> EFPacking<EF> + Sync,
+{
+    dst.par_iter_mut().enumerate().for_each(|(p, slot)| *slot = build(p));
 }

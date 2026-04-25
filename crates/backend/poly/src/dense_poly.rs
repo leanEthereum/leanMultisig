@@ -105,6 +105,32 @@ impl<F: Field> DensePolynomial<F> {
     }
 }
 
+/// For each `tz ∈ targets`, returns `[L_0(tz), …, L_{n-1}(tz)]` where `L_i` is
+/// the i-th Lagrange basis polynomial on `nodes`:
+///   `L_i(x) = ∏_{j ≠ i} (x - nodes[j]) / (nodes[i] - nodes[j])`.
+pub fn lagrange_basis_evals<F: Field>(nodes: &[F], targets: &[F]) -> Vec<Vec<F>> {
+    targets
+        .iter()
+        .map(|&tz| {
+            nodes
+                .iter()
+                .enumerate()
+                .map(|(i, &zi)| {
+                    let mut num = F::ONE;
+                    let mut den = F::ONE;
+                    for (j, &zj) in nodes.iter().enumerate() {
+                        if j != i {
+                            num *= tz - zj;
+                            den *= zi - zj;
+                        }
+                    }
+                    num * den.inverse()
+                })
+                .collect()
+        })
+        .collect()
+}
+
 impl<F: Field> Add for &DensePolynomial<F> {
     type Output = DensePolynomial<F>;
 

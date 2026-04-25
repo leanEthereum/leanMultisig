@@ -3,6 +3,18 @@ from snark_lib import *
 DIM = 5  # extension degree
 DIGEST_LEN = 8
 
+# memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [runtime ...]
+# `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]...
+PUBLIC_INPUT_LEN = DIGEST_LEN
+ZERO_VEC_PTR = PUBLIC_INPUT_LEN
+ZERO_VEC_LEN = ZERO_VEC_LEN_PLACEHOLDER
+SAMPLING_DOMAIN_SEPARATOR_PTR = ZERO_VEC_PTR + ZERO_VEC_LEN
+ONE_EF_PTR = SAMPLING_DOMAIN_SEPARATOR_PTR + DIGEST_LEN
+NUM_REPEATED_ONES = NUM_REPEATED_ONES_PLACEHOLDER
+REPEATED_ONES_PTR = ONE_EF_PTR + DIM
+PREAMBLE_MEMORY_END = REPEATED_ONES_PTR + NUM_REPEATED_ONES
+PREAMBLE_MEMORY_LEN = PREAMBLE_MEMORY_END - PUBLIC_INPUT_LEN
+
 # bit decomposition hint
 LITTLE_ENDIAN = 1
 BIG_ENDIAN = 0
@@ -59,6 +71,16 @@ def slice_hash(data, num_chunks):
     for j in unroll(1, num_chunks - 1):
         poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
+
+
+@inline
+def slice_hash_with_iv(data, num_chunks):
+    debug_assert(0 < num_chunks)
+    states = Array(num_chunks * DIGEST_LEN)
+    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    for j in unroll(1, num_chunks):
+        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    return states + (num_chunks - 1) * DIGEST_LEN
 
 
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
@@ -235,67 +257,6 @@ def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
     else:
         poseidon16_compress(path_chunk, state_in, state_out)
     return
-
-
-@inline
-def hash_and_verify_merkle_hint(leaf_position_nibbles, root, height, num_chunks):
-    # Hint and hash leaf
-    leaf_data = Array(num_chunks * DIGEST_LEN)
-    hint_merkle(leaf_data, num_chunks * DIGEST_LEN)
-    leaf_hash = slice_hash_rtl(leaf_data, num_chunks)
-
-    # Hint and verify merkle path (processing 4 levels per nibble)
-    merkle_path = Array(height * DIGEST_LEN)
-    hint_merkle(merkle_path, height * DIGEST_LEN)
-
-    states = Array((div_ceil(height, 4) - 1) * DIGEST_LEN)
-
-    # First full nibble: leaf_hash -> states[0]
-    match_range(leaf_position_nibbles[0], range(0, 16), lambda b: whir_do_4_merkle_levels(b, leaf_hash, merkle_path, states))
-
-    # Middle nibble chunks: states[k-1] -> states[k]
-    for k in unroll(1, div_ceil(height, 4) - 1):
-        match_range(
-            leaf_position_nibbles[k],
-            range(0, 16),
-            lambda b: whir_do_4_merkle_levels(b, states + (k - 1) * DIGEST_LEN, merkle_path + 4 * k * DIGEST_LEN, states + k * DIGEST_LEN),
-        )
-
-    # Last chunk -> root
-    if height % 4 == 0:
-        match_range(
-            leaf_position_nibbles[div_ceil(height, 4) - 1],
-            range(0, 16),
-            lambda b: whir_do_4_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * (div_ceil(height, 4) - 1) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 1:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_1_merkle_level(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 2:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_2_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-    elif height % 4 == 3:
-        match_range(
-            leaf_position_nibbles[(height - height % 4) / 4],
-            range(0, 16),
-            lambda b: whir_do_3_merkle_levels(
-                b, states + (div_ceil(height, 4) - 2) * DIGEST_LEN, merkle_path + 4 * ((height - height % 4) / 4) * DIGEST_LEN, root
-            ),
-        )
-
-    return leaf_data
 
 
 def merkle_verif_batch(merkle_paths, leaves_digests, leave_positions, root, height, num_queries):

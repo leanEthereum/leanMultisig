@@ -355,9 +355,12 @@ where
             }
             let mut i = 0;
             for smt in constraints {
-                let common_eq = smt.point.eq_poly_outside(&MultilinearPoint(
-                    point[point.len() - smt.inner_num_variables()..].to_vec(),
-                ));
+                let inner_point = &point[point.len() - smt.inner_num_variables()..];
+                let common_weight = if smt.is_next {
+                    next_mle(&smt.point.0, inner_point)
+                } else {
+                    smt.point.eq_poly_outside(&MultilinearPoint(inner_point.to_vec()))
+                };
                 for e in &smt.values {
                     let eval = (0..smt.selector_num_variables())
                         .map(|j| {
@@ -368,7 +371,7 @@ where
                             }
                         })
                         .product::<EF>()
-                        * common_eq;
+                        * common_weight;
                     value += eval * randomness[i];
                     i += 1;
                 }
