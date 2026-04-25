@@ -374,11 +374,8 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
 }
 
 #[inline]
-pub fn compute_eval_eq_base_packed_batched<F, EF>(
-    evals: &[MultilinearPoint<F>],
-    out: &mut [EF::ExtensionPacking],
-    scalars: &[EF],
-) where
+pub fn compute_eval_eq_base_batched<F, EF>(evals: &[MultilinearPoint<F>], out: &mut [EF], scalars: &[EF])
+where
     F: Field,
     EF: ExtensionField<F>,
 {
@@ -388,22 +385,21 @@ pub fn compute_eval_eq_base_packed_batched<F, EF>(
     }
 
     let n = evals[0].len();
-    let packing_width = F::Packing::WIDTH;
-    let log_packing_width = log2_strict_usize(packing_width);
+    let log_packing_width = log2_strict_usize(F::Packing::WIDTH);
     assert!(log_packing_width <= n);
-    assert_eq!(out.len(), 1 << (n - log_packing_width));
+    assert_eq!(out.len(), 1 << n);
 
     let k = n.min(LOG_BATCHED_TILE_SIZE);
 
     if k <= log_packing_width || k >= n {
         for (eval, &scalar) in evals.iter().zip(scalars) {
-            compute_eval_eq_base_packed::<F, EF, true>(eval, out, scalar);
+            compute_eval_eq_base::<F, EF, true>(eval, out, scalar);
         }
         return;
     }
 
     let n_prefix_levels = n - k;
-    let tile_packed_size = 1 << (k - log_packing_width);
+    let tile_size = 1 << k;
 
     let per_query: Vec<_> = evals
         .iter()
@@ -417,19 +413,11 @@ pub fn compute_eval_eq_base_packed_batched<F, EF>(
         })
         .collect();
 
-    out.par_chunks_exact_mut(tile_packed_size)
+    out.par_chunks_exact_mut(tile_size)
         .enumerate()
         .for_each(|(tile_idx, out_tile)| {
             for (eq_prefix, middle, eq_suffix) in &per_query {
-                // Here e could precompute the eq poly, trading some memory for less computation
-                // (2x faster on M4 max, but 2x slower on machines with smaller caches.
-                // TODO implement both and choose based on cache size?)
-                base_eval_eq_packed_with_packed_output::<F, EF, true>(
-                    middle,
-                    out_tile,
-                    *eq_suffix,
-                    EF::ExtensionPacking::from(eq_prefix[tile_idx]),
-                );
+                base_eval_eq_packed::<F, EF, true>(middle, out_tile, *eq_suffix, eq_prefix[tile_idx]);
             }
         });
 }

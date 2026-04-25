@@ -102,13 +102,19 @@ def whir_open(
 
     folding_randomness_global = Array(n_vars * DIM)
 
-    start: Mut = folding_randomness_global
+    # WHIR sumcheck folds LSB-first, so chronological challenges are in reverse polynomial-var
+    # order. Write each chronological challenge to position (n_vars - 1 - chrono_idx) so the
+    # final cumulative reads as [x_0, x_1, ..., x_{n_vars-1}] (matches MSB-fold layout).
+    chrono_idx: Mut = 0
     for i in range(0, n_rounds + 1):
         for j in range(0, folding_factors[i]):
-            copy_5(all_folding_randomness[i] + j * DIM, start + j * DIM)
-        start += folding_factors[i] * DIM
+            target_pos = n_vars - 1 - chrono_idx
+            copy_5(all_folding_randomness[i] + j * DIM, folding_randomness_global + target_pos * DIM)
+            chrono_idx += 1
     for j in range(0, n_final_vars):
-        copy_5(all_folding_randomness[n_rounds + 1] + j * DIM, start + j * DIM)
+        target_pos = n_vars - 1 - chrono_idx
+        copy_5(all_folding_randomness[n_rounds + 1] + j * DIM, folding_randomness_global + target_pos * DIM)
+        chrono_idx += 1
 
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
@@ -122,16 +128,16 @@ def whir_open(
         num_oods[0],
     )
 
+    # LSB-fold: at round r the polynomial has remaining vars [x_0, ..., x_{n_vars_remaining-1}],
+    # so the relevant cumulative slice is the FIRST n_vars_remaining elements (no pointer advance).
     n_vars_remaining: Mut = n_vars
-    my_folding_randomness: Mut = folding_randomness_global
     for i in range(0, n_rounds):
         n_vars_remaining -= folding_factors[i]
         my_ood_recovered_evals = Array(num_oods[i + 1] * DIM)
         combination_randomness_powers = all_combination_randomness_powers[i]
-        my_folding_randomness += folding_factors[i] * DIM
         for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
-            eq_mle_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
+            eq_mle_extension_to(expanded_from_univariate, folding_randomness_global, my_ood_recovered_evals + j * DIM, n_vars_remaining)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
             my_ood_recovered_evals,
@@ -144,7 +150,7 @@ def whir_open(
         circle_value_i = all_circle_values[i]
         for j in range(0, num_queries[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
-            eq_mle_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
+            eq_mle_base_extension_to(expanded_from_univariate, folding_randomness_global, s6s + j * DIM, n_vars_remaining)
         s7 = Array(DIM)
         dot_product_ee_dynamic(
             s6s,
@@ -154,10 +160,17 @@ def whir_open(
         )
         s = add_extension_ret(s, s7)
         s = add_extension_ret(summed_ood, s)
+    # WHIR sumcheck folds LSB-first: final_sumcheck challenges are [r_1=x_{m-1}, ..., r_m=x_0].
+    # eval_multilinear_coeffs_rev computes f(x_j = point[j]); for LSB-fold we need
+    # f(x_j = r_{m-j}) = point[j] = r_{j+1} = x_{m-j-1} which is wrong, so reverse first.
+    final_sumcheck_chals_rev = Array(n_final_vars * DIM)
+    final_sumcheck_chals = all_folding_randomness[n_rounds + 1]
+    for j in range(0, n_final_vars):
+        copy_5(final_sumcheck_chals + (n_final_vars - 1 - j) * DIM, final_sumcheck_chals_rev + j * DIM)
     final_value = match_range(
         n_final_vars,
         range(MAX_NUM_VARIABLES_TO_SEND_COEFFS - WHIR_SUBSEQUENT_FOLDING_FACTOR, MAX_NUM_VARIABLES_TO_SEND_COEFFS + 1),
-        lambda n: eval_multilinear_coeffs_rev(final_coeffcients, all_folding_randomness[n_rounds + 1], n),
+        lambda n: eval_multilinear_coeffs_rev(final_coeffcients, final_sumcheck_chals_rev, n),
     )
     # copy_5(mul_extension_ret(s, final_value), end_sum);
 
@@ -295,7 +308,12 @@ def sample_stir_indexes_and_fold(
 
     folds = Array(num_queries * DIM)
 
-    poly_eq = poly_eq_extension_dynamic(folding_randomness, folding_factor)
+    # WHIR sumcheck folds LSB-first; the leaf is laid out so its first var is the polynomial's
+    # last LSB-folded var. evaluate (poly_eq) is MSB-first, so reverse the per-round challenges.
+    folding_randomness_reversed = Array(folding_factor * DIM)
+    for j in range(0, folding_factor):
+        copy_5(folding_randomness + (folding_factor - 1 - j) * DIM, folding_randomness_reversed + j * DIM)
+    poly_eq = poly_eq_extension_dynamic(folding_randomness_reversed, folding_factor)
 
     if merkle_leaves_in_basefield == 1:
         for i in range(0, num_queries):

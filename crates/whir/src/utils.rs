@@ -1,17 +1,12 @@
 // Credits: whir-p3 (https://github.com/tcoratger/whir-p3) (MIT and Apache-2.0 licenses).
 
 use fiat_shamir::{ChallengeSampler, FSProver};
-use field::BasedVectorSpace;
 use field::Field;
-use field::PackedValue;
 use field::{ExtensionField, TwoAdicField};
 use poly::*;
-use rayon::prelude::*;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use tracing::instrument;
-use utils::log2_strict_usize;
 
 use crate::EvalsDft;
 use crate::RowMajorMatrix;
@@ -56,11 +51,6 @@ where
     (ood_points, ood_answers)
 }
 
-pub(crate) enum DftInput<EF: Field> {
-    Base(Vec<PF<EF>>),
-    Extension(Vec<EF>),
-}
-
 pub(crate) enum DftOutput<EF: Field> {
     Base(RowMajorMatrix<PF<EF>>),
     Extension(RowMajorMatrix<EF>),
@@ -75,110 +65,52 @@ pub(crate) fn reorder_and_dft<EF: ExtensionField<PF<EF>>>(
 where
     PF<EF>: TwoAdicField,
 {
-    let prepared_evals = prepare_evals_for_fft(evals, folding_factor, log_inv_rate, dft_n_cols);
+    reorder_and_dft_with_prefix_len(evals, folding_factor, log_inv_rate, dft_n_cols, 1 << evals.n_vars())
+}
+
+pub(crate) fn reorder_and_dft_with_prefix_len<EF: ExtensionField<PF<EF>>>(
+    evals: &MleRef<'_, EF>,
+    folding_factor: usize,
+    log_inv_rate: usize,
+    dft_n_cols: usize,
+    non_zero_prefix_len: usize,
+) -> DftOutput<EF>
+where
+    PF<EF>: TwoAdicField,
+{
     let dft = global_dft::<PF<EF>>();
     let dft_size = (1 << (evals.n_vars() + log_inv_rate)) >> folding_factor;
     if dft.max_n_twiddles() < dft_size {
         tracing::warn!("Twiddles have not been precomputed, for size = {}", dft_size);
     }
-    match prepared_evals {
-        DftInput::Base(evals) => {
-            DftOutput::Base(dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, dft_n_cols)))
-        }
-        DftInput::Extension(evals) => {
-            DftOutput::Extension(dft.dft_algebra_batch_by_evals(RowMajorMatrix::new(evals, dft_n_cols)))
-        }
-    }
-}
 
-fn prepare_evals_for_fft<EF: ExtensionField<PF<EF>>>(
-    evals: &MleRef<'_, EF>,
-    folding_factor: usize,
-    log_inv_rate: usize,
-    dft_n_cols: usize,
-) -> DftInput<EF> {
+    // Source rows in the pre-duplication base-field matrix. The DFT fuses prepare + layer
+    // `log_inv_rate` into one pass that reads this compact source directly and writes the
+    // size-`dft_size` post-layer output.
+    let n_blocks = 1usize << folding_factor;
+    let source_rows = evals.unpacked_len() / n_blocks;
+    let non_zero_prefix_rows = non_zero_prefix_len.div_ceil(n_blocks).min(source_rows);
+
+    // SAFETY: `MleRef::Base` owns `[PF<EF>]` and `MleRef::Extension` owns `[EF]`. Both are
+    // `#[repr(transparent)]` over their base field coordinates; `as_base_slice` is the
+    // canonical way to reinterpret an extension-field slice as a base-field slice. The
+    // resulting width in base-field units is `dft_n_cols * DIMENSION`.
     match evals {
-        MleRef::Base(evals) => DftInput::Base(prepare_evals_for_fft_unpacked(
-            evals,
-            folding_factor,
-            log_inv_rate,
-            dft_n_cols,
-        )),
-        MleRef::BasePacked(evals) => DftInput::Base(prepare_evals_for_fft_unpacked(
-            PFPacking::<EF>::unpack_slice(evals),
-            folding_factor,
-            log_inv_rate,
-            dft_n_cols,
-        )),
-        MleRef::Extension(evals) => DftInput::Extension(prepare_evals_for_fft_unpacked(
-            evals,
-            folding_factor,
-            log_inv_rate,
-            dft_n_cols,
-        )),
-        MleRef::ExtensionPacked(evals) => DftInput::Extension(prepare_evals_for_fft_packed_extension(
-            evals,
-            folding_factor,
-            log_inv_rate,
-        )),
+        MleRef::Base(src) => {
+            let base_w = dft_n_cols;
+            DftOutput::Base(dft.fused_prepare_and_dft(src, base_w, log_inv_rate, non_zero_prefix_rows))
+        }
+        MleRef::Extension(src) => {
+            let base_w = dft_n_cols * <EF as field::BasedVectorSpace<PF<EF>>>::DIMENSION;
+            let base_src: &[PF<EF>] = unsafe { utils::as_base_slice::<PF<EF>, EF>(src) };
+            let base_result = dft.fused_prepare_and_dft(base_src, base_w, log_inv_rate, non_zero_prefix_rows);
+            DftOutput::Extension(RowMajorMatrix::new(
+                <EF as field::BasedVectorSpace<PF<EF>>>::reconstitute_from_base(base_result.values),
+                dft_n_cols,
+            ))
+        }
+        _ => unreachable!(),
     }
-}
-
-#[instrument(skip_all)]
-fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
-    evals: &[A],
-    folding_factor: usize,
-    log_inv_rate: usize,
-    dft_n_cols: usize,
-) -> Vec<A> {
-    assert!(evals.len().is_multiple_of(1 << folding_factor));
-    let n_blocks = 1 << folding_factor;
-    let full_len = evals.len() << log_inv_rate;
-    let block_size = full_len / n_blocks;
-    let log_block_size = log2_strict_usize(block_size);
-    let out_len = block_size * dft_n_cols;
-
-    (0..out_len)
-        .into_par_iter()
-        .map(|i| {
-            let block_index = i % dft_n_cols;
-            let offset_in_block = i / dft_n_cols;
-            let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
-            unsafe { *evals.get_unchecked(src_index) }
-        })
-        .collect()
-}
-
-fn prepare_evals_for_fft_packed_extension<EF: ExtensionField<PF<EF>>>(
-    evals: &[EFPacking<EF>],
-    folding_factor: usize,
-    log_inv_rate: usize,
-) -> Vec<EF> {
-    let log_packing = packing_log_width::<EF>();
-    assert!((evals.len() << log_packing).is_multiple_of(1 << folding_factor));
-    let n_blocks = 1 << folding_factor;
-    let full_len = evals.len() << (log_inv_rate + log_packing);
-    let block_size = full_len / n_blocks;
-    let log_block_size = log2_strict_usize(block_size);
-    let n_blocks_mask = n_blocks - 1;
-    let packing_mask = (1 << log_packing) - 1;
-
-    (0..full_len)
-        .into_par_iter()
-        .map(|i| {
-            let block_index = i & n_blocks_mask;
-            let offset_in_block = i >> folding_factor;
-            let src_index = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
-            let packed_src_index = src_index >> log_packing;
-            let offset_in_packing = src_index & packing_mask;
-            let packed = unsafe { evals.get_unchecked(packed_src_index) };
-            let unpacked: &[PFPacking<EF>] = packed.as_basis_coefficients_slice();
-            EF::from_basis_coefficients_fn(|i| unsafe {
-                let u: &PFPacking<EF> = unpacked.get_unchecked(i);
-                *u.as_slice().get_unchecked(offset_in_packing)
-            })
-        })
-        .collect()
 }
 
 type CacheKey = TypeId;

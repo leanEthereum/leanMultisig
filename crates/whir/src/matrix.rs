@@ -93,20 +93,13 @@ pub trait Matrix<T: Send + Sync + Clone>: Send + Sync {
     // }
 
     #[inline]
-    fn vertically_packed_row_rtl<P>(
-        &self,
-        r: usize,
-        effective_width: usize,
-        n_leading_zeros: usize,
-    ) -> impl Iterator<Item = P>
+    fn vertically_packed_row<P>(&self, r: usize, width: usize) -> impl Iterator<Item = P>
     where
         T: Copy,
         P: PackedValue<Value = T> + Default,
     {
         let rows = self.wrapping_row_slices(r, P::WIDTH);
-        (0..n_leading_zeros)
-            .map(|_| P::default())
-            .chain((0..effective_width).rev().map(move |c| P::from_fn(|i| rows[i][c])))
+        (0..width).map(move |c| P::from_fn(|i| rows[i][c]))
     }
 }
 
