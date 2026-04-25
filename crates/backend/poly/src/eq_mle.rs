@@ -421,6 +421,9 @@ pub fn compute_eval_eq_base_packed_batched<F, EF>(
         .enumerate()
         .for_each(|(tile_idx, out_tile)| {
             for (eq_prefix, middle, eq_suffix) in &per_query {
+                // Here e could precompute the eq poly, trading some memory for less computation
+                // (2x faster on M4 max, but 2x slower on machines with smaller caches.
+                // TODO implement both and choose based on cache size?)
                 base_eval_eq_packed_with_packed_output::<F, EF, true>(
                     middle,
                     out_tile,
