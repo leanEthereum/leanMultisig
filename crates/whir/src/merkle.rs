@@ -19,55 +19,62 @@ use utils::log2_ceil_usize;
 
 use crate::DenseMatrix;
 use crate::Dimensions;
-use crate::FlatMatrixView;
 use crate::Matrix;
 pub use symetric::DIGEST_ELEMS;
 
-pub(crate) type RoundMerkleTree<F, EF> = WhirMerkleTree<F, FlatMatrixView<F, EF, DenseMatrix<EF>>, DIGEST_ELEMS>;
+pub(crate) type RoundMerkleTree<F> = WhirMerkleTree<F, DenseMatrix<F>, DIGEST_ELEMS>;
 
 #[allow(clippy::missing_transmute_annotations)]
 pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     matrix: DenseMatrix<EF>,
     n_cols: usize,
-) -> ([F; DIGEST_ELEMS], RoundMerkleTree<F, EF>) {
-    let perm = default_koalabear_poseidon1_16();
+) -> ([F; DIGEST_ELEMS], RoundMerkleTree<F>) {
     if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
         let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<QuinticExtensionFieldKB>>(matrix) };
-        let view = FlatMatrixView::new(matrix);
         let dim = <QuinticExtensionFieldKB as BasedVectorSpace<KoalaBear>>::DIMENSION;
         let base_width = n_cols * dim;
-        let tree = WhirMerkleTree::new::<PFPacking<KoalaBear>, _, 16, 8>(&perm, view, base_width);
+        let base_values = QuinticExtensionFieldKB::flatten_to_base(matrix.values);
+        let base_matrix = DenseMatrix::<KoalaBear>::new(base_values, base_width);
+        let tree = build_merkle_tree_koalabear(base_matrix);
         let root: [_; DIGEST_ELEMS] = tree.root();
         let root = unsafe { std::mem::transmute_copy::<_, [F; DIGEST_ELEMS]>(&root) };
-        let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F, EF>>(tree) };
+        let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F>>(tree) };
         (root, tree)
     } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
         let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<KoalaBear>>(matrix) };
-        let tree = WhirMerkleTree::new::<PFPacking<KoalaBear>, _, 16, 8>(&perm, matrix, n_cols);
+        let tree = build_merkle_tree_koalabear(matrix);
         let root: [_; DIGEST_ELEMS] = tree.root();
         let root = unsafe { std::mem::transmute_copy::<_, [F; DIGEST_ELEMS]>(&root) };
-        let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F, EF>>(tree) };
+        let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F>>(tree) };
         (root, tree)
     } else {
         unimplemented!()
     }
 }
 
+#[instrument(name = "build merkle tree", skip_all)]
+fn build_merkle_tree_koalabear(leaf: DenseMatrix<KoalaBear>) -> RoundMerkleTree<KoalaBear> {
+    let perm = default_koalabear_poseidon1_16();
+    let base_width = leaf.width;
+    let first_layer = first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(&perm, &leaf, base_width);
+    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer);
+    WhirMerkleTree { leaf, tree }
+}
+
 #[allow(clippy::missing_transmute_annotations)]
 pub(crate) fn merkle_open<F: Field, EF: ExtensionField<F>>(
-    merkle_tree: &RoundMerkleTree<F, EF>,
+    merkle_tree: &RoundMerkleTree<F>,
     index: usize,
 ) -> (Vec<EF>, Vec<[F; DIGEST_ELEMS]>) {
     if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
-        let merkle_tree =
-            unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear, QuinticExtensionFieldKB>>(merkle_tree) };
+        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
         let (inner_leaf, proof) = merkle_tree.open(index);
         let leaf = QuinticExtensionFieldKB::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
         let proof = unsafe { std::mem::transmute::<_, Vec<[F; DIGEST_ELEMS]>>(proof) };
         (leaf, proof)
     } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
-        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear, KoalaBear>>(merkle_tree) };
+        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
         let (inner_leaf, proof) = merkle_tree.open(index);
         let leaf = KoalaBear::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
