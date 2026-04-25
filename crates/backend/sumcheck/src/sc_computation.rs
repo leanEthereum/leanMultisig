@@ -19,13 +19,7 @@ pub trait SumcheckComputation<EF: ExtensionField<PF<EF>>>: Sync {
 macro_rules! impl_air_eval {
     ($self:expr, $point_f:expr, $extra_data:expr, $folder_ty:ident) => {{
         let n_cols = $self.n_columns();
-        let mut folder = $folder_ty {
-            up: &$point_f[..n_cols],
-            down: &$point_f[n_cols..],
-            extra_data: $extra_data,
-            accumulator: Default::default(),
-            constraint_index: 0,
-        };
+        let mut folder = $folder_ty::new(&$point_f[..n_cols], &$point_f[n_cols..], $extra_data);
         Air::eval($self, &mut folder, $extra_data);
         folder.accumulator
     }};
