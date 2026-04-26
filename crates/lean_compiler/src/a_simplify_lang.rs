@@ -5,8 +5,9 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
-    SourceLocation, Table, TableT,
+    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME,
+    POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_4_NAME, PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
+    Table, TableT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2193,16 +2194,30 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon16 precompile (4 variants)
+                        if function_name == Table::poseidon16().name()
+                            || function_name == POSEIDON16_HALF_NAME
+                            || function_name == POSEIDON16_HARDCODED_LEFT_4_NAME
+                            || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME
+                        {
+                            let half_output = function_name == POSEIDON16_HALF_NAME
+                                || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME;
+                            let is_hardcoded = function_name == POSEIDON16_HARDCODED_LEFT_4_NAME
+                                || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME;
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            if args.len() != 3 {
+                            let expected_args = if is_hardcoded { 4 } else { 3 };
+                            if args.len() != expected_args {
+                                let signature = if is_hardcoded {
+                                    "(ptr_a, ptr_b, ptr_res, offset)"
+                                } else {
+                                    "(ptr_a, ptr_b, ptr_res)"
+                                };
                                 return Err(format!(
-                                    "Precompile {function_name} expects 3 arguments (ptr_a, ptr_b, ptr_res), got {}, at {location}",
+                                    "Precompile {function_name} expects {expected_args} arguments {signature}, got {}, at {location}",
                                     args.len()
                                 ));
                             }
@@ -2210,11 +2225,23 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            let hardcoded_left_4 = if is_hardcoded {
+                                Some(simplified_args[3].as_constant().ok_or_else(|| {
+                                    format!(
+                                        "{function_name}: offset argument must be a compile-time constant, at {location}"
+                                    )
+                                })?)
+                            } else {
+                                None
+                            };
                             res.push(SimpleLine::Precompile(PrecompileArgs {
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data: PrecompileCompTimeArgs::Poseidon16 {
+                                    half_output,
+                                    hardcoded_left_4,
+                                },
                             }));
                             continue;
                         }
