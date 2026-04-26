@@ -14,7 +14,7 @@
 //! implements `InjectiveMonomial<7>`, mirroring the koala-bear crate's
 //! Poseidon1 surface.
 
-use field::{Algebra, InjectiveMonomial, PrimeCharacteristicRing};
+use field::{Algebra, Field, InjectiveMonomial, PackedValue, PrimeCharacteristicRing};
 
 use crate::Goldilocks;
 
@@ -63,21 +63,45 @@ fn mds_mul_generic<R: Algebra<Goldilocks>>(state: &mut [R; 8]) {
     }
 }
 
-/// Specialized fast MDS for the concrete `Goldilocks` scalar — uses a single
-/// `u128` accumulator and one `reduce128` per output lane (coefficients ≤ 9,
-/// so `8 × 9 × 2^64 ≈ 2^71` fits comfortably).
-#[inline]
+/// Specialized fast MDS for the concrete `Goldilocks` scalar.
+///
+/// Each output is a dot product `sum_j MDS_ROW[(j-i) mod 8] * state[j]` with
+/// MDS coefficients in `{1, 3, 4, 7, 8, 9}` (all fit in 4 bits). With the
+/// constants spelled out explicitly LLVM strength-reduces `c * s` to shifts
+/// and adds (e.g. `8*s = s<<3`, `7*s = (s<<3)-s`), eliminating the variable
+/// multiplications entirely. We accumulate into `u128` (8·9·2^64 ≈ 2^71 fits
+/// comfortably) and reduce once per output via `reduce128`. The explicit
+/// `1 *` factors keep the circulant structure readable column-by-column.
+#[inline(always)]
+#[allow(clippy::identity_op)]
 fn mds_mul_scalar(state: &mut [Goldilocks; 8]) {
-    let mut out = [Goldilocks::ZERO; 8];
-    for i in 0..8 {
-        let mut acc: u128 = 0;
-        for j in 0..8 {
-            let c = MDS8_ROW[(j + 8 - i) % 8] as u128;
-            acc = acc.wrapping_add(c.wrapping_mul(state[j].value as u128));
-        }
-        out[i] = crate::goldilocks::reduce128(acc);
-    }
-    *state = out;
+    let s0 = state[0].value as u128;
+    let s1 = state[1].value as u128;
+    let s2 = state[2].value as u128;
+    let s3 = state[3].value as u128;
+    let s4 = state[4].value as u128;
+    let s5 = state[5].value as u128;
+    let s6 = state[6].value as u128;
+    let s7 = state[7].value as u128;
+
+    // MDS_ROW = [7, 1, 3, 8, 8, 3, 4, 9]; row i is MDS_ROW rotated right by i.
+    let acc0 = 7 * s0 + 1 * s1 + 3 * s2 + 8 * s3 + 8 * s4 + 3 * s5 + 4 * s6 + 9 * s7;
+    let acc1 = 9 * s0 + 7 * s1 + 1 * s2 + 3 * s3 + 8 * s4 + 8 * s5 + 3 * s6 + 4 * s7;
+    let acc2 = 4 * s0 + 9 * s1 + 7 * s2 + 1 * s3 + 3 * s4 + 8 * s5 + 8 * s6 + 3 * s7;
+    let acc3 = 3 * s0 + 4 * s1 + 9 * s2 + 7 * s3 + 1 * s4 + 3 * s5 + 8 * s6 + 8 * s7;
+    let acc4 = 8 * s0 + 3 * s1 + 4 * s2 + 9 * s3 + 7 * s4 + 1 * s5 + 3 * s6 + 8 * s7;
+    let acc5 = 8 * s0 + 8 * s1 + 3 * s2 + 4 * s3 + 9 * s4 + 7 * s5 + 1 * s6 + 3 * s7;
+    let acc6 = 3 * s0 + 8 * s1 + 8 * s2 + 3 * s3 + 4 * s4 + 9 * s5 + 7 * s6 + 1 * s7;
+    let acc7 = 1 * s0 + 3 * s1 + 8 * s2 + 8 * s3 + 3 * s4 + 4 * s5 + 9 * s6 + 7 * s7;
+
+    state[0] = crate::goldilocks::reduce128(acc0);
+    state[1] = crate::goldilocks::reduce128(acc1);
+    state[2] = crate::goldilocks::reduce128(acc2);
+    state[3] = crate::goldilocks::reduce128(acc3);
+    state[4] = crate::goldilocks::reduce128(acc4);
+    state[5] = crate::goldilocks::reduce128(acc5);
+    state[6] = crate::goldilocks::reduce128(acc6);
+    state[7] = crate::goldilocks::reduce128(acc7);
 }
 
 // =========================================================================
@@ -423,6 +447,7 @@ impl Poseidon1Goldilocks8 {
         state
     }
 
+    #[inline]
     pub fn permute_mut(&self, state: &mut [Goldilocks; POSEIDON1_WIDTH]) {
         for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
             for (i, s) in state.iter_mut().enumerate() {
@@ -506,17 +531,126 @@ impl Poseidon1Goldilocks8 {
 
     /// Compression-mode in-place permutation: `output = permute(input) + input`.
     ///
-    /// Matches the koala-bear `Poseidon1Goldilocks8::compress_in_place` shape
-    /// so the `Compression<[R; 8]>` impl can reuse it.
+    /// When `R` matches the architecture's packed Goldilocks type, dispatches
+    /// to the SIMD-parallel path (deinterleave → per-lane scalar permute with
+    /// `u128`-accumulator MDS → reinterleave). When `R == Goldilocks`, uses the
+    /// scalar fast path (avoids the symbolic-friendly but slow `permute_generic`).
+    /// Otherwise falls back to the generic algebra path.
     #[inline]
     pub fn compress_in_place<R>(&self, state: &mut [R; POSEIDON1_WIDTH])
     where
-        R: Algebra<Goldilocks> + InjectiveMonomial<7> + Copy,
+        R: Algebra<Goldilocks> + InjectiveMonomial<7> + Copy + 'static,
     {
+        use core::any::TypeId;
+
+        type Packing = <Goldilocks as Field>::Packing;
+
+        if TypeId::of::<R>() == TypeId::of::<Packing>() {
+            // SAFETY: TypeId equality guarantees R has the same layout as Packing,
+            // and the array is repr-transparent as a slice of W*8 Goldilocks.
+            let s = unsafe { &mut *(state as *mut [R; POSEIDON1_WIDTH] as *mut [Packing; POSEIDON1_WIDTH]) };
+            self.compress_in_place_simd(s);
+            return;
+        }
+        if TypeId::of::<R>() == TypeId::of::<Goldilocks>() {
+            // SAFETY: TypeId equality.
+            let s = unsafe { &mut *(state as *mut [R; POSEIDON1_WIDTH] as *mut [Goldilocks; POSEIDON1_WIDTH]) };
+            let initial = *s;
+            self.permute_mut(s);
+            for (slot, init) in s.iter_mut().zip(initial) {
+                *slot += init;
+            }
+            return;
+        }
+
         let initial = *state;
         self.permute_generic(state);
         for (s, init) in state.iter_mut().zip(initial) {
             *s += init;
+        }
+    }
+
+    /// SIMD-parallel compression over `<Goldilocks as Field>::Packing`.
+    ///
+    /// The packed type's `Mul` fully reduces each multiplication, but the MDS
+    /// coefficients are tiny (max 9) so a `u128` accumulator with a single
+    /// `reduce128` per output (`mds_mul_scalar`) is far cheaper. We deinterleave
+    /// to per-lane scalar arrays, then run the rounds in lockstep across all
+    /// W lanes (RC add → sbox → MDS, all lanes per step) so the OoO core sees
+    /// W independent chains at every stage.
+    #[inline]
+    fn compress_in_place_simd(&self, state: &mut [<Goldilocks as Field>::Packing; POSEIDON1_WIDTH]) {
+        type P = <Goldilocks as Field>::Packing;
+        const W: usize = <P as PackedValue>::WIDTH;
+
+        let mut lanes: [[Goldilocks; POSEIDON1_WIDTH]; W] = [[Goldilocks::ZERO; POSEIDON1_WIDTH]; W];
+        for i in 0..POSEIDON1_WIDTH {
+            let s = state[i].as_slice();
+            for (k, lane) in lanes.iter_mut().enumerate() {
+                lane[i] = s[k];
+            }
+        }
+        let initial = lanes;
+
+        // Initial full rounds.
+        for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+            for lane in lanes.iter_mut() {
+                for (i, s) in lane.iter_mut().enumerate() {
+                    *s += rc[i];
+                }
+            }
+            for lane in lanes.iter_mut() {
+                for s in lane.iter_mut() {
+                    *s = sbox_full::<Goldilocks>(*s);
+                }
+            }
+            for lane in lanes.iter_mut() {
+                mds_mul_scalar(lane);
+            }
+        }
+
+        // Partial rounds.
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .skip(POSEIDON1_HALF_FULL_ROUNDS)
+            .take(POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for lane in lanes.iter_mut() {
+                for (i, s) in lane.iter_mut().enumerate() {
+                    *s += rc[i];
+                }
+            }
+            for lane in lanes.iter_mut() {
+                lane[0] = sbox_full::<Goldilocks>(lane[0]);
+            }
+            for lane in lanes.iter_mut() {
+                mds_mul_scalar(lane);
+            }
+        }
+
+        // Terminal full rounds.
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .take(POSEIDON1_N_ROUNDS)
+            .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for lane in lanes.iter_mut() {
+                for (i, s) in lane.iter_mut().enumerate() {
+                    *s += rc[i];
+                }
+            }
+            for lane in lanes.iter_mut() {
+                for s in lane.iter_mut() {
+                    *s = sbox_full::<Goldilocks>(*s);
+                }
+            }
+            for lane in lanes.iter_mut() {
+                mds_mul_scalar(lane);
+            }
+        }
+
+        for i in 0..POSEIDON1_WIDTH {
+            state[i] = P::from_fn(|k| lanes[k][i] + initial[k][i]);
         }
     }
 }
@@ -547,6 +681,43 @@ mod tests {
         let mut slow = input;
         p.permute_generic(&mut slow);
         assert_eq!(fast, slow);
+    }
+
+    /// `compress_in_place::<Packing>` must agree with per-lane scalar compression.
+    /// Exercises the SIMD dispatch branch.
+    #[test]
+    fn compress_in_place_dispatches_packed_correctly() {
+        type P = <Goldilocks as Field>::Packing;
+        let width = <P as PackedValue>::WIDTH;
+        let p = Poseidon1Goldilocks8;
+
+        // Build distinct inputs per lane so we'd notice a swap or duplication.
+        let mut packed: [P; 8] = [P::ZERO; 8];
+        for i in 0..8 {
+            packed[i] =
+                P::from_fn(|k| Goldilocks::new(0xa5a5_0000_0000_0001u64.wrapping_mul((i * 17 + k * 31 + 1) as u64)));
+        }
+        let initial = packed;
+
+        // Reference: per-lane scalar compress.
+        let mut expected_lanes: Vec<[Goldilocks; 8]> = (0..width)
+            .map(|k| std::array::from_fn(|i| initial[i].as_slice()[k]))
+            .collect();
+        for lane in expected_lanes.iter_mut() {
+            p.compress_in_place(lane);
+        }
+
+        p.compress_in_place(&mut packed);
+
+        for i in 0..8 {
+            for k in 0..width {
+                assert_eq!(
+                    packed[i].as_slice()[k],
+                    expected_lanes[k][i],
+                    "mismatch at slot {i}, lane {k}"
+                );
+            }
+        }
     }
 
     /// The permutation is deterministic and non-trivial.
