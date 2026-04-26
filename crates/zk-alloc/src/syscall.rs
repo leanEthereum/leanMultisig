@@ -59,11 +59,7 @@ unsafe fn syscall3(nr: usize, a1: usize, a2: usize, a3: usize) -> isize {
 pub unsafe fn mmap_anonymous(size: usize, hugetlb: bool) -> *mut u8 {
     let flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | if hugetlb { MAP_HUGETLB } else { 0 };
     let ret = unsafe { syscall6(SYS_MMAP, 0, size, PROT_READ | PROT_WRITE, flags, usize::MAX, 0) };
-    if ret < 0 {
-        ptr::null_mut()
-    } else {
-        ret as *mut u8
-    }
+    if ret < 0 { ptr::null_mut() } else { ret as *mut u8 }
 }
 
 #[inline]

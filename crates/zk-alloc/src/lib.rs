@@ -1,7 +1,7 @@
 use std::alloc::{GlobalAlloc, Layout};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod syscall;
 
@@ -78,9 +78,7 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
             if idx >= MAX_THREADS {
                 ARENA_BASE.set(1); // sentinel: this thread has no slab
                 // SAFETY: size and align are from a valid Layout (caller contract).
-                return unsafe {
-                    std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align))
-                };
+                return unsafe { std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align)) };
             }
             let slab_base = region + idx * SLAB_SIZE;
             ARENA_BASE.set(slab_base);
