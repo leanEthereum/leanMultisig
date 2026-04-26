@@ -1,3 +1,6 @@
+// Raw syscalls instead of libc wrappers to avoid reentrancy: libc's mmap/madvise
+// may internally call malloc, which would deadlock when called from inside
+// #[global_allocator].
 use std::ptr;
 
 const SYS_MMAP: usize = 9;

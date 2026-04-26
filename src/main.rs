@@ -17,8 +17,6 @@ enum Cli {
         tracing: bool,
         #[arg(long, help = "Number of sequential proofs to run", default_value = "1")]
         repeat: usize,
-        #[arg(long, help = "Sleep between proofs (ms), simulates idle gap", default_value = "0")]
-        sleep_ms: u64,
     },
     #[command(about = "Run n->1 recursion")]
     Recursion {
@@ -50,7 +48,6 @@ fn main() {
             log_inv_rate,
             tracing,
             repeat,
-            sleep_ms,
         } => {
             let topology = AggregationTopology {
                 raw_xmss: n_signatures,
@@ -58,9 +55,6 @@ fn main() {
                 log_inv_rate,
             };
             for i in 0..repeat {
-                if sleep_ms > 0 && i > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
-                }
                 let t = run_aggregation_benchmark(&topology, 0, tracing);
                 if repeat > 1 {
                     eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);

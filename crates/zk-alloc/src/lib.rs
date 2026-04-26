@@ -22,6 +22,8 @@ static THREAD_IDX: AtomicUsize = AtomicUsize::new(0);
 
 fn ensure_region() -> usize {
     REGION_INIT.call_once(|| {
+        // SAFETY: mmap_anonymous returns a page-aligned pointer or null.
+        // MAP_NORESERVE means no physical memory is committed yet.
         let ptr = unsafe { syscall::mmap_anonymous(REGION_SIZE, false) };
         if ptr.is_null() {
             std::process::abort();
@@ -60,6 +62,7 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
     if ARENA_GEN.get() != generation {
         let base = ARENA_BASE.get();
         if base != 0 {
+            // Generation changed — reset bump pointer to slab base.
             ARENA_PTR.set(base);
             ARENA_GEN.set(generation);
             let aligned = (base + align - 1) & !(align - 1);
@@ -69,10 +72,12 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
                 return aligned as *mut u8;
             }
         } else {
+            // First allocation on this thread — claim a slab.
             let region = ensure_region();
             let idx = THREAD_IDX.fetch_add(1, Ordering::Relaxed);
             if idx >= MAX_THREADS {
-                ARENA_BASE.set(1);
+                ARENA_BASE.set(1); // sentinel: this thread has no slab
+                // SAFETY: size and align are from a valid Layout (caller contract).
                 return unsafe {
                     std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align))
                 };
@@ -90,9 +95,15 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
             }
         }
     }
+    // SAFETY: size and align are from a valid Layout (caller contract).
     unsafe { std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align)) }
 }
 
+// SAFETY: All pointers returned are either from our mmap'd region (valid, aligned,
+// non-overlapping per thread) or from System. The arena is thread-local so no data
+// races. Relaxed ordering on ALLOC_IMPL/GENERATION is sound: worst case a thread
+// sees a stale value and does one extra system-alloc before picking up the new
+// generation on the next call.
 unsafe impl GlobalAlloc for ZkAllocator {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -118,7 +129,7 @@ unsafe impl GlobalAlloc for ZkAllocator {
         let addr = ptr as usize;
         let base = REGION_BASE.load(Ordering::Relaxed);
         if base != 0 && addr >= base && addr < base + REGION_SIZE {
-            return;
+            return; // arena-owned pointer — free is a no-op
         }
         unsafe { std::alloc::System.dealloc(ptr, layout) };
     }
@@ -128,6 +139,7 @@ unsafe impl GlobalAlloc for ZkAllocator {
         if new_size <= layout.size() {
             return ptr;
         }
+        // SAFETY: new_size > layout.size() > 0, align unchanged from valid layout.
         let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
         let new_ptr = unsafe { self.alloc(new_layout) };
         if !new_ptr.is_null() {
