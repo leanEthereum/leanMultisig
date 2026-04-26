@@ -2,7 +2,6 @@
 
 use alloc::vec::Vec;
 use core::arch::x86_64::{self, __m256i};
-use core::array;
 use core::iter::{Product, Sum};
 use core::mem::transmute;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -654,9 +653,11 @@ pub fn dot_product_4<PMP: PackedMontyParameters, LHS: IntoM256<PMP>, RHS: IntoM2
 
 /// A general fast dot product implementation.
 ///
-/// Maximises the number of calls to `dot_product_4` for dot products involving vectors of length
-/// more than 4. The length 64 occurs commonly enough it's useful to have a custom implementation
-/// which lets it use a slightly better summation algorithm with lower latency.
+/// Note: `dot_product_2` / `dot_product_4` accumulate two/four 64-bit products
+/// into a single u64 before Montgomery reduction. That is sound for primes
+/// `P < 2^31` but unsafe for the current 32-bit prime (`0xfa000001`), where
+/// even two products can overflow a u64. We therefore reduce each product
+/// individually and accumulate the canonical results.
 #[inline(always)]
 fn general_dot_product<FP: FieldParameters, LHS: IntoM256<FP>, RHS: IntoM256<FP>, const N: usize>(
     lhs: &[LHS],
@@ -664,72 +665,14 @@ fn general_dot_product<FP: FieldParameters, LHS: IntoM256<FP>, RHS: IntoM256<FP>
 ) -> PackedMontyField31AVX2<FP> {
     assert_eq!(lhs.len(), N);
     assert_eq!(rhs.len(), N);
-    match N {
-        0 => PackedMontyField31AVX2::<FP>::ZERO,
-        1 => (lhs[0]).into() * (rhs[0]).into(),
-        2 => {
-            let res = dot_product_2([lhs[0], lhs[1]], [rhs[0], rhs[1]]);
-            unsafe {
-                // Safety: `dot_product_2` returns values in canonical form when given values in canonical form.
-                PackedMontyField31AVX2::<FP>::from_vector(res)
-            }
-        }
-        3 => {
-            let lhs2 = lhs[2];
-            let rhs2 = rhs[2];
-            let res = dot_product_2([lhs[0], lhs[1]], [rhs[0], rhs[1]]);
-            unsafe {
-                // Safety: `dot_product_2` returns values in canonical form when given values in canonical form.
-                PackedMontyField31AVX2::<FP>::from_vector(res) + (lhs2.into() * rhs2.into())
-            }
-        }
-        4 => {
-            let res = dot_product_4([lhs[0], lhs[1], lhs[2], lhs[3]], [rhs[0], rhs[1], rhs[2], rhs[3]]);
-            unsafe {
-                // Safety: `dot_product_4` returns values in canonical form when given values in canonical form.
-                PackedMontyField31AVX2::<FP>::from_vector(res)
-            }
-        }
-        64 => {
-            let sum_4s: [PackedMontyField31AVX2<FP>; 16] = array::from_fn(|i| {
-                let res = dot_product_4(
-                    [lhs[4 * i], lhs[4 * i + 1], lhs[4 * i + 2], lhs[4 * i + 3]],
-                    [rhs[4 * i], rhs[4 * i + 1], rhs[4 * i + 2], rhs[4 * i + 3]],
-                );
-                unsafe {
-                    // Safety: `dot_product_4` returns values in canonical form when given values in canonical form.
-                    PackedMontyField31AVX2::<FP>::from_vector(res)
-                }
-            });
-            PackedMontyField31AVX2::<FP>::sum_array::<16>(&sum_4s)
-        }
-        _ => {
-            let mut acc = {
-                let res = dot_product_4([lhs[0], lhs[1], lhs[2], lhs[3]], [rhs[0], rhs[1], rhs[2], rhs[3]]);
-                unsafe {
-                    // Safety: `dot_product_4` returns values in canonical form when given values in canonical form.
-                    PackedMontyField31AVX2::<FP>::from_vector(res)
-                }
-            };
-            for i in (4..(N - 3)).step_by(4) {
-                let res = dot_product_4(
-                    [lhs[i], lhs[i + 1], lhs[i + 2], lhs[i + 3]],
-                    [rhs[i], rhs[i + 1], rhs[i + 2], rhs[i + 3]],
-                );
-                unsafe {
-                    // Safety: `dot_product_4` returns values in canonical form when given values in canonical form.
-                    acc += PackedMontyField31AVX2::<FP>::from_vector(res)
-                }
-            }
-            match N & 3 {
-                0 => acc,
-                1 => acc + general_dot_product::<_, _, _, 1>(&lhs[(4 * (N / 4))..], &rhs[(4 * (N / 4))..]),
-                2 => acc + general_dot_product::<_, _, _, 2>(&lhs[(4 * (N / 4))..], &rhs[(4 * (N / 4))..]),
-                3 => acc + general_dot_product::<_, _, _, 3>(&lhs[(4 * (N / 4))..], &rhs[(4 * (N / 4))..]),
-                _ => unreachable!(),
-            }
-        }
+    if N == 0 {
+        return PackedMontyField31AVX2::<FP>::ZERO;
     }
+    let mut acc: PackedMontyField31AVX2<FP> = lhs[0].into() * rhs[0].into();
+    for i in 1..N {
+        acc += lhs[i].into() * rhs[i].into();
+    }
+    acc
 }
 
 /// Square the MontyField31 field elements in the even index entries.
