@@ -108,8 +108,10 @@ fn try_precompile_fp_relative(expr: &SimpleExpr, compiler: &Compiler) -> Option<
 pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result<IntermediateBytecode, String> {
     let mut compiler = Compiler::default();
     let mut memory_sizes = BTreeMap::new();
+    let mut function_arguments = BTreeMap::new();
 
     for function in simple_program.functions.values() {
+        function_arguments.insert(function.name.clone(), function.arguments.clone());
         let instructions = compile_function(function, &mut compiler)?;
         compiler.bytecode.insert(Label::function(&function.name), instructions);
         memory_sizes.insert(function.name.clone(), compiler.stack_size);
@@ -119,6 +121,7 @@ pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result
         bytecode: compiler.bytecode,
         match_blocks: compiler.match_blocks,
         memory_size_per_function: memory_sizes,
+        function_arguments,
     })
 }
 

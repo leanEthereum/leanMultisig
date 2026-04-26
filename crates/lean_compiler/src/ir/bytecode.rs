@@ -30,6 +30,10 @@ pub struct IntermediateBytecode {
     ///
     /// Maps function names to their stack frame size.
     pub memory_size_per_function: BTreeMap<String, usize>,
+
+    /// Argument names for each function (in order). Includes loop sub-functions
+    /// and specialized variants of const-arg functions.
+    pub function_arguments: BTreeMap<String, Vec<String>>,
 }
 
 impl Display for IntermediateBytecode {

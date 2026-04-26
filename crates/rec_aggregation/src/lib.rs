@@ -414,7 +414,7 @@ pub fn xmss_aggregate(
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
         hints,
     };
-    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
+    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, true);
 
     (
         global_pub_keys,

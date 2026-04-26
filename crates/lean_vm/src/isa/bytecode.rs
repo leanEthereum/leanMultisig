@@ -27,6 +27,10 @@ pub struct Bytecode {
     pub source_code: BTreeMap<FileId, String>,
     /// Maps each pc to its source location (for error reporting)
     pub pc_to_location: Vec<SourceLocation>,
+    /// Argument names for each function (in declaration order). Includes
+    /// loop-derived sub-functions and specialized variants of const-arg
+    /// functions. Used by the bytecode pretty-printer.
+    pub function_arguments: BTreeMap<FunctionName, Vec<String>>,
 }
 
 impl Bytecode {
