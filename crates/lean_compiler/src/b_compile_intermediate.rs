@@ -109,9 +109,11 @@ pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result
     let mut compiler = Compiler::default();
     let mut memory_sizes = BTreeMap::new();
     let mut function_arguments = BTreeMap::new();
+    let mut function_n_returns = BTreeMap::new();
 
     for function in simple_program.functions.values() {
         function_arguments.insert(function.name.clone(), function.arguments.clone());
+        function_n_returns.insert(function.name.clone(), function.n_returned_vars);
         let instructions = compile_function(function, &mut compiler)?;
         compiler.bytecode.insert(Label::function(&function.name), instructions);
         memory_sizes.insert(function.name.clone(), compiler.stack_size);
@@ -122,6 +124,7 @@ pub fn compile_to_intermediate_bytecode(simple_program: SimpleProgram) -> Result
         match_blocks: compiler.match_blocks,
         memory_size_per_function: memory_sizes,
         function_arguments,
+        function_n_returns,
     })
 }
 

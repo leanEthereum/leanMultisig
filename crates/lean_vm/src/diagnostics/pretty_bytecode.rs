@@ -286,7 +286,7 @@ impl<'a> Printer<'a> {
         };
         out.push_str(&format!("{indent}{} {display_name} {{\n", kind.header()));
 
-        // Argument list.
+        // Argument list and return-value slots.
         if let Label::Function(name) = &section.label
             && let Some(args) = self.bytecode.function_arguments.get(name)
         {
@@ -300,6 +300,16 @@ impl<'a> Printer<'a> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 out.push_str(&format!("{body_indent}args: [{pretty}]\n"));
+            }
+            if let Some(&n_returns) = self.bytecode.function_n_returns.get(name)
+                && n_returns > 0
+            {
+                let base = 2 + args.len();
+                let pretty = (0..n_returns)
+                    .map(|i| format!("m[fp + {}]", base + i))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!("{body_indent}returns: [{pretty}]\n"));
             }
         }
 

@@ -31,6 +31,9 @@ pub struct Bytecode {
     /// loop-derived sub-functions and specialized variants of const-arg
     /// functions. Used by the bytecode pretty-printer.
     pub function_arguments: BTreeMap<FunctionName, Vec<String>>,
+    /// Number of return values per function. Return slots live just after the
+    /// arguments in each frame. Used by the bytecode pretty-printer.
+    pub function_n_returns: BTreeMap<FunctionName, usize>,
 }
 
 impl Bytecode {

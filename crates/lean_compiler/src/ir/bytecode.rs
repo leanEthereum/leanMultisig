@@ -34,6 +34,8 @@ pub struct IntermediateBytecode {
     /// Argument names for each function (in order). Includes loop sub-functions
     /// and specialized variants of const-arg functions.
     pub function_arguments: BTreeMap<String, Vec<String>>,
+    /// Number of return values per function.
+    pub function_n_returns: BTreeMap<String, usize>,
 }
 
 impl Display for IntermediateBytecode {

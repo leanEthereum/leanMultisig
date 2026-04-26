@@ -53,6 +53,7 @@ pub fn compile_to_low_level_bytecode(
         .get("main")
         .ok_or("Missing main function")?;
     let function_arguments = intermediate_bytecode.function_arguments.clone();
+    let function_n_returns = intermediate_bytecode.function_n_returns.clone();
 
     let mut hints = BTreeMap::new();
     let mut label_to_pc = BTreeMap::new();
@@ -180,6 +181,7 @@ pub fn compile_to_low_level_bytecode(
         filepaths,
         pc_to_location,
         function_arguments,
+        function_n_returns,
     })
 }
 
