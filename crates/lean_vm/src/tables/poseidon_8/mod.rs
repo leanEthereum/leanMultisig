@@ -88,7 +88,7 @@ fn mds_vec_mul(state: &[F; WIDTH]) -> [F; WIDTH] {
     for i in 0..WIDTH {
         let mut acc = state[0] * F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
         for j in 1..WIDTH {
-            acc = acc + state[j] * F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+            acc += state[j] * F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
         }
         out[i] = acc;
     }
@@ -107,9 +107,9 @@ pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGES
     let mut aux = Vec::with_capacity(AUX_COLS_PER_ROW);
 
     // Initial full rounds.
-    for round in 0..POSEIDON1_HALF_FULL_ROUNDS {
-        for i in 0..WIDTH {
-            state[i] = sbox7(state[i] + GOLDILOCKS_POSEIDON1_RC_8[round][i]);
+    for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+        for (i, s) in state.iter_mut().enumerate() {
+            *s = sbox7(*s + rc[i]);
         }
         let post = mds_vec_mul(&state);
         for v in &post {
@@ -119,17 +119,17 @@ pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGES
     }
 
     // Partial phase: absorb first_round_constants, apply m_i, then sparse rounds.
-    for i in 0..WIDTH {
-        state[i] = state[i] + c.first_round_constants[i];
+    for (i, s) in state.iter_mut().enumerate() {
+        *s += c.first_round_constants[i];
     }
     {
         let mut after = [F::ZERO; WIDTH];
-        for i in 0..WIDTH {
+        for (i, dst) in after.iter_mut().enumerate() {
             let mut acc = F::ZERO;
-            for j in 0..WIDTH {
-                acc = acc + c.m_i[i][j] * state[j];
+            for (j, sj) in state.iter().enumerate() {
+                acc += c.m_i[i][j] * *sj;
             }
-            after[i] = acc;
+            *dst = acc;
         }
         state = after;
     }
@@ -149,12 +149,12 @@ pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGES
         //   new_state[i] = state[i] + v[r][i-1] · old_state[0]    (for i ≥ 1)
         let old_s0 = state[0];
         let mut new_s0 = F::ZERO;
-        for j in 0..WIDTH {
-            new_s0 = new_s0 + c.sparse_first_row[r][j] * state[j];
+        for (j, sj) in state.iter().enumerate() {
+            new_s0 += c.sparse_first_row[r][j] * *sj;
         }
         state[0] = new_s0;
-        for i in 1..WIDTH {
-            state[i] = state[i] + c.v[r][i - 1] * old_s0;
+        for (i, s) in state.iter_mut().enumerate().skip(1) {
+            *s += c.v[r][i - 1] * old_s0;
         }
     }
 
@@ -379,9 +379,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             let post = full_posts[round];
             for i in 0..WIDTH {
                 let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
-                for j in 1..WIDTH {
+                for (j, sj) in sbox_out.iter().enumerate().skip(1) {
                     let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
-                    acc = acc + sbox_out[j] * coeff;
+                    acc += *sj * coeff;
                 }
                 builder.assert_zero(post[i] - acc);
             }
@@ -389,23 +389,23 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         }
 
         // ---- Partial phase: first_round_constants, m_i, sparse-matmul loop ----
-        for i in 0..WIDTH {
-            state[i] = state[i] + AB::F::from_u64(c.first_round_constants[i].as_canonical_u64());
+        for (i, s) in state.iter_mut().enumerate() {
+            *s += AB::F::from_u64(c.first_round_constants[i].as_canonical_u64());
         }
         {
             let mut after: [AB::IF; WIDTH] = std::array::from_fn(|i| {
                 let mut acc = state[0] * AB::F::from_u64(c.m_i[i][0].as_canonical_u64());
-                for j in 1..WIDTH {
-                    acc = acc + state[j] * AB::F::from_u64(c.m_i[i][j].as_canonical_u64());
+                for (j, sj) in state.iter().enumerate().skip(1) {
+                    acc += *sj * AB::F::from_u64(c.m_i[i][j].as_canonical_u64());
                 }
                 acc
             });
             std::mem::swap(&mut state, &mut after);
         }
 
-        for r in 0..SPARSE_PARTIAL_ROUNDS {
+        for (r, post_sbox) in partial_post_sboxes.iter().enumerate().take(SPARSE_PARTIAL_ROUNDS) {
             let x = state[0];
-            let post_sbox = partial_post_sboxes[r];
+            let post_sbox = *post_sbox;
 
             // post_sbox = x⁷ (deg 7).
             let x2 = x * x;
@@ -422,12 +422,12 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             // cheap_matmul.
             let old_s0 = state[0];
             let mut new_s0 = state[0] * AB::F::from_u64(c.sparse_first_row[r][0].as_canonical_u64());
-            for j in 1..WIDTH {
-                new_s0 = new_s0 + state[j] * AB::F::from_u64(c.sparse_first_row[r][j].as_canonical_u64());
+            for (j, sj) in state.iter().enumerate().skip(1) {
+                new_s0 += *sj * AB::F::from_u64(c.sparse_first_row[r][j].as_canonical_u64());
             }
             state[0] = new_s0;
-            for i in 1..WIDTH {
-                state[i] = state[i] + old_s0 * AB::F::from_u64(c.v[r][i - 1].as_canonical_u64());
+            for (i, s) in state.iter_mut().enumerate().skip(1) {
+                *s += old_s0 * AB::F::from_u64(c.v[r][i - 1].as_canonical_u64());
             }
         }
 
@@ -443,9 +443,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             let post = full_posts[POSEIDON1_HALF_FULL_ROUNDS + round];
             for i in 0..WIDTH {
                 let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
-                for j in 1..WIDTH {
+                for (j, sj) in sbox_out.iter().enumerate().skip(1) {
                     let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
-                    acc = acc + sbox_out[j] * coeff;
+                    acc += *sj * coeff;
                 }
                 builder.assert_zero(post[i] - acc);
             }

@@ -467,9 +467,9 @@ impl Poseidon1Goldilocks8 {
     where
         R: Algebra<Goldilocks> + InjectiveMonomial<7> + Copy,
     {
-        for r in 0..POSEIDON1_HALF_FULL_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] = state[i] + GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             for s in state.iter_mut() {
                 *s = sbox_full::<R>(*s);
@@ -477,17 +477,25 @@ impl Poseidon1Goldilocks8 {
             mds_mul_generic(state);
         }
 
-        for r in POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] = state[i] + GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .skip(POSEIDON1_HALF_FULL_ROUNDS)
+            .take(POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             state[0] = sbox_full::<R>(state[0]);
             mds_mul_generic(state);
         }
 
-        for r in POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..POSEIDON1_N_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] = state[i] + GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .take(POSEIDON1_N_ROUNDS)
+            .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             for s in state.iter_mut() {
                 *s = sbox_full::<R>(*s);
@@ -508,7 +516,7 @@ impl Poseidon1Goldilocks8 {
         let initial = *state;
         self.permute_generic(state);
         for (s, init) in state.iter_mut().zip(initial) {
-            *s = *s + init;
+            *s += init;
         }
     }
 }

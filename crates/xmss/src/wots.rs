@@ -129,8 +129,8 @@ pub fn wots_encode(
     const NUM_ENCODING_FE: usize = 3;
     const CHUNKS_PER_FE: usize = 21;
     const MASK: u64 = (1u64 << W) - 1;
-    debug_assert!(CHUNKS_PER_FE * W <= 63); // 1-bit remainder
-    debug_assert!(NUM_ENCODING_FE * CHUNKS_PER_FE >= V + V_GRINDING);
+    const _: () = assert!(CHUNKS_PER_FE * W <= 63); // 1-bit remainder
+    const _: () = assert!(NUM_ENCODING_FE * CHUNKS_PER_FE >= V + V_GRINDING);
 
     let mut all_indices = [0u8; NUM_ENCODING_FE * CHUNKS_PER_FE];
     for (i, fe) in full_output.iter().take(NUM_ENCODING_FE).enumerate() {

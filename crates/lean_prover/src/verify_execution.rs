@@ -16,7 +16,7 @@ pub fn verify_execution(
     public_input: &[F],
     proof: Proof<F>,
 ) -> Result<(ProofVerificationDetails, RawProof<F>), ProofError> {
-    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon8().clone())?;
+    let mut verifier_state = VerifierState::<EF, _>::new(proof, *get_poseidon8())?;
     verifier_state.observe_scalars(public_input);
     verifier_state.observe_scalars(&poseidon8_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     let dims = verifier_state

@@ -78,7 +78,7 @@ fn matrix_mul(a: &[[F; WIDTH]; WIDTH], b: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; 
         for j in 0..WIDTH {
             let mut acc = F::ZERO;
             for k in 0..WIDTH {
-                acc = acc + a[i][k] * b[k][j];
+                acc += a[i][k] * b[k][j];
             }
             c[i][j] = acc;
         }
@@ -91,7 +91,7 @@ fn matrix_vec_mul(m: &[[F; WIDTH]; WIDTH], v: &[F; WIDTH]) -> [F; WIDTH] {
     for i in 0..WIDTH {
         let mut acc = F::ZERO;
         for j in 0..WIDTH {
-            acc = acc + m[i][j] * v[j];
+            acc += m[i][j] * v[j];
         }
         r[i] = acc;
     }
@@ -101,8 +101,8 @@ fn matrix_vec_mul(m: &[[F; WIDTH]; WIDTH], v: &[F; WIDTH]) -> [F; WIDTH] {
 fn matrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; WIDTH] {
     let mut aug = *m;
     let mut inv = [[F::ZERO; WIDTH]; WIDTH];
-    for i in 0..WIDTH {
-        inv[i][i] = F::ONE;
+    for (i, row) in inv.iter_mut().enumerate().take(WIDTH) {
+        row[i] = F::ONE;
     }
     for col in 0..WIDTH {
         let pivot = (col..WIDTH)
@@ -114,8 +114,8 @@ fn matrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; WIDTH] {
         }
         let pivot_inv = aug[col][col].inverse();
         for j in 0..WIDTH {
-            aug[col][j] = aug[col][j] * pivot_inv;
-            inv[col][j] = inv[col][j] * pivot_inv;
+            aug[col][j] *= pivot_inv;
+            inv[col][j] *= pivot_inv;
         }
         for i in 0..WIDTH {
             if i == col {
@@ -128,8 +128,8 @@ fn matrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH]; WIDTH] {
             let aug_row = aug[col];
             let inv_row = inv[col];
             for j in 0..WIDTH {
-                aug[i][j] = aug[i][j] - factor * aug_row[j];
-                inv[i][j] = inv[i][j] - factor * inv_row[j];
+                aug[i][j] -= factor * aug_row[j];
+                inv[i][j] -= factor * inv_row[j];
             }
         }
     }
@@ -146,8 +146,8 @@ fn submatrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH - 1]; WIDTH - 1] {
         }
     }
     let mut inv = [[F::ZERO; N]; N];
-    for i in 0..N {
-        inv[i][i] = F::ONE;
+    for (i, row) in inv.iter_mut().enumerate().take(N) {
+        row[i] = F::ONE;
     }
     for col in 0..N {
         let pivot = (col..N)
@@ -159,8 +159,8 @@ fn submatrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH - 1]; WIDTH - 1] {
         }
         let pivot_inv = sub[col][col].inverse();
         for j in 0..N {
-            sub[col][j] = sub[col][j] * pivot_inv;
-            inv[col][j] = inv[col][j] * pivot_inv;
+            sub[col][j] *= pivot_inv;
+            inv[col][j] *= pivot_inv;
         }
         for i in 0..N {
             if i == col {
@@ -173,23 +173,22 @@ fn submatrix_inverse(m: &[[F; WIDTH]; WIDTH]) -> [[F; WIDTH - 1]; WIDTH - 1] {
             let sub_row = sub[col];
             let inv_row = inv[col];
             for j in 0..N {
-                sub[i][j] = sub[i][j] - factor * sub_row[j];
-                inv[i][j] = inv[i][j] - factor * inv_row[j];
+                sub[i][j] -= factor * sub_row[j];
+                inv[i][j] -= factor * inv_row[j];
             }
         }
     }
     inv
 }
 
+type EquivalentMatrices = ([[F; WIDTH]; WIDTH], Vec<[F; WIDTH]>, Vec<[F; WIDTH]>);
+
 /// Factor the dense MDS matrix into `RP` sparse factors.
 ///
 /// Returns `(m_i, v_collection, w_hat_collection)` all in forward application
 /// order; `v_collection[r]` and `w_hat_collection[r]` have `WIDTH-1` meaningful
 /// entries (the last slot is zero padding for fixed-size arrays).
-fn compute_equivalent_matrices(
-    mds: &[[F; WIDTH]; WIDTH],
-    rounds_p: usize,
-) -> ([[F; WIDTH]; WIDTH], Vec<[F; WIDTH]>, Vec<[F; WIDTH]>) {
+fn compute_equivalent_matrices(mds: &[[F; WIDTH]; WIDTH], rounds_p: usize) -> EquivalentMatrices {
     let mut v_collection: Vec<[F; WIDTH]> = Vec::with_capacity(rounds_p);
     let mut w_hat_collection: Vec<[F; WIDTH]> = Vec::with_capacity(rounds_p);
 
@@ -213,7 +212,7 @@ fn compute_equivalent_matrices(
             if i < WIDTH - 1 {
                 let mut acc = F::ZERO;
                 for k in 0..WIDTH - 1 {
-                    acc = acc + m_hat_inv[i][k] * w[k];
+                    acc += m_hat_inv[i][k] * w[k];
                 }
                 acc
             } else {
@@ -228,11 +227,11 @@ fn compute_equivalent_matrices(
         // "absorb" the rest: first column zeroed, first row zeroed, [0][0]=1.
         m_i = m_mul;
         m_i[0][0] = F::ONE;
-        for r in 1..WIDTH {
-            m_i[r][0] = F::ZERO;
+        for row in m_i.iter_mut().take(WIDTH).skip(1) {
+            row[0] = F::ZERO;
         }
-        for c in 1..WIDTH {
-            m_i[0][c] = F::ZERO;
+        for entry in m_i[0].iter_mut().take(WIDTH).skip(1) {
+            *entry = F::ZERO;
         }
 
         // Accumulate: m_mul = M^T * m_i.
@@ -260,7 +259,7 @@ fn equivalent_round_constants(partial_rc: &[[F; WIDTH]], mds_inv: &[[F; WIDTH]; 
         opt_partial_rc[i + 1] = inv_cip[0];
         tmp = partial_rc[i];
         for j in 1..WIDTH {
-            tmp[j] = tmp[j] + inv_cip[j];
+            tmp[j] += inv_cip[j];
         }
     }
     let first_round_constants = tmp;
@@ -299,9 +298,7 @@ fn compute_partial_constants() -> PartialConstants {
     }
 
     let mut round_constants = [F::ZERO; PARTIAL_ROUNDS - 1];
-    for i in 0..PARTIAL_ROUNDS - 1 {
-        round_constants[i] = round_constants_vec[i];
-    }
+    round_constants[..(PARTIAL_ROUNDS - 1)].copy_from_slice(&round_constants_vec[..(PARTIAL_ROUNDS - 1)]);
 
     PartialConstants {
         first_round_constants,

@@ -275,7 +275,7 @@ pub fn xmss_aggregate(
 
         let final_sumcheck_proof = {
             // Recover the transcript of the final sumcheck (for bytecode claim reduction)
-            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon8().clone()).unwrap();
+            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), *get_poseidon8()).unwrap();
             vs.next_base_scalars_vec(claims_hash.len()).unwrap();
             let _: EF = vs.sample();
             sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
