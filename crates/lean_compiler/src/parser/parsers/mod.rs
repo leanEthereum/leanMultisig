@@ -1,7 +1,8 @@
 use lean_vm::F;
 use utils::ToUsize;
 
-use crate::lang::FileId;
+use crate::lang::{FileId, Line};
+use crate::parser::parsers::statement::StatementParser;
 use crate::parser::{
     error::{ParseResult, SemanticError},
     grammar::ParsePair,
@@ -198,4 +199,21 @@ pub fn next_inner_pair<'i>(
     pairs
         .next()
         .ok_or_else(|| SemanticError::with_context("Unexpected end of input", context).into())
+}
+
+pub fn push_statement_with_location(
+    lines: &mut Vec<Line>,
+    pair: ParsePair<'_>,
+    ctx: &mut ParseContext,
+) -> ParseResult<()> {
+    let line_number = pair.line_col().0;
+    let line = StatementParser.parse(pair, ctx)?;
+    lines.push(Line::LocationReport {
+        location: crate::lang::SourceLocation {
+            file_id: ctx.current_file_id,
+            line_number,
+        },
+    });
+    lines.push(line);
+    Ok(())
 }

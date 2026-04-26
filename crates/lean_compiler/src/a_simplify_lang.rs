@@ -419,6 +419,57 @@ impl<S> TreeVec<S> {
     }
 }
 
+fn scalar_indices(indices: &[Expression]) -> Option<Vec<usize>> {
+    indices
+        .iter()
+        .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
+        .collect()
+}
+
+fn simplify_const_indices(
+    ctx: &SimplifyContext<'_>,
+    state: &mut SimplifyState<'_>,
+    const_malloc: &mut ConstMalloc,
+    indices: &[Expression],
+    lines: &mut Vec<SimpleLine>,
+    op: &str,
+    location: SourceLocation,
+) -> Result<Vec<usize>, String> {
+    indices
+        .iter()
+        .map(|idx| {
+            let simplified = simplify_expr(ctx, state, const_malloc, idx, lines)?;
+            let const_val = simplified
+                .as_constant()
+                .ok_or_else(|| format!("{op} index must be a compile-time constant, at {location}"))?;
+            let val = const_val
+                .naive_eval()
+                .ok_or_else(|| format!("{op} index must be evaluable at compile time, at {location}"))?;
+            Ok(val.to_usize())
+        })
+        .collect()
+}
+
+/// Navigate to the (sub-)vector to act upon and verify it is a vector.
+fn navigate_vector_target_mut<'a>(
+    tracker: &'a mut VectorTracker,
+    vector: &Var,
+    indices: &[usize],
+    op: &str,
+    location: SourceLocation,
+) -> Result<&'a mut VectorValue, String> {
+    let root = tracker
+        .get_mut(vector)
+        .ok_or_else(|| format!("{op} called on non-vector variable '{vector}', at {location}"))?;
+    let target = root
+        .navigate_mut(indices)
+        .ok_or_else(|| format!("{op} target index out of bounds, at {location}"))?;
+    if !target.is_vector() {
+        return Err(format!("{op} target must be a vector, not a scalar, at {location}"));
+    }
+    Ok(target)
+}
+
 fn build_vector_len_value(elements: &[VecLiteral]) -> VectorLenValue {
     VectorLenValue::Vector(
         elements
@@ -618,31 +669,21 @@ fn compile_time_transform_in_lines(
                 element,
                 ..
             } => {
-                let Some(const_indices) = indices
-                    .iter()
-                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Err("push with non-constant indices".to_string());
-                };
+                let const_indices =
+                    scalar_indices(indices).ok_or_else(|| "push with non-constant indices".to_string())?;
                 let new_element = match element {
                     VecLiteral::Vec(inner) => build_vector_len_value(inner),
                     VecLiteral::Expr(_) => VectorLenValue::Scalar(()),
                 };
-                let vector_value = vector_len_tracker
+                let target = vector_len_tracker
                     .get_mut(vector)
-                    .ok_or_else(|| "pushing to undeclared vector".to_string())?;
-                if const_indices.is_empty() {
-                    vector_value.push(new_element);
-                } else {
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| "push target index out of bounds".to_string())?;
-                    if !target.is_vector() {
-                        return Err("push target is not a vector".to_string());
-                    }
-                    target.push(new_element);
+                    .ok_or_else(|| "pushing to undeclared vector".to_string())?
+                    .navigate_mut(&const_indices)
+                    .ok_or_else(|| "push target index out of bounds".to_string())?;
+                if !target.is_vector() {
+                    return Err("push target is not a vector".to_string());
                 }
+                target.push(new_element);
             }
 
             Line::Pop {
@@ -650,33 +691,20 @@ fn compile_time_transform_in_lines(
                 indices,
                 location,
             } => {
-                let Some(const_indices) = indices
-                    .iter()
-                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Err(format!("line {}: pop with non-constant indices", location));
-                };
-                let vector_value = vector_len_tracker
+                let const_indices = scalar_indices(indices)
+                    .ok_or_else(|| format!("line {}: pop with non-constant indices", location))?;
+                let target = vector_len_tracker
                     .get_mut(vector)
-                    .ok_or_else(|| format!("line {}: pop on undeclared vector '{}'", location, vector))?;
-                if const_indices.is_empty() {
-                    if vector_value.len() == 0 {
-                        return Err(format!("line {}: pop on empty vector '{}'", location, vector));
-                    }
-                    vector_value.pop();
-                } else {
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("line {}: pop target index out of bounds", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("line {}: pop target is not a vector", location));
-                    }
-                    if target.len() == 0 {
-                        return Err(format!("line {}: pop on empty vector", location));
-                    }
-                    target.pop();
+                    .ok_or_else(|| format!("line {}: pop on undeclared vector '{}'", location, vector))?
+                    .navigate_mut(&const_indices)
+                    .ok_or_else(|| format!("line {}: pop target index out of bounds", location))?;
+                if !target.is_vector() {
+                    return Err(format!("line {}: pop target is not a vector", location));
                 }
+                if target.len() == 0 {
+                    return Err(format!("line {}: pop on empty vector", location));
+                }
+                target.pop();
             }
 
             Line::IfCondition {
@@ -1800,6 +1828,10 @@ impl MutableVarTracker {
         format!("@mut_{var}_{version}")
     }
 
+    fn is_ssa_reassignment(&self, var: &Var) -> bool {
+        self.is_mutable(var) && self.current_version(var) > 0
+    }
+
     fn check_immutable_assignment(&mut self, var: &Var) -> Result<(), String> {
         if var.starts_with('@') || self.assigned.insert(var.clone()) {
             Ok(())
@@ -2325,9 +2357,7 @@ fn simplify_lines(
                                             &mut res,
                                         )?;
                                         let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                        if state.mut_tracker.is_mutable(var)
-                                            && state.mut_tracker.current_version(var) > 0
-                                        {
+                                        if state.mut_tracker.is_ssa_reassignment(var) {
                                             res.push(SimpleLine::ForwardDeclaration {
                                                 var: target_var.clone(),
                                             });
@@ -2360,9 +2390,7 @@ fn simplify_lines(
                                                 .map(|idx| simplify_expr(ctx, state, const_malloc, idx, &mut res))
                                                 .collect::<Result<Vec<_>, _>>()?;
                                             let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                            if state.mut_tracker.is_mutable(var)
-                                                && state.mut_tracker.current_version(var) > 0
-                                            {
+                                            if state.mut_tracker.is_ssa_reassignment(var) {
                                                 res.push(SimpleLine::ForwardDeclaration {
                                                     var: target_var.clone(),
                                                 });
@@ -2383,9 +2411,7 @@ fn simplify_lines(
                                             .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                             .collect::<Result<Vec<_>, _>>()?;
                                         let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                        if state.mut_tracker.is_mutable(var)
-                                            && state.mut_tracker.current_version(var) > 0
-                                        {
+                                        if state.mut_tracker.is_ssa_reassignment(var) {
                                             res.push(SimpleLine::ForwardDeclaration {
                                                 var: target_var.clone(),
                                             });
@@ -2823,106 +2849,25 @@ fn simplify_lines(
                 element,
                 location,
             } => {
-                // Get the vector and check it's a tracked vector
-                if !state.vec_tracker.is_vector(vector) {
-                    return Err(format!(
-                        "push called on non-vector variable '{}', at {}",
-                        vector, location
-                    ));
-                }
-
-                // Evaluate indices at compile time
-                let const_indices: Vec<usize> = indices
-                    .iter()
-                    .map(|idx| {
-                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
-                        let const_val = simplified
-                            .as_constant()
-                            .ok_or_else(|| format!("push index must be a compile-time constant, at {}", location))?;
-                        let val = const_val
-                            .naive_eval()
-                            .ok_or_else(|| format!("push index must be evaluable at compile time, at {}", location))?;
-                        Ok(val.to_usize())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-
-                // Build VectorValue for the element being pushed
+                let const_indices =
+                    simplify_const_indices(ctx, state, const_malloc, indices, &mut res, "push", *location)?;
                 let new_element =
                     build_vector_value_from_element(ctx, state, const_malloc, element, &mut res, *location)?;
-
-                // Navigate to the target vector and push
-                let vector_value = state
-                    .vec_tracker
-                    .get_mut(vector)
-                    .expect("Vector should exist after is_vector check");
-
-                if const_indices.is_empty() {
-                    // Push directly to the top-level vector
-                    vector_value.push(new_element);
-                } else {
-                    // Navigate to the nested vector and push
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("push target index out of bounds, at {}", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("push target must be a vector, not a scalar, at {}", location));
-                    }
-                    target.push(new_element);
-                }
+                let target = navigate_vector_target_mut(state.vec_tracker, vector, &const_indices, "push", *location)?;
+                target.push(new_element);
             }
             Line::Pop {
                 vector,
                 indices,
                 location,
             } => {
-                // Get the vector and check it's a tracked vector
-                if !state.vec_tracker.is_vector(vector) {
-                    return Err(format!(
-                        "pop called on non-vector variable '{}', at {}",
-                        vector, location
-                    ));
+                let const_indices =
+                    simplify_const_indices(ctx, state, const_malloc, indices, &mut res, "pop", *location)?;
+                let target = navigate_vector_target_mut(state.vec_tracker, vector, &const_indices, "pop", *location)?;
+                if target.len() == 0 {
+                    return Err(format!("pop on empty vector, at {}", location));
                 }
-
-                // Evaluate indices at compile time
-                let const_indices: Vec<usize> = indices
-                    .iter()
-                    .map(|idx| {
-                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
-                        let const_val = simplified
-                            .as_constant()
-                            .ok_or_else(|| format!("pop index must be a compile-time constant, at {}", location))?;
-                        let val = const_val
-                            .naive_eval()
-                            .ok_or_else(|| format!("pop index must be evaluable at compile time, at {}", location))?;
-                        Ok(val.to_usize())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-
-                // Navigate to the target vector and pop
-                let vector_value = state
-                    .vec_tracker
-                    .get_mut(vector)
-                    .expect("Vector should exist after is_vector check");
-
-                if const_indices.is_empty() {
-                    // Pop directly from the top-level vector
-                    if vector_value.len() == 0 {
-                        return Err(format!("pop on empty vector '{}', at {}", vector, location));
-                    }
-                    vector_value.pop();
-                } else {
-                    // Navigate to the nested vector and pop
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("pop target index out of bounds, at {}", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("pop target must be a vector, not a scalar, at {}", location));
-                    }
-                    if target.len() == 0 {
-                        return Err(format!("pop on empty vector, at {}", location));
-                    }
-                    target.pop();
-                }
+                target.pop();
             }
         }
     }
