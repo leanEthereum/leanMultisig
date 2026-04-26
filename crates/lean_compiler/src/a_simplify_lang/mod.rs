@@ -1,5 +1,6 @@
 use crate::{
     CompilationFlags, F,
+    a_simplify_lang::copy_propagation::propagate_copies,
     lang::*,
     parser::{ConstArrayValue, parse_program},
 };
@@ -13,6 +14,8 @@ use std::{
     fmt::{Display, Formatter},
 };
 use utils::{Counter, ToUsize};
+
+mod copy_propagation;
 
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
@@ -236,6 +239,28 @@ impl SimpleLine {
             | Self::Panic { .. } => vec![],
         }
     }
+
+    pub(crate) fn operand_exprs_mut(&mut self) -> Vec<&mut SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } => vec![arg0, arg1],
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile(p) => p.operand_exprs_mut().into_iter().collect(),
+            Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
+            Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::Print { content, .. } => content.iter_mut().collect(),
+            Self::DebugAssert(b, _) => vec![&mut b.left, &mut b.right],
+            Self::AssertEq { left, right, .. } => vec![left, right],
+            Self::HintWitness { destination, .. } => vec![destination],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
+        }
+    }
 }
 
 fn ends_with_early_exit(block: &[SimpleLine]) -> bool {
@@ -330,9 +355,12 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         new_functions.insert(name.clone(), simplified_function);
         const_malloc.map.clear();
     }
-    Ok(SimpleProgram {
+
+    let mut simple_program = SimpleProgram {
         functions: new_functions,
-    })
+    };
+    propagate_copies(&mut simple_program);
+    Ok(simple_program)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
