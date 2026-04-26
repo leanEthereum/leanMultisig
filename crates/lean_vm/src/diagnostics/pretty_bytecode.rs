@@ -368,7 +368,14 @@ impl<'a> Printer<'a> {
             if matches!(hint, Hint::LocationReport { .. } | Hint::Label { .. }) {
                 continue;
             }
-            out.push_str(&format!("{indent}; hint: {hint}\n"));
+            let mut text = hint.to_string();
+            // Hint::DebugAssert renders the source location with the {:?}
+            // formatter, producing noisy " at SourceLocation { file_id: …,
+            // line_number: … }" suffixes. Strip them.
+            if let Some(at) = text.find(" at SourceLocation") {
+                text.truncate(at);
+            }
+            out.push_str(&format!("{indent}; hint: {text}\n"));
         }
         out.push_str(&format!("{indent}{pc:>5}: {}\n", entry.instruction));
     }
