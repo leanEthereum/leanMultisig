@@ -24,7 +24,7 @@ use utils::{assume, branch_hint, flatten_to_base};
 use crate::helpers::{exp_10540996611094048183, gcd_inner};
 
 /// The Goldilocks prime.
-pub(crate) const P: u64 = 0xFFFF_FFFF_0000_0001;
+pub const P: u64 = 0xFFFF_FFFF_0000_0001;
 
 /// The prime field known as Goldilocks, defined as `F_p` where `p = 2^64 - 2^32 + 1`.
 ///
@@ -292,6 +292,20 @@ impl RawDataSerializable for Goldilocks {
 }
 
 impl Field for Goldilocks {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+    type Packing = crate::PackedGoldilocksAVX2;
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+    type Packing = crate::PackedGoldilocksAVX512;
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    type Packing = crate::PackedGoldilocksNeon;
+
+    #[cfg(not(any(
+        all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
+        all(target_arch = "x86_64", target_feature = "avx512f"),
+        all(target_arch = "aarch64", target_feature = "neon"),
+    )))]
     type Packing = Self;
 
     const GENERATOR: Self = Self::new(7);

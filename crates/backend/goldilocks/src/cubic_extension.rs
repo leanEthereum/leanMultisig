@@ -14,8 +14,8 @@ use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use field::{
-    Algebra, BasedVectorSpace, ExtensionField, Field, Packable, PackedFieldExtension, PackedValue,
-    PrimeCharacteristicRing, RawDataSerializable, TwoAdicField, field_to_array,
+    Algebra, BasedVectorSpace, ExtensionField, Field, Packable, PrimeCharacteristicRing, RawDataSerializable,
+    TwoAdicField, field_to_array,
 };
 use itertools::Itertools;
 use num_bigint::BigUint;
@@ -116,7 +116,7 @@ impl BasedVectorSpace<Goldilocks> for CubicExtensionFieldGL {
 }
 
 impl ExtensionField<Goldilocks> for CubicExtensionFieldGL {
-    type ExtensionPacking = Self;
+    type ExtensionPacking = crate::packed_cubic_extension::PackedCubicExtensionFieldGL<<Goldilocks as Field>::Packing>;
 
     #[inline]
     fn is_in_basefield(&self) -> bool {
@@ -465,36 +465,22 @@ impl TwoAdicField for CubicExtensionFieldGL {
     }
 }
 
-// PackedFieldExtension: since Goldilocks has trivial packing (Packing = Self), the cubic
-// extension is also its own packing.
-impl PackedFieldExtension<Goldilocks, CubicExtensionFieldGL> for CubicExtensionFieldGL {
-    #[inline]
-    fn from_ext_slice(ext_slice: &[CubicExtensionFieldGL]) -> Self {
-        // Goldilocks::Packing::WIDTH == 1, so the input is a single element.
-        *CubicExtensionFieldGL::from_slice(ext_slice)
-    }
-
-    #[inline]
-    fn packed_ext_powers(base: CubicExtensionFieldGL) -> field::Powers<Self> {
-        // `Powers` is just an iterator over `base^k` starting at `k = 1`.
-        use field::Powers;
-        Powers {
-            base,
-            current: Self::ONE,
-        }
-    }
-}
+// `PackedFieldExtension<Goldilocks, CubicExtensionFieldGL>` is implemented by
+// `PackedCubicExtensionFieldGL<<Goldilocks as Field>::Packing>` (see `packed_cubic_extension.rs`).
 
 // ============================================================================
 // Arithmetic kernels for `F_p[X] / (X^3 - X - 1)`.
 // ============================================================================
 
-/// Multiply two cubic extension elements.
+/// Multiply two cubic extension elements over any algebra `R` over `Goldilocks`.
 ///
-/// Given `a = a_0 + a_1 X + a_2 X^2` and `b = b_0 + b_1 X + b_2 X^2`, compute the
+/// Given `a = a_0 + a_1 X + a_2 X^2` and `b = b_0 + b_1 X + b_2 X^2`, computes the
 /// product reduced by `X^3 - X - 1` (so `X^3 = X + 1`, `X^4 = X^2 + X`).
 #[inline]
-pub fn cubic_mul(a: &[Goldilocks; 3], b: &[Goldilocks; 3], res: &mut [Goldilocks; 3]) {
+pub fn cubic_mul_generic<R>(a: &[R; 3], b: &[R; 3], res: &mut [R; 3])
+where
+    R: Copy + core::ops::Mul<Output = R> + core::ops::Add<Output = R>,
+{
     let a0 = a[0];
     let a1 = a[1];
     let a2 = a[2];
@@ -514,9 +500,12 @@ pub fn cubic_mul(a: &[Goldilocks; 3], b: &[Goldilocks; 3], res: &mut [Goldilocks
     res[2] = a0 * b2 + a1 * b1 + a2 * b0 + a2b2;
 }
 
-/// Square a cubic extension element (same reduction rule as `cubic_mul`).
+/// Square a cubic extension element (same reduction rule as `cubic_mul_generic`).
 #[inline]
-pub fn cubic_square(a: &[Goldilocks; 3], res: &mut [Goldilocks; 3]) {
+pub fn cubic_square_generic<R>(a: &[R; 3], res: &mut [R; 3])
+where
+    R: PrimeCharacteristicRing + Copy,
+{
     let a0 = a[0];
     let a1 = a[1];
     let a2 = a[2];
@@ -534,6 +523,18 @@ pub fn cubic_square(a: &[Goldilocks; 3], res: &mut [Goldilocks; 3]) {
     res[1] = two_a0_a1 + two_a1_a2 + a2_sq;
     // quadratic: 2 a0 a2 + a1^2 + a2^2
     res[2] = two_a0_a2 + a1_sq + a2_sq;
+}
+
+/// Multiply two cubic extension elements (Goldilocks scalars).
+#[inline]
+pub fn cubic_mul(a: &[Goldilocks; 3], b: &[Goldilocks; 3], res: &mut [Goldilocks; 3]) {
+    cubic_mul_generic(a, b, res);
+}
+
+/// Square a cubic extension element (Goldilocks scalar).
+#[inline]
+pub fn cubic_square(a: &[Goldilocks; 3], res: &mut [Goldilocks; 3]) {
+    cubic_square_generic(a, res);
 }
 
 /// Invert a cubic extension element via adjugate/determinant — no Frobenius round trip needed.
