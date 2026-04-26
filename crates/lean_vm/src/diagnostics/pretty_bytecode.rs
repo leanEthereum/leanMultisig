@@ -255,7 +255,14 @@ impl<'a> Printer<'a> {
             .copied()
             .filter(|&i| self.parent[i].is_none())
             .collect();
-        top_level.sort_by_key(|&i| self.sections[i].start_pc);
+        // Sort so that all specializations of the same base function appear
+        // together (right after the base, if it has its own entry), with
+        // numeric ordering on each const parameter value.
+        top_level.sort_by(|&a, &b| {
+            let key_a = sort_key(&self.sections[a].label, self.sections[a].start_pc);
+            let key_b = sort_key(&self.sections[b].label, self.sections[b].start_pc);
+            key_a.cmp(&key_b)
+        });
 
         for (i, fn_idx) in top_level.iter().enumerate() {
             if i > 0 {
@@ -462,6 +469,69 @@ fn classify(label: &Label) -> SectionKind {
 /// so the presence of `=` is a reliable marker.
 fn is_specialized_name(name: &str) -> bool {
     !name.starts_with('@') && name.contains('=')
+}
+
+/// Split a (possibly specialized) function name into its base name and an
+/// ordered list of (param-name, param-value) specialization pairs. For a
+/// non-specialized name `foo` returns `("foo", [])`.
+fn split_specialization(name: &str) -> (&str, Vec<(&str, &str)>) {
+    if !is_specialized_name(name) {
+        return (name, Vec::new());
+    }
+    // Walk from the front looking for the first `_<ident>=<val>` segment.
+    // Everything before it is the base; the rest is `_v1=c1_v2=c2…`.
+    let bytes = name.as_bytes();
+    let mut split_at = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'_' {
+            // The next `_` or end-of-string marks the end of this segment;
+            // if the segment contains `=`, this is the start of the params.
+            let seg_start = i + 1;
+            let seg_end = bytes[seg_start..]
+                .iter()
+                .position(|&b| b == b'_')
+                .map(|p| seg_start + p)
+                .unwrap_or(bytes.len());
+            if name[seg_start..seg_end].contains('=') {
+                split_at = Some(i);
+                break;
+            }
+            i = seg_end;
+        } else {
+            i += 1;
+        }
+    }
+    let Some(idx) = split_at else {
+        return (name, Vec::new());
+    };
+    let base = &name[..idx];
+    let params_str = &name[idx + 1..];
+    let params: Vec<(&str, &str)> = params_str.split('_').filter_map(|p| p.split_once('=')).collect();
+    (base, params)
+}
+
+/// Sort key for a top-level function entry: groups specializations under
+/// their base name, with the base first (no params), then variants ordered
+/// by their (numeric, when possible) parameter values.
+fn sort_key(label: &Label, start_pc: CodeAddress) -> (String, usize, Vec<(String, i128, String)>, CodeAddress) {
+    let name = match label {
+        Label::Function(n) => n.as_str(),
+        Label::EndProgram => "@end_program",
+        _ => return (String::new(), 0, Vec::new(), start_pc),
+    };
+    let (base, params) = split_specialization(name);
+    // Specializations sort *after* the bare base entry (if any) — give
+    // non-specialized entries a 0 in the second slot, specialized ones 1.
+    let group = if params.is_empty() { 0 } else { 1 };
+    let param_keys: Vec<(String, i128, String)> = params
+        .into_iter()
+        .map(|(k, v)| {
+            let n = v.parse::<i128>().unwrap_or(i128::MAX);
+            (k.to_string(), n, v.to_string())
+        })
+        .collect();
+    (base.to_string(), group, param_keys, start_pc)
 }
 
 /// All constant pc-targets referenced by an instruction's operands.
