@@ -3,7 +3,7 @@
 use core::arch::x86_64::{self, __m512i};
 use core::mem::transmute;
 
-use crate::{FieldParameters, MontyParameters, PackedMontyParameters, TwoAdicData};
+use crate::{FieldParameters, PackedMontyParameters, TwoAdicData};
 
 // Godbolt file showing that these all compile to the expected instructions. (Potentially plus a few memory ops):
 // https://godbolt.org/z/dvW7r1zjj

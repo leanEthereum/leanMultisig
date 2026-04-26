@@ -130,8 +130,14 @@ pub(crate) const fn monty_reduce<MP: MontyParameters>(x: u64) -> u32 {
 /// The output will be in [0, P).
 ///
 /// This is slower than `monty_reduce` but has a larger input range.
+///
+/// Note: for `P > 2^31` the input range `[0, 2 * MONTY * P) = [0, 2^33 * P)`
+/// no longer fits in a u64, so this helper is currently unused. Kept for
+/// reference in case the dot_product fast paths are re-introduced under a
+/// future representation (e.g. u128 accumulators).
 #[inline]
 #[must_use]
+#[allow(dead_code)]
 pub(crate) const fn large_monty_reduce<MP: MontyParameters>(x: u64) -> u32 {
     // t = x * MONTY_MU mod MONTY
     let t = x.wrapping_mul(MP::MONTY_MU as u64) & (MP::MONTY_MASK as u64);
@@ -195,6 +201,7 @@ pub(crate) const fn large_monty_reduce<MP: MontyParameters>(x: u64) -> u32 {
 /// - One conditional subtraction for the final modular addition.
 ///
 /// No 128-bit division or modulo is ever performed.
+#[allow(dead_code)]
 pub(crate) const fn monty_reduce_u128<MP: MontyParameters>(x: u128) -> u32 {
     // Split the 128-bit input into its two limbs.
     //
