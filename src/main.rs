@@ -1,3 +1,8 @@
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use clap::Parser;
 use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark};
 

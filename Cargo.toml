@@ -88,6 +88,7 @@ utils.workspace = true
 lean_vm.workspace = true
 xmss.workspace = true
 backend.workspace = true
+mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -95,3 +96,4 @@ serde_json.workspace = true
 
 [profile.release]
 lto = "thin"
+codegen-units = 1
