@@ -57,7 +57,7 @@ fn mds_mul_generic<R: Algebra<Goldilocks>>(state: &mut [R; 8]) {
         // `row_i · input = sum_j ROW[(j - i) mod 8] · input[j]`
         let mut acc = input[0] * coeffs[(8 - i) % 8];
         for j in 1..8 {
-            acc = acc + input[j] * coeffs[(j + 8 - i) % 8];
+            acc += input[j] * coeffs[(j + 8 - i) % 8];
         }
         state[i] = acc;
     }
@@ -424,9 +424,9 @@ impl Poseidon1Goldilocks8 {
     }
 
     pub fn permute_mut(&self, state: &mut [Goldilocks; POSEIDON1_WIDTH]) {
-        for r in 0..POSEIDON1_HALF_FULL_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] += GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             for s in state.iter_mut() {
                 *s = sbox_full::<Goldilocks>(*s);
@@ -434,17 +434,25 @@ impl Poseidon1Goldilocks8 {
             mds_mul_scalar(state);
         }
 
-        for r in POSEIDON1_HALF_FULL_ROUNDS..POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] += GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .skip(POSEIDON1_HALF_FULL_ROUNDS)
+            .take(POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             state[0] = sbox_full::<Goldilocks>(state[0]);
             mds_mul_scalar(state);
         }
 
-        for r in POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS..POSEIDON1_N_ROUNDS {
-            for i in 0..POSEIDON1_WIDTH {
-                state[i] += GOLDILOCKS_POSEIDON1_RC_8[r][i];
+        for rc in GOLDILOCKS_POSEIDON1_RC_8
+            .iter()
+            .take(POSEIDON1_N_ROUNDS)
+            .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+        {
+            for (i, s) in state.iter_mut().enumerate() {
+                *s += rc[i];
             }
             for s in state.iter_mut() {
                 *s = sbox_full::<Goldilocks>(*s);

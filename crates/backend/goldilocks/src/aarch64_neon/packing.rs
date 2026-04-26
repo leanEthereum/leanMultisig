@@ -29,49 +29,7 @@ const WIDTH: usize = 2;
 /// Equal to `2^32 - 1 = 2^64 mod P`.
 const EPSILON: u64 = Goldilocks::ORDER_U64.wrapping_neg();
 
-/// Goldilocks scalar addition: `(a + b) mod P`. Handles u64 overflow via EPSILON.
-#[inline(always)]
-pub(super) const fn gadd(a: u64, b: u64) -> u64 {
-    let (sum, overflow) = a.overflowing_add(b);
-    let (res, _) = sum.overflowing_add(if overflow { EPSILON } else { 0 });
-    res
-}
-
-/// Goldilocks scalar subtraction: `(a - b) mod P`. Handles u64 underflow via EPSILON.
-#[inline(always)]
-pub(super) const fn gsub(a: u64, b: u64) -> u64 {
-    let (diff, borrow) = a.overflowing_sub(b);
-    let (res, _) = diff.overflowing_sub(if borrow { EPSILON } else { 0 });
-    res
-}
-
-/// Single Goldilocks 64x64 -> 64 mul + reduction in pure Rust.
-///
-/// LLVM emits `mul + umulh + 10-op reduction`, just like the inline-asm version, but as plain
-/// instructions the compiler can interleave across independent calls instead of treating each as
-/// an opaque asm block.
-#[inline(always)]
-pub(super) const fn mul_reduce(a: u64, b: u64) -> u64 {
-    let prod = (a as u128) * (b as u128);
-    let lo = prod as u64;
-    let hi = (prod >> 64) as u64;
-
-    let hi_hi = hi >> 32;
-    let hi_lo = hi & 0xFFFF_FFFF;
-
-    // tmp = lo - hi_hi; on borrow subtract EPSILON to fold P back in.
-    let (tmp_pre, borrow) = lo.overflowing_sub(hi_hi);
-    let tmp = tmp_pre.wrapping_sub(if borrow { EPSILON } else { 0 });
-
-    // hi_lo * (2^32 - 1) without an actual multiply.
-    let hi_lo_eps = (hi_lo << 32).wrapping_sub(hi_lo);
-
-    // result = tmp + hi_lo_eps; on overflow add EPSILON.
-    let (res_pre, overflow) = tmp.overflowing_add(hi_lo_eps);
-    res_pre.wrapping_add(if overflow { EPSILON } else { 0 })
-}
-
-/// Hand-scheduled inline-asm variant of [`mul_reduce`], tuned for the **scalar / single-lane Mul**
+/// Hand-scheduled inline-asm variant tuned for the **scalar / single-lane Mul**
 /// path on aarch64. Saves one ALU op vs the LLVM-emitted form by collapsing `lsr+subs` into the
 /// shifted-register `subs xT, lo, hi, lsr #32` form.
 #[inline(always)]
