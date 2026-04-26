@@ -480,6 +480,7 @@ dependencies = [
  "sub_protocols",
  "utils",
  "xmss",
+ "zk-alloc",
 ]
 
 [[package]]
@@ -921,6 +922,7 @@ dependencies = [
  "tracing",
  "utils",
  "xmss",
+ "zk-alloc",
 ]
 
 [[package]]
@@ -1434,6 +1436,10 @@ dependencies = [
  "sha3",
  "utils",
 ]
+
+[[package]]
+name = "zk-alloc"
+version = "0.1.0"
 
 [[package]]
 name = "zmij"

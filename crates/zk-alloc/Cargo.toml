@@ -1,0 +1,8 @@
+[package]
+name = "zk-alloc"
+version.workspace = true
+edition.workspace = true
+description = "Bump+reset arena allocator for ZK proving workloads"
+
+[lints]
+workspace = true
