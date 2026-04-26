@@ -365,6 +365,67 @@ fn square(x: __m256i) -> __m256i {
     reduce128(square64(x))
 }
 
+// =========================================================================
+// SIMD-vectorized Poseidon1 MDS multiplication
+// =========================================================================
+//
+// Computes the width-8 circulant MDS matrix-vector product entirely in
+// `__m256i` registers, with delayed reduction. Each output is
+// `sum_j MDS_ROW[(j-i) mod 8] * state[j]`. Coefficients are in
+// {1, 3, 4, 7, 8, 9} (max 9), so per-term products fit in u68 and sums of
+// 8 terms fit comfortably in u71.
+//
+// We multiply via two 32x32 `_mm256_mul_epu32` calls (low half and high
+// half of state). Sums of the low and high halves are accumulated
+// separately into u64s, then we assemble the (hi, lo) u128 pair and call
+// `reduce128`.
+
+use crate::poseidon1::{MDS8_ROW, POSEIDON1_WIDTH};
+
+/// SIMD MDS multiplication for the width-8 circulant Poseidon1 matrix.
+#[inline]
+pub(crate) fn mds_mul_simd(state: &mut [PackedGoldilocksAVX2; POSEIDON1_WIDTH]) {
+    unsafe {
+        let s: [__m256i; 8] = core::array::from_fn(|i| state[i].to_vector());
+        // Precompute the high 32 bits of every state slot once.
+        let s_hi: [__m256i; 8] = core::array::from_fn(|i| _mm256_srli_epi64::<32>(s[i]));
+
+        let mut out: [__m256i; 8] = [_mm256_setzero_si256(); 8];
+
+        for i in 0..8 {
+            let mut sum_ll = _mm256_setzero_si256();
+            let mut sum_hl = _mm256_setzero_si256();
+            for j in 0..8 {
+                // Row i is `MDS8_ROW` rotated right by i.
+                let c = MDS8_ROW[(j + 8 - i) % 8];
+                let c_vec = _mm256_set1_epi64x(c);
+                sum_ll = _mm256_add_epi64(sum_ll, _mm256_mul_epu32(s[j], c_vec));
+                sum_hl = _mm256_add_epi64(sum_hl, _mm256_mul_epu32(s_hi[j], c_vec));
+            }
+
+            // Total = sum_ll + (sum_hl << 32). Compose into (hi, lo) u128.
+            // sum_ll < 2^39, sum_hl < 2^39 (so sum_hl >> 32 < 2^7).
+            let sum_hl_shifted = _mm256_slli_epi64::<32>(sum_hl);
+            let lo = _mm256_add_epi64(sum_ll, sum_hl_shifted);
+            // Detect unsigned overflow: lo < sum_hl_shifted iff the add wrapped.
+            // AVX2 has no native unsigned compare; XOR with sign bit to convert.
+            let lo_s = _mm256_xor_si256(lo, SIGN_BIT);
+            let sum_hl_shifted_s = _mm256_xor_si256(sum_hl_shifted, SIGN_BIT);
+            // Mask is all-ones in lanes where lo < sum_hl_shifted.
+            let carry_mask = _mm256_cmpgt_epi64(sum_hl_shifted_s, lo_s);
+            let hi_no_carry = _mm256_srli_epi64::<32>(sum_hl);
+            // mask = -1 on overflow, 0 otherwise. Subtracting -1 is +1.
+            let hi = _mm256_sub_epi64(hi_no_carry, carry_mask);
+
+            out[i] = reduce128((hi, lo));
+        }
+
+        for i in 0..8 {
+            state[i] = PackedGoldilocksAVX2::from_vector(out[i]);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Goldilocks, PackedGoldilocksAVX2, WIDTH};

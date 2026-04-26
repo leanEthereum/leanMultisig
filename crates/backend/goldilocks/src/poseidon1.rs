@@ -14,7 +14,15 @@
 //! implements `InjectiveMonomial<7>`, mirroring the koala-bear crate's
 //! Poseidon1 surface.
 
-use field::{Algebra, Field, InjectiveMonomial, PackedValue, PrimeCharacteristicRing};
+#[cfg(any(
+    test,
+    not(any(
+        all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
+        all(target_arch = "x86_64", target_feature = "avx512f"),
+    )),
+))]
+use field::PackedValue;
+use field::{Algebra, Field, InjectiveMonomial, PrimeCharacteristicRing};
 
 use crate::Goldilocks;
 
@@ -532,9 +540,8 @@ impl Poseidon1Goldilocks8 {
     /// Compression-mode in-place permutation: `output = permute(input) + input`.
     ///
     /// When `R` matches the architecture's packed Goldilocks type, dispatches
-    /// to the SIMD-parallel path (deinterleave → per-lane scalar permute with
-    /// `u128`-accumulator MDS → reinterleave). When `R == Goldilocks`, uses the
-    /// scalar fast path (avoids the symbolic-friendly but slow `permute_generic`).
+    /// to the SIMD-parallel path. When `R == Goldilocks`, uses the scalar fast
+    /// path (avoids the symbolic-friendly but slow `permute_generic`).
     /// Otherwise falls back to the generic algebra path.
     #[inline]
     pub fn compress_in_place<R>(&self, state: &mut [R; POSEIDON1_WIDTH])
@@ -572,85 +579,154 @@ impl Poseidon1Goldilocks8 {
 
     /// SIMD-parallel compression over `<Goldilocks as Field>::Packing`.
     ///
-    /// The packed type's `Mul` fully reduces each multiplication, but the MDS
-    /// coefficients are tiny (max 9) so a `u128` accumulator with a single
-    /// `reduce128` per output (`mds_mul_scalar`) is far cheaper. We deinterleave
-    /// to per-lane scalar arrays, then run the rounds in lockstep across all
-    /// W lanes (RC add → sbox → MDS, all lanes per step) so the OoO core sees
-    /// W independent chains at every stage.
+    /// On x86_64 (AVX2 or AVX512), keeps state in packed registers throughout
+    /// the rounds. RC adds and sboxes use the packed `Add`/`square`/`Mul`
+    /// (which fully reduce), and the MDS uses the dedicated `mds_mul_simd`
+    /// (delayed reduction via shift+add multiplication by tiny constants).
+    ///
+    /// On other architectures (e.g. aarch64+NEON, scalar fallback), we
+    /// deinterleave to per-lane scalar arrays and run the rounds in lockstep
+    /// across all W lanes. The MDS coefficients are tiny (max 9), so the
+    /// scalar `mds_mul_scalar` (u128 accumulator + single `reduce128` per
+    /// output) is far cheaper than the packed type's fully-reducing `Mul`.
     #[inline]
     fn compress_in_place_simd(&self, state: &mut [<Goldilocks as Field>::Packing; POSEIDON1_WIDTH]) {
-        type P = <Goldilocks as Field>::Packing;
-        const W: usize = <P as PackedValue>::WIDTH;
-
-        let mut lanes: [[Goldilocks; POSEIDON1_WIDTH]; W] = [[Goldilocks::ZERO; POSEIDON1_WIDTH]; W];
-        for i in 0..POSEIDON1_WIDTH {
-            let s = state[i].as_slice();
-            for (k, lane) in lanes.iter_mut().enumerate() {
-                lane[i] = s[k];
-            }
-        }
-        let initial = lanes;
-
-        // Initial full rounds.
-        for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
-            for lane in lanes.iter_mut() {
-                for (i, s) in lane.iter_mut().enumerate() {
-                    *s += rc[i];
-                }
-            }
-            for lane in lanes.iter_mut() {
-                for s in lane.iter_mut() {
-                    *s = sbox_full::<Goldilocks>(*s);
-                }
-            }
-            for lane in lanes.iter_mut() {
-                mds_mul_scalar(lane);
-            }
-        }
-
-        // Partial rounds.
-        for rc in GOLDILOCKS_POSEIDON1_RC_8
-            .iter()
-            .skip(POSEIDON1_HALF_FULL_ROUNDS)
-            .take(POSEIDON1_PARTIAL_ROUNDS)
+        #[cfg(any(
+            all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
+            all(target_arch = "x86_64", target_feature = "avx512f"),
+        ))]
         {
-            for lane in lanes.iter_mut() {
-                for (i, s) in lane.iter_mut().enumerate() {
-                    *s += rc[i];
+            type P = <Goldilocks as Field>::Packing;
+
+            #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+            use crate::x86_64_avx2::packing::mds_mul_simd;
+            #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+            use crate::x86_64_avx512::packing::mds_mul_simd;
+
+            let initial = *state;
+
+            // Initial full rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+                for (i, s) in state.iter_mut().enumerate() {
+                    *s += P::from(rc[i]);
                 }
+                for s in state.iter_mut() {
+                    *s = sbox_full::<P>(*s);
+                }
+                mds_mul_simd(state);
             }
-            for lane in lanes.iter_mut() {
-                lane[0] = sbox_full::<Goldilocks>(lane[0]);
+
+            // Partial rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8
+                .iter()
+                .skip(POSEIDON1_HALF_FULL_ROUNDS)
+                .take(POSEIDON1_PARTIAL_ROUNDS)
+            {
+                for (i, s) in state.iter_mut().enumerate() {
+                    *s += P::from(rc[i]);
+                }
+                state[0] = sbox_full::<P>(state[0]);
+                mds_mul_simd(state);
             }
-            for lane in lanes.iter_mut() {
-                mds_mul_scalar(lane);
+
+            // Terminal full rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8
+                .iter()
+                .take(POSEIDON1_N_ROUNDS)
+                .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+            {
+                for (i, s) in state.iter_mut().enumerate() {
+                    *s += P::from(rc[i]);
+                }
+                for s in state.iter_mut() {
+                    *s = sbox_full::<P>(*s);
+                }
+                mds_mul_simd(state);
+            }
+
+            // Compression-mode add-back of the original input.
+            for (s, init) in state.iter_mut().zip(initial) {
+                *s += init;
             }
         }
 
-        // Terminal full rounds.
-        for rc in GOLDILOCKS_POSEIDON1_RC_8
-            .iter()
-            .take(POSEIDON1_N_ROUNDS)
-            .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+        #[cfg(not(any(
+            all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
+            all(target_arch = "x86_64", target_feature = "avx512f"),
+        )))]
         {
-            for lane in lanes.iter_mut() {
-                for (i, s) in lane.iter_mut().enumerate() {
-                    *s += rc[i];
-                }
-            }
-            for lane in lanes.iter_mut() {
-                for s in lane.iter_mut() {
-                    *s = sbox_full::<Goldilocks>(*s);
-                }
-            }
-            for lane in lanes.iter_mut() {
-                mds_mul_scalar(lane);
-            }
-        }
+            type P = <Goldilocks as Field>::Packing;
+            const W: usize = <P as PackedValue>::WIDTH;
 
-        for i in 0..POSEIDON1_WIDTH {
-            state[i] = P::from_fn(|k| lanes[k][i] + initial[k][i]);
+            let mut lanes: [[Goldilocks; POSEIDON1_WIDTH]; W] = [[Goldilocks::ZERO; POSEIDON1_WIDTH]; W];
+            for i in 0..POSEIDON1_WIDTH {
+                let s = state[i].as_slice();
+                for (k, lane) in lanes.iter_mut().enumerate() {
+                    lane[i] = s[k];
+                }
+            }
+            let initial = lanes;
+
+            // Initial full rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
+                for lane in lanes.iter_mut() {
+                    for (i, s) in lane.iter_mut().enumerate() {
+                        *s += rc[i];
+                    }
+                }
+                for lane in lanes.iter_mut() {
+                    for s in lane.iter_mut() {
+                        *s = sbox_full::<Goldilocks>(*s);
+                    }
+                }
+                for lane in lanes.iter_mut() {
+                    mds_mul_scalar(lane);
+                }
+            }
+
+            // Partial rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8
+                .iter()
+                .skip(POSEIDON1_HALF_FULL_ROUNDS)
+                .take(POSEIDON1_PARTIAL_ROUNDS)
+            {
+                for lane in lanes.iter_mut() {
+                    for (i, s) in lane.iter_mut().enumerate() {
+                        *s += rc[i];
+                    }
+                }
+                for lane in lanes.iter_mut() {
+                    lane[0] = sbox_full::<Goldilocks>(lane[0]);
+                }
+                for lane in lanes.iter_mut() {
+                    mds_mul_scalar(lane);
+                }
+            }
+
+            // Terminal full rounds.
+            for rc in GOLDILOCKS_POSEIDON1_RC_8
+                .iter()
+                .take(POSEIDON1_N_ROUNDS)
+                .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+            {
+                for lane in lanes.iter_mut() {
+                    for (i, s) in lane.iter_mut().enumerate() {
+                        *s += rc[i];
+                    }
+                }
+                for lane in lanes.iter_mut() {
+                    for s in lane.iter_mut() {
+                        *s = sbox_full::<Goldilocks>(*s);
+                    }
+                }
+                for lane in lanes.iter_mut() {
+                    mds_mul_scalar(lane);
+                }
+            }
+
+            for i in 0..POSEIDON1_WIDTH {
+                state[i] = P::from_fn(|k| lanes[k][i] + initial[k][i]);
+            }
         }
     }
 }
@@ -681,6 +757,55 @@ mod tests {
         let mut slow = input;
         p.permute_generic(&mut slow);
         assert_eq!(fast, slow);
+    }
+
+    /// SIMD MDS path must match the scalar MDS for arbitrary state.
+    #[cfg(any(
+        all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
+        all(target_arch = "x86_64", target_feature = "avx512f"),
+    ))]
+    #[test]
+    fn simd_mds_matches_scalar_mds() {
+        type P = <Goldilocks as Field>::Packing;
+        let width = <P as PackedValue>::WIDTH;
+
+        // Build packed state with distinct per-lane values, including some
+        // u64s near the field-order boundary to stress the reduction.
+        let mut packed: [P; 8] = [P::ZERO; 8];
+        let edges: [u64; 4] = [0, 1, crate::P - 1, u64::MAX];
+        for i in 0..8 {
+            packed[i] = P::from_fn(|k| {
+                if k < 4 && i % 2 == 0 {
+                    Goldilocks::new(edges[k])
+                } else {
+                    Goldilocks::new(0xa5a5_0000_0000_0001u64.wrapping_mul((i * 17 + k * 31 + 1) as u64))
+                }
+            });
+        }
+        let initial = packed;
+
+        // Reference: per-lane scalar MDS.
+        let mut expected_lanes: Vec<[Goldilocks; 8]> = (0..width)
+            .map(|k| std::array::from_fn(|i| initial[i].as_slice()[k]))
+            .collect();
+        for lane in expected_lanes.iter_mut() {
+            mds_mul_scalar(lane);
+        }
+
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
+        crate::x86_64_avx2::packing::mds_mul_simd(&mut packed);
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+        crate::x86_64_avx512::packing::mds_mul_simd(&mut packed);
+
+        for i in 0..8 {
+            for k in 0..width {
+                assert_eq!(
+                    packed[i].as_slice()[k],
+                    expected_lanes[k][i],
+                    "mismatch at slot {i}, lane {k}"
+                );
+            }
+        }
     }
 
     /// `compress_in_place::<Packing>` must agree with per-lane scalar compression.

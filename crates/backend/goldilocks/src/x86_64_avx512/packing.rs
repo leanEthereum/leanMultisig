@@ -165,10 +165,10 @@ const EPSILON: __m512i = unsafe { transmute([Goldilocks::ORDER_U64.wrapping_neg(
 
 #[inline]
 unsafe fn canonicalize(x: __m512i) -> __m512i {
-    unsafe {
-        let mask = _mm512_cmpge_epu64_mask(x, FIELD_ORDER);
-        _mm512_mask_sub_epi64(x, mask, x, FIELD_ORDER)
-    }
+    // For `x < ORDER`, `x - ORDER` underflows to a huge u64, so `min` picks the
+    // original. For `x >= ORDER`, `x - ORDER` is the canonical form (smaller),
+    // so `min` picks it. One sub + one min instead of cmpge + masked sub.
+    unsafe { _mm512_min_epu64(x, _mm512_sub_epi64(x, FIELD_ORDER)) }
 }
 
 /// Compute `x + y mod P`. Result may be > P.
@@ -305,6 +305,67 @@ fn mul(x: __m512i, y: __m512i) -> __m512i {
 #[inline]
 fn square(x: __m512i) -> __m512i {
     reduce128(square64(x))
+}
+
+// =========================================================================
+// SIMD-vectorized Poseidon1 MDS multiplication
+// =========================================================================
+//
+// Computes the width-8 circulant MDS matrix-vector product entirely in
+// `__m512i` registers, with delayed reduction. Each output is
+// `sum_j MDS_ROW[(j-i) mod 8] * state[j]`. Coefficients are in
+// {1, 3, 4, 7, 8, 9} (max 9), so per-term products fit in u68 and sums of
+// 8 terms fit comfortably in u71.
+//
+// We multiply via two 32x32 `_mm512_mul_epu32` calls (low half and high
+// half of state), which exploits that the constants fit in 4 bits (so the
+// "high 32 bits" operand of mul_epu32 is zero by construction). Sums of
+// the low and high halves are accumulated separately into u64s, then we
+// assemble the (hi, lo) u128 pair and call `reduce128`.
+
+use crate::poseidon1::{MDS8_ROW, POSEIDON1_WIDTH};
+
+/// SIMD MDS multiplication for the width-8 circulant Poseidon1 matrix.
+#[inline]
+pub(crate) fn mds_mul_simd(state: &mut [PackedGoldilocksAVX512; POSEIDON1_WIDTH]) {
+    unsafe {
+        let s: [__m512i; 8] = core::array::from_fn(|i| state[i].to_vector());
+        // Precompute the high 32 bits of every state slot once.
+        let s_hi: [__m512i; 8] = core::array::from_fn(|i| _mm512_srli_epi64::<32>(s[i]));
+
+        // For each output i, accumulate the dot product. With the inner loop
+        // bound by `8` and `MDS8_ROW` const, LLVM can fully unroll and fold
+        // the coefficient lookups.
+        let mut out: [__m512i; 8] = [_mm512_setzero_si512(); 8];
+
+        for i in 0..8 {
+            let mut sum_ll = _mm512_setzero_si512();
+            let mut sum_hl = _mm512_setzero_si512();
+            for j in 0..8 {
+                // Row i is `MDS8_ROW` rotated right by i, i.e. coefficient for
+                // `state[j]` in output `i` is `MDS8_ROW[(j + 8 - i) % 8]`.
+                let c = MDS8_ROW[(j + 8 - i) % 8];
+                let c_vec = _mm512_set1_epi64(c);
+                sum_ll = _mm512_add_epi64(sum_ll, _mm512_mul_epu32(s[j], c_vec));
+                sum_hl = _mm512_add_epi64(sum_hl, _mm512_mul_epu32(s_hi[j], c_vec));
+            }
+
+            // Total value = sum_ll + (sum_hl << 32). Compose into (hi, lo) u128.
+            // sum_ll < 2^39, sum_hl < 2^39, so sum_hl >> 32 < 2^7.
+            let sum_hl_shifted = _mm512_slli_epi64::<32>(sum_hl);
+            let lo = _mm512_add_epi64(sum_ll, sum_hl_shifted);
+            // Detect unsigned overflow: lo < sum_hl_shifted iff the add wrapped.
+            let carry_mask = _mm512_cmplt_epu64_mask(lo, sum_hl_shifted);
+            let hi_no_carry = _mm512_srli_epi64::<32>(sum_hl);
+            let hi = _mm512_mask_add_epi64(hi_no_carry, carry_mask, hi_no_carry, _mm512_set1_epi64(1));
+
+            out[i] = reduce128((hi, lo));
+        }
+
+        for i in 0..8 {
+            state[i] = PackedGoldilocksAVX512::from_vector(out[i]);
+        }
+    }
 }
 
 #[cfg(test)]
