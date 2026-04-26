@@ -134,7 +134,7 @@ fn run_loop<M: MemoryAccess>(
         if *pc == ENDING_PC {
             return Ok(LoopExit::Halted);
         }
-        if *pc >= bytecode.instructions.len() {
+        if *pc >= bytecode.code.len() {
             return Err(RunnerError::PCOutOfBounds);
         }
         trace.pcs.push(*pc);
@@ -143,7 +143,9 @@ fn run_loop<M: MemoryAccess>(
             *diag.cpu_cycles_before_new_line += 1;
         }
 
-        for hint in bytecode.hints.get(pc).map(|v| v.as_slice()).unwrap_or(&[]) {
+        let entry = &bytecode.code[*pc];
+
+        for hint in entry.hints.iter() {
             if let Hint::ParallelBatchStart { n_args, end_value } = hint {
                 if parallel_batch.is_none() {
                     parallel_batch = Some(ParallelBatchInfo {
@@ -172,7 +174,7 @@ fn run_loop<M: MemoryAccess>(
             hint.execute_hint(&mut ctx)?;
         }
 
-        let instruction = &bytecode.instructions[*pc];
+        let instruction = &entry.instruction;
         let mut ctx = InstructionContext {
             memory,
             fp,
@@ -330,7 +332,7 @@ fn execute_bytecode_helper(
         memory: memory.0.len(),
         n_poseidons: trace.tables[&Table::poseidon16()].columns[0].len(),
         n_extension_ops: trace.tables[&Table::extension_op()].columns[0].len(),
-        bytecode_size: bytecode.instructions.len(),
+        bytecode_size: bytecode.code.len(),
         public_input_size: public_input.len(),
         runtime_memory: runtime_memory_size,
         memory_usage_percent: used_memory_cells as f64 / memory.0.len() as f64 * 100.0,

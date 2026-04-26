@@ -317,7 +317,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     init_aggregation_bytecode();
     println!(
         "Aggregation program: {} instructions\n",
-        pretty_integer(get_aggregation_bytecode().instructions.len())
+        pretty_integer(get_aggregation_bytecode().code.len())
     );
 
     // Build display
