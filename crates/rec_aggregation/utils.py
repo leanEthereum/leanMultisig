@@ -59,7 +59,7 @@ def powers_const(alpha, n: Const):
 
 def poly_eq_extension_dynamic(point, n):
     debug_assert(n < 9)
-    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: compute_eq_mle_extension(point, i))
     return res
 
 
@@ -79,7 +79,7 @@ def product_first_n_const(values, n):
     return res
 
 
-def poly_eq_extension(point, n: Const):
+def compute_eq_mle_extension(point, n: Const):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
     res = Array((2 ** (n + 1) - 1) * DIM)
@@ -98,21 +98,21 @@ def poly_eq_extension(point, n: Const):
 
 
 @inline
-def eq_mle_extension_to(a, b, dst, n):
+def poly_eq_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
     match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, dst, i))
     return
 
 
-def eq_mle_extension(a, b, n):
+def poly_eq_extension_ret(a, b, n):
     res = Array(DIM)
-    eq_mle_extension_to(a, b, res, n)
+    poly_eq_extension_to(a, b, res, n)
     return res
 
 
 @inline
-def eq_mle_base_extension_to(a, b, dst, n):
+def poly_eq_base_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
     match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, dst, i))
@@ -120,18 +120,9 @@ def eq_mle_base_extension_to(a, b, dst, n):
 
 
 @inline
-def eq_mle_base_extension(a, b, n):
+def poly_eq_base_extension(a, b, n):
     res = Array(DIM)
-    eq_mle_base_extension_to(a, b, res, n)
-    return res
-
-
-def eq_mle_extension_base_const(a, b, n: Const):
-    # a: base (n elements, stride 1)
-    # b: extension (n elements, stride DIM)
-    # poly_eq_be with length n computes prod_i poly_eq(a[i], b[i]) via multiplicative accumulation
-    res = Array(DIM)
-    poly_eq_be(a, b, res, n)
+    poly_eq_base_extension_to(a, b, res, n)
     return res
 
 

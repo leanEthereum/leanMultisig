@@ -113,7 +113,7 @@ def whir_open(
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
         expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
-        eq_mle_extension_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
+        poly_eq_extension_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
     s: Mut = Array(DIM)
     dot_product_ee_dynamic(
         all_ood_recovered_evals,
@@ -131,7 +131,7 @@ def whir_open(
         my_folding_randomness += folding_factors[i] * DIM
         for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
-            eq_mle_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
+            poly_eq_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
             my_ood_recovered_evals,
@@ -144,7 +144,7 @@ def whir_open(
         circle_value_i = all_circle_values[i]
         for j in range(0, num_queries[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
-            eq_mle_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
+            poly_eq_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
         s7 = Array(DIM)
         dot_product_ee_dynamic(
             s6s,
