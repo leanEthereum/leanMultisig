@@ -1,5 +1,5 @@
 #![allow(clippy::needless_range_loop)]
-use field::{ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing};
+use field::{BasedVectorSpace, ExtensionField, Field, PackedFieldExtension, PackedValue, PrimeCharacteristicRing};
 use poly::{EFPacking, PARALLEL_THRESHOLD, PF, PFPacking, compute_eval_eq, eval_eq, packing_log_width};
 use rayon::prelude::*;
 
@@ -94,23 +94,79 @@ where
     let sel_off_p = sel_offset >> w;
     let n_lo = eq_lo.len();
     let stride = eq_hi.len(); // = 2^m_hi — coefficient of b_lo in the full b index
+    debug_assert_eq!(EF::DIMENSION, 5);
+
+    EFPacking::<EF>::to_ext_iter(reduce_svo_rows_one_inner::<EF, 5>(
+        rows_packed,
+        eq_lo,
+        eq_hi,
+        sel_off_p,
+        stride,
+        n_lo,
+        svo_len_p,
+    ))
+}
+
+#[inline]
+fn reduce_svo_rows_one_inner<EF, const D: usize>(
+    rows_packed: &[PFPacking<EF>],
+    eq_lo: &[EF],
+    eq_hi: &[EF],
+    sel_off_p: usize,
+    stride: usize,
+    n_lo: usize,
+    svo_len_p: usize,
+) -> Vec<EFPacking<EF>>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    const SVO_DOT_CHUNK: usize = 4;
+    debug_assert_eq!(EF::DIMENSION, D);
+
+    let mut cs: [Vec<PFPacking<EF>>; D] = core::array::from_fn(|_| Vec::with_capacity(stride));
+    for &e_hi in eq_hi.iter() {
+        let coefs = e_hi.as_basis_coefficients_slice();
+        for (d, c) in cs.iter_mut().enumerate() {
+            c.push(PFPacking::<EF>::from(coefs[d]));
+        }
+    }
 
     let zero = || vec![EFPacking::<EF>::ZERO; svo_len_p];
     let step = |mut acc: Vec<EFPacking<EF>>, b_lo: usize| {
-        // Inner reduction against eq_hi → tmp, scaled by eq_lo[b_lo] into acc.
         let base = b_lo * stride;
-        let mut tmp = vec![EFPacking::<EF>::ZERO; svo_len_p];
-        for b_hi in 0..stride {
-            let e_hi = EFPacking::<EF>::from(eq_hi[b_hi]);
-            let row_off = sel_off_p + (base + b_hi) * svo_len_p;
-            let row = &rows_packed[row_off..][..svo_len_p];
+
+        let mut tmp_basis = vec![PFPacking::<EF>::ZERO; D * svo_len_p];
+
+        let mut b_hi = 0;
+        while b_hi + SVO_DOT_CHUNK <= stride {
+            let lhs: [[PFPacking<EF>; SVO_DOT_CHUNK]; D] =
+                core::array::from_fn(|d| core::array::from_fn(|i| cs[d][b_hi + i]));
+
             for k in 0..svo_len_p {
-                tmp[k] += e_hi * row[k];
+                let row_off = sel_off_p + (base + b_hi) * svo_len_p + k;
+                let rhs: [PFPacking<EF>; SVO_DOT_CHUNK] =
+                    core::array::from_fn(|i| rows_packed[row_off + i * svo_len_p]);
+                for d in 0..D {
+                    tmp_basis[d * svo_len_p + k] += PFPacking::<EF>::dot_product::<SVO_DOT_CHUNK>(&lhs[d], &rhs);
+                }
             }
+            b_hi += SVO_DOT_CHUNK;
         }
+        while b_hi < stride {
+            let row_off = sel_off_p + (base + b_hi) * svo_len_p;
+            for k in 0..svo_len_p {
+                let r = rows_packed[row_off + k];
+                for d in 0..D {
+                    tmp_basis[d * svo_len_p + k] += cs[d][b_hi] * r;
+                }
+            }
+            b_hi += 1;
+        }
+
         let e_lo = EFPacking::<EF>::from(eq_lo[b_lo]);
         for k in 0..svo_len_p {
-            acc[k] += e_lo * tmp[k];
+            let tmp_k = EFPacking::<EF>::from_basis_coefficients_fn(|d| tmp_basis[d * svo_len_p + k]);
+            acc[k] += e_lo * tmp_k;
         }
         acc
     };
@@ -121,12 +177,11 @@ where
         a
     };
     let total_work = n_lo * stride * svo_len_p;
-    let acc_packed = if total_work < PARALLEL_THRESHOLD {
+    if total_work < PARALLEL_THRESHOLD {
         (0..n_lo).fold(zero(), step)
     } else {
         (0..n_lo).into_par_iter().fold(zero, step).reduce(zero, merge)
-    };
-    EFPacking::<EF>::to_ext_iter(acc_packed)
+    }
 }
 
 fn reduce_svo_rows_two<EF>(
