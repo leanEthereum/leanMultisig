@@ -113,7 +113,7 @@ def whir_open(
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
         expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
-        poly_eq_extension_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
+        poly_eq_extension_dynamic_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
     s: Mut = Array(DIM)
     dot_product_ee_dynamic(
         all_ood_recovered_evals,
@@ -131,7 +131,7 @@ def whir_open(
         my_folding_randomness += folding_factors[i] * DIM
         for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
-            poly_eq_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
+            poly_eq_extension_dynamic_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
             my_ood_recovered_evals,
@@ -295,7 +295,7 @@ def sample_stir_indexes_and_fold(
 
     folds = Array(num_queries * DIM)
 
-    poly_eq = poly_eq_extension_dynamic(folding_randomness, folding_factor)
+    poly_eq = compute_eq_mle_extension_dynamic(folding_randomness, folding_factor)
 
     if merkle_leaves_in_basefield == 1:
         for i in range(0, num_queries):

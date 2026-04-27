@@ -57,7 +57,7 @@ def powers_const(alpha, n: Const):
     return res
 
 
-def poly_eq_extension_dynamic(point, n):
+def compute_eq_mle_extension_dynamic(point, n):
     debug_assert(n < 9)
     res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: compute_eq_mle_extension(point, i))
     return res
@@ -86,7 +86,8 @@ def compute_eq_mle_extension(point, n: Const):
     set_to_one(res)
 
     for s in unroll(0, n):
-        p = point + (n - 1 - s) * DIM
+        p = Array(DIM)
+        copy_5(point + (n - 1 - s) * DIM, p)
         for i in unroll(0, 2**s):
             mul_extension(p, res + (2**s - 1 + i) * DIM, res + (2 ** (s + 1) - 1 + 2**s + i) * DIM)
             sub_extension(
@@ -98,16 +99,16 @@ def compute_eq_mle_extension(point, n: Const):
 
 
 @inline
-def poly_eq_extension_to(a, b, dst, n):
+def poly_eq_extension_dynamic_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
     match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, dst, i))
     return
 
 
-def poly_eq_extension_ret(a, b, n):
+def poly_eq_extension_dynamic_ret(a, b, n):
     res = Array(DIM)
-    poly_eq_extension_to(a, b, res, n)
+    poly_eq_extension_dynamic_to(a, b, res, n)
     return res
 
 
