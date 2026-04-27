@@ -431,7 +431,7 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
         bus_point = pcs_points[table_index][0]
-        eq_val = poly_eq_extension_ret(bus_point, all_challenges, log_n_rows)
+        eq_val = poly_eq_extension_dynamic_ret(bus_point, all_challenges, log_n_rows)
 
         k_t = product_first_n(all_challenges + log_n_rows * DIM, n_max - log_n_rows)
 
@@ -529,7 +529,7 @@ def continue_recursion_ordered(
 
     curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
 
-    eq_memory_and_acc_point = poly_eq_extension_ret(
+    eq_memory_and_acc_point = poly_eq_extension_dynamic_ret(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
         memory_and_acc_point,
         log_memory,
@@ -632,7 +632,7 @@ def continue_recursion_ordered(
                         )
                         curr_randomness += DIM
             # eq (up) values
-            eq_factor = poly_eq_extension_ret(point, inner_folding, log_n_rows)
+            eq_factor = poly_eq_extension_dynamic_ret(point, inner_folding, log_n_rows)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix = multilinear_location_prefix(
@@ -730,7 +730,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = poly_eq_extension_ret(point, postponed_point, n_vars)
+    eq_factor = poly_eq_extension_dynamic_ret(point, postponed_point, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
