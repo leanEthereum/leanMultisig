@@ -265,14 +265,33 @@ def factorial(n):
 #[test]
 fn debug_str_program() {
     let program = r#"
+BIG_ENDIAN = 0
+
 def main():
-    a = 2
-    b = 3
-    for i in unroll(0, a * b):
-        print(i)
+    a = 10
+    bits = checked_decompose_bits_small_value_const(a, 4)
+    assert bits[0] == 1
+    assert bits[1] == 0
+    assert bits[2] == 1
+    assert bits[3] == 0
     return
+
+def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
+    bits = Array(n_bits)
+    hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
+    sum: Mut = bits[n_bits - 1]
+    assert sum * (1 - sum) == 0
+    for i in unroll(1, n_bits):
+        b = bits[n_bits - 1 - i]
+        assert b * (1 - b) == 0
+        sum += b * 2**i
+    assert to_decompose == sum
+    return bits
+
    "#;
-    compile_and_run(&ProgramSource::Raw(program.to_string()), &[], false);
+    let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
+    try_execute_bytecode(&bytecode, &[], &ExecutionWitness::default(), false).unwrap();
+    println!("{}", bytecode.pretty_print());
 }
 
 #[test]
