@@ -172,8 +172,10 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     basis = Array(2**n * DIM)
     set_to_one(basis)
     for k in unroll(0, n):
+        p = Array(DIM)
+        copy_5(point + k * DIM, p)
         for j in unroll(0, 2**k):
-            mul_extension(basis + j * DIM, point + k * DIM, basis + (j + 2**k) * DIM)
+            mul_extension(basis + j * DIM, p, basis + (j + 2**k) * DIM)
     result = Array(DIM)
     dot_product_ee(coeffs, basis, result, 2**n)
     return result
