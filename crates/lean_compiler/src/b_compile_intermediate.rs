@@ -195,19 +195,14 @@ fn compile_lines(
                 }
             }
 
-            SimpleLine::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
+            SimpleLine::Assignment { var, op, arg0, arg1 } => {
                 // Track derived fp-relative variables: if result = fp_relative_var +/- constant,
                 // then the result is also fp-relative (e.g. `ptr = arr + 8` or `ptr = arr - 1`)
                 let mut is_dead_derived = false;
-                if let VarOrConstMallocAccess::Var(v) = var
-                    && (*operation == MathOperation::Add || *operation == MathOperation::Sub)
+                if let Some(v) = var.as_var()
+                    && (*op == MathOperation::Add || *op == MathOperation::Sub)
                 {
-                    let fp_offset = match (operation, arg0, arg1) {
+                    let fp_offset = match (op, arg0, arg1) {
                         // Add: commutative, either order
                         (
                             MathOperation::Add,
@@ -244,25 +239,22 @@ fn compile_lines(
                     continue;
                 }
 
-                // Skip assignments to vars that are never used as runtime operands
-                if let VarOrConstMallocAccess::Var(v) = var
-                    && compiler.dead_store_vars.contains(v)
-                {
-                    continue;
-                }
-
-                if let VarOrConstMallocAccess::Var(var) = var {
-                    compiler.register_var_if_needed(var);
+                if let Some(v) = var.as_var() {
+                    // Skip assignments to vars that are never used as runtime operands
+                    if compiler.dead_store_vars.contains(v) {
+                        continue;
+                    }
+                    compiler.register_var_if_needed(v);
                 }
 
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
                 instructions.push(IntermediateInstruction::computation(
-                    *operation,
+                    *op,
                     arg0,
                     arg1,
-                    IntermediateValue::from_simple_expr(&var.clone().into(), compiler),
+                    IntermediateValue::from_simple_expr(var, compiler),
                 ));
             }
 
@@ -855,12 +847,12 @@ fn collect_fp_rel_capable(
                 fp_rel_capable.insert(var.clone());
             }
             SimpleLine::Assignment {
-                var: VarOrConstMallocAccess::Var(v),
-                operation,
+                var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+                op,
                 arg0,
                 arg1,
-            } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
-                let base_var = match (operation, arg0, arg1) {
+            } if *op == MathOperation::Add || *op == MathOperation::Sub => {
+                let base_var = match (op, arg0, arg1) {
                     (
                         MathOperation::Add,
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
@@ -905,7 +897,7 @@ fn collect_use_info(
                 declared.insert(var.clone());
             }
             SimpleLine::Assignment {
-                var: VarOrConstMallocAccess::Var(v),
+                var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
                 ..
             } => {
                 declared.insert(v.clone());

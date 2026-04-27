@@ -1,5 +1,6 @@
 use crate::{
     CompilationFlags, F,
+    a_simplify_lang::post_optimization::propagate_copies,
     lang::*,
     parser::{ConstArrayValue, parse_program},
 };
@@ -13,6 +14,8 @@ use std::{
     fmt::{Display, Formatter},
 };
 use utils::{Counter, ToUsize};
+
+mod post_optimization;
 
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
@@ -72,8 +75,9 @@ pub enum SimpleLine {
         var: Var,
     },
     Assignment {
-        var: VarOrConstMallocAccess,
-        operation: MathOperation, // add / sub / div / mul
+        // `var = arg0 op arg1`
+        var: SimpleExpr,
+        op: MathOperation, // add / sub / div / mul
         arg0: SimpleExpr,
         arg1: SimpleExpr,
     },
@@ -147,10 +151,10 @@ pub enum SimpleLine {
 }
 
 impl SimpleLine {
-    pub fn equality(arg0: impl Into<VarOrConstMallocAccess>, arg1: impl Into<SimpleExpr>) -> Self {
+    pub fn equality(arg0: impl Into<SimpleExpr>, arg1: impl Into<SimpleExpr>) -> Self {
         SimpleLine::Assignment {
             var: arg0.into(),
-            operation: MathOperation::Add,
+            op: MathOperation::Add,
             arg0: arg1.into(),
             arg1: SimpleExpr::zero(),
         }
@@ -228,6 +232,28 @@ impl SimpleLine {
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
             Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::AssertEq { left, right, .. } => vec![left, right],
+            Self::HintWitness { destination, .. } => vec![destination],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
+        }
+    }
+
+    pub(crate) fn operand_exprs_mut(&mut self) -> Vec<&mut SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } => vec![arg0, arg1],
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile(p) => p.operand_exprs_mut().into_iter().collect(),
+            Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
+            Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::Print { content, .. } => content.iter_mut().collect(),
+            Self::DebugAssert(b, _) => vec![&mut b.left, &mut b.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -330,9 +356,12 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         new_functions.insert(name.clone(), simplified_function);
         const_malloc.map.clear();
     }
-    Ok(SimpleProgram {
+
+    let mut simple_program = SimpleProgram {
         functions: new_functions,
-    })
+    };
+    propagate_copies(&mut simple_program);
+    Ok(simple_program)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2428,7 +2457,7 @@ fn simplify_lines(
                                             }
                                             res.push(SimpleLine::Assignment {
                                                 var: target_var.into(),
-                                                operation: *operation,
+                                                op: *operation,
                                                 arg0: args_simplified[0].clone(),
                                                 arg1: args_simplified[1].clone(),
                                             });
@@ -2454,7 +2483,7 @@ fn simplify_lines(
                                 if let SimpleExpr::Constant(offset) = &simplified_index
                                     && let Some(array_name) = array.as_var()
                                     && let Some(label) = const_malloc.map.get(array_name)
-                                    && let Expression::MathExpr(operation, args) = value
+                                    && let Expression::MathExpr(op, args) = value
                                 {
                                     let var = VarOrConstMallocAccess::ConstMallocAccess {
                                         malloc_label: *label,
@@ -2466,18 +2495,18 @@ fn simplify_lines(
                                         .collect::<Result<Vec<_>, _>>()?;
                                     // If all operands are constants, evaluate at compile time
                                     if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
-                                        let result = ConstExpression::MathExpr(*operation, const_args);
+                                        let result = ConstExpression::MathExpr(*op, const_args);
                                         res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
                                     } else {
-                                        if !operation.supports_runtime() {
+                                        if !op.supports_runtime() {
                                             return Err(format!(
-                                                "Operation `{operation}` is compile-time only; all operands must be constants"
+                                                "Operation `{op}` is compile-time only; all operands must be constants"
                                             ));
                                         }
                                         assert_eq!(simplified_args.len(), 2);
                                         res.push(SimpleLine::Assignment {
-                                            var,
-                                            operation: *operation,
+                                            var: var.into(),
+                                            op: *op,
                                             arg0: simplified_args[0].clone(),
                                             arg1: simplified_args[1].clone(),
                                         });
@@ -2521,7 +2550,7 @@ fn simplify_lines(
                             let diff_var = state.counters.aux_var();
                             res.push(SimpleLine::Assignment {
                                 var: diff_var.clone().into(),
-                                operation: MathOperation::Sub,
+                                op: MathOperation::Sub,
                                 arg0: left,
                                 arg1: right,
                             });
@@ -2564,7 +2593,7 @@ fn simplify_lines(
                             let bound_minus_one = state.counters.aux_var();
                             res.push(SimpleLine::Assignment {
                                 var: bound_minus_one.clone().into(),
-                                operation: MathOperation::Sub,
+                                op: MathOperation::Sub,
                                 arg0: right,
                                 arg1: SimpleExpr::one(),
                             });
@@ -2624,7 +2653,7 @@ fn simplify_lines(
                 let diff_var = state.counters.aux_var();
                 res.push(SimpleLine::Assignment {
                     var: diff_var.clone().into(),
-                    operation: MathOperation::Sub,
+                    op: MathOperation::Sub,
                     arg0: left_simplified,
                     arg1: right_simplified,
                 });
@@ -2986,24 +3015,24 @@ fn simplify_expr(
             );
             Ok(VarOrConstMallocAccess::Var(aux_arr).into())
         }
-        Expression::MathExpr(operation, args) => {
+        Expression::MathExpr(op, args) => {
             let simplified_args = args
                 .iter()
                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, lines))
                 .collect::<Result<Vec<_>, _>>()?;
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
-                return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
+                return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*op, const_args)));
             }
-            if !operation.supports_runtime() {
+            if !op.supports_runtime() {
                 return Err(format!(
-                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                    "Operation `{op}` is compile-time only; all operands must be constants"
                 ));
             }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
             lines.push(SimpleLine::Assignment {
                 var: aux_var.clone().into(),
-                operation: *operation,
+                op: *op,
                 arg0: simplified_args[0].clone(),
                 arg1: simplified_args[1].clone(),
             });
@@ -3499,7 +3528,7 @@ fn handle_array_assignment(
             let base_var = state.counters.aux_var();
             res.push(SimpleLine::Assignment {
                 var: base_var.clone().into(),
-                operation: MathOperation::Add,
+                op: MathOperation::Add,
                 arg0: array.clone(),
                 arg1: SimpleExpr::zero(),
             });
@@ -3521,7 +3550,7 @@ fn handle_array_assignment(
             let ptr_var = state.counters.aux_var();
             res.push(SimpleLine::Assignment {
                 var: ptr_var.clone().into(),
-                operation: MathOperation::Add,
+                op: MathOperation::Add,
                 arg0: base_addr,
                 arg1: simplified_index,
             });
@@ -3552,7 +3581,7 @@ fn create_recursive_function(
     let next_iter = format!("@incremented_{iterator}");
     body.push(SimpleLine::Assignment {
         var: next_iter.clone().into(),
-        operation: MathOperation::Add,
+        op: MathOperation::Add,
         arg0: iterator.clone().into(),
         arg1: SimpleExpr::one(),
     });
@@ -3574,7 +3603,7 @@ fn create_recursive_function(
     let instructions = vec![
         SimpleLine::Assignment {
             var: diff_var.clone().into(),
-            operation: MathOperation::Sub,
+            op: MathOperation::Sub,
             arg0: iterator.into(),
             arg1: end,
         },
@@ -3932,13 +3961,8 @@ impl SimpleLine {
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
 
-            Self::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
-                format!("{var} = {arg0} {operation} {arg1}")
+            Self::Assignment { var, op, arg0, arg1 } => {
+                format!("{var} = {arg0} {op} {arg1}")
             }
             Self::CustomHint(hint, args) => {
                 format!(
