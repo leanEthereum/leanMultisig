@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use backend::PrimeCharacteristicRing;
 
-use crate::{F, a_simplify_lang::*};
+use crate::{F, a_simplify_lang::*, lang::ConstExpression};
 
 pub fn propagate_copies(program: &mut SimpleProgram) {
     for func in program.functions.values_mut() {
@@ -15,11 +15,16 @@ pub fn propagate_copies(program: &mut SimpleProgram) {
             apply_substitutions(&mut func.instructions, &subst);
         }
 
-        // Pass 2: fuse `RawAccess + AssertEq` into a single DEREF
+        // Pass 2: fold `v_inner = K + base; v_ptr = arr + v_inner; res = m[v_ptr + 0]`
+        // into `v_ptr = arr + base; res = m[v_ptr + K]`.
+        let refs = get_var_refs(&func.instructions);
+        fold_const_offset_into_deref(&mut func.instructions, &refs);
+
+        // Pass 3: fuse `RawAccess + AssertEq` into a single DEREF
         let refs = get_var_refs(&func.instructions);
         fuse_raw_asserts(&mut func.instructions, &refs);
 
-        // Pass 3: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
+        // Pass 4: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
         let refs = get_var_refs(&func.instructions);
         fuse_assign_asserts(&mut func.instructions, &refs);
     }
@@ -239,4 +244,123 @@ fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>
         }
     }
     apply_fusions(lines, fusions);
+}
+
+/// The simplifier lowers `arr[base + K]` (runtime `base`, compile-time const `K`)
+/// to three lines: compute `K + base`, add `arr`, then DEREF with shift = 0. But DEREF
+/// already takes a constant shift, so we can absorb K there and skip the inner add:
+///
+///   v_inner = K + base                       v_ptr = arr + base
+///   v_ptr   = arr + v_inner            ==>   res   = memory[v_ptr + K]
+///   res     = memory[v_ptr + 0]
+///
+/// Soundness: `v_inner` and `v_ptr` must each be uniquely defined and uniquely used
+fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>) {
+    for line in lines.iter_mut() {
+        for block in line.nested_blocks_mut() {
+            fold_const_offset_into_deref(block, refs);
+        }
+    }
+
+    // Map each uniquely-defined Add var to its line index.
+    let def_index: HashMap<Var, usize> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| match line {
+            SimpleLine::Assignment {
+                var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+                op: MathOperation::Add,
+                ..
+            } if refs.get(v).map(|r| r.definitions) == Some(1) => Some((v.clone(), i)),
+            _ => None,
+        })
+        .collect();
+
+    let one_use = |v: &Var| matches!(refs.get(v), Some(r) if r.definitions == 1 && r.uses == 1);
+
+    // Phase 1: collect (raw_access_idx, v_ptr_def_idx, arg_pos, mem_part, K, v_inner_def_idx, v_inner_var).
+    // (note the uses==1 on both v_ptr and v_inner)
+    let mut work: Vec<(usize, usize, usize, SimpleExpr, ConstExpression, usize, Var)> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let SimpleLine::RawAccess { index, shift, .. } = line else {
+            continue;
+        };
+        if shift.naive_eval() != Some(F::ZERO) {
+            continue;
+        }
+        let Some(v_ptr) = index.as_var() else { continue };
+        if !one_use(v_ptr) {
+            continue;
+        }
+        let Some(&v_ptr_idx) = def_index.get(v_ptr) else {
+            continue;
+        };
+        let SimpleLine::Assignment {
+            op: MathOperation::Add,
+            arg0,
+            arg1,
+            ..
+        } = &lines[v_ptr_idx]
+        else {
+            unreachable!();
+        };
+
+        for (pos, side) in [arg0, arg1].iter().enumerate() {
+            let Some(v_inner) = side.as_var() else { continue };
+            if !one_use(v_inner) {
+                continue;
+            }
+            let Some(&inner_idx) = def_index.get(v_inner) else {
+                continue;
+            };
+            let SimpleLine::Assignment {
+                op: MathOperation::Add,
+                arg0: a0,
+                arg1: a1,
+                ..
+            } = &lines[inner_idx]
+            else {
+                unreachable!();
+            };
+            let (k, mem) = match (a0, a1) {
+                (SimpleExpr::Constant(c), SimpleExpr::Memory(_)) => (c.clone(), a1.clone()),
+                (SimpleExpr::Memory(_), SimpleExpr::Constant(c)) => (c.clone(), a0.clone()),
+                _ => continue,
+            };
+            work.push((i, v_ptr_idx, pos, mem, k, inner_idx, v_inner.clone()));
+            break;
+        }
+    }
+
+    if work.is_empty() {
+        return;
+    }
+
+    // Phase 2: apply rewrites and collect lines/declarations to drop.
+    let mut to_drop = HashSet::<usize>::new();
+    let mut decls_to_drop = HashSet::<Var>::new();
+    for (raw_i, ptr_i, pos, mem, k, inner_i, var) in work {
+        let SimpleLine::RawAccess { shift, .. } = &mut lines[raw_i] else {
+            unreachable!();
+        };
+        *shift = k;
+        let SimpleLine::Assignment { arg0, arg1, .. } = &mut lines[ptr_i] else {
+            unreachable!();
+        };
+        if pos == 0 {
+            *arg0 = mem;
+        } else {
+            *arg1 = mem;
+        }
+        to_drop.insert(inner_i);
+        decls_to_drop.insert(var);
+    }
+
+    let mut idx = 0;
+    lines.retain(|line| {
+        let keep = !to_drop.contains(&idx)
+            && !matches!(line, SimpleLine::ForwardDeclaration { var } if decls_to_drop.contains(var));
+        idx += 1;
+        keep
+    });
 }
