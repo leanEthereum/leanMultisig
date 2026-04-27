@@ -148,10 +148,9 @@ def expand_from_univariate_base_const(alpha, n: Const):
     # alpha: F
 
     res = Array(n)
-    current: Mut = alpha
-    for i in unroll(0, n):
-        res[i] = current
-        current *= current
+    res[0] = alpha
+    for i in unroll(1, n):
+        res[i] = res[i - 1] * res[i - 1]
     return res
 
 
