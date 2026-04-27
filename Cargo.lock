@@ -1440,6 +1440,9 @@ dependencies = [
 [[package]]
 name = "zk-alloc"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "zmij"
