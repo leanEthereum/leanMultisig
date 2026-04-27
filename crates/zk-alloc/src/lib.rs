@@ -28,7 +28,7 @@ fn ensure_region() -> usize {
         if ptr.is_null() {
             std::process::abort();
         }
-        unsafe { syscall::madvise(ptr, REGION_SIZE, syscall::MADV_HUGEPAGE) };
+        unsafe { syscall::madvise(ptr, REGION_SIZE, syscall::MADV_NOHUGEPAGE) };
         REGION_BASE.store(ptr as usize, Ordering::Release);
     });
     REGION_BASE.load(Ordering::Acquire)
