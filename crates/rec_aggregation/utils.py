@@ -49,11 +49,15 @@ def powers(alpha, n):
 def powers_const(alpha, n: Const):
     # alpha: EF
     # n: F
+    debug_assert(n != 0)
 
     res = Array(n * DIM)
     set_to_one(res)
-    for i in unroll(0, n - 1):
-        mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
+    if n == 1:
+        return res
+    copy_5(alpha, res + DIM)
+    for i in unroll(1, n - 1):
+        mul_extension(res + i * DIM, res + DIM, res + (i + 1) * DIM)
     return res
 
 
