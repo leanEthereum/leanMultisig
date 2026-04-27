@@ -315,6 +315,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     let (pub_keys, signatures): (Vec<_>, Vec<_>) = cache[..n_sigs].iter().cloned().unzip();
 
     init_aggregation_bytecode();
+
     println!(
         "Aggregation program: {} instructions\n",
         pretty_integer(get_aggregation_bytecode().code.len())
@@ -330,8 +331,14 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         display.print_initial();
     }
 
+    #[cfg(feature = "zkalloc")]
+    zk_alloc::phase_boundary();
+
     let (global_pub_keys, aggregated_sigs, time) =
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
+
+    #[cfg(feature = "zkalloc")]
+    zk_alloc::deactivate_arena();
 
     // Verify root proof
     crate::xmss_verify_aggregation(

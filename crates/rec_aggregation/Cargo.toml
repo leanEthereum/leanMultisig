@@ -8,6 +8,7 @@ workspace = true
 
 [features]
 prox-gaps-conjecture = ["lean_prover/prox-gaps-conjecture"]
+zkalloc = ["dep:zk-alloc"]
 
 [dependencies]
 utils.workspace = true
@@ -23,6 +24,7 @@ backend.workspace = true
 postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
+zk-alloc = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", default-features = false, features = ["std"] }
