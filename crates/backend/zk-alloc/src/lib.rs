@@ -25,27 +25,59 @@ use system_info::NUM_THREADS;
 
 mod syscall;
 
-#[derive(Debug)]
-pub struct ZkAllocator;
-
-static GENERATION: AtomicUsize = AtomicUsize::new(0);
-static ALLOC_IMPL: AtomicBool = AtomicBool::new(false);
-
 const SLAB_SIZE: usize = 8 << 30; // 8GB
-
-// SLACK absorbs the main thread and any non-rayon helpers
-const SLACK: usize = 4;
+const SLACK: usize = 4; // SLACK absorbs the main thread and any non-rayon helpers.
 const MAX_THREADS: usize = NUM_THREADS + SLACK;
 const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 
+#[derive(Debug)]
+pub struct ZkAllocator;
+
+/// Incremented by `begin_phase()`. Every thread caches the last value it saw in
+/// `ARENA_GEN`; when they differ, the thread resets its allocation cursor to the start
+/// of its slab on the next allocation. This is how a single store on the main thread
+/// "resets" every other thread's slab without any cross-thread synchronization.
+static GENERATION: AtomicUsize = AtomicUsize::new(0);
+
+/// Master switch for the arena. `true` (set by `begin_phase`) routes allocations
+/// through the arena; `false` (set by `end_phase`) routes them to the system allocator.
+static ARENA_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Base address of the mmap'd region, or `0` before `ensure_region` runs. Read on
+/// every `dealloc` to test whether a pointer belongs to us.
 static REGION_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// Synchronizes the one-time mmap so concurrent first-allocators don't race.
 static REGION_INIT: Once = Once::new();
+
+/// Monotonic counter handed out to threads to pick their slab. `fetch_add`'d once per
+/// thread on its first arena allocation. Threads that get `idx >= MAX_THREADS` mark
+/// themselves `ARENA_NO_SLAB` and permanently fall through to the system allocator.
 static THREAD_IDX: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    /// Where this thread's next allocation lands. Advanced past each allocation.
+    static ARENA_PTR: Cell<usize> = const { Cell::new(0) };
+    /// One past the last byte of this thread's slab. An alloc fits iff
+    /// `aligned + size <= ARENA_END`.
+    static ARENA_END: Cell<usize> = const { Cell::new(0) };
+    /// Base address of this thread's slab (`0` = not yet claimed). On reset,
+    /// `ARENA_PTR` is set back to this value.
+    static ARENA_BASE: Cell<usize> = const { Cell::new(0) };
+    /// Last `GENERATION` value this thread observed. When the global moves past
+    /// this, the next allocation resets `ARENA_PTR` to `ARENA_BASE` and updates
+    /// this field.
+    static ARENA_GEN: Cell<usize> = const { Cell::new(0) };
+    /// `true` if this thread was created after `MAX_THREADS` was already exhausted.
+    /// Such threads skip arena logic entirely and always go to the system allocator.
+    static ARENA_NO_SLAB: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Returns the base address of the mmap'd region, mapping it on the first call.
 fn ensure_region() -> usize {
     REGION_INIT.call_once(|| {
-        // SAFETY: mmap_anonymous returns a page-aligned pointer or null.
-        // MAP_NORESERVE means no physical memory is committed yet.
+        // SAFETY: mmap_anonymous returns a page-aligned pointer or null. MAP_NORESERVE
+        // means no physical memory is committed until pages are touched.
         let ptr = unsafe { syscall::mmap_anonymous(REGION_SIZE) };
         if ptr.is_null() {
             std::process::abort();
@@ -56,30 +88,26 @@ fn ensure_region() -> usize {
     REGION_BASE.load(Ordering::Acquire)
 }
 
-thread_local! {
-    static ARENA_PTR: Cell<usize> = const { Cell::new(0) };
-    static ARENA_END: Cell<usize> = const { Cell::new(0) };
-    static ARENA_BASE: Cell<usize> = const { Cell::new(0) };
-    static ARENA_GEN: Cell<usize> = const { Cell::new(0) };
-    static ARENA_NO_SLAB: Cell<bool> = const { Cell::new(false) };
-}
-
 /// Call once at process start, before any `begin_phase()`.
 pub fn init() {
-    let actual = std::thread::available_parallelism().unwrap().get();
+    let actual_num_threads = std::thread::available_parallelism().unwrap().get();
     assert_eq!(
-        actual, NUM_THREADS,
-        "built for {NUM_THREADS} threads but this machine reports {actual} -> please rebuild`"
+        actual_num_threads, NUM_THREADS,
+        "built for {NUM_THREADS} threads but this machine reports {actual_num_threads} -> please rebuild`"
     );
 }
 
+/// Activates the arena and resets every thread's slab. All allocations until the next
+/// `end_phase()` go to the arena; the previous phase's data is overwritten in place.
 pub fn begin_phase() {
     GENERATION.fetch_add(1, Ordering::Release);
-    ALLOC_IMPL.store(true, Ordering::Release);
+    ARENA_ACTIVE.store(true, Ordering::Release);
 }
 
+/// Deactivates the arena. New allocations go to the system allocator; existing arena
+/// pointers stay valid until the next `begin_phase()` resets the slabs.
 pub fn end_phase() {
-    ALLOC_IMPL.store(false, Ordering::Release);
+    ARENA_ACTIVE.store(false, Ordering::Release);
 }
 
 #[cold]
@@ -113,13 +141,13 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
 
 // SAFETY: All pointers returned are either from our mmap'd region (valid, aligned,
 // non-overlapping per thread) or from System. The arena is thread-local so no data
-// races. Relaxed ordering on ALLOC_IMPL/GENERATION is sound: worst case a thread
+// races. Relaxed ordering on ARENA_ACTIVE/GENERATION is sound: worst case a thread
 // sees a stale value and does one extra system-alloc before picking up the new
 // generation on the next call.
 unsafe impl GlobalAlloc for ZkAllocator {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ALLOC_IMPL.load(Ordering::Relaxed) {
+        if ARENA_ACTIVE.load(Ordering::Relaxed) {
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
                 let align = layout.align();
