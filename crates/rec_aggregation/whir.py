@@ -173,8 +173,7 @@ def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
 def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + sc_round * DIM)
@@ -191,8 +190,7 @@ def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
 def sumcheck_verify_reversed_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + (n_steps - 1 - sc_round) * DIM)
@@ -204,8 +202,7 @@ def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Co
     challenges = Array(n_steps * DIM)
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs = fs_grinding(fs, folding_grinding_bits)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
@@ -360,11 +357,11 @@ def whir_round(
         final_sum,
     )
 
-
 @inline
-def polynomial_sum_at_0_and_1(coeffs, degree):
+def polynomial_sum_at_0_and_1(coeffs, degree, dst):
     debug_assert(1 < degree)
-    return add_extension_ret(sum_continuous_ef(coeffs, degree + 1), coeffs)
+    add_ee(sum_continuous_ef(coeffs, degree + 1), coeffs, dst)
+    return
 
 
 def parse_commitment(fs: Mut, num_ood):
