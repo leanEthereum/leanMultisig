@@ -82,12 +82,12 @@ lz4_flex = "0.13.0"
 
 [features]
 prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]
-zkalloc = ["dep:zk-alloc", "rec_aggregation/zkalloc"]
+standard-alloc = ["rec_aggregation/standard-alloc"]
 
 [dependencies]
 clap.workspace = true
 rec_aggregation.workspace = true
-zk-alloc = { workspace = true, optional = true }
+zk-alloc.workspace = true
 rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true

@@ -1,7 +1,7 @@
 use clap::Parser;
 use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark, biggest_leaf};
 
-#[cfg(feature = "zkalloc")]
+#[cfg(not(feature = "standard-alloc"))]
 #[global_allocator]
 static ALLOC: zk_alloc::ZkAllocator = zk_alloc::ZkAllocator;
 
@@ -52,7 +52,7 @@ fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool
 }
 
 fn main() {
-    #[cfg(feature = "zkalloc")]
+    #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::phase_boundary();
 
     let cli = Cli::parse();

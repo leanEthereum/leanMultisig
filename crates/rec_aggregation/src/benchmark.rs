@@ -263,7 +263,7 @@ fn build_aggregation(
     // Per-node arena cycle: rotate to reclaim the previous node's intermediates,
     // run the heavy work in arena, then deactivate and clone the small output to
     // System so the next rotation can safely reset the slabs.
-    #[cfg(feature = "zkalloc")]
+    #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::phase_boundary();
 
     let (global_pub_keys, result) = xmss_aggregate(
@@ -274,9 +274,9 @@ fn build_aggregation(
         topology.log_inv_rate,
     );
 
-    #[cfg(feature = "zkalloc")]
+    #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::deactivate_arena();
-    #[cfg(feature = "zkalloc")]
+    #[cfg(not(feature = "standard-alloc"))]
     let (global_pub_keys, result) = (global_pub_keys.clone(), result.clone());
 
     let elapsed = time.elapsed();
