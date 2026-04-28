@@ -1,7 +1,7 @@
 use std::alloc::{GlobalAlloc, Layout};
 use std::cell::Cell;
 use std::sync::Once;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use system_info::NUM_THREADS;
 
@@ -11,8 +11,8 @@ mod syscall;
 pub struct ZkAllocator;
 
 static GENERATION: AtomicUsize = AtomicUsize::new(0);
-static ALLOC_IMPL: AtomicUsize = AtomicUsize::new(0);
-static WARMUP_DONE: AtomicUsize = AtomicUsize::new(0);
+static ALLOC_IMPL: AtomicBool = AtomicBool::new(false);
+static WARMUP_DONE: AtomicBool = AtomicBool::new(false);
 
 const SLAB_SIZE: usize = 8 << 30; // 8GB
 
@@ -44,32 +44,32 @@ thread_local! {
     static ARENA_END: Cell<usize> = const { Cell::new(0) };
     static ARENA_BASE: Cell<usize> = const { Cell::new(0) };
     static ARENA_GEN: Cell<usize> = const { Cell::new(0) };
+    static ARENA_NO_SLAB: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn phase_boundary() {
-    let prev = WARMUP_DONE.load(Ordering::Relaxed);
-    if prev == 0 {
+    if !WARMUP_DONE.load(Ordering::Relaxed) {
         let actual = std::thread::available_parallelism().unwrap().get();
         assert_eq!(
             actual, NUM_THREADS,
             "built for {NUM_THREADS} threads but this machine reports {actual} -> please rebuild`"
         );
-        WARMUP_DONE.store(1, Ordering::Relaxed);
+        WARMUP_DONE.store(true, Ordering::Relaxed);
         return;
     }
     GENERATION.fetch_add(1, Ordering::Release);
-    ALLOC_IMPL.store(1, Ordering::Release);
+    ALLOC_IMPL.store(true, Ordering::Release);
 }
 
 pub fn deactivate_arena() {
-    ALLOC_IMPL.store(0, Ordering::Release);
+    ALLOC_IMPL.store(false, Ordering::Release);
 }
 
 #[cold]
 #[inline(never)]
 unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
     let generation = GENERATION.load(Ordering::Relaxed);
-    if ARENA_GEN.get() != generation {
+    if !ARENA_NO_SLAB.get() && ARENA_GEN.get() != generation {
         let base = ARENA_BASE.get();
         if base != 0 {
             // Generation changed — reset bump pointer to slab base.
@@ -86,7 +86,7 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
             let region = ensure_region();
             let idx = THREAD_IDX.fetch_add(1, Ordering::Relaxed);
             if idx >= MAX_THREADS {
-                ARENA_BASE.set(1); // sentinel: this thread has no slab
+                ARENA_NO_SLAB.set(true);
                 // SAFETY: size and align are from a valid Layout (caller contract).
                 return unsafe { std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align)) };
             }
@@ -115,8 +115,7 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
 unsafe impl GlobalAlloc for ZkAllocator {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let active = ALLOC_IMPL.load(Ordering::Relaxed);
-        if active != 0 {
+        if ALLOC_IMPL.load(Ordering::Relaxed) {
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
                 let ptr = ARENA_PTR.get();

@@ -260,9 +260,6 @@ fn build_aggregation(
 
     let time = Instant::now();
 
-    // Per-node arena cycle: rotate to reclaim the previous node's intermediates,
-    // run the heavy work in arena, then deactivate and clone the small output to
-    // System so the next rotation can safely reset the slabs.
     #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::phase_boundary();
 

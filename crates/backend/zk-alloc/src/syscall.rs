@@ -95,10 +95,9 @@ mod imp {
     }
 
     #[inline]
-    pub unsafe fn madvise(ptr: *mut u8, size: usize, advice: usize) {
-        // On platforms that don't have the requested advice value, this becomes
-        // a best-effort no-op (libc::madvise will return EINVAL, which we ignore).
-        unsafe { libc::madvise(ptr.cast::<libc::c_void>(), size, advice as libc::c_int) };
+    pub unsafe fn madvise(_ptr: *mut u8, _size: usize, _advice: usize) {
+        // The advice values we pass (MADV_HUGEPAGE / MADV_NOHUGEPAGE) are
+        // Linux-specific
     }
 }
 
