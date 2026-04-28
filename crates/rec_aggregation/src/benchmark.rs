@@ -30,10 +30,11 @@ struct LiveTree {
     max_plain_len: usize,
     statuses: Vec<Option<NodeStats>>,
     n_nodes: usize,
+    silent: bool,
 }
 
 impl LiveTree {
-    fn new(descs: Vec<String>, plain_lens: Vec<usize>) -> Self {
+    fn new(descs: Vec<String>, plain_lens: Vec<usize>, silent: bool) -> Self {
         let max_plain_len = plain_lens.iter().copied().max().unwrap_or(0);
         let n_nodes = descs.len();
         Self {
@@ -42,6 +43,7 @@ impl LiveTree {
             max_plain_len,
             statuses: vec![None; n_nodes],
             n_nodes,
+            silent,
         }
     }
 
@@ -108,6 +110,9 @@ impl LiveTree {
     }
 
     fn print_initial(&self) {
+        if self.silent {
+            return;
+        }
         println!("{}", self.header());
         for i in 0..self.n_nodes {
             println!("{}", self.format_line(i));
@@ -118,6 +123,9 @@ impl LiveTree {
 
     fn update_node(&mut self, index: usize, stats: NodeStats) {
         self.statuses[index] = Some(stats);
+        if self.silent {
+            return;
+        }
         let line = self.format_line(index);
         let up = self.n_nodes + 1 - index;
         print!("\x1b[{}A\r\x1b[2K{}\x1b[{}B\r", up, line, up);
@@ -251,6 +259,13 @@ fn build_aggregation(
         .collect();
 
     let time = Instant::now();
+
+    // Per-node arena cycle: rotate to reclaim the previous node's intermediates,
+    // run the heavy work in arena, then deactivate and clone the small output to
+    // System so the next rotation can safely reset the slabs.
+    #[cfg(feature = "zkalloc")]
+    zk_alloc::phase_boundary();
+
     let (global_pub_keys, result) = xmss_aggregate(
         &children,
         raw_xmss,
@@ -258,6 +273,12 @@ fn build_aggregation(
         BENCHMARK_SLOT,
         topology.log_inv_rate,
     );
+
+    #[cfg(feature = "zkalloc")]
+    zk_alloc::deactivate_arena();
+    #[cfg(feature = "zkalloc")]
+    let (global_pub_keys, result) = (global_pub_keys.clone(), result.clone());
+
     let elapsed = time.elapsed();
 
     if tracing {
@@ -297,7 +318,7 @@ fn build_aggregation(
     (global_pub_keys, result, elapsed.as_secs_f64())
 }
 
-pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool, silent: bool) -> f64 {
     // Tell macOS this is a user-initiated, latency-critical computation and
     // should not be throttled / App-Napped.
     #[cfg(target_os = "macos")]
@@ -316,29 +337,25 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
 
     init_aggregation_bytecode();
 
-    println!(
-        "Aggregation program: {} instructions\n",
-        pretty_integer(get_aggregation_bytecode().code.len())
-    );
+    if !silent {
+        println!(
+            "Aggregation program: {} instructions\n",
+            pretty_integer(get_aggregation_bytecode().code.len())
+        );
+    }
 
     // Build display
     let mut descs = vec![];
     let mut plain_lens = vec![];
     build_tree_descs(topology, overlap, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
-    let mut display = LiveTree::new(descs, plain_lens);
+    let mut display = LiveTree::new(descs, plain_lens, silent);
 
     if !tracing {
         display.print_initial();
     }
 
-    #[cfg(feature = "zkalloc")]
-    zk_alloc::phase_boundary();
-
     let (global_pub_keys, aggregated_sigs, time) =
         build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
-
-    #[cfg(feature = "zkalloc")]
-    zk_alloc::deactivate_arena();
 
     // Verify root proof
     crate::xmss_verify_aggregation(
@@ -404,7 +421,7 @@ fn test_aggregation_throughput_per_num_xmss() {
             children: vec![],
             log_inv_rate,
         };
-        let time = run_aggregation_benchmark(&topology, 0, false);
+        let time = run_aggregation_benchmark(&topology, 0, false, true);
         num_xmss_and_time.push((num_xmss, time));
         println!(
             "{} XMSS -> {} XMSS/s",

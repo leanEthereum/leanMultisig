@@ -1,5 +1,5 @@
 use clap::Parser;
-use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark};
+use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark, biggest_leaf};
 
 #[cfg(feature = "zkalloc")]
 #[global_allocator]
@@ -36,6 +36,21 @@ enum Cli {
     },
 }
 
+fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool, repeat: usize) {
+    let warmup = biggest_leaf(topology).unwrap();
+    println!(
+        "warming up with {} raw XMSS sigs (log_inv_rate={})...",
+        warmup.raw_xmss, warmup.log_inv_rate
+    );
+    let _ = run_aggregation_benchmark(&warmup, 0, false, true);
+    for i in 0..repeat {
+        let t = run_aggregation_benchmark(topology, overlap, tracing, false);
+        if repeat > 1 {
+            eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);
+        }
+    }
+}
+
 fn main() {
     #[cfg(feature = "zkalloc")]
     zk_alloc::phase_boundary();
@@ -54,12 +69,7 @@ fn main() {
                 children: vec![],
                 log_inv_rate,
             };
-            for i in 0..repeat {
-                let t = run_aggregation_benchmark(&topology, 0, tracing);
-                if repeat > 1 {
-                    eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);
-                }
-            }
+            run_with_warmup(&topology, 0, tracing, repeat);
         }
         Cli::Recursion {
             n,
@@ -79,12 +89,7 @@ fn main() {
                 ],
                 log_inv_rate,
             };
-            for i in 0..repeat {
-                let t = run_aggregation_benchmark(&topology, 0, tracing);
-                if repeat > 1 {
-                    eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);
-                }
-            }
+            run_with_warmup(&topology, 0, tracing, repeat);
         }
         Cli::FancyAggregation { repeat } => {
             let topology = AggregationTopology {
@@ -129,12 +134,7 @@ fn main() {
                 }],
                 log_inv_rate: 4,
             };
-            for i in 0..repeat {
-                let t = run_aggregation_benchmark(&topology, 5, false);
-                if repeat > 1 {
-                    eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);
-                }
-            }
+            run_with_warmup(&topology, 5, false, repeat);
         }
     }
 }

@@ -27,7 +27,7 @@ fn test_aggregation() {
             children: vec![],
             log_inv_rate: 1,
         };
-        run_aggregation_benchmark(&topology, 0, false);
+        run_aggregation_benchmark(&topology, 0, false, true);
     }
 }
 
