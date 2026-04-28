@@ -38,10 +38,7 @@ enum Cli {
 
 fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool, repeat: usize) {
     let warmup = biggest_leaf(topology).unwrap();
-    println!(
-        "warming up with {} raw XMSS sigs (log_inv_rate={})...",
-        warmup.raw_xmss, warmup.log_inv_rate
-    );
+    println!("warming up...");
     let _ = run_aggregation_benchmark(&warmup, 0, false, true);
     for i in 0..repeat {
         let t = run_aggregation_benchmark(topology, overlap, tracing, false);
