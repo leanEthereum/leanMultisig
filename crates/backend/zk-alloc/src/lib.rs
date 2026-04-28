@@ -1,3 +1,21 @@
+//! Bump-pointer arena allocator.
+//!
+//! One mmap region split into per-thread slabs. Allocation = increment a thread-local
+//! pointer; free = no-op. `begin_phase()` resets the arena: each thread's next
+//! allocation starts over at the beginning of its slab, overwriting the previous
+//! phase's data. Allocations that don't fit (too large, or beyond `MAX_THREADS`) fall
+//! back to the system allocator.
+//!
+//! ```ignore
+//! init();                          // once, at process start
+//! loop {
+//!     begin_phase();               // arena ON; slabs reset lazily
+//!     let res = heavy_work();      // fast increments
+//!     end_phase();                 // arena OFF; new allocations go to System
+//!     let copy = res.clone();      // detach from arena before next phase resets it
+//! }
+//! ```
+
 use std::alloc::{GlobalAlloc, Layout};
 use std::cell::Cell;
 use std::sync::Once;
@@ -46,7 +64,7 @@ thread_local! {
     static ARENA_NO_SLAB: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Call once at process start, before any `phase_boundary()`.
+/// Call once at process start, before any `begin_phase()`.
 pub fn init() {
     let actual = std::thread::available_parallelism().unwrap().get();
     assert_eq!(
@@ -55,12 +73,12 @@ pub fn init() {
     );
 }
 
-pub fn phase_boundary() {
+pub fn begin_phase() {
     GENERATION.fetch_add(1, Ordering::Release);
     ALLOC_IMPL.store(true, Ordering::Release);
 }
 
-pub fn deactivate_arena() {
+pub fn end_phase() {
     ALLOC_IMPL.store(false, Ordering::Release);
 }
 
