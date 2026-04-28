@@ -18,6 +18,7 @@ members = [
     "crates/backend/air",
     "crates/backend/fiat-shamir",
     "crates/backend/sumcheck",
+    "crates/backend/system-info",
 ]
 
 [workspace.lints]
@@ -59,6 +60,7 @@ lean_compiler = { path = "crates/lean_compiler" }
 lean_prover = { path = "crates/lean_prover" }
 rec_aggregation = { path = "crates/rec_aggregation" }
 backend = { path = "crates/backend" }
+system-info = { path = "crates/backend/system-info" }
 
 # External
 sha3 = "0.11.0"
