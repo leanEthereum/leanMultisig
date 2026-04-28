@@ -15,7 +15,6 @@ mod imp {
     const MAP_ANONYMOUS: usize = 0x20;
     const MAP_NORESERVE: usize = 0x4000;
 
-    pub const MADV_HUGEPAGE: usize = 14;
     pub const MADV_NOHUGEPAGE: usize = 15;
 
     #[inline]
@@ -75,7 +74,6 @@ mod imp {
 mod imp {
     use std::ptr;
 
-    pub const MADV_HUGEPAGE: usize = 14;
     pub const MADV_NOHUGEPAGE: usize = 15;
 
     #[inline]
@@ -95,8 +93,7 @@ mod imp {
 
     #[inline]
     pub unsafe fn madvise(_ptr: *mut u8, _size: usize, _advice: usize) {
-        // The advice values we pass (MADV_HUGEPAGE / MADV_NOHUGEPAGE) are
-        // Linux-specific
+        // The advice values we pass are Linux-specific.
     }
 }
 

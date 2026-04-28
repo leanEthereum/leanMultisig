@@ -12,7 +12,6 @@ pub struct ZkAllocator;
 
 static GENERATION: AtomicUsize = AtomicUsize::new(0);
 static ALLOC_IMPL: AtomicBool = AtomicBool::new(false);
-static WARMUP_DONE: AtomicBool = AtomicBool::new(false);
 
 const SLAB_SIZE: usize = 8 << 30; // 8GB
 
@@ -47,16 +46,16 @@ thread_local! {
     static ARENA_NO_SLAB: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Call once at process start, before any `phase_boundary()`.
+pub fn init() {
+    let actual = std::thread::available_parallelism().unwrap().get();
+    assert_eq!(
+        actual, NUM_THREADS,
+        "built for {NUM_THREADS} threads but this machine reports {actual} -> please rebuild`"
+    );
+}
+
 pub fn phase_boundary() {
-    if !WARMUP_DONE.load(Ordering::Relaxed) {
-        let actual = std::thread::available_parallelism().unwrap().get();
-        assert_eq!(
-            actual, NUM_THREADS,
-            "built for {NUM_THREADS} threads but this machine reports {actual} -> please rebuild`"
-        );
-        WARMUP_DONE.store(true, Ordering::Relaxed);
-        return;
-    }
     GENERATION.fetch_add(1, Ordering::Release);
     ALLOC_IMPL.store(true, Ordering::Release);
 }
@@ -70,40 +69,27 @@ pub fn deactivate_arena() {
 unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
     let generation = GENERATION.load(Ordering::Relaxed);
     if !ARENA_NO_SLAB.get() && ARENA_GEN.get() != generation {
-        let base = ARENA_BASE.get();
-        if base != 0 {
-            // Generation changed — reset bump pointer to slab base.
-            ARENA_PTR.set(base);
-            ARENA_GEN.set(generation);
-            let aligned = (base + align - 1) & !(align - 1);
-            let new_ptr = aligned + size;
-            if new_ptr <= ARENA_END.get() {
-                ARENA_PTR.set(new_ptr);
-                return aligned as *mut u8;
-            }
-        } else {
-            // First allocation on this thread — claim a slab.
+        let mut base = ARENA_BASE.get();
+        if base == 0 {
             let region = ensure_region();
             let idx = THREAD_IDX.fetch_add(1, Ordering::Relaxed);
             if idx >= MAX_THREADS {
                 ARENA_NO_SLAB.set(true);
-                // SAFETY: size and align are from a valid Layout (caller contract).
                 return unsafe { std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align)) };
             }
-            let slab_base = region + idx * SLAB_SIZE;
-            ARENA_BASE.set(slab_base);
-            ARENA_END.set(slab_base + SLAB_SIZE);
-            ARENA_GEN.set(generation);
-
-            let aligned = (slab_base + align - 1) & !(align - 1);
-            let new_ptr = aligned + size;
-            if new_ptr <= slab_base + SLAB_SIZE {
-                ARENA_PTR.set(new_ptr);
-                return aligned as *mut u8;
-            }
+            base = region + idx * SLAB_SIZE;
+            ARENA_BASE.set(base);
+            ARENA_END.set(base + SLAB_SIZE);
+        }
+        ARENA_PTR.set(base);
+        ARENA_GEN.set(generation);
+        let aligned = base.next_multiple_of(align);
+        let new_ptr = aligned + size;
+        if new_ptr <= ARENA_END.get() {
+            ARENA_PTR.set(new_ptr);
+            return aligned as *mut u8;
         }
     }
-    // SAFETY: size and align are from a valid Layout (caller contract).
     unsafe { std::alloc::System.alloc(Layout::from_size_align_unchecked(size, align)) }
 }
 
@@ -118,8 +104,8 @@ unsafe impl GlobalAlloc for ZkAllocator {
         if ALLOC_IMPL.load(Ordering::Relaxed) {
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
-                let ptr = ARENA_PTR.get();
-                let aligned = (ptr + layout.align() - 1) & !(layout.align() - 1);
+                let align = layout.align();
+                let aligned = (ARENA_PTR.get() + align - 1) & !(align - 1);
                 let new_ptr = aligned + layout.size();
                 if new_ptr <= ARENA_END.get() {
                     ARENA_PTR.set(new_ptr);

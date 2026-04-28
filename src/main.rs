@@ -53,7 +53,7 @@ fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool
 
 fn main() {
     #[cfg(not(feature = "standard-alloc"))]
-    zk_alloc::phase_boundary();
+    zk_alloc::init();
 
     let cli = Cli::parse();
 

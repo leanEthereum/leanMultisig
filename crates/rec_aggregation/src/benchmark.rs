@@ -271,10 +271,12 @@ fn build_aggregation(
         topology.log_inv_rate,
     );
 
+    // Clone the outputs out of the arena before the next phase boundary recycles its slabs.
     #[cfg(not(feature = "standard-alloc"))]
-    zk_alloc::deactivate_arena();
-    #[cfg(not(feature = "standard-alloc"))]
-    let (global_pub_keys, result) = (global_pub_keys.clone(), result.clone());
+    let (global_pub_keys, result) = {
+        zk_alloc::deactivate_arena();
+        (global_pub_keys.clone(), result.clone())
+    };
 
     let elapsed = time.elapsed();
 
