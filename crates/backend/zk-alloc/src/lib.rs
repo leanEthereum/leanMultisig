@@ -29,7 +29,7 @@ fn ensure_region() -> usize {
     REGION_INIT.call_once(|| {
         // SAFETY: mmap_anonymous returns a page-aligned pointer or null.
         // MAP_NORESERVE means no physical memory is committed yet.
-        let ptr = unsafe { syscall::mmap_anonymous(REGION_SIZE, false) };
+        let ptr = unsafe { syscall::mmap_anonymous(REGION_SIZE) };
         if ptr.is_null() {
             std::process::abort();
         }

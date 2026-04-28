@@ -14,7 +14,6 @@ mod imp {
     const MAP_PRIVATE: usize = 0x02;
     const MAP_ANONYMOUS: usize = 0x20;
     const MAP_NORESERVE: usize = 0x4000;
-    const MAP_HUGETLB: usize = 0x40000;
 
     pub const MADV_HUGEPAGE: usize = 14;
     pub const MADV_NOHUGEPAGE: usize = 15;
@@ -60,8 +59,8 @@ mod imp {
     }
 
     #[inline]
-    pub unsafe fn mmap_anonymous(size: usize, hugetlb: bool) -> *mut u8 {
-        let flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | if hugetlb { MAP_HUGETLB } else { 0 };
+    pub unsafe fn mmap_anonymous(size: usize) -> *mut u8 {
+        let flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
         let ret = unsafe { syscall6(SYS_MMAP, 0, size, PROT_READ | PROT_WRITE, flags, usize::MAX, 0) };
         if ret < 0 { ptr::null_mut() } else { ret as *mut u8 }
     }
@@ -80,10 +79,10 @@ mod imp {
     pub const MADV_NOHUGEPAGE: usize = 15;
 
     #[inline]
-    pub unsafe fn mmap_anonymous(size: usize, _hugetlb: bool) -> *mut u8 {
-        // MAP_NORESERVE / MAP_HUGETLB are Linux-only. macOS lazily backs
-        // anonymous mappings with physical memory by default, so the large
-        // virtual reservation we make is fine without NORESERVE.
+    pub unsafe fn mmap_anonymous(size: usize) -> *mut u8 {
+        // MAP_NORESERVE is Linux-only. macOS lazily backs anonymous mappings
+        // with physical memory by default, so the large virtual reservation we
+        // make is fine without NORESERVE.
         let prot = libc::PROT_READ | libc::PROT_WRITE;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANON;
         let ret = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
