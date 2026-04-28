@@ -92,42 +92,34 @@ fn main() {
             let topology = AggregationTopology {
                 raw_xmss: 0,
                 children: vec![AggregationTopology {
-                    raw_xmss: 0,
-                    children: vec![AggregationTopology {
-                        raw_xmss: 0,
-                        children: vec![
-                            AggregationTopology {
-                                raw_xmss: 10,
-                                children: vec![AggregationTopology {
-                                    raw_xmss: 25,
-                                    children: vec![
-                                        AggregationTopology {
-                                            raw_xmss: 1400,
-                                            children: vec![],
-                                            log_inv_rate: 1,
-                                        };
-                                        3
-                                    ],
+                    raw_xmss: 10,
+                    children: vec![
+                        AggregationTopology {
+                            raw_xmss: 25,
+                            children: vec![
+                                AggregationTopology {
+                                    raw_xmss: 1400,
+                                    children: vec![],
                                     log_inv_rate: 1,
-                                }],
-                                log_inv_rate: 3,
-                            },
-                            AggregationTopology {
-                                raw_xmss: 0,
-                                children: vec![
-                                    AggregationTopology {
-                                        raw_xmss: 1400,
-                                        children: vec![],
-                                        log_inv_rate: 2,
-                                    };
-                                    2
-                                ],
-                                log_inv_rate: 2,
-                            },
-                        ],
-                        log_inv_rate: 1,
-                    }],
-                    log_inv_rate: 4,
+                                };
+                                3
+                            ],
+                            log_inv_rate: 1,
+                        },
+                        AggregationTopology {
+                            raw_xmss: 0,
+                            children: vec![
+                                AggregationTopology {
+                                    raw_xmss: 700,
+                                    children: vec![],
+                                    log_inv_rate: 2,
+                                };
+                                2
+                            ],
+                            log_inv_rate: 2,
+                        },
+                    ],
+                    log_inv_rate: 2,
                 }],
                 log_inv_rate: 4,
             };
