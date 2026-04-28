@@ -33,6 +33,24 @@ pub struct AggregationTopology {
     pub log_inv_rate: usize,
 }
 
+pub fn biggest_leaf(topology: &AggregationTopology) -> Option<AggregationTopology> {
+    fn visit(t: &AggregationTopology, best: &mut Option<(usize, usize)>) {
+        if t.raw_xmss > 0 && best.is_none_or(|(n, _)| t.raw_xmss > n) {
+            *best = Some((t.raw_xmss, t.log_inv_rate));
+        }
+        for c in &t.children {
+            visit(c, best);
+        }
+    }
+    let mut best = None;
+    visit(topology, &mut best);
+    best.map(|(raw_xmss, log_inv_rate)| AggregationTopology {
+        raw_xmss,
+        children: vec![],
+        log_inv_rate,
+    })
+}
+
 pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> usize {
     let child_count: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
     let n_overlaps = topology.children.len().saturating_sub(1);

@@ -19,6 +19,7 @@ struct Compiler {
     const_malloc_vars: BTreeMap<Var, isize>, // var -> start offset from fp (can be negative for intermediate derived vars)
     dead_fp_relative_vars: BTreeSet<Var>,    // vars whose pointer-storing ADD is dead
     dead_store_vars: BTreeSet<Var>,          // vars that are never used as runtime operands
+    coalesced_ret_vars: BTreeSet<Var>, // variable that are returned, and directly live at the return-slot (at fp + 2 + n_args + i, where i is the return slot index)
 }
 
 #[derive(Default)]
@@ -139,6 +140,17 @@ fn compile_function(
     }
     stack_pos += function.arguments.len();
 
+    // Coalesce returned variables with their ret-slots: if every `return v_0, ..., v_n`
+    // in the body uses the same variable for slot i, register that variable directly at
+    // `fp + 2 + n_args + i`.
+    let coalesced = collect_return_coalescings(&function.instructions, function.n_returned_vars, &function.arguments);
+    let mut coalesced_ret_vars = BTreeSet::new();
+    for (i, var) in coalesced.iter().enumerate() {
+        if let Some(v) = var {
+            function_scope_layout.var_positions.insert(v.clone(), stack_pos + i);
+            coalesced_ret_vars.insert(v.clone());
+        }
+    }
     stack_pos += function.n_returned_vars;
 
     compiler.func_name = function.name.clone();
@@ -147,6 +159,7 @@ fn compile_function(
     compiler.args_count = function.arguments.len();
     compiler.const_mallocs.clear();
     compiler.const_malloc_vars.clear();
+    compiler.coalesced_ret_vars = coalesced_ret_vars;
     (compiler.dead_fp_relative_vars, compiler.dead_store_vars) = compute_dead_vars(&function.instructions);
 
     let mut instructions = Vec::new();
@@ -180,7 +193,10 @@ fn compile_lines(
     for (i, line) in lines.iter().enumerate() {
         match line {
             SimpleLine::ForwardDeclaration { var } => {
-                if !compiler.dead_fp_relative_vars.contains(var) && !compiler.dead_store_vars.contains(var) {
+                if !compiler.dead_fp_relative_vars.contains(var)
+                    && !compiler.dead_store_vars.contains(var)
+                    && !compiler.coalesced_ret_vars.contains(var)
+                {
                     let current_scope_layout = compiler.stack_frame_layout.scopes.last_mut().unwrap();
                     current_scope_layout
                         .var_positions
@@ -189,19 +205,14 @@ fn compile_lines(
                 }
             }
 
-            SimpleLine::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
+            SimpleLine::Assignment { var, op, arg0, arg1 } => {
                 // Track derived fp-relative variables: if result = fp_relative_var +/- constant,
                 // then the result is also fp-relative (e.g. `ptr = arr + 8` or `ptr = arr - 1`)
                 let mut is_dead_derived = false;
-                if let VarOrConstMallocAccess::Var(v) = var
-                    && (*operation == MathOperation::Add || *operation == MathOperation::Sub)
+                if let Some(v) = var.as_var()
+                    && (*op == MathOperation::Add || *op == MathOperation::Sub)
                 {
-                    let fp_offset = match (operation, arg0, arg1) {
+                    let fp_offset = match (op, arg0, arg1) {
                         // Add: commutative, either order
                         (
                             MathOperation::Add,
@@ -238,25 +249,22 @@ fn compile_lines(
                     continue;
                 }
 
-                // Skip assignments to vars that are never used as runtime operands
-                if let VarOrConstMallocAccess::Var(v) = var
-                    && compiler.dead_store_vars.contains(v)
-                {
-                    continue;
-                }
-
-                if let VarOrConstMallocAccess::Var(var) = var {
-                    compiler.register_var_if_needed(var);
+                if let Some(v) = var.as_var() {
+                    // Skip assignments to vars that are never used as runtime operands
+                    if compiler.dead_store_vars.contains(v) {
+                        continue;
+                    }
+                    compiler.register_var_if_needed(v);
                 }
 
                 let arg0 = IntermediateValue::from_simple_expr(arg0, compiler);
                 let arg1 = IntermediateValue::from_simple_expr(arg1, compiler);
 
                 instructions.push(IntermediateInstruction::computation(
-                    *operation,
+                    *op,
                     arg0,
                     arg1,
-                    IntermediateValue::from_simple_expr(&var.clone().into(), compiler),
+                    IntermediateValue::from_simple_expr(var, compiler),
                 ));
             }
 
@@ -813,6 +821,12 @@ fn compile_function_ret(
     compiler: &Compiler,
 ) {
     for (i, ret_var) in return_data.iter().enumerate() {
+        if let SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)) = ret_var
+            && compiler.coalesced_ret_vars.contains(v)
+        {
+            // Variable already live at the return-slot
+            continue;
+        }
         instructions.push(IntermediateInstruction::equality(
             IntermediateValue::MemoryAfterFp {
                 offset: (2 + compiler.args_count + i).into(),
@@ -824,6 +838,58 @@ fn compile_function_ret(
         dest: IntermediateValue::MemoryAfterFp { offset: 0.into() },
         updated_fp: Some(IntermediateValue::MemoryAfterFp { offset: 1.into() }),
     });
+}
+
+/// For each return slot, return `Some(v)` if every `FunctionRet` in `lines` returns the
+/// same variable `v` for that slot, `v` is not a function argument (which has a fixed
+/// offset), and `v` isn't returned by another slot too. Otherwise `None`.
+fn collect_return_coalescings(lines: &[SimpleLine], n_ret: usize, arguments: &[Var]) -> Vec<Option<Var>> {
+    if n_ret == 0 {
+        return vec![];
+    }
+    let mut found: Vec<Option<Var>> = vec![None; n_ret];
+    let mut conflict: Vec<bool> = vec![false; n_ret];
+    walk_returns(lines, &mut found, &mut conflict);
+    let mut result: Vec<Option<Var>> = found
+        .into_iter()
+        .zip(conflict)
+        .map(|(v, c)| v.filter(|v| !c && !arguments.contains(v)))
+        .collect();
+    // Avoid two slots returning the same variable
+    let mut seen: BTreeSet<Var> = BTreeSet::new();
+    for slot in result.iter_mut() {
+        if let Some(v) = slot
+            && !seen.insert(v.clone())
+        {
+            *slot = None;
+        }
+    }
+    result
+}
+
+fn walk_returns(lines: &[SimpleLine], found: &mut [Option<Var>], conflict: &mut [bool]) {
+    for line in lines {
+        if let SimpleLine::FunctionRet { return_data } = line {
+            for (i, expr) in return_data.iter().enumerate() {
+                if conflict[i] {
+                    continue;
+                }
+                match (&found[i], expr) {
+                    (Some(prev), SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) if prev == v => {}
+                    (None, SimpleExpr::Memory(VarOrConstMallocAccess::Var(v))) => {
+                        found[i] = Some(v.clone());
+                    }
+                    _ => {
+                        conflict[i] = true;
+                        found[i] = None;
+                    }
+                }
+            }
+        }
+        for block in line.nested_blocks() {
+            walk_returns(block, found, conflict);
+        }
+    }
 }
 
 // ── Dead variable analysis ────────────────────────────────────────────────
@@ -849,12 +915,12 @@ fn collect_fp_rel_capable(
                 fp_rel_capable.insert(var.clone());
             }
             SimpleLine::Assignment {
-                var: VarOrConstMallocAccess::Var(v),
-                operation,
+                var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+                op,
                 arg0,
                 arg1,
-            } if *operation == MathOperation::Add || *operation == MathOperation::Sub => {
-                let base_var = match (operation, arg0, arg1) {
+            } if *op == MathOperation::Add || *op == MathOperation::Sub => {
+                let base_var = match (op, arg0, arg1) {
                     (
                         MathOperation::Add,
                         SimpleExpr::Memory(VarOrConstMallocAccess::Var(x)),
@@ -899,7 +965,7 @@ fn collect_use_info(
                 declared.insert(var.clone());
             }
             SimpleLine::Assignment {
-                var: VarOrConstMallocAccess::Var(v),
+                var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
                 ..
             } => {
                 declared.insert(v.clone());

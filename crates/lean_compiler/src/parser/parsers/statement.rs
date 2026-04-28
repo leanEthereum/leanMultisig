@@ -4,7 +4,7 @@ use utils::ToUsize;
 use super::expression::{ExpressionParser, VecElementParser, VecLiteralParser};
 use super::function::{AssignmentParser, TupleExpressionParser};
 use super::literal::ConstExprParser;
-use super::{Parse, ParseContext, next_inner_pair};
+use super::{Parse, ParseContext, next_inner_pair, push_statement_with_location};
 use crate::{
     SourceLineNumber,
     lang::{Expression, Line, LoopKind, SourceLocation, VecLiteral},
@@ -63,7 +63,7 @@ impl Parse<Line> for IfStatementParser {
         for item in inner {
             match item.as_rule() {
                 Rule::statement => {
-                    Self::add_statement_with_location(&mut then_branch, item, ctx)?;
+                    push_statement_with_location(&mut then_branch, item, ctx)?;
                 }
                 Rule::elif_clause => {
                     let line_number = item.line_col().0;
@@ -72,7 +72,7 @@ impl Parse<Line> for IfStatementParser {
                     let mut elif_branch = Vec::new();
                     for elif_item in inner {
                         if elif_item.as_rule() == Rule::statement {
-                            Self::add_statement_with_location(&mut elif_branch, elif_item, ctx)?;
+                            push_statement_with_location(&mut elif_branch, elif_item, ctx)?;
                         }
                     }
                     elif_branches.push((elif_condition, elif_branch, line_number));
@@ -80,7 +80,7 @@ impl Parse<Line> for IfStatementParser {
                 Rule::else_clause => {
                     for else_item in item.into_inner() {
                         if else_item.as_rule() == Rule::statement {
-                            Self::add_statement_with_location(&mut else_branch, else_item, ctx)?;
+                            push_statement_with_location(&mut else_branch, else_item, ctx)?;
                         }
                     }
                 }
@@ -118,27 +118,6 @@ impl Parse<Line> for IfStatementParser {
                 line_number,
             },
         })
-    }
-}
-
-impl IfStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let line_number = pair.line_col().0;
-        let line = StatementParser.parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport {
-            location: SourceLocation {
-                file_id: ctx.current_file_id,
-                line_number,
-            },
-        });
-        lines.push(line);
-
-        Ok(())
     }
 }
 
@@ -204,7 +183,7 @@ impl Parse<Line> for ForStatementParser {
         let mut body = Vec::new();
         for item in inner {
             if item.as_rule() == Rule::statement {
-                Self::add_statement_with_location(&mut body, item, ctx)?;
+                push_statement_with_location(&mut body, item, ctx)?;
             }
         }
 
@@ -219,27 +198,6 @@ impl Parse<Line> for ForStatementParser {
                 line_number,
             },
         })
-    }
-}
-
-impl ForStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let line_number = pair.line_col().0;
-        let line = StatementParser.parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport {
-            location: SourceLocation {
-                file_id: ctx.current_file_id,
-                line_number,
-            },
-        });
-        lines.push(line);
-
-        Ok(())
     }
 }
 
@@ -263,7 +221,7 @@ impl Parse<Line> for MatchStatementParser {
                 let mut statements = Vec::new();
                 for stmt in arm_inner {
                     if stmt.as_rule() == Rule::statement {
-                        Self::add_statement_with_location(&mut statements, stmt, ctx)?;
+                        push_statement_with_location(&mut statements, stmt, ctx)?;
                     }
                 }
 
@@ -275,27 +233,6 @@ impl Parse<Line> for MatchStatementParser {
             line_number,
         };
         Ok(Line::Match { value, arms, location })
-    }
-}
-
-impl MatchStatementParser {
-    fn add_statement_with_location(
-        lines: &mut Vec<Line>,
-        pair: ParsePair<'_>,
-        ctx: &mut ParseContext,
-    ) -> ParseResult<()> {
-        let line_number = pair.line_col().0;
-        let line = StatementParser.parse(pair, ctx)?;
-
-        lines.push(Line::LocationReport {
-            location: SourceLocation {
-                file_id: ctx.current_file_id,
-                line_number,
-            },
-        });
-        lines.push(line);
-
-        Ok(())
     }
 }
 

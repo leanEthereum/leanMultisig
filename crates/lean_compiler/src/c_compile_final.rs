@@ -158,12 +158,21 @@ pub fn compile_to_low_level_bytecode(
     );
     let hash = poseidon_compress_slice(&instructions_multilinear, true);
 
+    let code: Vec<_> = instructions
+        .into_iter()
+        .enumerate()
+        .map(|(pc, instruction)| CodeEntry {
+            instruction,
+            hints: hints.remove(&pc).unwrap_or_default().into_boxed_slice(),
+        })
+        .collect();
+    assert!(hints.is_empty());
+
     Ok(Bytecode {
-        instructions,
+        code,
         instructions_multilinear,
         instructions_multilinear_packed,
         hash,
-        hints,
         starting_frame_memory,
         function_locations,
         source_code,
