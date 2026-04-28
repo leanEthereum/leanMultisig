@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use backend::PrimeCharacteristicRing;
 
@@ -9,7 +9,7 @@ pub fn propagate_copies(program: &mut SimpleProgram) {
         // Pass 1: copy propagation. `var = mem_expr + 0` with `var`
         // single-defined ⇒ rewrite uses with `mem_expr`, drop the assignment.
         let refs = get_var_refs(&func.instructions);
-        let mut subst = HashMap::<Var, SimpleExpr>::new();
+        let mut subst = BTreeMap::<Var, SimpleExpr>::new();
         build_substitutions(&func.instructions, &refs, &mut subst);
         if !subst.is_empty() {
             apply_substitutions(&mut func.instructions, &subst);
@@ -20,11 +20,15 @@ pub fn propagate_copies(program: &mut SimpleProgram) {
         let refs = get_var_refs(&func.instructions);
         fold_const_offset_into_deref(&mut func.instructions, &refs);
 
-        // Pass 3: fuse `RawAccess + AssertEq` into a single DEREF
+        // Pass 3: Dedupe Add/Mul with same operands
+        let refs = get_var_refs(&func.instructions);
+        cse_commutative(&mut func.instructions, &refs);
+
+        // Pass 4: Fuse `v = m[ptr+s]; assert v == x` ⇒ `x = m[ptr+s]`.
         let refs = get_var_refs(&func.instructions);
         fuse_raw_asserts(&mut func.instructions, &refs);
 
-        // Pass 4: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
+        // Pass 5: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
         let refs = get_var_refs(&func.instructions);
         fuse_assign_asserts(&mut func.instructions, &refs);
     }
@@ -36,8 +40,8 @@ struct VarRefs {
     uses: u32,
 }
 
-fn get_var_refs(lines: &[SimpleLine]) -> HashMap<Var, VarRefs> {
-    fn walk(lines: &[SimpleLine], counts: &mut HashMap<Var, VarRefs>) {
+fn get_var_refs(lines: &[SimpleLine]) -> BTreeMap<Var, VarRefs> {
+    fn walk(lines: &[SimpleLine], counts: &mut BTreeMap<Var, VarRefs>) {
         for line in lines {
             match line {
                 SimpleLine::Assignment {
@@ -72,12 +76,12 @@ fn get_var_refs(lines: &[SimpleLine]) -> HashMap<Var, VarRefs> {
             }
         }
     }
-    let mut counts = HashMap::new();
+    let mut counts = BTreeMap::new();
     walk(lines, &mut counts);
     counts
 }
 
-fn build_substitutions(lines: &[SimpleLine], refs: &HashMap<Var, VarRefs>, subst: &mut HashMap<Var, SimpleExpr>) {
+fn build_substitutions(lines: &[SimpleLine], refs: &BTreeMap<Var, VarRefs>, subst: &mut BTreeMap<Var, SimpleExpr>) {
     for line in lines {
         if let SimpleLine::Assignment {
             var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
@@ -97,7 +101,7 @@ fn build_substitutions(lines: &[SimpleLine], refs: &HashMap<Var, VarRefs>, subst
     }
 }
 
-fn chase(mut expr: SimpleExpr, subst: &HashMap<Var, SimpleExpr>) -> SimpleExpr {
+fn chase(mut expr: SimpleExpr, subst: &BTreeMap<Var, SimpleExpr>) -> SimpleExpr {
     while let Some(v) = expr.as_var()
         && let Some(t) = subst.get(v)
     {
@@ -106,7 +110,7 @@ fn chase(mut expr: SimpleExpr, subst: &HashMap<Var, SimpleExpr>) -> SimpleExpr {
     expr
 }
 
-fn apply_substitutions(lines: &mut Vec<SimpleLine>, subst: &HashMap<Var, SimpleExpr>) {
+fn apply_substitutions(lines: &mut Vec<SimpleLine>, subst: &BTreeMap<Var, SimpleExpr>) {
     for line in lines.iter_mut() {
         for expr in line.operand_exprs_mut() {
             if let Some(v) = expr.as_var()
@@ -131,9 +135,9 @@ fn apply_substitutions(lines: &mut Vec<SimpleLine>, subst: &HashMap<Var, SimpleE
 
 #[derive(Default)]
 struct Fusions {
-    replacements: HashMap<usize, SimpleLine>,
-    lines_to_drop: HashSet<usize>,
-    declarations_to_drop: HashSet<Var>,
+    replacements: BTreeMap<usize, SimpleLine>,
+    lines_to_drop: BTreeSet<usize>,
+    declarations_to_drop: BTreeSet<Var>,
 }
 
 /// Search `lines[i+1..]` for an unclaimed `AssertEq` where `v` is one side.
@@ -161,9 +165,13 @@ fn find_fusable_assert<'a>(
     None
 }
 
-fn is_one_time_var(v: &Var, refs: &HashMap<Var, VarRefs>) -> bool {
+fn is_one_time_var(v: &Var, refs: &BTreeMap<Var, VarRefs>) -> bool {
     let r: VarRefs = refs.get(v).copied().unwrap_or_default();
     r.definitions == 1 && r.uses == 1
+}
+
+fn is_uniquely_defined(v: &Var, refs: &BTreeMap<Var, VarRefs>) -> bool {
+    refs.get(v).map(|r| r.definitions) == Some(1)
 }
 
 fn apply_fusions(lines: &mut Vec<SimpleLine>, fusions: Fusions) {
@@ -181,7 +189,7 @@ fn apply_fusions(lines: &mut Vec<SimpleLine>, fusions: Fusions) {
     );
 }
 
-fn fuse_raw_asserts(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>) {
+fn fuse_raw_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
     for line in lines.iter_mut() {
         for block in line.nested_blocks_mut() {
             fuse_raw_asserts(block, refs);
@@ -213,7 +221,7 @@ fn fuse_raw_asserts(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>) {
     apply_fusions(lines, fusions);
 }
 
-fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>) {
+fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
     for line in lines.iter_mut() {
         for block in line.nested_blocks_mut() {
             fuse_assign_asserts(block, refs);
@@ -255,7 +263,7 @@ fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>
 ///   res     = memory[v_ptr + 0]
 ///
 /// Soundness: `v_inner` and `v_ptr` must each be uniquely defined and uniquely used
-fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var, VarRefs>) {
+fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
     for line in lines.iter_mut() {
         for block in line.nested_blocks_mut() {
             fold_const_offset_into_deref(block, refs);
@@ -263,7 +271,7 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var,
     }
 
     // Map each uniquely-defined Add var to its line index.
-    let def_index: HashMap<Var, usize> = lines
+    let def_index: BTreeMap<Var, usize> = lines
         .iter()
         .enumerate()
         .filter_map(|(i, line)| match line {
@@ -271,7 +279,7 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var,
                 var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
                 op: MathOperation::Add,
                 ..
-            } if refs.get(v).map(|r| r.definitions) == Some(1) => Some((v.clone(), i)),
+            } if is_uniquely_defined(v, refs) => Some((v.clone(), i)),
             _ => None,
         })
         .collect();
@@ -337,8 +345,8 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var,
     }
 
     // Phase 2: apply rewrites and collect lines/declarations to drop.
-    let mut to_drop = HashSet::<usize>::new();
-    let mut decls_to_drop = HashSet::<Var>::new();
+    let mut to_drop = BTreeSet::<usize>::new();
+    let mut decls_to_drop = BTreeSet::<Var>::new();
     for (raw_i, ptr_i, pos, mem, k, inner_i, var) in work {
         let SimpleLine::RawAccess { shift, .. } = &mut lines[raw_i] else {
             unreachable!();
@@ -363,4 +371,53 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &HashMap<Var,
         idx += 1;
         keep
     });
+}
+
+/// CSE (Common Subexpression Elimination) on commutative operations `Add`/`Mul`.
+fn cse_commutative(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
+    for line in lines.iter_mut() {
+        for block in line.nested_blocks_mut() {
+            cse_commutative(block, refs);
+        }
+    }
+
+    let mut first_def: BTreeMap<(MathOperation, SimpleExpr, SimpleExpr), Var> = BTreeMap::new();
+    let mut subst: BTreeMap<Var, SimpleExpr> = BTreeMap::new();
+
+    for line in lines.iter() {
+        let SimpleLine::Assignment {
+            var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+            op,
+            arg0,
+            arg1,
+        } = line
+        else {
+            continue;
+        };
+        if !matches!(op, MathOperation::Add | MathOperation::Mul) {
+            continue;
+        }
+        if !is_uniquely_defined(v, refs) {
+            continue;
+        }
+        let a = chase(arg0.clone(), &subst);
+        let b = chase(arg1.clone(), &subst);
+        let (a, b) = if a <= b { (a, b) } else { (b, a) };
+
+        match first_def.entry((*op, a, b)) {
+            Entry::Occupied(e) => {
+                subst.insert(
+                    v.clone(),
+                    SimpleExpr::Memory(VarOrConstMallocAccess::Var(e.get().clone())),
+                );
+            }
+            Entry::Vacant(e) => {
+                e.insert(v.clone());
+            }
+        }
+    }
+
+    if !subst.is_empty() {
+        apply_substitutions(lines, &subst);
+    }
 }
