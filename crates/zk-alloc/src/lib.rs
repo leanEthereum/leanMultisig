@@ -3,6 +3,8 @@ use std::cell::Cell;
 use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use system_info::NUM_THREADS;
+
 mod syscall;
 
 #[derive(Debug)]
@@ -12,8 +14,11 @@ static GENERATION: AtomicUsize = AtomicUsize::new(0);
 static ALLOC_IMPL: AtomicUsize = AtomicUsize::new(0);
 static WARMUP_DONE: AtomicUsize = AtomicUsize::new(0);
 
-const SLAB_SIZE: usize = 8 * 1024 * 1024 * 1024; // 8GB
-const MAX_THREADS: usize = 16;
+const SLAB_SIZE: usize = 8 << 30; // 8GB
+
+// SLACK absorbs the main thread and any non-rayon helpers
+const SLACK: usize = 4;
+const MAX_THREADS: usize = NUM_THREADS + SLACK;
 const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 
 static REGION_BASE: AtomicUsize = AtomicUsize::new(0);
@@ -44,6 +49,11 @@ thread_local! {
 pub fn phase_boundary() {
     let prev = WARMUP_DONE.load(Ordering::Relaxed);
     if prev == 0 {
+        let actual = std::thread::available_parallelism().unwrap().get();
+        assert_eq!(
+            actual, NUM_THREADS,
+            "built for {NUM_THREADS} threads but this machine reports {actual} -> please rebuild`"
+        );
         WARMUP_DONE.store(1, Ordering::Relaxed);
         return;
     }

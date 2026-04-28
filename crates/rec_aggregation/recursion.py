@@ -97,7 +97,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     fs, logup_alphas = fs_sample_many_ef(fs, log2_ceil(MAX_BUS_WIDTH))
 
-    logup_alphas_eq_poly = poly_eq_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
+    logup_alphas_eq_poly = compute_eq_mle_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
 
     # GENERIC LOGUP
 
@@ -431,7 +431,7 @@ def continue_recursion_ordered(
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
         bus_point = pcs_points[table_index][0]
-        eq_val = eq_mle_extension(bus_point, all_challenges, log_n_rows)
+        eq_val = poly_eq_extension_dynamic_ret(bus_point, all_challenges, log_n_rows)
 
         k_t = product_first_n(all_challenges + log_n_rows * DIM, n_max - log_n_rows)
 
@@ -459,7 +459,7 @@ def continue_recursion_ordered(
     copy_5(check_sum, batched_air_final_value)
 
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
-    poly_eq_public_mem = poly_eq_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
+    poly_eq_public_mem = compute_eq_mle_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
     public_memory_eval = Array(DIM)
     dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
@@ -529,7 +529,7 @@ def continue_recursion_ordered(
 
     curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
 
-    eq_memory_and_acc_point = eq_mle_extension(
+    eq_memory_and_acc_point = poly_eq_extension_dynamic_ret(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
         memory_and_acc_point,
         log_memory,
@@ -548,9 +548,11 @@ def continue_recursion_ordered(
     )
     curr_randomness += DIM
 
-    eq_pub_mem = eq_mle_extension(
+    eq_pub_mem = Array(DIM)
+    poly_eq_ee(
         folding_randomness_global + (stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE) * DIM,
         public_memory_random_point,
+        eq_pub_mem,
         INNER_PUBLIC_MEMORY_LOG_SIZE,
     )
     prefix_pub_mem = multilinear_location_prefix(0, stacked_n_vars - INNER_PUBLIC_MEMORY_LOG_SIZE, folding_randomness_global)
@@ -562,9 +564,11 @@ def continue_recursion_ordered(
 
     offset = two_exp(log_memory) * 2  # memory and acc_memory
 
-    eq_bytecode_acc = eq_mle_extension(
+    eq_bytecode_acc = Array(DIM)
+    poly_eq_ee(
         folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
         bytecode_and_acc_point,
+        eq_bytecode_acc,
         LOG_GUEST_BYTECODE_LEN,
     )
     prefix_bytecode_acc = multilinear_location_prefix(
@@ -628,7 +632,7 @@ def continue_recursion_ordered(
                         )
                         curr_randomness += DIM
             # eq (up) values
-            eq_factor = eq_mle_extension(point, inner_folding, log_n_rows)
+            eq_factor = poly_eq_extension_dynamic_ret(point, inner_folding, log_n_rows)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
                     prefix = multilinear_location_prefix(
@@ -649,7 +653,7 @@ def continue_recursion_ordered(
 
 def multilinear_location_prefix(offset, n_vars, point):
     bits = checked_decompose_bits_small_value(offset, n_vars)
-    res = eq_mle_base_extension(bits, point, n_vars)
+    res = poly_eq_base_extension(bits, point, n_vars)
     return res
 
 
@@ -693,7 +697,7 @@ def verify_gkr_quotient(fs: Mut, n_vars):
     fs, initial_point = fs_sample_many_ef(fs, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
     points[LOGUP_GKR_N_VARS_TO_SEND_COEFFS - 1] = initial_point
 
-    point_poly_eq = poly_eq_extension(initial_point, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
+    point_poly_eq = compute_eq_mle_extension(initial_point, LOGUP_GKR_N_VARS_TO_SEND_COEFFS)
 
     first_claim_num = dot_product_ee_ret(nums, point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
     first_claim_den = dot_product_ee_ret(denoms, point_poly_eq, LOGUP_GKR_N_COEFFS_SENT)
@@ -726,12 +730,12 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     sum_num, sum_den = sum_2_ef_fractions(a_num, a_den, b_num, b_den)
     sum_den_mul_alpha = mul_extension_ret(sum_den, alpha)
     sum_num_plus_sum_den_mul_alpha = add_extension_ret(sum_num, sum_den_mul_alpha)
-    eq_factor = eq_mle_extension(point, postponed_point, n_vars)
+    eq_factor = poly_eq_extension_dynamic_ret(point, postponed_point, n_vars)
     mul_extension(sum_num_plus_sum_den_mul_alpha, eq_factor, postponed_value)
 
     fs, beta = fs_sample_ef(fs)
 
-    point_poly_eq = poly_eq_extension(beta, 1)
+    point_poly_eq = compute_eq_mle_extension(beta, 1)
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
