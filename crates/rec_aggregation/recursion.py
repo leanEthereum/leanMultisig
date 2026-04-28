@@ -412,7 +412,7 @@ def continue_recursion_ordered(
     # Batched AIR sumcheck:
     fs, all_challenges, batched_air_final_value = sumcheck_verify_reversed(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
 
-    check_sum: Mut = embed_in_ef(0)
+    check_sum: Mut = ZERO_VEC_PTR
     for sorted_pos in unroll(0, N_TABLES):
         table_index: Imu
         if sorted_pos == 0:
