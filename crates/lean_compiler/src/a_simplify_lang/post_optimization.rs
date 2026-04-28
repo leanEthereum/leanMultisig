@@ -20,9 +20,9 @@ pub fn propagate_copies(program: &mut SimpleProgram) {
         let refs = get_var_refs(&func.instructions);
         fold_const_offset_into_deref(&mut func.instructions, &refs);
 
-        // Pass 3: Dedupe Add/Mul with same operands
+        // Pass 3: Dedup Add/Mul/Sub/Div with same operands
         let refs = get_var_refs(&func.instructions);
-        cse_commutative(&mut func.instructions, &refs);
+        dedup_arithmetic_operations(&mut func.instructions, &refs);
 
         // Pass 4: Fuse `v = m[ptr+s]; assert v == x` ⇒ `x = m[ptr+s]`.
         let refs = get_var_refs(&func.instructions);
@@ -373,11 +373,11 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var
     });
 }
 
-/// CSE (Common Subexpression Elimination) on commutative operations `Add`/`Mul`.
-fn cse_commutative(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
+/// CSE (Common Subexpression Elimination)
+fn dedup_arithmetic_operations(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
     for line in lines.iter_mut() {
         for block in line.nested_blocks_mut() {
-            cse_commutative(block, refs);
+            dedup_arithmetic_operations(block, refs);
         }
     }
 
@@ -394,15 +394,17 @@ fn cse_commutative(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
         else {
             continue;
         };
-        if !matches!(op, MathOperation::Add | MathOperation::Mul) {
+        if !op.supports_runtime() {
             continue;
         }
         if !is_uniquely_defined(v, refs) {
             continue;
         }
-        let a = chase(arg0.clone(), &subst);
-        let b = chase(arg1.clone(), &subst);
-        let (a, b) = if a <= b { (a, b) } else { (b, a) };
+        let mut a = chase(arg0.clone(), &subst);
+        let mut b = chase(arg1.clone(), &subst);
+        if matches!(op, MathOperation::Add | MathOperation::Mul) && a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
 
         match first_def.entry((*op, a, b)) {
             Entry::Occupied(e) => {
