@@ -17,6 +17,13 @@ pub enum IntermediateInstruction {
         shift_1: ConstExpression,
         res: IntermediateValue,
     }, // res = m[m[fp + shift_0]]
+    /// Fused multiply-add with constant: m[fp + dst_offset] = K * m[fp + src_a_offset] + arg_c
+    Fma {
+        multiplier: ConstExpression,   // K
+        src_a_offset: ConstExpression, // fp-offset of A (memory read)
+        dst_offset: ConstExpression,   // fp-offset of destination
+        arg_c: IntermediateValue,
+    },
     Panic,
     Jump {
         dest: IntermediateValue,
@@ -129,6 +136,15 @@ impl Display for IntermediateInstruction {
                 write!(f, "{res} = {arg_a} {operation} {arg_b}")
             }
             Self::Deref { shift_0, shift_1, res } => write!(f, "{res} = m[m[fp + {shift_0}] + {shift_1}]"),
+            Self::Fma {
+                multiplier,
+                src_a_offset,
+                dst_offset,
+                arg_c,
+            } => write!(
+                f,
+                "m[fp + {dst_offset}] = {multiplier} x m[fp + {src_a_offset}] + {arg_c}"
+            ),
             Self::Panic => write!(f, "assert False"),
             Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {

@@ -20,6 +20,7 @@ impl IntermediateInstruction {
             Self::Computation { .. }
             | Self::Panic
             | Self::Deref { .. }
+            | Self::Fma { .. }
             | Self::JumpIfNotZero { .. }
             | Self::Jump { .. }
             | Self::Precompile(..) => false,
@@ -281,6 +282,19 @@ fn compile_block(
                     shift_0: eval_const_expression(&shift_0, compiler).to_usize(),
                     shift_1: eval_const_expression(&shift_1, compiler).to_usize(),
                     res: res.try_into_mem_or_fp_or_constant(compiler).unwrap(),
+                });
+            }
+            IntermediateInstruction::Fma {
+                multiplier,
+                src_a_offset,
+                dst_offset,
+                arg_c,
+            } => {
+                low_level_bytecode.push(Instruction::Fma {
+                    multiplier: eval_const_expression(&multiplier, compiler),
+                    offset_a: eval_const_expression_usize(&src_a_offset, compiler),
+                    offset_b: eval_const_expression_usize(&dst_offset, compiler),
+                    arg_c: arg_c.try_into_mem_or_fp_or_constant(compiler).unwrap(),
                 });
             }
             IntermediateInstruction::JumpIfNotZero {

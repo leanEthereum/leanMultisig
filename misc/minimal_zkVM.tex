@@ -226,13 +226,13 @@ $$
 Using the following values:
 
 \begin{align*}
-\text{condition} &= 
+\text{condition} &=
 \begin{cases}
 \alpha \\
 \textbf{m}[\textbf{fp} + \alpha]
 \end{cases} \in \{0, 1\}
 &
-\text{dest} &= 
+\text{dest} &=
 \begin{cases}
 \beta \\
 \textbf{m}[\textbf{fp} + \beta]
@@ -260,6 +260,21 @@ $$
 \textbf{fp} & \text{if condition} = 0
 \end{cases}
 $$
+
+\subsubsection{FMA (Fused Multiply-Add with constant)}
+
+A single-instruction form of $\textbf{m}[\textbf{fp} + \beta] = K \cdot \textbf{m}[\textbf{fp} + \delta] + \nu_c$, where $K \in \Fp$ is a compile-time constant. The fp-offset $\delta$ of the multiplicand is carried in the otherwise-unused \texttt{PRECOMPILE\_DATA} slot, and $\alpha$ is repurposed to hold $K$:
+
+$$
+\textbf{m}[\textbf{fp} + \beta] = \alpha \cdot \textbf{m}[\textbf{fp} + \texttt{PRECOMPILE\_DATA}] +
+\begin{cases}
+\gamma \\
+\textbf{m}[\textbf{fp} + \gamma] \\
+\textbf{fp} + \gamma
+\end{cases}
+$$
+
+This collapses the common pattern $v_\text{mul} = K \cdot \textbf{m}[a]$ followed by $\textbf{m}[b] = \textbf{m}[c] + v_\text{mul}$ into one cycle, saving the temporary $v_\text{mul}$ and one instruction.
 
 \subsection{Precompiles}
 
@@ -457,11 +472,11 @@ Each instruction is described by 12 field elements ($\Fp$):
 \begin{itemize}
     \item 3 operands: $\text{operand}_A$, $\text{operand}_B$, $\text{operand}_C$
     \item 5 flags ($\in \{0, 1\}$): $\text{flag}_A$, $\text{flag}_B$, $\text{flag}_C$, $\text{flag}^{C}_\textbf{fp}$, $\text{flag}^{AB}_\textbf{fp}$
-    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2\}$) (AUX handles both ADD and DEREF)
+    \item 3 opcode flags: MUL ($\in \{0, 1\}$), JUMP ($\in \{0, 1\}$), AUX ($\in \{0, 1, 2, 3\}$) (AUX handles ADD, DEREF, and FMA)
     \item PRECOMPILE\_DATA
 \end{itemize}
 
-$\text{flag}^{AB}_\textbf{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, and JUMP it is always 0.
+$\text{flag}^{AB}_\textbf{fp}$ is only used by precompile instructions; for ADD, MUL, DEREF, JUMP, and FMA it is always 0.
 
 
 \subsubsection{AIR transition constraints}
@@ -487,16 +502,20 @@ With the associated constraints:
 
 \vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
 
-Let $P_0, P_1, P_2$ be the Lagrange basis polynomials at points $0, 1, 2$. Explicitely:
+Let $P_0, P_1, P_2, P_3$ be the Lagrange basis polynomials at points $0, 1, 2, 3$ (each of degree $3$). Explicitely:
 
-$$P_0(x) = (x-1)\cdot(x-2) / 2 \hspace{10mm} P_1(x) = x \cdot (2-x) \hspace{10mm} P_2(x) = x \cdot (x-1) / 2$$
+\begin{align*}
+P_0(x) &= -(x-1)(x-2)(x-3) / 6 & P_1(x) &= x(x-2)(x-3) / 2 \\
+P_2(x) &= x(x-1)(3-x) / 2 & P_3(x) &= x(x-1)(x-2) / 6
+\end{align*}
 
 We define the following values:
 
 \begin{itemize}
     \item ADD = $P_1(\text{AUX})$
     \item DEREF = $P_2(\text{AUX})$
-    \item IS\_PRECOMPILE = $1 - (\text{ADD} + \text{MUL} + \text{DEREF} + \text{JUMP})$
+    \item FMA = $P_3(\text{AUX})$
+    \item IS\_PRECOMPILE = $1 - (\text{ADD} + \text{MUL} + \text{DEREF} + \text{JUMP} + \text{FMA})$
 \end{itemize}
 
 IS\_PRECOMPILE is used a "bus selector" (see \ref{buses}).
@@ -548,6 +567,19 @@ For (conditional) jumps, set JUMP = 1, with the following constraints, using $J 
 \end{itemize}
 
 Note: the constraint $J \cdot (1 - \nu_A) = 0$ could be removed, as long as it's correctly enforced in the bytecode.
+
+\vspace{3mm}\centerline{\rule{10cm}{0.4pt}}\vspace{5mm}
+
+For FMA, set AUX $= 3$, $\text{flag}_A = 1$ (so that $\text{operand}_A$ holds the constant multiplier $K$ and the standard $\text{address}_A$ constraint becomes vacuous), $\text{flag}_B = 0$, and $\text{flag}_C$ / $\text{flag}^{C}_\textbf{fp}$ according to whether the third operand is an immediate value, a memory read, or fp-relative. The fp-offset of the multiplicand is carried by PRECOMPILE\_DATA.
+
+The relation $\textbf{m}[\textbf{fp} + \beta] = \text{operand}_A \cdot \textbf{m}[\textbf{fp} + \texttt{PRECOMPILE\_DATA}] + \nu_C$ is captured by:
+
+\begin{itemize}
+    \item $\text{FMA} \cdot (\text{address}_A - (\textbf{fp} + \texttt{PRECOMPILE\_DATA})) = 0$
+    \item $\text{FMA} \cdot (\text{value}_B - \text{operand}_A \cdot \text{value}_A - \nu_C) = 0$
+\end{itemize}
+
+Degree audit: FMA is a degree-3 selector, $\nu_C$ is degree 2, so $\text{FMA} \cdot (\text{value}_B - \text{operand}_A \cdot \text{value}_A - \nu_C)$ is of degree $3 + 2 = 5$, which fits the AIR's degree-5 budget.
 
 \vspace{3mm}
 

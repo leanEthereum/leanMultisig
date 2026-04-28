@@ -81,6 +81,14 @@ pub enum SimpleLine {
         arg0: SimpleExpr,
         arg1: SimpleExpr,
     },
+    /// Fused multiply-add with a compile-time constant multiplier:
+    /// `dst = multiplier * src_a + arg_c`. Synthesised by the post-optimization peephole.
+    Fma {
+        multiplier: ConstExpression,
+        src_a: SimpleExpr,
+        dst: SimpleExpr,
+        arg_c: SimpleExpr,
+    },
     RawAccess {
         res: SimpleExpr,
         index: SimpleExpr,
@@ -171,6 +179,7 @@ impl SimpleLine {
             } => vec![then_branch, else_branch],
             Self::ForwardDeclaration { .. }
             | Self::Assignment { .. }
+            | Self::Fma { .. }
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
@@ -198,6 +207,7 @@ impl SimpleLine {
             } => vec![then_branch, else_branch],
             Self::ForwardDeclaration { .. }
             | Self::Assignment { .. }
+            | Self::Fma { .. }
             | Self::RawAccess { .. }
             | Self::FunctionCall { .. }
             | Self::FunctionRet { .. }
@@ -222,6 +232,7 @@ impl SimpleLine {
             Self::Assignment { arg0, arg1, .. } => {
                 vec![arg0, arg1]
             }
+            Self::Fma { src_a, arg_c, .. } => vec![src_a, arg_c],
             Self::RawAccess { res, index, .. } => vec![res, index],
             Self::RangeCheck { val, bound } => vec![val, bound],
             Self::Match { value, .. } => vec![value],
@@ -244,6 +255,7 @@ impl SimpleLine {
     pub(crate) fn operand_exprs_mut(&mut self) -> Vec<&mut SimpleExpr> {
         match self {
             Self::Assignment { arg0, arg1, .. } => vec![arg0, arg1],
+            Self::Fma { src_a, arg_c, .. } => vec![src_a, arg_c],
             Self::RawAccess { res, index, .. } => vec![res, index],
             Self::RangeCheck { val, bound } => vec![val, bound],
             Self::Match { value, .. } => vec![value],
@@ -3963,6 +3975,14 @@ impl SimpleLine {
 
             Self::Assignment { var, op, arg0, arg1 } => {
                 format!("{var} = {arg0} {op} {arg1}")
+            }
+            Self::Fma {
+                multiplier,
+                src_a,
+                dst,
+                arg_c,
+            } => {
+                format!("{dst} = {multiplier} x {src_a} + {arg_c}")
             }
             Self::CustomHint(hint, args) => {
                 format!(

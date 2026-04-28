@@ -49,7 +49,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         vec![COL_PC, COL_FP]
     }
     fn n_constraints(&self) -> usize {
-        13
+        15
     }
 
     #[inline]
@@ -88,9 +88,20 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let pc_plus_one = pc + AB::F::ONE;
         let nu_a_minus_one = nu_a - AB::F::ONE;
 
-        let add = aux * AB::F::TWO - aux * aux;
-        let deref = (aux * (aux - AB::F::ONE)).halve();
-        let is_precompile = -(add + mul + deref + jump - AB::F::ONE);
+        // Lagrange selectors over AUX in {0=Precompile, 1=ADD, 2=DEREF, 3=FMA}, each degree 3.
+        // INV_6_CANONICAL = canonical u32 representation of 1/6 in KoalaBear (p = 2^31 - 2^24 + 1).
+        const INV_6_CANONICAL: u32 = 355_117_739;
+        let inv_6 = AB::F::from_u32(INV_6_CANONICAL);
+        let aux_minus_one = aux - AB::F::ONE;
+        let aux_minus_two = aux - AB::F::TWO;
+        let aux_minus_three = aux - AB::F::from_u32(3);
+        // add(x) = x*(x-2)*(x-3)/2: 1 at x=1, 0 at x ∈ {0,2,3}
+        let add = (aux * aux_minus_two * aux_minus_three).halve();
+        // deref(x) = x*(x-1)*(3-x)/2: 1 at x=2, 0 at x ∈ {0,1,3}
+        let deref = (aux * aux_minus_one * -aux_minus_three).halve();
+        // fma(x) = x*(x-1)*(x-2)/6: 1 at x=3, 0 at x ∈ {0,1,2}
+        let fma = aux * aux_minus_one * aux_minus_two * inv_6;
+        let is_precompile = -(add + mul + deref + jump + fma - AB::F::ONE);
 
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
@@ -114,6 +125,12 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         builder.assert_zero(deref * (addr_b - (value_a + operand_b)));
         builder.assert_zero(deref * (value_b - nu_c));
 
+        // FMA: m[fp + precompile_data] read into value_A, then value_B = K * value_A + nu_C.
+        // Encoding: AUX=3, flag_A=1 (so the standard addr_A constraint is vacuous), operand_A=K,
+        // precompile_data is the fp-offset of A.
+        builder.assert_zero(fma * (addr_a - (fp + precompile_data)));
+        builder.assert_zero(fma * (value_b - operand_a * value_a - nu_c));
+
         let jump_and_condition = jump * nu_a;
 
         builder.assert_zero(jump_and_condition * nu_a_minus_one);
@@ -127,4 +144,18 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 
 pub const fn instr_idx(col_index_in_air: usize) -> usize {
     col_index_in_air - N_RUNTIME_COLUMNS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::F;
+
+    #[test]
+    fn inv_6_canonical_is_correct() {
+        // Verifies that the hardcoded INV_6_CANONICAL matches the inverse of 6 in F.
+        // (Tracks the constant used inside `eval`.)
+        const INV_6_CANONICAL: u32 = 355_117_739;
+        assert_eq!(F::from_u32(INV_6_CANONICAL), F::from_u32(6).inverse());
+    }
 }

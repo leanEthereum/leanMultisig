@@ -39,9 +39,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             let flag_ab_fp = field_repr[instr_idx(COL_FLAG_AB_FP)];
             let aux = field_repr[instr_idx(COL_AUX)];
             let is_deref = aux == F::TWO;
+            let is_fma = aux == F::from_u32(3);
 
             let mut addr_a = F::ZERO;
-            if flag_a.is_zero() && flag_ab_fp.is_zero() {
+            if is_fma {
+                // FMA: addr_A is taken from precompile_data (operand_A holds the constant K).
+                addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_PRECOMPILE_DATA)];
+            } else if flag_a.is_zero() && flag_ab_fp.is_zero() {
                 addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)];
             }
             let value_a = memory.0.get(addr_a.to_usize()).copied().flatten().unwrap_or_default();

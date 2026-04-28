@@ -24,11 +24,15 @@ pub fn propagate_copies(program: &mut SimpleProgram) {
         let refs = get_var_refs(&func.instructions);
         dedup_arithmetic_operations(&mut func.instructions, &refs);
 
-        // Pass 4: Fuse `v = m[ptr+s]; assert v == x` ⇒ `x = m[ptr+s]`.
+        // Pass 4: Fold `v_mul = K * mem_a; dst = mem_c + v_mul` into `Fma(K, mem_a, dst, mem_c)`.
+        let refs = get_var_refs(&func.instructions);
+        fold_mul_const_add_into_fma(&mut func.instructions, &refs);
+
+        // Pass 5: Fuse `v = m[ptr+s]; assert v == x` ⇒ `x = m[ptr+s]`.
         let refs = get_var_refs(&func.instructions);
         fuse_raw_asserts(&mut func.instructions, &refs);
 
-        // Pass 5: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
+        // Pass 6: fuse `Assignment + AssertEq`('c = 0`and 'c = a * b` => `0 = a * b`).
         let refs = get_var_refs(&func.instructions);
         fuse_assign_asserts(&mut func.instructions, &refs);
     }
@@ -46,6 +50,10 @@ fn get_var_refs(lines: &[SimpleLine]) -> BTreeMap<Var, VarRefs> {
             match line {
                 SimpleLine::Assignment {
                     var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+                    ..
+                }
+                | SimpleLine::Fma {
+                    dst: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
                     ..
                 }
                 | SimpleLine::HintMAlloc { var: v, .. }
@@ -367,6 +375,117 @@ fn fold_const_offset_into_deref(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var
     let mut idx = 0;
     lines.retain(|line| {
         let keep = !to_drop.contains(&idx)
+            && !matches!(line, SimpleLine::ForwardDeclaration { var } if decls_to_drop.contains(var));
+        idx += 1;
+        keep
+    });
+}
+
+/// Pattern:
+///
+///   v_mul = K x mem_a            (K compile-time constant, mem_a a memory variable)
+///   dst   = mem_c + v_mul        (or `dst = v_mul + mem_c`)
+///
+///   ==>  Fma(K, mem_a, dst, mem_c)            // single instruction
+///
+/// Soundness: `v_mul` must be uniquely defined (only the Mul writes it) and uniquely
+/// used (only the Add reads it). That ensures no other code observes the intermediate.
+fn fold_mul_const_add_into_fma(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) {
+    for line in lines.iter_mut() {
+        for block in line.nested_blocks_mut() {
+            fold_mul_const_add_into_fma(block, refs);
+        }
+    }
+
+    // Phase 1: catalog candidate Mul-by-const lines (K, mem_a) per uniquely-used v_mul.
+    let mut mul_lines: BTreeMap<Var, (usize, ConstExpression, SimpleExpr)> = BTreeMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        let SimpleLine::Assignment {
+            var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v_mul)),
+            op: MathOperation::Mul,
+            arg0,
+            arg1,
+        } = line
+        else {
+            continue;
+        };
+        let r = match refs.get(v_mul) {
+            Some(r) => r,
+            None => continue,
+        };
+        if r.definitions != 1 || r.uses != 1 {
+            continue;
+        }
+        let (k, mem_a) = match (arg0, arg1) {
+            (SimpleExpr::Constant(c), SimpleExpr::Memory(_)) => (c.clone(), arg1.clone()),
+            (SimpleExpr::Memory(_), SimpleExpr::Constant(c)) => (c.clone(), arg0.clone()),
+            _ => continue,
+        };
+        mul_lines.insert(v_mul.clone(), (i, k, mem_a));
+    }
+
+    if mul_lines.is_empty() {
+        return;
+    }
+
+    // Phase 2: walk Add lines using v_mul; record rewrites.
+    let mut to_rewrite: BTreeMap<usize, SimpleLine> = BTreeMap::new();
+    let mut mul_lines_to_drop: BTreeSet<usize> = BTreeSet::new();
+    let mut decls_to_drop: BTreeSet<Var> = BTreeSet::new();
+    for (j, line) in lines.iter().enumerate() {
+        let SimpleLine::Assignment {
+            var,
+            op: MathOperation::Add,
+            arg0,
+            arg1,
+        } = line
+        else {
+            continue;
+        };
+        // dst must be a Var-style memory.
+        if !matches!(var, SimpleExpr::Memory(VarOrConstMallocAccess::Var(_))) {
+            continue;
+        }
+        let pick_mul =
+            |side: &SimpleExpr| -> Option<Var> { side.as_var().filter(|v| mul_lines.contains_key(*v)).cloned() };
+        let (v_mul, mem_c) = if let Some(v) = pick_mul(arg0) {
+            (v, arg1.clone())
+        } else if let Some(v) = pick_mul(arg1) {
+            (v, arg0.clone())
+        } else {
+            continue;
+        };
+        let (mul_idx, k, mem_a) = mul_lines.get(&v_mul).cloned().unwrap();
+        if mul_idx >= j {
+            continue;
+        }
+        if mul_lines_to_drop.contains(&mul_idx) {
+            // Already claimed (uses==1 should rule this out, but be defensive).
+            continue;
+        }
+        to_rewrite.insert(
+            j,
+            SimpleLine::Fma {
+                multiplier: k,
+                src_a: mem_a,
+                dst: var.clone(),
+                arg_c: mem_c,
+            },
+        );
+        mul_lines_to_drop.insert(mul_idx);
+        decls_to_drop.insert(v_mul);
+    }
+
+    if to_rewrite.is_empty() {
+        return;
+    }
+
+    for (j, new_line) in to_rewrite {
+        lines[j] = new_line;
+    }
+    let mut idx = 0;
+    lines.retain(|line| {
+        let keep = !mul_lines_to_drop.contains(&idx)
             && !matches!(line, SimpleLine::ForwardDeclaration { var } if decls_to_drop.contains(var));
         idx += 1;
         keep

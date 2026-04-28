@@ -46,6 +46,26 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             set_nu_b(&mut fields, dest);
             set_nu_c(&mut fields, updated_fp);
         }
+        Instruction::Fma {
+            multiplier,
+            offset_a,
+            offset_b,
+            arg_c,
+        } => {
+            // AUX=3: FMA = L_3(AUX=3) = 1 (selector over {0=precompile, 1=ADD, 2=DEREF, 3=FMA}).
+            fields[instr_idx(COL_AUX)] = F::from_u32(3);
+            // operand_A = K (constant). flag_A=1 makes the existing addr_A constraint vacuous;
+            // the FMA-specific addr_A constraint uses precompile_data instead.
+            fields[instr_idx(COL_FLAG_A)] = F::ONE;
+            fields[instr_idx(COL_OPERAND_A)] = *multiplier;
+            // precompile_data carries the fp-offset of A (memory operand).
+            fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(*offset_a);
+            // B is the memory destination at fp + offset_b (flag_B=0, flag_AB_fp=0).
+            fields[instr_idx(COL_FLAG_B)] = F::ZERO;
+            fields[instr_idx(COL_OPERAND_B)] = F::from_usize(*offset_b);
+            // C operand encoded via the standard nu_C path.
+            set_nu_c(&mut fields, arg_c);
+        }
         Instruction::Precompile(precompile) => {
             let precompile_data = match &precompile.data {
                 PrecompileCompTimeArgs::Poseidon16 => POSEIDON_PRECOMPILE_DATA,

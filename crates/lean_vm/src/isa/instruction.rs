@@ -50,6 +50,18 @@ pub enum Instruction {
         updated_fp: MemOrFpOrConstant,
     },
 
+    /// Fused multiply-add with constant: m[fp + offset_b] = K * m[fp + offset_a] + nu_c
+    Fma {
+        /// Compile-time constant multiplier `K`
+        multiplier: F,
+        /// fp-offset of `A` (memory read)
+        offset_a: usize,
+        /// fp-offset of `B` (memory write, destination)
+        offset_b: usize,
+        /// `C` operand (added)
+        arg_c: MemOrFpOrConstant,
+    },
+
     Precompile(PrecompileInstruction),
 }
 
@@ -100,6 +112,7 @@ pub struct InstructionCounts {
     pub mul: usize,
     pub deref: usize,
     pub jump: usize,
+    pub fma: usize,
 }
 
 impl AddAssign for InstructionCounts {
@@ -108,6 +121,7 @@ impl AddAssign for InstructionCounts {
         self.mul += rhs.mul;
         self.deref += rhs.deref;
         self.jump += rhs.jump;
+        self.fma += rhs.fma;
     }
 }
 
@@ -211,6 +225,21 @@ impl Instruction {
                 Ok(())
             }
 
+            Self::Fma {
+                multiplier,
+                offset_a,
+                offset_b,
+                arg_c,
+            } => {
+                let value_a = ctx.memory.get(*ctx.fp + offset_a)?;
+                let value_c = arg_c.read_value(ctx.memory, *ctx.fp)?;
+                let result = *multiplier * value_a + value_c;
+                ctx.memory.set(*ctx.fp + offset_b, result)?;
+
+                ctx.counts.fma += 1;
+                *ctx.pc += 1;
+                Ok(())
+            }
             Self::Precompile(precompile) => {
                 precompile.data.table().execute(
                     precompile.arg_0.read_value(ctx.memory, *ctx.fp)?,
@@ -270,6 +299,14 @@ impl Display for Instruction {
                     f,
                     "if {condition} != 0 jump to {label} = {dest} with next(fp) = {updated_fp}"
                 )
+            }
+            Self::Fma {
+                multiplier,
+                offset_a,
+                offset_b,
+                arg_c,
+            } => {
+                write!(f, "m[fp + {offset_b}] = {multiplier} x m[fp + {offset_a}] + {arg_c}")
             }
             Self::Precompile(precompile) => write!(f, "{precompile}"),
         }

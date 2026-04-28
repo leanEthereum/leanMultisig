@@ -268,6 +268,35 @@ fn compile_lines(
                 ));
             }
 
+            SimpleLine::Fma {
+                multiplier,
+                src_a,
+                dst,
+                arg_c,
+            } => {
+                let SimpleExpr::Memory(dst_mem) = dst else {
+                    panic!("FMA dst must be a memory access, got {dst}");
+                };
+                let SimpleExpr::Memory(src_a_mem) = src_a else {
+                    panic!("FMA src_a must be a memory access, got {src_a}");
+                };
+                if let VarOrConstMallocAccess::Var(v) = dst_mem {
+                    if compiler.dead_store_vars.contains(v) {
+                        continue;
+                    }
+                    compiler.register_var_if_needed(v);
+                }
+                let src_a_offset = compiler.get_offset(src_a_mem);
+                let dst_offset = compiler.get_offset(dst_mem);
+                let arg_c = IntermediateValue::from_simple_expr(arg_c, compiler);
+                instructions.push(IntermediateInstruction::Fma {
+                    multiplier: multiplier.clone(),
+                    src_a_offset,
+                    dst_offset,
+                    arg_c,
+                });
+            }
+
             SimpleLine::Match { value, arms, offset } => {
                 compiler.stack_frame_layout.scopes.push(ScopeLayout::default());
 
@@ -966,6 +995,10 @@ fn collect_use_info(
             }
             SimpleLine::Assignment {
                 var: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
+                ..
+            }
+            | SimpleLine::Fma {
+                dst: SimpleExpr::Memory(VarOrConstMallocAccess::Var(v)),
                 ..
             } => {
                 declared.insert(v.clone());
