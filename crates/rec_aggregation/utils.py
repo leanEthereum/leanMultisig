@@ -49,17 +49,21 @@ def powers(alpha, n):
 def powers_const(alpha, n: Const):
     # alpha: EF
     # n: F
+    debug_assert(n != 0)
 
     res = Array(n * DIM)
     set_to_one(res)
-    for i in unroll(0, n - 1):
-        mul_extension(res + i * DIM, alpha, res + (i + 1) * DIM)
+    if n == 1:
+        return res
+    copy_5(alpha, res + DIM)
+    for i in unroll(1, n - 1):
+        mul_extension(res + i * DIM, res + DIM, res + (i + 1) * DIM)
     return res
 
 
-def poly_eq_extension_dynamic(point, n):
+def compute_eq_mle_extension_dynamic(point, n):
     debug_assert(n < 9)
-    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: poly_eq_extension(point, i))
+    res = match_range(n, range(0, 1), lambda _: ONE_EF_PTR, range(1, 9), lambda i: compute_eq_mle_extension(point, i))
     return res
 
 
@@ -79,14 +83,15 @@ def product_first_n_const(values, n):
     return res
 
 
-def poly_eq_extension(point, n: Const):
+def compute_eq_mle_extension(point, n: Const):
     # Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
     res = Array((2 ** (n + 1) - 1) * DIM)
     set_to_one(res)
 
     for s in unroll(0, n):
-        p = point + (n - 1 - s) * DIM
+        p = Array(DIM)
+        copy_5(point + (n - 1 - s) * DIM, p)
         for i in unroll(0, 2**s):
             mul_extension(p, res + (2**s - 1 + i) * DIM, res + (2 ** (s + 1) - 1 + 2**s + i) * DIM)
             sub_extension(
@@ -98,21 +103,21 @@ def poly_eq_extension(point, n: Const):
 
 
 @inline
-def eq_mle_extension_to(a, b, dst, n):
+def poly_eq_extension_dynamic_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
     match_range(n, range(1, 33), lambda i: poly_eq_ee(a, b, dst, i))
     return
 
 
-def eq_mle_extension(a, b, n):
+def poly_eq_extension_dynamic_ret(a, b, n):
     res = Array(DIM)
-    eq_mle_extension_to(a, b, res, n)
+    poly_eq_extension_dynamic_to(a, b, res, n)
     return res
 
 
 @inline
-def eq_mle_base_extension_to(a, b, dst, n):
+def poly_eq_base_extension_to(a, b, dst, n):
     debug_assert(n < 33)
     debug_assert(0 < n)
     match_range(n, range(1, 33), lambda i: poly_eq_be(a, b, dst, i))
@@ -120,18 +125,9 @@ def eq_mle_base_extension_to(a, b, dst, n):
 
 
 @inline
-def eq_mle_base_extension(a, b, n):
+def poly_eq_base_extension(a, b, n):
     res = Array(DIM)
-    eq_mle_base_extension_to(a, b, res, n)
-    return res
-
-
-def eq_mle_extension_base_const(a, b, n: Const):
-    # a: base (n elements, stride 1)
-    # b: extension (n elements, stride DIM)
-    # poly_eq_be with length n computes prod_i poly_eq(a[i], b[i]) via multiplicative accumulation
-    res = Array(DIM)
-    poly_eq_be(a, b, res, n)
+    poly_eq_base_extension_to(a, b, res, n)
     return res
 
 
@@ -148,10 +144,9 @@ def expand_from_univariate_base_const(alpha, n: Const):
     # alpha: F
 
     res = Array(n)
-    current: Mut = alpha
-    for i in unroll(0, n):
-        res[i] = current
-        current *= current
+    res[0] = alpha
+    for i in unroll(1, n):
+        res[i] = res[i - 1] * res[i - 1]
     return res
 
 
@@ -181,8 +176,10 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     basis = Array(2**n * DIM)
     set_to_one(basis)
     for k in unroll(0, n):
+        p = Array(DIM)
+        copy_5(point + k * DIM, p)
         for j in unroll(0, 2**k):
-            mul_extension(basis + j * DIM, point + k * DIM, basis + (j + 2**k) * DIM)
+            mul_extension(basis + j * DIM, p, basis + (j + 2**k) * DIM)
     result = Array(DIM)
     dot_product_ee(coeffs, basis, result, 2**n)
     return result
@@ -671,15 +668,20 @@ def embed_in_ef(f):
         res[i] = 0
     return res
 
-
 def next_mle(x, y, n):
+    debug_assert(n < 32)
+    debug_assert(n != 0)
+    res = match_range(n, range(1, 32), lambda i: next_mle_const(x, y, i))
+    return res
+
+def next_mle_const(x, y, n: Const):
     # x and y are pointers to n elements of extension field
 
     # Build eq_prefix[0..n+1] where eq_prefix[i] = prod_{j<i} eq(x[j], y[j])
     # and eq(a,b) = a*b + (1-a)*(1-b)
     eq_prefix = Array((n + 1) * DIM)
     set_to_one(eq_prefix)
-    for i in range(0, n):
+    for i in unroll(0, n):
         xi = x + i * DIM
         yi = y + i * DIM
         eq_i = Array(DIM)
@@ -689,7 +691,7 @@ def next_mle(x, y, n):
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
     low_suffix = Array((n + 1) * DIM)
     set_to_one(low_suffix + n * DIM)
-    for i in range(0, n):
+    for i in unroll(0, n):
         idx = n - 1 - i
         xi = x + idx * DIM
         yi = y + idx * DIM
@@ -699,7 +701,7 @@ def next_mle(x, y, n):
 
     # Compute sum = Σ_{arr=0..n} (eq_prefix[arr] * (1-x[arr]) * y[arr] * low_suffix[arr+1])
     sum: Mut = ZERO_VEC_PTR
-    for arr in range(0, n):
+    for arr in unroll(0, n):
         x_arr = x + arr * DIM
         y_arr = y + arr * DIM
         one_minus_x = one_minus_self_extension_ret(x_arr)
@@ -709,7 +711,7 @@ def next_mle(x, y, n):
         sum = add_extension_ret(sum, term)
 
     # Compute prod = product of all x[i] * product of all y[i]
-    prod = mul_extension_ret(product_first_n(x, n), product_first_n(y, n))
+    prod = mul_extension_ret(product_first_n_const(x, n), product_first_n_const(y, n))
 
     result = add_extension_ret(sum, prod)
     return result

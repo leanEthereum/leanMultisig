@@ -176,9 +176,6 @@ where
 
     let sc_params = SumcheckComputeParams {
         split_eq: eq_factor_and_split.as_ref().map(|(_, split_eq)| split_eq),
-        first_eq_factor: eq_factor_and_split
-            .as_ref()
-            .map(|(first_eq_factor, _)| first_eq_factor[0]),
         computation,
         extra_data,
         missing_mul_factor,

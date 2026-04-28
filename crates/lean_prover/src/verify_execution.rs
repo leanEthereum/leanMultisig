@@ -58,6 +58,10 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
+    if bytecode.log_size() < MIN_BYTECODE_LOG_SIZE {
+        return Err(ProofError::InvalidProof);
+    }
+
     let parsed_commitment = stacked_pcs_parse_commitment(
         &whir_config,
         &mut verifier_state,

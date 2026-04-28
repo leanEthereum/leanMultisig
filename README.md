@@ -34,10 +34,10 @@ Machine: M4 Max 48GB (CPU only)
 cargo run --release -- xmss --n-signatures 1500
 ```
 
-| WHIR rate \ regime | Proven               | Conjectured          |
-| ------------------ | -------------------- | -------------------- |
-| 1/2                | 800 XMSS/s - 355 KiB | 800 XMSS/s - 188 KiB |
-| 1/4                | 700 XMSS/s - 229 KiB | 700 XMSS/s - 130 KiB |
+| WHIR rate \ regime | Proven                | Conjectured           |
+| ------------------ | --------------------- | --------------------- |
+| 1/2                | 1150 XMSS/s - 377 KiB | 1200 XMSS/s - 190 KiB |
+| 1/4                | 850 XMSS/s - 243 KiB  | 850 XMSS/s - 130 KiB  |
 
 (Proving throughput - proof size)
 
@@ -52,7 +52,7 @@ cargo run --release -- recursion --n 2
 
 | Proven          | Conjectured     |
 | --------------- | --------------- |
-| 0.85s - 188 KiB | 0.57s - 116 KiB |
+| 0.55s - 190 KiB | 0.42s - 101 KiB |
 
 
 ### Bonus: unbounded recursive aggregation

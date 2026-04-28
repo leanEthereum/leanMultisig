@@ -113,7 +113,7 @@ def whir_open(
     all_ood_recovered_evals = Array(num_oods[0] * DIM)
     for i in range(0, num_oods[0]):
         expanded_from_univariate = expand_from_univariate_ext(ood_points_commit + i * DIM, n_vars)
-        eq_mle_extension_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
+        poly_eq_extension_dynamic_to(expanded_from_univariate, folding_randomness_global, all_ood_recovered_evals + i * DIM, n_vars)
     s: Mut = Array(DIM)
     dot_product_ee_dynamic(
         all_ood_recovered_evals,
@@ -131,7 +131,7 @@ def whir_open(
         my_folding_randomness += folding_factors[i] * DIM
         for j in range(0, num_oods[i + 1]):
             expanded_from_univariate = expand_from_univariate_ext(all_ood_points[i] + j * DIM, n_vars_remaining)
-            eq_mle_extension_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
+            poly_eq_extension_dynamic_to(expanded_from_univariate, my_folding_randomness, my_ood_recovered_evals + j * DIM, n_vars_remaining)
         summed_ood = Array(DIM)
         dot_product_ee_dynamic(
             my_ood_recovered_evals,
@@ -144,7 +144,7 @@ def whir_open(
         circle_value_i = all_circle_values[i]
         for j in range(0, num_queries[i]):  # unroll ?
             expanded_from_univariate = expand_from_univariate_base(circle_value_i[j], n_vars_remaining)
-            eq_mle_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
+            poly_eq_base_extension_to(expanded_from_univariate, my_folding_randomness, s6s + j * DIM, n_vars_remaining)
         s7 = Array(DIM)
         dot_product_ee_dynamic(
             s6s,
@@ -173,8 +173,7 @@ def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
 def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + sc_round * DIM)
@@ -184,23 +183,35 @@ def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, ch
 
 def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
     challenges = Array(n_steps * DIM)
-    for sc_round in range(0, n_steps):
+    fs, new_claimed_sum = sumcheck_verify_reversed_helper(fs, n_steps, claimed_sum, degree, challenges)
+    return fs, challenges, new_claimed_sum
+
+
+def sumcheck_verify_reversed_helper(fs, n_steps, claimed_sum, degree: Const, challenges):
+    debug_assert(n_steps < 32)
+    new_fd, final_sum = match_range(
+        n_steps,
+        range(0, 32),
+        lambda s: sumcheck_verify_reversed_helper_const(fs, s, claimed_sum, degree, challenges),
+    )
+    return new_fd, final_sum
+
+def sumcheck_verify_reversed_helper_const(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + (n_steps - 1 - sc_round) * DIM)
 
-    return fs, challenges, claimed_sum
+    return fs, claimed_sum
 
 
 def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, folding_grinding_bits):
     challenges = Array(n_steps * DIM)
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        sum_over_boolean_hypercube = polynomial_sum_at_0_and_1(poly, degree)
-        copy_5(sum_over_boolean_hypercube, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs = fs_grinding(fs, folding_grinding_bits)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
@@ -290,7 +301,7 @@ def sample_stir_indexes_and_fold(
 
     folds = Array(num_queries * DIM)
 
-    poly_eq = poly_eq_extension_dynamic(folding_randomness, folding_factor)
+    poly_eq = compute_eq_mle_extension_dynamic(folding_randomness, folding_factor)
 
     if merkle_leaves_in_basefield == 1:
         for i in range(0, num_queries):
@@ -355,11 +366,11 @@ def whir_round(
         final_sum,
     )
 
-
 @inline
-def polynomial_sum_at_0_and_1(coeffs, degree):
+def polynomial_sum_at_0_and_1(coeffs, degree, dst):
     debug_assert(1 < degree)
-    return add_extension_ret(sum_continuous_ef(coeffs, degree + 1), coeffs)
+    add_ee(sum_continuous_ef(coeffs, degree + 1), coeffs, dst)
+    return
 
 
 def parse_commitment(fs: Mut, num_ood):
