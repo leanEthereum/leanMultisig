@@ -674,15 +674,20 @@ def embed_in_ef(f):
         res[i] = 0
     return res
 
-
 def next_mle(x, y, n):
+    debug_assert(n < 32)
+    debug_assert(n != 0)
+    res = match_range(n, range(1, 32), lambda i: next_mle_const(x, y, i))
+    return res
+
+def next_mle_const(x, y, n: Const):
     # x and y are pointers to n elements of extension field
 
     # Build eq_prefix[0..n+1] where eq_prefix[i] = prod_{j<i} eq(x[j], y[j])
     # and eq(a,b) = a*b + (1-a)*(1-b)
     eq_prefix = Array((n + 1) * DIM)
     set_to_one(eq_prefix)
-    for i in range(0, n):
+    for i in unroll(0, n):
         xi = x + i * DIM
         yi = y + i * DIM
         eq_i = Array(DIM)
@@ -692,7 +697,7 @@ def next_mle(x, y, n):
     # Build low_suffix[0..n+1] where low_suffix[i] = prod_{j>=i} (x[j] * (1-y[j]))
     low_suffix = Array((n + 1) * DIM)
     set_to_one(low_suffix + n * DIM)
-    for i in range(0, n):
+    for i in unroll(0, n):
         idx = n - 1 - i
         xi = x + idx * DIM
         yi = y + idx * DIM
@@ -702,7 +707,7 @@ def next_mle(x, y, n):
 
     # Compute sum = Σ_{arr=0..n} (eq_prefix[arr] * (1-x[arr]) * y[arr] * low_suffix[arr+1])
     sum: Mut = ZERO_VEC_PTR
-    for arr in range(0, n):
+    for arr in unroll(0, n):
         x_arr = x + arr * DIM
         y_arr = y + arr * DIM
         one_minus_x = one_minus_self_extension_ret(x_arr)
@@ -712,7 +717,7 @@ def next_mle(x, y, n):
         sum = add_extension_ret(sum, term)
 
     # Compute prod = product of all x[i] * product of all y[i]
-    prod = mul_extension_ret(product_first_n(x, n), product_first_n(y, n))
+    prod = mul_extension_ret(product_first_n_const(x, n), product_first_n_const(y, n))
 
     result = add_extension_ret(sum, prod)
     return result
