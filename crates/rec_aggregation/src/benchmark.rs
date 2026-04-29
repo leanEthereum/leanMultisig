@@ -156,7 +156,6 @@ impl LiveTree {
 #[allow(clippy::too_many_arguments)]
 fn build_tree_descs(
     topology: &AggregationTopology,
-    overlap: usize,
     prefix: &str,
     child_prefix: &str,
     plain_prefix: &str,
@@ -164,13 +163,17 @@ fn build_tree_descs(
     descs: &mut Vec<String>,
     plain_lens: &mut Vec<usize>,
 ) {
-    let n_sigs = count_signers(topology, overlap);
+    let n_sigs = count_signers(topology);
     let n_children = topology.children.len();
     let is_leaf = n_children == 0;
 
     let (icon, icon_color) = if is_leaf { ("◇", s::ORG) } else { ("◆", s::PUR) };
-    let reduced = if n_children > 1 { overlap * (n_children - 1) } else { 0 };
-    let children_sum: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
+    let reduced = if n_children > 1 {
+        topology.overlap * (n_children - 1)
+    } else {
+        0
+    };
+    let children_sum: usize = topology.children.iter().map(count_signers).sum();
     let detail = if is_leaf {
         format!("{}{}{}", s::GRN, n_sigs, s::R)
     } else {
@@ -220,7 +223,7 @@ fn build_tree_descs(
                 format!("{}│    ", plain_child_prefix),
             )
         };
-        build_tree_descs(child, overlap, &p, &cp, &pp, &pcp, descs, plain_lens);
+        build_tree_descs(child, &p, &cp, &pp, &pcp, descs, plain_lens);
     }
 
     // Then the node itself (below its children).
@@ -242,7 +245,6 @@ fn build_aggregation(
     path: &mut Vec<usize>,
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
-    overlap: usize,
     tracing: bool,
 ) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     let raw_count = topology.raw_xmss;
@@ -255,7 +257,7 @@ fn build_aggregation(
     let mut child_start = raw_count;
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
-        let child_count = count_signers(child, overlap);
+        let child_count = count_signers(child);
         path.push(child_idx);
         let (child_pks, child_agg) = build_aggregation(
             child,
@@ -265,7 +267,6 @@ fn build_aggregation(
             path,
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
-            overlap,
             tracing,
         );
         path.pop();
@@ -274,7 +275,7 @@ fn build_aggregation(
         child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
-            child_start -= overlap;
+            child_start -= topology.overlap;
         }
     }
 
@@ -343,12 +344,7 @@ fn build_aggregation(
     (global_pub_keys, result)
 }
 
-pub fn run_aggregation_benchmark(
-    topology: &AggregationTopology,
-    overlap: usize,
-    tracing: bool,
-    silent: bool,
-) -> BenchmarkReport {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, silent: bool) -> BenchmarkReport {
     // Tell macOS this is a user-initiated, latency-critical computation and
     // should not be throttled / App-Napped.
     #[cfg(target_os = "macos")]
@@ -359,7 +355,7 @@ pub fn run_aggregation_benchmark(
     }
     precompute_dft_twiddles::<F>(1 << 24);
 
-    let n_sigs = count_signers(topology, overlap);
+    let n_sigs = count_signers(topology);
 
     let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
@@ -377,7 +373,7 @@ pub fn run_aggregation_benchmark(
     // Build display
     let mut descs = vec![];
     let mut plain_lens = vec![];
-    build_tree_descs(topology, overlap, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
+    build_tree_descs(topology, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
     let mut display = LiveTree::new(descs, plain_lens, silent);
 
     if !tracing {
@@ -394,7 +390,6 @@ pub fn run_aggregation_benchmark(
         &mut path,
         &pub_keys,
         &signatures,
-        overlap,
         tracing,
     );
 
@@ -462,8 +457,9 @@ fn test_aggregation_throughput_per_num_xmss() {
             raw_xmss: num_xmss,
             children: vec![],
             log_inv_rate,
+            overlap: 0,
         };
-        let time = run_aggregation_benchmark(&topology, 0, false, true).total_time_secs();
+        let time = run_aggregation_benchmark(&topology, false, true).total_time_secs();
         num_xmss_and_time.push((num_xmss, time));
         println!(
             "{} XMSS -> {} XMSS/s",

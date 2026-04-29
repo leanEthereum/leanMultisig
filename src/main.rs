@@ -36,12 +36,12 @@ enum Cli {
     },
 }
 
-fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool, repeat: usize) {
+fn run_with_warmup(topology: &AggregationTopology, tracing: bool, repeat: usize) {
     let warmup = biggest_leaf(topology).unwrap();
     println!("warming up...");
-    let _ = run_aggregation_benchmark(&warmup, 0, false, true);
+    let _ = run_aggregation_benchmark(&warmup, false, true);
     for i in 0..repeat {
-        let report = run_aggregation_benchmark(topology, overlap, tracing, false);
+        let report = run_aggregation_benchmark(topology, tracing, false);
         if repeat > 1 {
             eprintln!("proof {}/{repeat}: {:.3}s", i + 1, report.total_time_secs());
         }
@@ -65,8 +65,9 @@ fn main() {
                 raw_xmss: n_signatures,
                 children: vec![],
                 log_inv_rate,
+                overlap: 0,
             };
-            run_with_warmup(&topology, 0, tracing, repeat);
+            run_with_warmup(&topology, tracing, repeat);
         }
         Cli::Recursion {
             n,
@@ -81,12 +82,14 @@ fn main() {
                         raw_xmss: 700,
                         children: vec![],
                         log_inv_rate,
+                        overlap: 0,
                     };
                     n
                 ],
                 log_inv_rate,
+                overlap: 0,
             };
-            run_with_warmup(&topology, 0, tracing, repeat);
+            run_with_warmup(&topology, tracing, repeat);
         }
         Cli::FancyAggregation { repeat } => {
             let topology = AggregationTopology {
@@ -101,10 +104,12 @@ fn main() {
                                     raw_xmss: 1400,
                                     children: vec![],
                                     log_inv_rate: 1,
+                                    overlap: 0,
                                 };
                                 3
                             ],
                             log_inv_rate: 1,
+                            overlap: 5,
                         },
                         AggregationTopology {
                             raw_xmss: 0,
@@ -113,17 +118,21 @@ fn main() {
                                     raw_xmss: 700,
                                     children: vec![],
                                     log_inv_rate: 2,
+                                    overlap: 0,
                                 };
                                 2
                             ],
                             log_inv_rate: 2,
+                            overlap: 5,
                         },
                     ],
                     log_inv_rate: 2,
+                    overlap: 2,
                 }],
                 log_inv_rate: 4,
+                overlap: 0,
             };
-            run_with_warmup(&topology, 5, false, repeat);
+            run_with_warmup(&topology, false, repeat);
         }
     }
 }
