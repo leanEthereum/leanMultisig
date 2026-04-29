@@ -330,7 +330,10 @@ fn build_aggregation(
         let own_display_index = display_index + count_nodes(topology) - 1;
         live_tree.update_node(own_display_index, &stats);
     }
-    nodes.push(NodeReport { path: path.clone(), stats });
+    nodes.push(NodeReport {
+        path: path.clone(),
+        stats,
+    });
 
     (global_pub_keys, result, elapsed.as_secs_f64())
 }
