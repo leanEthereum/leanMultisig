@@ -41,9 +41,9 @@ fn run_with_warmup(topology: &AggregationTopology, overlap: usize, tracing: bool
     println!("warming up...");
     let _ = run_aggregation_benchmark(&warmup, 0, false, true);
     for i in 0..repeat {
-        let t = run_aggregation_benchmark(topology, overlap, tracing, false);
+        let report = run_aggregation_benchmark(topology, overlap, tracing, false);
         if repeat > 1 {
-            eprintln!("proof {}/{repeat}: {t:.3}s", i + 1);
+            eprintln!("proof {}/{repeat}: {:.3}s", i + 1, report.total_time_secs);
         }
     }
 }
