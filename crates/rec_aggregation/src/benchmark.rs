@@ -32,11 +32,16 @@ pub struct NodeReport {
     pub stats: NodeStats,
 }
 
-/// Per-node metrics in tree-walk order, plus the total wall time.
+/// Per-node metrics in tree-walk order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkReport {
-    pub total_time_secs: f64,
     pub nodes: Vec<NodeReport>,
+}
+
+impl BenchmarkReport {
+    pub fn total_time_secs(&self) -> f64 {
+        self.nodes.iter().map(|n| n.stats.time_secs).sum()
+    }
 }
 
 struct LiveTree {
@@ -239,7 +244,7 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
-) -> (Vec<XmssPublicKey>, AggregatedXMSS, f64) {
+) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
@@ -252,7 +257,7 @@ fn build_aggregation(
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
         path.push(child_idx);
-        let (child_pks, child_agg, _) = build_aggregation(
+        let (child_pks, child_agg) = build_aggregation(
             child,
             child_display_index,
             nodes,
@@ -335,7 +340,7 @@ fn build_aggregation(
         stats,
     });
 
-    (global_pub_keys, result, elapsed.as_secs_f64())
+    (global_pub_keys, result)
 }
 
 pub fn run_aggregation_benchmark(
@@ -381,7 +386,7 @@ pub fn run_aggregation_benchmark(
 
     let mut nodes: Vec<NodeReport> = Vec::new();
     let mut path: Vec<usize> = Vec::new();
-    let (global_pub_keys, aggregated_sigs, total_time_secs) = build_aggregation(
+    let (global_pub_keys, aggregated_sigs) = build_aggregation(
         topology,
         0,
         &mut nodes,
@@ -402,7 +407,7 @@ pub fn run_aggregation_benchmark(
     )
     .unwrap();
 
-    BenchmarkReport { total_time_secs, nodes }
+    BenchmarkReport { nodes }
 }
 
 // TODO is there a better fix?
@@ -458,7 +463,7 @@ fn test_aggregation_throughput_per_num_xmss() {
             children: vec![],
             log_inv_rate,
         };
-        let time = run_aggregation_benchmark(&topology, 0, false, true).total_time_secs;
+        let time = run_aggregation_benchmark(&topology, 0, false, true).total_time_secs();
         num_xmss_and_time.push((num_xmss, time));
         println!(
             "{} XMSS -> {} XMSS/s",
