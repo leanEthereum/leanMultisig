@@ -1,0 +1,14 @@
+[package]
+name = "zk-alloc"
+version.workspace = true
+edition.workspace = true
+description = "Bump+reset arena allocator for ZK proving workloads"
+
+[dependencies]
+system-info.workspace = true
+
+[target.'cfg(not(all(target_os = "linux", target_arch = "x86_64")))'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

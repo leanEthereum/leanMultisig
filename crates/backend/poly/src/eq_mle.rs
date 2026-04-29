@@ -1,17 +1,12 @@
 use crate::*;
 use crate::{EFPacking, PF};
-use ::utils::{iter_array_chunks_padded, log2_strict_usize};
+use ::utils::{iter_array_chunks_padded, log2_ceil_usize, log2_strict_usize};
 use field::*;
 use rayon::prelude::*;
+use system_info::NUM_THREADS;
 
-/// Log of number of threads to spawn.
-/// Long term this should be a modifiable parameter and potentially be in an optimization file somewhere.
-/// I've chosen 32 here as my machine has 20 logical cores.
-const LOG_NUM_THREADS: usize = 5;
-
-/// The number of threads to spawn for parallel computations.
-const NUM_THREADS: usize = 1 << LOG_NUM_THREADS;
-
+const LOG_NUM_THREADS: usize = log2_ceil_usize(NUM_THREADS);
+const NUM_THREADS_PADDED: usize = 1 << LOG_NUM_THREADS;
 const LOG_BATCHED_TILE_SIZE: usize = 14;
 
 /// Given `evals` = (α_1, ..., α_n), returns a multilinear polynomial P in n variables,
@@ -127,8 +122,8 @@ where
     // The last log_packing_width elements are the ones which will be packed.
 
     // We make a buffer of elements of size `NUM_THREADS`.
-    let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
-    let out_chunk_size = out.len() / NUM_THREADS;
+    let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS_PADDED);
+    let out_chunk_size = out.len() / NUM_THREADS_PADDED;
 
     // Compute the equality polynomial corresponding to the last log_packing_width elements
     // and pack these.
@@ -198,8 +193,8 @@ where
         // The last log_packing_width elements are the ones which will be packed.
 
         // We make a buffer of elements of size `NUM_THREADS`.
-        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
+        let mut parallel_buffer = EF::ExtensionPacking::zero_vec(NUM_THREADS_PADDED);
+        let out_chunk_size = out.len() / NUM_THREADS_PADDED;
 
         // Compute the equality polynomial corresponding to the last log_packing_width elements
         // and pack these.
@@ -274,8 +269,8 @@ where
     // Note that this is a slightly different strategy to `eval_eq` which instead
     // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
     // operations, it seems to be faster in practice due to less data moving around.
-    let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
-    let out_chunk_size = out.len() / NUM_THREADS;
+    let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS_PADDED);
+    let out_chunk_size = out.len() / NUM_THREADS_PADDED;
 
     // Compute the equality polynomial corresponding to the last log_packing_width elements
     // and pack these.
@@ -347,8 +342,8 @@ pub fn compute_eval_eq_base_packed<F, EF, const INITIALIZED: bool>(
         // Note that this is a slightly different strategy to `eval_eq` which instead
         // uses PackedExtensionField elements. Whilst this involves slightly more mathematical
         // operations, it seems to be faster in practice due to less data moving around.
-        let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS);
-        let out_chunk_size = out.len() / NUM_THREADS;
+        let mut parallel_buffer = F::Packing::zero_vec(NUM_THREADS_PADDED);
+        let out_chunk_size = out.len() / NUM_THREADS_PADDED;
 
         // Compute the equality polynomial corresponding to the last log_packing_width elements
         // and pack these.
@@ -417,6 +412,9 @@ where
         .enumerate()
         .for_each(|(tile_idx, out_tile)| {
             for (eq_prefix, middle, eq_suffix) in &per_query {
+                // Here e could precompute the eq poly, trading some memory for less computation
+                // (2x faster on M4 max, but 2x slower on machines with smaller caches.
+                // TODO implement both and choose based on cache size?)
                 base_eval_eq_packed::<F, EF, true>(middle, out_tile, *eq_suffix, eq_prefix[tile_idx]);
             }
         });
