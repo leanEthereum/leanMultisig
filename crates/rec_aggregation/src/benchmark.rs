@@ -326,8 +326,6 @@ fn build_aggregation(
         dots: meta.n_extension_ops,
         n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
     };
-    // LiveTree shares stdout with `tracing-forest`; only paint when tracing
-    // is off. (silent mode is handled inside `update_node`.)
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
         live_tree.update_node(own_display_index, &stats);
