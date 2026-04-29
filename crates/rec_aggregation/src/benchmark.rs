@@ -25,14 +25,18 @@ pub struct NodeStats {
     pub n_xmss: Option<usize>,
 }
 
+/// `path` is the topology-relative path from the root (`[]` = root)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeReport {
+    pub path: Vec<usize>,
+    pub stats: NodeStats,
+}
+
 /// Per-node metrics in tree-walk order, plus the total wall time.
-///
-/// `nodes[i].0` is the topology-relative path from the root (`[]` = root);
-/// each element is a child index into its parent's `children` vec.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkReport {
     pub total_time_secs: f64,
-    pub nodes: Vec<(Vec<usize>, NodeStats)>,
+    pub nodes: Vec<NodeReport>,
 }
 
 struct LiveTree {
@@ -132,8 +136,8 @@ impl LiveTree {
         io::stdout().flush().unwrap();
     }
 
-    fn update_node(&mut self, index: usize, stats: NodeStats) {
-        self.statuses[index] = Some(stats);
+    fn update_node(&mut self, index: usize, stats: &NodeStats) {
+        self.statuses[index] = Some(stats.clone());
         if self.silent {
             return;
         }
@@ -228,7 +232,7 @@ fn build_tree_descs(
 fn build_aggregation(
     topology: &AggregationTopology,
     display_index: usize,
-    nodes: &mut Vec<(Vec<usize>, NodeStats)>,
+    nodes: &mut Vec<NodeReport>,
     live_tree: &mut LiveTree,
     path: &mut Vec<usize>,
     pub_keys: &[XmssPublicKey],
@@ -296,10 +300,13 @@ fn build_aggregation(
     };
 
     let elapsed = time.elapsed();
+    let meta = result.metadata.as_ref().unwrap();
+    let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
+    let is_leaf = topology.children.is_empty();
 
     if tracing {
-        println!("{}", result.metadata.as_ref().unwrap().display());
-        if topology.children.is_empty() {
+        println!("{}", meta.display());
+        if is_leaf {
             println!(
                 "{} XMSS/s",
                 (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
@@ -307,30 +314,25 @@ fn build_aggregation(
         } else {
             println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
         }
-        println!(
-            "Proof size: {} KiB",
-            result.proof.proof_size_fe() * F::bits() / (8 * 1024)
-        );
+        println!("Proof size: {} KiB", proof_kib);
     }
 
-    let own_display_index = display_index + count_nodes(topology) - 1;
-    let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
-    let is_leaf = topology.children.is_empty();
     let stats = NodeStats {
         time_secs: elapsed.as_secs_f64(),
         proof_kib,
-        cycles: result.metadata.as_ref().unwrap().cycles,
-        memory: result.metadata.as_ref().unwrap().memory,
-        poseidons: result.metadata.as_ref().unwrap().n_poseidons,
-        dots: result.metadata.as_ref().unwrap().n_extension_ops,
+        cycles: meta.cycles,
+        memory: meta.memory,
+        poseidons: meta.n_poseidons,
+        dots: meta.n_extension_ops,
         n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
     };
-    nodes.push((path.clone(), stats.clone()));
     // LiveTree shares stdout with `tracing-forest`; only paint when tracing
     // is off. (silent mode is handled inside `update_node`.)
     if !tracing {
-        live_tree.update_node(own_display_index, stats);
+        let own_display_index = display_index + count_nodes(topology) - 1;
+        live_tree.update_node(own_display_index, &stats);
     }
+    nodes.push(NodeReport { path: path.clone(), stats });
 
     (global_pub_keys, result, elapsed.as_secs_f64())
 }
@@ -376,7 +378,7 @@ pub fn run_aggregation_benchmark(
         display.print_initial();
     }
 
-    let mut nodes: Vec<(Vec<usize>, NodeStats)> = Vec::new();
+    let mut nodes: Vec<NodeReport> = Vec::new();
     let mut path: Vec<usize> = Vec::new();
     let (global_pub_keys, aggregated_sigs, total_time_secs) = build_aggregation(
         topology,
