@@ -38,6 +38,7 @@
 \newtheorem{lemma}{Lemma}
 
 \title{Minimal zkVM for Lean Ethereum (draft 0.6.0)}
+\author{}
 \date{}
 \begin{document}
 
@@ -346,7 +347,7 @@ The remaining loops are transformed into recursive functions (by the leanISA com
 
 \subsubsection{Range checks}
 
-\fbox{It's possible to check that a given memory cell is smaller than some value $t$ (for $t \leq 2^{16})$ in 3 cycles.}
+\fbox{It's possible to check that a memory cell is smaller than $t$ (for $t \leq 2^{16}$) in 3 cycles.}
 
 We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
 We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
@@ -393,11 +394,10 @@ This idea was pointed out by D. Khovratovich, and is an unplanned use of the DER
 
 Suppose we want a different logic depending on the value $x$ of a given memory cell, where $x$ is known to be $< k$ (if the value $x$ comes from a "hint", don't forget to range-check it).
 
-Each of the $k$ different value leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
-One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to a $a+ b.x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
-\newline
-\newline
-Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i-th$ block of code we could jump to will execute $i$ times the hash function (unrolled loop).
+Each of the $k$ different values leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
+One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to $a + b \cdot x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
+
+Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i$-th block of code we could jump to will execute $i$ times the hash function (unrolled loop).
 
 \section{Proving system}\label{sec:proving}
 
@@ -673,7 +673,7 @@ All columns are base field ($\Fp$) columns. Extension field values are represent
 \end{itemize}
 
 \subsubsection{Bus interaction}
-On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pull}s $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Push}es a matching tuple for each EXTENSION\_OP instruction.
+On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pulls} the tuple $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Pushes} a matching tuple for each EXTENSION\_OP instruction.
 
 
 The $\texttt{aux}$ encoding ensures both the mode and the length are bound to the bus data. Since $\texttt{is\_be}$, $\texttt{flag\_add}$, $\texttt{flag\_mul}$, and $\texttt{flag\_poly\_eq}$ are constrained to be boolean, and since the length is constrained to be $\leq 2^{20}$ (by Lemma~\ref{lem:len-bound}), no overflow can occur modulo $p$ and the $\texttt{aux}$ value is unique for each combination of parameters, which enforces that all values of PRECOMPILE\_DATA sent by the execution table are correctly received by the extension\_op table.
