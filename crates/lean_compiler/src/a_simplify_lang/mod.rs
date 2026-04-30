@@ -6,9 +6,9 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME,
-    POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_4_NAME, PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
-    Table, TableT,
+    ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
+    POSEIDON16_HALF_HARDCODED_LEFT_4_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_4_NAME, PrecompileArgs,
+    PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2256,23 +2256,20 @@ fn simplify_lines(
                         }
 
                         // Special handling for poseidon16 precompile (4 variants)
-                        if function_name == Table::poseidon16().name()
-                            || function_name == POSEIDON16_HALF_NAME
-                            || function_name == POSEIDON16_HARDCODED_LEFT_4_NAME
-                            || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME
-                        {
-                            let half_output = function_name == POSEIDON16_HALF_NAME
-                                || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME;
-                            let is_hardcoded = function_name == POSEIDON16_HARDCODED_LEFT_4_NAME
-                                || function_name == POSEIDON16_HALF_HARDCODED_LEFT_4_NAME;
+                        if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            let expected_args = if is_hardcoded { 4 } else { 3 };
+                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME]
+                                .contains(&function_name.as_str());
+                            let is_hardcoded_left =
+                                [POSEIDON16_HARDCODED_LEFT_4_NAME, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME]
+                                    .contains(&function_name.as_str());
+                            let expected_args = if is_hardcoded_left { 4 } else { 3 };
                             if args.len() != expected_args {
-                                let signature = if is_hardcoded {
+                                let signature = if is_hardcoded_left {
                                     "(ptr_a, ptr_b, ptr_res, offset)"
                                 } else {
                                     "(ptr_a, ptr_b, ptr_res)"
@@ -2286,7 +2283,7 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            let hardcoded_left_4 = if is_hardcoded {
+                            let hardcoded_left_4 = if is_hardcoded_left {
                                 Some(simplified_args[3].as_constant().ok_or_else(|| {
                                     format!(
                                         "{function_name}: offset argument must be a compile-time constant, at {location}"

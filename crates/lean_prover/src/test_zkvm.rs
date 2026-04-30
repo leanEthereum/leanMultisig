@@ -103,14 +103,6 @@ def main():
         F::from_usize(444),
     ]);
 
-    // Hardcoded-left-4 test data, placed at public_input[1496..1520].
-    // - The 4-element data digest lives at offset 1496..1500 (the "left" pointer).
-    // - The 4-element hardcoded prefix lives at offset 1500..1504.
-    // The hardcoded variant computes
-    //   Poseidon(prefix(4) || data(4), original_input[8..16])
-    // i.e. only 4 elements are read at the left pointer (matching the new convention
-    // where flag_hardcoded_left_4 = 1 reads m[index_a..index_a+4] for the second half
-    // of the left input and m[offset..offset+4] for the first half).
     let hardcoded_data: [F; 4] = rng.random();
     let hardcoded_prefix: [F; 4] = rng.random();
     public_input[1496..1500].copy_from_slice(&hardcoded_data);

@@ -52,12 +52,12 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                     half_output,
                     hardcoded_left_4,
                 } => {
-                    let flag = hardcoded_left_4.is_some() as usize;
-                    let offset = hardcoded_left_4.unwrap_or(0);
+                    let flag_left = hardcoded_left_4.is_some() as usize;
+                    let offset_left = hardcoded_left_4.unwrap_or(0);
                     POSEIDON_PRECOMPILE_DATA
                         + POSEIDON_HALF_OUTPUT_SHIFT * (*half_output as usize)
-                        + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * flag
-                        + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * offset
+                        + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * flag_left
+                        + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * offset_left
                 }
                 PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                     assert!(*size >= 1, "invalid extension_op size={size}");
