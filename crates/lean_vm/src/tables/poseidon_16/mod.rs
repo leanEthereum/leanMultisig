@@ -111,8 +111,8 @@ pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 1;
 pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = 2;
 pub const POSEIDON_16_COL_FLAG_HALF_OUTPUT: ColIndex = 3;
-pub const POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4: ColIndex = 4;
-pub const POSEIDON_16_COL_OFFSET_HARDCODED: ColIndex = 5;
+pub const POSEIDON_16_COL_FLAG_HARDCODED_LEFT: ColIndex = 4;
+pub const POSEIDON_16_COL_OFFSET_LEFT_HARDCODED: ColIndex = 5;
 pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST: ColIndex = 6;
 pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND: ColIndex = 7;
 pub const POSEIDON_16_COL_INPUT_START: ColIndex = 8;
@@ -198,8 +198,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         *perm.index_b = F::from_usize(zero_vec_ptr);
         *perm.index_res = F::from_usize(null_hash_ptr);
         *perm.flag_half_output = F::ZERO;
-        *perm.flag_hardcoded_left_4 = F::ZERO;
-        *perm.offset_hardcoded = F::ZERO;
+        *perm.flag_hardcoded_left = F::ZERO;
+        *perm.offset_hardcoded_left = F::ZERO;
         *perm.effective_index_left_first = F::from_usize(zero_vec_ptr);
         *perm.effective_index_left_second = F::from_usize(zero_vec_ptr + HALF_DIGEST_LEN);
         // Non-committed columns
@@ -265,8 +265,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
         trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4].push(if flag_hardcoded { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_OFFSET_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
+        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT].push(if flag_hardcoded { F::ONE } else { F::ZERO });
+        trace.columns[POSEIDON_16_COL_OFFSET_LEFT_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
         for (i, value) in input.iter().enumerate() {
@@ -316,14 +316,14 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         let precompile_data_reconstructed = AB::IF::ONE
             + cols.flag_half_output * AB::F::from_usize(POSEIDON_HALF_OUTPUT_SHIFT)
-            + cols.flag_hardcoded_left_4 * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT)
-            + cols.flag_hardcoded_left_4
-                * cols.offset_hardcoded
+            + cols.flag_hardcoded_left * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT)
+            + cols.flag_hardcoded_left
+                * cols.offset_hardcoded_left
                 * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT);
 
         // effective_index_left_first = index_a * (1 - flag_hardcoded_left_4) + offset * flag_hardcoded_left_4
         let index_a = cols.effective_index_left_second
-            - (AB::IF::ONE - cols.flag_hardcoded_left_4) * AB::F::from_usize(HALF_DIGEST_LEN);
+            - (AB::IF::ONE - cols.flag_hardcoded_left) * AB::F::from_usize(HALF_DIGEST_LEN);
 
         // Bus data: [precompile_data, a, b, res]
         if BUS {
@@ -339,9 +339,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         builder.assert_bool(cols.flag);
         builder.assert_bool(cols.flag_half_output);
-        builder.assert_bool(cols.flag_hardcoded_left_4);
+        builder.assert_bool(cols.flag_hardcoded_left);
 
-        builder.assert_zero(cols.flag_hardcoded_left_4 * (cols.offset_hardcoded - cols.effective_index_left_first));
+        builder.assert_zero(cols.flag_hardcoded_left * (cols.offset_hardcoded_left - cols.effective_index_left_first));
 
         eval_poseidon1_16(builder, &cols)
     }
@@ -354,8 +354,8 @@ pub(super) struct Poseidon1Cols16<T> {
     pub index_b: T,
     pub index_res: T,
     pub flag_half_output: T,
-    pub flag_hardcoded_left_4: T,
-    pub offset_hardcoded: T,
+    pub flag_hardcoded_left: T,
+    pub offset_hardcoded_left: T,
     pub effective_index_left_first: T,
     pub effective_index_left_second: T,
 
@@ -470,7 +470,7 @@ fn eval_last_2_full_rounds_16<AB: AirBuilder>(
     outputs: &[AB::IF; WIDTH / 2],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
-    half_output: AB::IF,
+    flag_half_output: AB::IF,
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
@@ -487,14 +487,14 @@ fn eval_last_2_full_rounds_16<AB: AirBuilder>(
     for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
         *state_i += *init_state_i;
     }
+    let one_minus_flag_half_output = AB::IF::ONE - flag_half_output;
     for (idx, (state_i, output_i)) in state.iter_mut().zip(outputs).enumerate() {
         if idx < HALF_DIGEST_LEN {
             // First 4 outputs: always constrained
             builder.assert_eq(*state_i, *output_i);
         } else {
             // Last 4 outputs: constrained only when half_output = 0
-            let one_minus_half = AB::IF::ONE - half_output;
-            builder.assert_zero(one_minus_half * (*state_i - *output_i));
+            builder.assert_zero(one_minus_flag_half_output * (*state_i - *output_i));
         }
         *state_i = *output_i;
     }
