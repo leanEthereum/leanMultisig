@@ -221,7 +221,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
     ) -> Result<(), RunnerError> {
         let PrecompileCompTimeArgs::Poseidon16 {
             half_output,
-            hardcoded_left_4,
+            hardcoded_offset_left,
         } = args
         else {
             unreachable!("Poseidon16 table called with non-Poseidon16 args");
@@ -229,13 +229,13 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg_a_usize = arg_a.to_usize();
-        let flag_hardcoded = hardcoded_left_4.is_some();
+        let flag_hardcoded = hardcoded_offset_left.is_some();
         // Convention:
-        //   flag = 0: left input = m[arg_a..arg_a+8] (split as [arg_a..+4], [arg_a+4..+8])
-        //   flag = 1: left input = m[offset..offset+4] | m[arg_a..arg_a+4]
-        //             (i.e. arg_a now points to a 4-element data digest, and the first 4
-        //              elements come from the hardcoded prefix at `offset`)
-        let left_first_addr = hardcoded_left_4.unwrap_or(arg_a_usize);
+        //   flag_hardcoded = 0: left input = m[arg_a..arg_a+8] (split as [arg_a..+4], [arg_a+4..+8])
+        //   flag_hardcoded = 1: left input = m[offset..offset+4] | m[arg_a..arg_a+4]
+        //                   (i.e. arg_a now points to a 4-element data digest, and the first 4
+        //                    elements come from the hardcoded prefix at `offset`)
+        let left_first_addr = hardcoded_offset_left.unwrap_or(arg_a_usize);
         let left_second_addr = if flag_hardcoded {
             arg_a_usize
         } else {
@@ -259,14 +259,14 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
         }
 
-        let offset_hardcoded = hardcoded_left_4.unwrap_or(0);
+        let hardcoded_offset_left_val = hardcoded_offset_left.unwrap_or(0);
 
         trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
         trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
         trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT_4].push(if flag_hardcoded { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_OFFSET_HARDCODED].push(F::from_usize(offset_hardcoded));
+        trace.columns[POSEIDON_16_COL_OFFSET_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
         for (i, value) in input.iter().enumerate() {
@@ -277,7 +277,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let precompile_data = POSEIDON_PRECOMPILE_DATA
             + POSEIDON_HALF_OUTPUT_SHIFT * (half_output as usize)
             + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * (flag_hardcoded as usize)
-            + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * offset_hardcoded;
+            + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val;
         trace.columns[POSEIDON_16_COL_PRECOMPILE_DATA].push(F::from_usize(precompile_data));
 
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)

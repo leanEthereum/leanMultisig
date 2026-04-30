@@ -2283,7 +2283,7 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
-                            let hardcoded_left_4 = if is_hardcoded_left {
+                            let hardcoded_offset_left = if is_hardcoded_left {
                                 Some(simplified_args[3].as_constant().ok_or_else(|| {
                                     format!(
                                         "{function_name}: offset argument must be a compile-time constant, at {location}"
@@ -2298,7 +2298,7 @@ fn simplify_lines(
                                 res: simplified_args[2].clone(),
                                 data: PrecompileCompTimeArgs::Poseidon16 {
                                     half_output,
-                                    hardcoded_left_4,
+                                    hardcoded_offset_left,
                                 },
                             }));
                             continue;

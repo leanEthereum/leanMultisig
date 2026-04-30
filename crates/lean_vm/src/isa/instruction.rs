@@ -65,9 +65,9 @@ pub struct PrecompileArgs<V, S> {
 pub enum PrecompileCompTimeArgs<S> {
     Poseidon16 {
         half_output: bool,
-        /// `None` = standard variant. `Some(offset)` = the first 4 elements of the left input
-        /// are read from `memory[offset..offset+4]` instead of `memory[index_left..index_left+4]`.
-        hardcoded_left_4: Option<S>,
+        //   hardcoded_offset_left = None:              left_input = m[arg_a..arg_a+8]
+        //   hardcoded_offset_left = Some(offset_left): left_input = m[offset_left..offset_left+4] | m[arg_a..arg_a+4] (arg_a is the first runtime parameter)
+        hardcoded_offset_left: Option<S>,
     },
     ExtensionOp {
         size: S,
@@ -87,10 +87,10 @@ impl<S> PrecompileCompTimeArgs<S> {
         match self {
             Self::Poseidon16 {
                 half_output,
-                hardcoded_left_4,
+                hardcoded_offset_left: hardcoded_left_4,
             } => PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
-                hardcoded_left_4: hardcoded_left_4.map(&mut f),
+                hardcoded_offset_left: hardcoded_left_4.map(&mut f),
             },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
@@ -252,7 +252,7 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
         match data {
             PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
-                hardcoded_left_4,
+                hardcoded_offset_left: hardcoded_left_4,
             } => match (*half_output, hardcoded_left_4) {
                 (false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
                 (true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
