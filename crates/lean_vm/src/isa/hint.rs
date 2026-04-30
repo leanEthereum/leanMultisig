@@ -1,3 +1,4 @@
+use crate::MIN_LOG_MEMORY_SIZE;
 use crate::core::{F, Label, SourceLocation};
 use crate::diagnostics::RunnerError;
 use crate::execution::ExecutionHistory;
@@ -45,7 +46,11 @@ pub enum Hint {
         label: Label,
     },
     /// Assert a boolean expression for debugging purposes
-    DebugAssert(BooleanExpr<MemOrConstant>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<MemOrConstant>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     Custom(CustomHint, Vec<MemOrFpOrConstant>),
     /// Deref hint for range checks - records a constraint to be resolved at end of execution
     /// Constraint: memory[fp + offset_target] = memory[memory[fp + offset_src]]
@@ -325,10 +330,23 @@ impl Hint {
                 }
             }
             Self::Label { .. } => {}
-            Self::DebugAssert(bool_expr, location) => {
-                let left = bool_expr.left.read_value(ctx.memory, ctx.fp)?;
-                let right = bool_expr.right.read_value(ctx.memory, ctx.fp)?;
-                let condition_holds = match bool_expr.kind {
+            Self::DebugAssert {
+                expr,
+                location,
+                preceds_runtime_inequality,
+            } => {
+                let left = expr.left.read_value(ctx.memory, ctx.fp)?;
+                let right = expr.right.read_value(ctx.memory, ctx.fp)?;
+                if *preceds_runtime_inequality {
+                    assert!(matches!(expr.kind, Boolean::LessOrEqual));
+                    if right.to_usize() >= 1 << MIN_LOG_MEMORY_SIZE {
+                        return Err(RunnerError::RangeCheckWithTooBigRange {
+                            location: *location,
+                            range: right.to_usize(),
+                        });
+                    }
+                }
+                let condition_holds = match expr.kind {
                     Boolean::Equal => left == right,
                     Boolean::Different => left != right,
                     Boolean::LessThan => left < right,
@@ -336,7 +354,7 @@ impl Hint {
                 };
                 if !condition_holds {
                     return Err(RunnerError::DebugAssertFailed(
-                        format!("{} {} {}", left, bool_expr.kind, right),
+                        format!("{} {} {}", left, expr.kind, right),
                         *location,
                     ));
                 }
@@ -419,8 +437,8 @@ impl Display for Hint {
             Self::Label { label } => {
                 write!(f, "label: {label}")
             }
-            Self::DebugAssert(bool_expr, location) => {
-                write!(f, "debug_assert {bool_expr} at {location:?}")
+            Self::DebugAssert { expr, .. } => {
+                write!(f, "debug_assert({expr})")
             }
             Self::DerefHint {
                 offset_src,

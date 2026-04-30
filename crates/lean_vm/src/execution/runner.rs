@@ -63,7 +63,7 @@ pub fn execute_bytecode(
     profiling: bool,
 ) -> ExecutionResult {
     try_execute_bytecode(bytecode, public_input, witness, profiling)
-        .unwrap_or_else(|err| panic!("Error during bytecode execution: {err:?}"))
+        .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
 }
 
 struct Trace {

@@ -135,7 +135,11 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<SimpleExpr>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check at runtime 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
     /// analysis cannot drop it; both sides are read at execution time.
     AssertEq {
@@ -182,7 +186,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -209,7 +213,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -231,7 +235,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
-            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::DebugAssert { expr, .. } => vec![&expr.left, &expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -253,7 +257,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
             Self::Print { content, .. } => content.iter_mut().collect(),
-            Self::DebugAssert(b, _) => vec![&mut b.left, &mut b.right],
+            Self::DebugAssert { expr, .. } => vec![&mut expr.left, &mut expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -2536,14 +2540,15 @@ fn simplify_lines(
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
                 if *debug {
-                    res.push(SimpleLine::DebugAssert(
-                        BooleanExpr {
+                    res.push(SimpleLine::DebugAssert {
+                        expr: BooleanExpr {
                             left,
                             right,
                             kind: boolean.kind,
                         },
-                        *location,
-                    ));
+                        location: *location,
+                        preceds_runtime_inequality: false,
+                    });
                 } else {
                     match boolean.kind {
                         Boolean::Different => {
@@ -2599,14 +2604,15 @@ fn simplify_lines(
                             });
 
                             // We add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: bound_minus_one.clone().into(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -2617,14 +2623,15 @@ fn simplify_lines(
                             // Range check: assert left <= right
 
                             // we add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: right.clone(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -4044,8 +4051,8 @@ impl SimpleLine {
                 None => "assert False".to_string(),
             },
             Self::LocationReport { .. } => Default::default(),
-            Self::DebugAssert(bool, _) => {
-                format!("debug_assert({bool})")
+            Self::DebugAssert { expr, .. } => {
+                format!("debug_assert({expr})")
             }
             Self::AssertEq { left, right, .. } => {
                 format!("assert_eq({left} == {right})")
