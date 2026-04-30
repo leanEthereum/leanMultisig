@@ -302,7 +302,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 79
+        BUS as usize + 80
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
@@ -322,8 +322,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT);
 
         // effective_index_left_first = index_a * (1 - flag_hardcoded_left_4) + offset * flag_hardcoded_left_4
-        let index_a = cols.effective_index_left_second
-            - (AB::IF::ONE - cols.flag_hardcoded_left) * AB::F::from_usize(HALF_DIGEST_LEN);
+        let one_minus_flag_hardcoded_left = AB::IF::ONE - cols.flag_hardcoded_left;
+        let index_a =
+            cols.effective_index_left_second - one_minus_flag_hardcoded_left * AB::F::from_usize(HALF_DIGEST_LEN);
 
         // Bus data: [precompile_data, a, b, res]
         if BUS {
@@ -342,6 +343,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         builder.assert_bool(cols.flag_hardcoded_left);
 
         builder.assert_zero(cols.flag_hardcoded_left * (cols.offset_hardcoded_left - cols.effective_index_left_first));
+        builder.assert_zero(one_minus_flag_hardcoded_left * (index_a - cols.effective_index_left_first));
 
         eval_poseidon1_16(builder, &cols)
     }
