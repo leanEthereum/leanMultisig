@@ -57,6 +57,7 @@ pub struct AggregationTopology {
     pub raw_xmss: usize,
     pub children: Vec<AggregationTopology>,
     pub log_inv_rate: usize,
+    pub overlap: usize, // Ignored for leaves.
 }
 
 pub fn biggest_leaf(topology: &AggregationTopology) -> Option<AggregationTopology> {
@@ -74,13 +75,14 @@ pub fn biggest_leaf(topology: &AggregationTopology) -> Option<AggregationTopolog
         raw_xmss,
         children: vec![],
         log_inv_rate,
+        overlap: 0,
     })
 }
 
-pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> usize {
-    let child_count: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
+pub(crate) fn count_signers(topology: &AggregationTopology) -> usize {
+    let child_count: usize = topology.children.iter().map(count_signers).sum();
     let n_overlaps = topology.children.len().saturating_sub(1);
-    topology.raw_xmss + child_count - overlap * n_overlaps
+    topology.raw_xmss + child_count - topology.overlap * n_overlaps
 }
 
 pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
