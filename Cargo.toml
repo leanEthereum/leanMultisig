@@ -94,8 +94,6 @@ utils.workspace = true
 lean_vm.workspace = true
 xmss.workspace = true
 backend.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
 
 

@@ -71,7 +71,7 @@ impl LiveTree {
         let pad = self.max_plain_len + 6; // desc + dots + " ▸ "
         let spacer = " ".repeat(pad);
         format!(
-            "{}{}{:>10}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
+            "{}{}{:>20}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
             s::D,
             spacer,
             "time",
@@ -91,16 +91,18 @@ impl LiveTree {
         match &self.statuses[i] {
             None => desc.to_string(),
             Some(st) => {
-                // Both branches produce exactly 10 visible characters.
-                let time_col = match st.n_xmss {
+                // Both branches produce exactly 20 visible characters.
+                let time_col_text = match st.n_xmss {
                     Some(n) => {
                         let throughput = n as f64 / st.time_secs;
-                        // " 536 sig/s" = 10 chars
-                        format!("{}{}{:>4.0} sig/s{}", s::ORG, s::B, throughput, s::R)
+                        // "1200 XMSS/s - 0.781s" = 20 chars (3-digit throughput
+                        // pads to 4 chars: " 766 XMSS/s - 0.781s")
+                        format!("{:>4.0} XMSS/s - {:>5.3}s", throughput, st.time_secs)
                     }
-                    // "    1.815s" = 10 chars
-                    None => format!("{}{}{:>9.3}s{}", s::ORG, s::B, st.time_secs, s::R),
+                    // "              1.815s" = 20 chars (right-aligned)
+                    None => format!("{:>20}", format!("{:.3}s", st.time_secs)),
                 };
+                let time_col = format!("{}{}{}{}", s::ORG, s::B, time_col_text, s::R);
                 format!(
                     "{} {} {}▸{} {}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
                     desc,
