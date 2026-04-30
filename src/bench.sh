@@ -61,9 +61,10 @@ xmss_r2_proven=$(run_bench "" xmss --n-signatures 1400 --log-inv-rate 2); sleep 
 xmss_r1_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures 1400 --log-inv-rate 1); sleep 1
 xmss_r2_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures 1400 --log-inv-rate 2); sleep 1
 
-# --- Recursion runs: 3 fan-ins x 2 rates x 2 regimes = 12 runs ---
+# --- Recursion runs: len(RECURSION_NS) fan-ins x 2 rates x 2 regimes ---
 # Stored in flat shell variables `rec_<n>_<rate>_<regime>` for bash 3.2 compatibility.
-for n in 2 3 4; do
+RECURSION_NS=(1 2 3 4)
+for n in "${RECURSION_NS[@]}"; do
     for rate in 1 2; do
         out=$(run_bench "" recursion --n "$n" --log-inv-rate "$rate")
         printf -v "rec_${n}_${rate}_proven" '%s' "$out"
@@ -90,7 +91,7 @@ rec_get() { local v="rec_$1"; echo "${!v}"; }
     echo
     echo "| n | WHIR rate | Proven Regime                       | Proximity Gaps Conjecture           |"
     echo "| - | --------- | ----------------------------------- | ----------------------------------- |"
-    for n in 2 3 4; do
+    for n in "${RECURSION_NS[@]}"; do
         for rate in 1 2; do
             rate_label="1/$((1 << rate))"
             echo "| $n | $rate_label       | $(recursion_cell "$(rec_get "${n}_${rate}_proven")") | $(recursion_cell "$(rec_get "${n}_${rate}_conj")") |"
