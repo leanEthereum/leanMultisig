@@ -101,7 +101,7 @@ fn compute_tweak_table(slot: u32) -> Vec<F> {
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
         table.extend(make_tweak_values(tweak_type, sub_position, index));
-        table.extend(std::iter::repeat(F::ZERO).take(2));
+        table.extend(std::iter::repeat_n(F::ZERO, 2));
     };
 
     // Encoding tweak
