@@ -31,8 +31,8 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
     let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // input_data_buf layout (lives in private memory, hashed to a single digest in public input):
-    //   n_sigs(1) + slice_hash(8) + message + merkle_chunks_for_slot
+    // input_data_buf layout (part of the witness, "hinted" then hashed to a single digest that should match public input):
+    //   n_sigs(1) + pubkeys_hash(8) + message + merkle_chunks_for_slot
     //   + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
     let input_data_size =
         1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size_padded + DIGEST_LEN;

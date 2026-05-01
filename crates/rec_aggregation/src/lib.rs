@@ -44,9 +44,8 @@ const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Digest(pub [F; DIGEST_LEN]);
 
-// preamble memory layout: see `build_preamble_memory` in utils.py, plus the XMSS tweak
-// table which sits at the end of the preamble region and is populated via
-// `hint_witness("tweak_table", TWEAK_TABLE_ADDR)` at program startup.
+// preamble memory layout: see `build_preamble_memory` in utils.py:
+// [000.. (ZERO_VEC_LEN)][10000000 (fiat-shamir domain sep)][10000 (one in extension field)][111... (NUM_REPEATED_ONES)][tweak table]
 pub const ZERO_VEC_LEN: usize = 16;
 pub const NUM_REPEATED_ONES: usize = 32;
 pub const PREAMBLE_MEMORY_LEN: usize =
