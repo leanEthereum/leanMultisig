@@ -95,6 +95,7 @@ lean_vm.workspace = true
 xmss.workspace = true
 backend.workspace = true
 serde_json.workspace = true
+system-info.workspace = true
 
 
 [profile.release]
