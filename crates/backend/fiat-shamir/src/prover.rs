@@ -9,7 +9,7 @@ use field::PrimeCharacteristicRing;
 use field::integers::QuotientMap;
 use field::{ExtensionField, PrimeField64};
 use rayon::prelude::*;
-use std::{fmt::Debug, sync::Mutex};
+use std::{fmt::Debug, sync::Mutex, time::Instant};
 use symetric::Compression;
 
 #[derive(Debug)]
@@ -108,6 +108,8 @@ where
             return;
         }
 
+        let time = Instant::now();
+
         type Packed<EF> = <PF<EF> as Field>::Packing;
         let lanes = Packed::<EF>::WIDTH;
 
@@ -151,5 +153,10 @@ where
         self.challenger.observe_scalars(&[witness]);
         assert!(self.challenger.state[0].as_canonical_u64() & ((1 << bits) - 1) == 0);
         self.transcript.push(witness);
+
+        let duration_ms = time.elapsed().as_millis();
+        if duration_ms > 3 {
+            tracing::info!("pow_grinding {} ms", duration_ms);
+        }
     }
 }
