@@ -25,13 +25,13 @@ def main():
     for i in unroll(0, HALF_DIGEST_LEN):
         assert full_out[i] == half_out[i]
 
-    # poseidon16_compress_hardcoded_left_4: with the new convention, only 4 FE are read
+    # poseidon16_compress_hardcoded_left: with the new convention, only 4 FE are read
     # at the left pointer (the 4-element data digest at pub_start + 1496) and the first
     # 4 FE of the left input come from memory[pub_start + 1500 .. pub_start + 1504]
     # (the hardcoded prefix).
     hardcoded_left = pub_start + 1496
     hardcoded_full_out = pub_start + 1504
-    poseidon16_compress_hardcoded_left_4(
+    poseidon16_compress_hardcoded_left(
         hardcoded_left,
         pub_start + 5 * DIGEST_LEN,
         hardcoded_full_out,
@@ -40,7 +40,7 @@ def main():
 
     # Same, but only first 4 FE of the output are constrained.
     hardcoded_half_out = pub_start + 1512
-    poseidon16_compress_half_hardcoded_left_4(
+    poseidon16_compress_half_hardcoded_left(
         hardcoded_left,
         pub_start + 5 * DIGEST_LEN,
         hardcoded_half_out,

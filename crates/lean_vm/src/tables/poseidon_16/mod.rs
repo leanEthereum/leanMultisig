@@ -123,13 +123,13 @@ pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16() + 1
 
 pub const POSEIDON16_NAME: &str = "poseidon16_compress";
 pub const POSEIDON16_HALF_NAME: &str = "poseidon16_compress_half";
-pub const POSEIDON16_HARDCODED_LEFT_4_NAME: &str = "poseidon16_compress_hardcoded_left_4";
-pub const POSEIDON16_HALF_HARDCODED_LEFT_4_NAME: &str = "poseidon16_compress_half_hardcoded_left_4";
+pub const POSEIDON16_HARDCODED_LEFT_NAME: &str = "poseidon16_compress_hardcoded_left";
+pub const POSEIDON16_HALF_HARDCODED_LEFT_NAME: &str = "poseidon16_compress_half_hardcoded_left";
 pub const ALL_POSEIDON16_NAMES: [&str; 4] = [
     POSEIDON16_NAME,
     POSEIDON16_HALF_NAME,
-    POSEIDON16_HARDCODED_LEFT_4_NAME,
-    POSEIDON16_HALF_HARDCODED_LEFT_4_NAME,
+    POSEIDON16_HARDCODED_LEFT_NAME,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME,
 ];
 pub const HALF_DIGEST_LEN: usize = DIGEST_LEN / 2;
 

@@ -7,7 +7,7 @@ use crate::{
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_4_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_4_NAME, PrecompileArgs,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
     PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
@@ -2266,10 +2266,10 @@ fn simplify_lines(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME]
+                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                 .contains(&function_name.as_str());
                             let is_hardcoded_left =
-                                [POSEIDON16_HARDCODED_LEFT_4_NAME, POSEIDON16_HALF_HARDCODED_LEFT_4_NAME]
+                                [POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                     .contains(&function_name.as_str());
                             let expected_args = if is_hardcoded_left { 4 } else { 3 };
                             if args.len() != expected_args {
