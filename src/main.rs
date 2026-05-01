@@ -47,8 +47,12 @@ enum Cli {
 
 fn run_with_warmup(topology: &AggregationTopology, tracing: bool, json: bool) {
     let warmup = biggest_leaf(topology).unwrap();
-    eprintln!("warming up...");
+    eprint!("warming up... ");
     let _ = run_aggregation_benchmark(&warmup, false, true);
+    eprintln!(
+        "used {:.2} GiB",
+        system_info::peak_rss_bytes() as f64 / (1u64 << 30) as f64
+    );
     let report = run_aggregation_benchmark(topology, tracing && !json, json);
     if json {
         println!("{}", serde_json::to_string(&report).unwrap());
