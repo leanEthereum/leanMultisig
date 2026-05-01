@@ -194,7 +194,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 
         let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
         perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
-        *perm.flag = F::ZERO;
+        *perm.flag_active = F::ZERO;
         *perm.index_b = F::from_usize(zero_vec_ptr);
         *perm.index_res = F::from_usize(null_hash_ptr);
         *perm.flag_half_output = F::ZERO;
@@ -330,15 +330,15 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
-                cols.flag,
+                cols.flag_active,
                 &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
             ));
         } else {
-            builder.declare_values(std::slice::from_ref(&cols.flag));
+            builder.declare_values(std::slice::from_ref(&cols.flag_active));
             builder.declare_values(&[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res]);
         }
 
-        builder.assert_bool(cols.flag);
+        builder.assert_bool(cols.flag_active);
         builder.assert_bool(cols.flag_half_output);
         builder.assert_bool(cols.flag_hardcoded_left);
 
@@ -352,7 +352,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 #[repr(C)]
 #[derive(Debug)]
 pub(super) struct Poseidon1Cols16<T> {
-    pub flag: T,
+    pub flag_active: T, // 0 = padding, 1 = active
     pub index_b: T,
     pub index_res: T,
     pub flag_half_output: T,
