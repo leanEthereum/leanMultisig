@@ -630,13 +630,21 @@ fn compile_lines(
             SimpleLine::LocationReport { location } => {
                 instructions.push(IntermediateInstruction::LocationReport { location: *location });
             }
-            SimpleLine::DebugAssert(boolean, location) => {
-                let boolean_simplified = BooleanExpr {
-                    kind: boolean.kind,
-                    left: IntermediateValue::from_simple_expr(&boolean.left, compiler),
-                    right: IntermediateValue::from_simple_expr(&boolean.right, compiler),
+            SimpleLine::DebugAssert {
+                expr,
+                location,
+                preceds_runtime_inequality,
+            } => {
+                let expr_simplified = BooleanExpr {
+                    kind: expr.kind,
+                    left: IntermediateValue::from_simple_expr(&expr.left, compiler),
+                    right: IntermediateValue::from_simple_expr(&expr.right, compiler),
                 };
-                instructions.push(IntermediateInstruction::DebugAssert(boolean_simplified, *location));
+                instructions.push(IntermediateInstruction::DebugAssert {
+                    expr: expr_simplified,
+                    location: *location,
+                    preceds_runtime_inequality: *preceds_runtime_inequality,
+                });
             }
             SimpleLine::AssertEq { left, right, .. } => {
                 let register_if_var = |expr: &SimpleExpr, c: &mut Compiler| {

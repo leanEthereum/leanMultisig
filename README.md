@@ -53,6 +53,8 @@ cargo run --release -- recursion --n 2 --log-inv-rate 2
 
 | n   | WHIR rate | Proven Regime               | Proximity Gaps Conjecture   |
 | --- | --------- | --------------------------- | --------------------------- |
+| 1   | 1/2       | 0.35s = 1 x 0.35s - 256 KiB | 0.24s = 1 x 0.24s - 146 KiB |
+| 1   | 1/4       | 0.33s = 1 x 0.33s - 183 KiB | 0.26s = 1 x 0.26s - 98 KiB  |
 | 2   | 1/2       | 0.65s = 2 x 0.33s - 272 KiB | 0.43s = 2 x 0.21s - 157 KiB |
 | 2   | 1/4       | 0.56s = 2 x 0.28s - 190 KiB | 0.41s = 2 x 0.21s - 101 KiB |
 | 3   | 1/2       | 0.83s = 3 x 0.28s - 303 KiB | 0.62s = 3 x 0.21s - 150 KiB |
