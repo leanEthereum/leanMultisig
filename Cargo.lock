@@ -600,6 +600,7 @@ dependencies = [
  "mt-utils",
  "rayon",
  "serde",
+ "tracing",
 ]
 
 [[package]]

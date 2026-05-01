@@ -20,7 +20,7 @@ The VM design is inspired by the famous [Cairo paper](https://eprint.iacr.org/20
 
 ## Security
 
-123 bits of provable security, given by Johnson bound + degree 5 extension of koala-bear. (128 bits would require hash digests of more than 8 field elements, todo?). In the benchmarks, we also display performance with conjectured security, even though leanVM targets the proven regime by default.
+124 bits of provable security, given by Johnson bound + degree 5 extension of koala-bear. (128 bits would require hash digests of more than 8 field elements, todo?). In the benchmarks, we also display performance with conjectured security, even though leanVM targets the proven regime by default.
 
 ## Benchmarks
 
