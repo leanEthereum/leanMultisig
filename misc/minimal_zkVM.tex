@@ -37,7 +37,7 @@
 
 \newtheorem{lemma}{Lemma}
 
-\title{Minimal zkVM for Lean Ethereum (draft 0.6.0)}
+\title{Minimal zkVM for Lean Ethereum (draft 0.7.0)}
 \author{}
 \date{}
 \begin{document}
@@ -270,7 +270,7 @@ $\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, wit
 
 \subsubsection{POSEIDON}
 
-Compression of 16 field elements (two blocks of 8) into 8 field elements.
+Compression (feed-forward) of 16 field elements (two blocks of 8) into 8 field elements.
 
 $$
 \textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
@@ -279,6 +279,8 @@ $$
 \vspace{2mm}
 
 \texttt{PRECOMPILE\_DATA} $= 1$
+
+Recently some additonal paramters were introduced (see \ref{efficiently_verrifying_hash-based_signatures} for details), allowing more granular input / output.
 
 \subsubsection{EXTENSION\_OP}\label{extension_op_instruction}
 
@@ -560,7 +562,7 @@ We use poseidon \cite{poseidon1} over 16 field elements, in compression mode, i.
 
 The Poseidon precompile receives 3 runtime arguments: $\nu_A$, $\nu_B$, $\nu_C$ interpreted as memory pointers. 3 lookups (each of size 8) into the memory are used to fetch $\texttt{left}$ = $\textbf{m}[\nu_A..\nu_A + 8] \in \Fp^8$, $\texttt{right}$ = $\textbf{m}[\nu_B..\nu_B + 8] \in \Fp^8$, and $\texttt{res}$ = $\textbf{m}[\nu_C..\nu_C + 8] \in \Fp^8$. AIR constraints, of degree 9, assert that $\texttt{res} = \text{poseidon\_compress}(\texttt{left} \;\|\; \texttt{right})$. Degree 3 is also an alternative, at the cost of more committed columns ($\approx 160$ vs. $\approx 100$).
 
-\subsubsection{Efficiently verrifying hash-based signatures}
+\subsubsection{Efficiently verrifying hash-based signatures}\label{efficiently_verrifying_hash-based_signatures}
 
 Hash-based signatures often rely on tweaks and public parameters (see \cite{ethereum_signatures}).
 
