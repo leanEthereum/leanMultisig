@@ -105,24 +105,17 @@ fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
-        let tw = make_tweak_values(tweak_type, sub_position, index);
-        table.push(tw[0]);
-        table.push(tw[1]);
-        table.push(F::ZERO);
-        table.push(F::ZERO);
+        table.extend(make_tweak_values(tweak_type, sub_position, index));
+        table.extend(std::iter::repeat(F::ZERO).take(2));
     };
 
-    // Encoding tweak (5-FE: extra trailing zero so that copy_5 reads all zeros after the value).
+    // Encoding tweak
     {
-        let tw = make_tweak_values(TWEAK_TYPE_ENCODING, 0, slot);
-        table.push(tw[0]);
-        table.push(tw[1]);
-        table.push(F::ZERO);
-        table.push(F::ZERO);
-        table.push(F::ZERO);
+        table.extend(make_tweak_values(TWEAK_TYPE_ENCODING, 0, slot));
+        table.extend(std::iter::repeat(F::ZERO).take(3));
     }
 
-    // Chain tweaks: for chain i, step s → make_tweak(CHAIN, i*CHAIN_LENGTH + s, slot)
+    // Chain tweaks
     for i in 0..V {
         for s in 0..CHAIN_LENGTH {
             push_padded(&mut table, TWEAK_TYPE_CHAIN, i * CHAIN_LENGTH + s, slot);
@@ -132,7 +125,7 @@ fn compute_tweak_table(slot: u32) -> Vec<F> {
     // WOTS_PK tweak
     push_padded(&mut table, TWEAK_TYPE_WOTS_PK, 0, slot);
 
-    // Merkle tweaks: for level 0..LOG_LIFETIME-1
+    // Merkle tweaks
     for level in 0..LOG_LIFETIME {
         let parent_index = ((slot as u64) >> (level + 1)) as u32;
         push_padded(&mut table, TWEAK_TYPE_MERKLE, level + 1, parent_index);
@@ -189,9 +182,6 @@ pub(crate) fn hash_input_data(data: &[F]) -> [F; DIGEST_LEN] {
 }
 
 fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
-    // The in-memory signature buffer consumed by the `wots` named hint is just the
-    // WOTS part: `randomness | chain_tips`. The XMSS merkle path is delivered
-    // separately via the `xmss_merkle_node` named hint (one 4-FE node per call).
     let mut data = vec![];
     data.extend(sig.wots_signature.randomness.to_vec());
     data.extend(sig.wots_signature.chain_tips.iter().flat_map(|digest| digest.to_vec()));
