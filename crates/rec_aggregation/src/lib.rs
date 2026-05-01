@@ -93,9 +93,7 @@ fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 
     ]
 }
 
-/// Tweak slots are 4-FE [tw[0], tw[1], 0, 0], except the first (encoding) slot
-/// which is 5-FE [tw[0], tw[1], 0, 0, 0] — the extra trailing zero is needed
-/// because the encoding tweak is the only slot read via copy_5.
+/// Tweak slots are 4-FE [tw[0], tw[1], 0, 0]
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
