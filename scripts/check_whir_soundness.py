@@ -38,7 +38,7 @@ from soundcalc.common.fields import FieldParams, KOALABEAR_P, KOALABEAR_TWO_ADIC
 from soundcalc.pcs.whir import WHIR  # noqa: E402
 from soundcalc.proxgaps.johnson_bound import JohnsonBoundRegime  # noqa: E402
 
-SECURITY_BITS = 123
+SECURITY_BITS = 124
 FIELD = FieldParams("KoalaBear^5", KOALABEAR_P, 5, float(KOALABEAR_P) ** 5, KOALABEAR_TWO_ADICITY)
 DUMP_BIN = ROOT / "target" / "release" / "dump_whir_config"
 
