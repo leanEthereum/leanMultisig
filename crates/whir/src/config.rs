@@ -129,6 +129,13 @@ pub struct WhirConfig<EF: Field> {
     pub final_query_pow_bits: usize,
     pub final_log_inv_rate: usize,
     pub final_sumcheck_rounds: usize,
+
+    /// JBR multiplicity `m` chosen per codeword (length `n_rounds() + 1`, one
+    /// per oracle in the protocol). For `JohnsonBound`/`CapacityBound` this is
+    /// the integer that `compute_optimal_log_c_for_rate` settled on; for
+    /// `UniqueDecoding` the entries are unused (set to 0). Exposed for
+    /// out-of-band soundness validation (e.g. soundcalc).
+    pub jbr_multiplicities: Vec<usize>,
 }
 
 impl<EF> WhirConfig<EF>
@@ -143,18 +150,18 @@ where
     ///
     /// Both errors are decreasing functions in `log_c`, so we pick the largest
     /// `m ∈ [3, 100]` (with `log_c = log2(2m)`) for which `folding_pow_bits ≤ pow_bits`.
-    fn compute_optimal_log_c_for_rate(
+    /// Per-rate JBR multiplicity `m` (largest `m ∈ [3, 100]` with
+    /// `folding_pow_bits ≤ pow_budget`). For `UniqueDecoding`, returns 0.
+    pub fn compute_optimal_m_for_rate(
         whir_parameters: &WhirConfigBuilder,
         field_size_bits: usize,
         num_variables: usize,
         log_inv_rate: usize,
-    ) -> f64 {
+    ) -> usize {
         if matches!(whir_parameters.soundness_type, SecurityAssumption::UniqueDecoding) {
-            return 0.0;
+            return 0;
         }
-
         let pow_budget = whir_parameters.pow_bits;
-
         let mut best_m = 3;
         for m in 3..=100 {
             let log_c = (2.0 * m as f64).log2();
@@ -171,7 +178,20 @@ where
             }
             best_m = m;
         }
-        (2.0 * best_m as f64).log2()
+        best_m
+    }
+
+    fn compute_optimal_log_c_for_rate(
+        whir_parameters: &WhirConfigBuilder,
+        field_size_bits: usize,
+        num_variables: usize,
+        log_inv_rate: usize,
+    ) -> f64 {
+        if matches!(whir_parameters.soundness_type, SecurityAssumption::UniqueDecoding) {
+            return 0.0;
+        }
+        let m = Self::compute_optimal_m_for_rate(whir_parameters, field_size_bits, num_variables, log_inv_rate);
+        (2.0 * m as f64).log2()
     }
 
     #[allow(clippy::too_many_lines)]
@@ -221,6 +241,14 @@ where
         );
 
         let mut round_parameters = Vec::with_capacity(num_rounds);
+        let mut jbr_multiplicities =
+            Vec::with_capacity(num_rounds + 1);
+        jbr_multiplicities.push(Self::compute_optimal_m_for_rate(
+            whir_parameters,
+            field_size_bits,
+            num_variables,
+            log_inv_rate,
+        ));
 
         let mut num_variables_moving = num_variables;
         num_variables_moving -= whir_parameters.folding_factor.at_round(0);
@@ -233,8 +261,18 @@ where
             };
             let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - rs_reduction_factor);
 
-            let log_c_new =
-                Self::compute_optimal_log_c_for_rate(whir_parameters, field_size_bits, num_variables_moving, next_rate);
+            let m_new = Self::compute_optimal_m_for_rate(
+                whir_parameters,
+                field_size_bits,
+                num_variables_moving,
+                next_rate,
+            );
+            jbr_multiplicities.push(m_new);
+            let log_c_new = if matches!(whir_parameters.soundness_type, SecurityAssumption::UniqueDecoding) {
+                0.0
+            } else {
+                (2.0 * m_new as f64).log2()
+            };
 
             let num_queries = whir_parameters
                 .soundness_type
@@ -322,6 +360,7 @@ where
             final_query_pow_bits: final_query_pow_bits.ceil() as usize,
             final_sumcheck_rounds,
             final_log_inv_rate: log_inv_rate,
+            jbr_multiplicities,
         }
     }
 
