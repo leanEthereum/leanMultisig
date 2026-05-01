@@ -248,6 +248,7 @@ fn build_aggregation(
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
     tracing: bool,
+    is_root: bool,
 ) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
@@ -270,6 +271,7 @@ fn build_aggregation(
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
             tracing,
+            false,
         );
         path.pop();
         child_pub_keys_list.push(child_pks);
@@ -288,6 +290,10 @@ fn build_aggregation(
         .collect();
 
     let time = Instant::now();
+
+    if tracing && is_root {
+        utils::init_tracing();
+    }
 
     #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::begin_phase();
@@ -352,9 +358,6 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, 
     #[cfg(target_os = "macos")]
     let _activity = macos_activity::Activity::begin("lean-multisig benchmark");
 
-    if tracing {
-        utils::init_tracing();
-    }
     precompute_dft_twiddles::<F>(1 << 24);
 
     let n_sigs = count_signers(topology);
@@ -393,6 +396,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, 
         &pub_keys,
         &signatures,
         tracing,
+        true,
     );
 
     // Verify root proof
