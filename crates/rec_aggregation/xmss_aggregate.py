@@ -21,13 +21,12 @@ N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE  # = DIGEST_LEN
 TWEAK_TABLE_ADDR = PREAMBLE_MEMORY_END
 
-# Tweak table layout: all tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0], except the first, encoding, tweak: which is 5-FE [tw[0], tw[1], 0, 0, 0] (in order to use copy_5)
+# Tweak table layout: all tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0]
 TWEAK_LEN = 4  # stride / slot size for non-encoding tweaks
-ENCODING_TWEAK_SLOT_SIZE = 5  # encoding tweak has one extra trailing zero
 N_TWEAKS = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME
-TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(ENCODING_TWEAK_SLOT_SIZE + (N_TWEAKS - 1) * TWEAK_LEN, DIGEST_LEN)
+TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(N_TWEAKS * TWEAK_LEN, DIGEST_LEN)
 TWEAK_ENCODING_OFFSET = 0
-TWEAK_CHAIN_OFFSET = ENCODING_TWEAK_SLOT_SIZE  # encoding occupies cells [0..5]
+TWEAK_CHAIN_OFFSET = TWEAK_ENCODING_OFFSET + TWEAK_LEN  # just after the encoding tweak
 TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
 TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + TWEAK_LEN
 
@@ -43,10 +42,10 @@ def xmss_verify(pub_key, message, merkle_chunks):
     # 1) Encode: poseidon16_compress(message[0:8], [randomness(5) | tweak_encoding(2) | 0])
     #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
     encoding_tweak = TWEAK_TABLE_ADDR + TWEAK_ENCODING_OFFSET
-    a_input_right = Array(RANDOMNESS_LEN + ENCODING_TWEAK_SLOT_SIZE)
-    copy_5(randomness, a_input_right)
-    # encoding_tweak points to tw[0] of slot 0; reading 5 elements gives [tw(2), 0, 0, 0].
-    copy_5(encoding_tweak, a_input_right + RANDOMNESS_LEN)
+    a_input_right = Array(DIGEST_LEN)
+    copy_6(randomness, a_input_right)
+    a_input_right[6] = encoding_tweak[0]
+    a_input_right[7] = encoding_tweak[1]
     pre_compressed = Array(DIGEST_LEN)
     poseidon16_compress(message, a_input_right, pre_compressed)
     
