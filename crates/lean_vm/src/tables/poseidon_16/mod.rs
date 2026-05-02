@@ -89,19 +89,7 @@ const HALF_INITIAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 const PARTIAL_ROUNDS: usize = POSEIDON1_PARTIAL_ROUNDS;
 const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
-/// Encoding of `PRECOMPILE_DATA` for the Poseidon16 precompile:
-///
-/// ```text
-/// precompile_data =
-///       POSEIDON_PRECOMPILE_DATA
-///     + POSEIDON_HALF_OUTPUT_SHIFT             * flag_half_output
-///     + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT   * flag_hardcoded_left_4
-///     + flag_hardcoded_left_4 * POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * offset_hardcoded
-/// ```
-///
-/// the last multiplication by flag_hardcoded_left_4 is crucial for soundness.
-/// - when flag_hardcoded_left_4 = 1, offset_hardcoded is constrained to be < 2^MAX_LOG_MEMORY_SIZE -> no overflow modulo p
-/// - but when flag_hardcoded_left_4 = 0, there isnt this constraint, so we need to need to prevent an attacker to use an overflow to "spoof" the precompile_data encoding
+// `PRECOMPILE_DATA` encoding: see `tables/mod.rs`.
 pub const POSEIDON_PRECOMPILE_DATA: usize = 1;
 pub const POSEIDON_HALF_OUTPUT_SHIFT: usize = 1 << 1;
 pub const POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT: usize = 1 << 2;
