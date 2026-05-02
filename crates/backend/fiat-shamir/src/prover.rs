@@ -9,8 +9,20 @@ use field::PrimeCharacteristicRing;
 use field::integers::QuotientMap;
 use field::{ExtensionField, PrimeField64};
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use std::{fmt::Debug, sync::Mutex, time::Instant};
 use symetric::Compression;
+
+static POW_GRINDING_NANOS: AtomicU64 = AtomicU64::new(0);
+
+pub fn pow_grinding_time() -> Duration {
+    Duration::from_nanos(POW_GRINDING_NANOS.load(Ordering::Relaxed))
+}
+
+pub fn reset_pow_grinding_time() {
+    POW_GRINDING_NANOS.store(0, Ordering::Relaxed);
+}
 
 #[derive(Debug)]
 pub struct ProverState<EF: ExtensionField<PF<EF>>, P> {
@@ -154,9 +166,7 @@ where
         assert!(self.challenger.state[0].as_canonical_u64() & ((1 << bits) - 1) == 0);
         self.transcript.push(witness);
 
-        let duration_ms = time.elapsed().as_millis();
-        if duration_ms > 3 {
-            tracing::info!("pow_grinding {} ms", duration_ms);
-        }
+        let elapsed = time.elapsed();
+        POW_GRINDING_NANOS.fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
     }
 }
