@@ -260,6 +260,9 @@ pub fn prove_execution(
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
+    tracing::info!("total pow_grinding time: {} ms", pow_grinding_time().as_millis());
+    reset_pow_grinding_time();
+
     Ok(ExecutionProof {
         proof: prover_state.into_proof(),
         metadata,
