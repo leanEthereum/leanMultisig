@@ -141,8 +141,8 @@ where
     /// - reduces the number of queries, but
     /// - grows the list size, which tightens the `prox_gaps_error` and `sumcheck_error` -> more PoW grinding
     ///
-    /// Both errors are decreasing functions in `log_c`, so we pick the largest
-    /// `m ∈ [3, 100]` (with `log_c = log2(2m)`) for which `folding_pow_bits ≤ pow_bits`.
+    /// Both errors are decreasing functions in `log_c`. Among feasible `m ∈ [3, 100]` (with `log_c = log2(2m)`,
+    /// and `folding_pow_bits ≤ pow_bits`) we pick the smallest `m` that achieves the minimum query count.
     fn compute_optimal_log_c_for_rate(
         whir_parameters: &WhirConfigBuilder,
         field_size_bits: usize,
@@ -154,8 +154,10 @@ where
         }
 
         let pow_budget = whir_parameters.pow_bits;
+        let query_security_level = whir_parameters.security_level.saturating_sub(pow_budget);
 
         let mut best_m = 3;
+        let mut best_queries = usize::MAX;
         for m in 3..=100 {
             let log_c = (2.0 * m as f64).log2();
             let folding_pow = Self::folding_pow_bits(
@@ -169,7 +171,13 @@ where
             if folding_pow.ceil() as usize > pow_budget {
                 break;
             }
-            best_m = m;
+            let queries = whir_parameters
+                .soundness_type
+                .queries(query_security_level, log_inv_rate, log_c);
+            if queries < best_queries {
+                best_queries = queries;
+                best_m = m;
+            }
         }
         (2.0 * best_m as f64).log2()
     }
