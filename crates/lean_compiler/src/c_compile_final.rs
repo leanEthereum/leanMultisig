@@ -158,12 +158,21 @@ pub fn compile_to_low_level_bytecode(
     );
     let hash = poseidon_compress_slice(&instructions_multilinear, true);
 
+    let code: Vec<_> = instructions
+        .into_iter()
+        .enumerate()
+        .map(|(pc, instruction)| CodeEntry {
+            instruction,
+            hints: hints.remove(&pc).unwrap_or_default().into_boxed_slice(),
+        })
+        .collect();
+    assert!(hints.is_empty());
+
     Ok(Bytecode {
-        instructions,
+        code,
         instructions_multilinear,
         instructions_multilinear_packed,
         hash,
-        hints,
         starting_frame_memory,
         function_locations,
         source_code,
@@ -340,15 +349,20 @@ fn compile_block(
                 let hint = Hint::LocationReport { location };
                 hints.entry(pc).or_default().push(hint);
             }
-            IntermediateInstruction::DebugAssert(boolean, line_number) => {
-                let hint = Hint::DebugAssert(
-                    BooleanExpr {
-                        left: try_as_mem_or_constant(&boolean.left).unwrap(),
-                        right: try_as_mem_or_constant(&boolean.right).unwrap(),
-                        kind: boolean.kind,
+            IntermediateInstruction::DebugAssert {
+                expr,
+                location,
+                preceds_runtime_inequality,
+            } => {
+                let hint = Hint::DebugAssert {
+                    expr: BooleanExpr {
+                        left: try_as_mem_or_constant(&expr.left).unwrap(),
+                        right: try_as_mem_or_constant(&expr.right).unwrap(),
+                        kind: expr.kind,
                     },
-                    line_number,
-                );
+                    location,
+                    preceds_runtime_inequality,
+                };
                 hints.entry(pc).or_default().push(hint);
             }
             IntermediateInstruction::DerefHint {

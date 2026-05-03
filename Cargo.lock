@@ -478,8 +478,10 @@ dependencies = [
  "rec_aggregation",
  "serde_json",
  "sub_protocols",
+ "system-info",
  "utils",
  "xmss",
+ "zk-alloc",
 ]
 
 [[package]]
@@ -537,9 +539,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.183"
+version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
+checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lock_api"
@@ -598,6 +600,7 @@ dependencies = [
  "mt-utils",
  "rayon",
  "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -655,6 +658,7 @@ dependencies = [
  "rand",
  "rayon",
  "serde",
+ "system-info",
 ]
 
 [[package]]
@@ -700,6 +704,7 @@ dependencies = [
  "mt-utils",
  "rand",
  "rayon",
+ "system-info",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
@@ -936,6 +941,7 @@ dependencies = [
  "tracing",
  "utils",
  "xmss",
+ "zk-alloc",
 ]
 
 [[package]]
@@ -1096,6 +1102,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "system-info"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1448,6 +1461,14 @@ dependencies = [
  "serde",
  "sha3",
  "utils",
+]
+
+[[package]]
+name = "zk-alloc"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "system-info",
 ]
 
 [[package]]

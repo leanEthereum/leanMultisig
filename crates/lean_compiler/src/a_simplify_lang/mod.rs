@@ -1,5 +1,6 @@
 use crate::{
     CompilationFlags, F,
+    a_simplify_lang::post_optimization::propagate_copies,
     lang::*,
     parser::{ConstArrayValue, parse_program},
 };
@@ -13,6 +14,8 @@ use std::{
     fmt::{Display, Formatter},
 };
 use utils::{Counter, ToUsize};
+
+mod post_optimization;
 
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
@@ -72,8 +75,9 @@ pub enum SimpleLine {
         var: Var,
     },
     Assignment {
-        var: VarOrConstMallocAccess,
-        operation: MathOperation, // add / sub / div / mul
+        // `var = arg0 op arg1`
+        var: SimpleExpr,
+        op: MathOperation, // add / sub / div / mul
         arg0: SimpleExpr,
         arg1: SimpleExpr,
     },
@@ -131,7 +135,11 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<SimpleExpr>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check at runtime 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
     /// analysis cannot drop it; both sides are read at execution time.
     AssertEq {
@@ -147,10 +155,10 @@ pub enum SimpleLine {
 }
 
 impl SimpleLine {
-    pub fn equality(arg0: impl Into<VarOrConstMallocAccess>, arg1: impl Into<SimpleExpr>) -> Self {
+    pub fn equality(arg0: impl Into<SimpleExpr>, arg1: impl Into<SimpleExpr>) -> Self {
         SimpleLine::Assignment {
             var: arg0.into(),
-            operation: MathOperation::Add,
+            op: MathOperation::Add,
             arg0: arg1.into(),
             arg1: SimpleExpr::zero(),
         }
@@ -178,7 +186,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -205,7 +213,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -227,7 +235,29 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
-            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::DebugAssert { expr, .. } => vec![&expr.left, &expr.right],
+            Self::AssertEq { left, right, .. } => vec![left, right],
+            Self::HintWitness { destination, .. } => vec![destination],
+            Self::ForwardDeclaration { .. }
+            | Self::ConstMalloc { .. }
+            | Self::LocationReport { .. }
+            | Self::Panic { .. } => vec![],
+        }
+    }
+
+    pub(crate) fn operand_exprs_mut(&mut self) -> Vec<&mut SimpleExpr> {
+        match self {
+            Self::Assignment { arg0, arg1, .. } => vec![arg0, arg1],
+            Self::RawAccess { res, index, .. } => vec![res, index],
+            Self::RangeCheck { val, bound } => vec![val, bound],
+            Self::Match { value, .. } => vec![value],
+            Self::IfNotZero { condition, .. } => vec![condition],
+            Self::HintMAlloc { size, .. } => vec![size],
+            Self::Precompile(p) => p.operand_exprs_mut().into_iter().collect(),
+            Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
+            Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
+            Self::Print { content, .. } => content.iter_mut().collect(),
+            Self::DebugAssert { expr, .. } => vec![&mut expr.left, &mut expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -330,9 +360,12 @@ pub fn simplify_program(mut program: Program) -> Result<SimpleProgram, String> {
         new_functions.insert(name.clone(), simplified_function);
         const_malloc.map.clear();
     }
-    Ok(SimpleProgram {
+
+    let mut simple_program = SimpleProgram {
         functions: new_functions,
-    })
+    };
+    propagate_copies(&mut simple_program);
+    Ok(simple_program)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,6 +450,57 @@ impl<S> TreeVec<S> {
     pub fn navigate_mut(&mut self, idx: &[usize]) -> Option<&mut Self> {
         idx.iter().try_fold(self, |v, &i| v.get_mut(i))
     }
+}
+
+fn scalar_indices(indices: &[Expression]) -> Option<Vec<usize>> {
+    indices
+        .iter()
+        .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
+        .collect()
+}
+
+fn simplify_const_indices(
+    ctx: &SimplifyContext<'_>,
+    state: &mut SimplifyState<'_>,
+    const_malloc: &mut ConstMalloc,
+    indices: &[Expression],
+    lines: &mut Vec<SimpleLine>,
+    op: &str,
+    location: SourceLocation,
+) -> Result<Vec<usize>, String> {
+    indices
+        .iter()
+        .map(|idx| {
+            let simplified = simplify_expr(ctx, state, const_malloc, idx, lines)?;
+            let const_val = simplified
+                .as_constant()
+                .ok_or_else(|| format!("{op} index must be a compile-time constant, at {location}"))?;
+            let val = const_val
+                .naive_eval()
+                .ok_or_else(|| format!("{op} index must be evaluable at compile time, at {location}"))?;
+            Ok(val.to_usize())
+        })
+        .collect()
+}
+
+/// Navigate to the (sub-)vector to act upon and verify it is a vector.
+fn navigate_vector_target_mut<'a>(
+    tracker: &'a mut VectorTracker,
+    vector: &Var,
+    indices: &[usize],
+    op: &str,
+    location: SourceLocation,
+) -> Result<&'a mut VectorValue, String> {
+    let root = tracker
+        .get_mut(vector)
+        .ok_or_else(|| format!("{op} called on non-vector variable '{vector}', at {location}"))?;
+    let target = root
+        .navigate_mut(indices)
+        .ok_or_else(|| format!("{op} target index out of bounds, at {location}"))?;
+    if !target.is_vector() {
+        return Err(format!("{op} target must be a vector, not a scalar, at {location}"));
+    }
+    Ok(target)
 }
 
 fn build_vector_len_value(elements: &[VecLiteral]) -> VectorLenValue {
@@ -618,31 +702,21 @@ fn compile_time_transform_in_lines(
                 element,
                 ..
             } => {
-                let Some(const_indices) = indices
-                    .iter()
-                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Err("push with non-constant indices".to_string());
-                };
+                let const_indices =
+                    scalar_indices(indices).ok_or_else(|| "push with non-constant indices".to_string())?;
                 let new_element = match element {
                     VecLiteral::Vec(inner) => build_vector_len_value(inner),
                     VecLiteral::Expr(_) => VectorLenValue::Scalar(()),
                 };
-                let vector_value = vector_len_tracker
+                let target = vector_len_tracker
                     .get_mut(vector)
-                    .ok_or_else(|| "pushing to undeclared vector".to_string())?;
-                if const_indices.is_empty() {
-                    vector_value.push(new_element);
-                } else {
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| "push target index out of bounds".to_string())?;
-                    if !target.is_vector() {
-                        return Err("push target is not a vector".to_string());
-                    }
-                    target.push(new_element);
+                    .ok_or_else(|| "pushing to undeclared vector".to_string())?
+                    .navigate_mut(&const_indices)
+                    .ok_or_else(|| "push target index out of bounds".to_string())?;
+                if !target.is_vector() {
+                    return Err("push target is not a vector".to_string());
                 }
+                target.push(new_element);
             }
 
             Line::Pop {
@@ -650,33 +724,20 @@ fn compile_time_transform_in_lines(
                 indices,
                 location,
             } => {
-                let Some(const_indices) = indices
-                    .iter()
-                    .map(|idx| idx.as_scalar().map(|f| f.to_usize()))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return Err(format!("line {}: pop with non-constant indices", location));
-                };
-                let vector_value = vector_len_tracker
+                let const_indices = scalar_indices(indices)
+                    .ok_or_else(|| format!("line {}: pop with non-constant indices", location))?;
+                let target = vector_len_tracker
                     .get_mut(vector)
-                    .ok_or_else(|| format!("line {}: pop on undeclared vector '{}'", location, vector))?;
-                if const_indices.is_empty() {
-                    if vector_value.len() == 0 {
-                        return Err(format!("line {}: pop on empty vector '{}'", location, vector));
-                    }
-                    vector_value.pop();
-                } else {
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("line {}: pop target index out of bounds", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("line {}: pop target is not a vector", location));
-                    }
-                    if target.len() == 0 {
-                        return Err(format!("line {}: pop on empty vector", location));
-                    }
-                    target.pop();
+                    .ok_or_else(|| format!("line {}: pop on undeclared vector '{}'", location, vector))?
+                    .navigate_mut(&const_indices)
+                    .ok_or_else(|| format!("line {}: pop target index out of bounds", location))?;
+                if !target.is_vector() {
+                    return Err(format!("line {}: pop target is not a vector", location));
                 }
+                if target.len() == 0 {
+                    return Err(format!("line {}: pop on empty vector", location));
+                }
+                target.pop();
             }
 
             Line::IfCondition {
@@ -1800,6 +1861,10 @@ impl MutableVarTracker {
         format!("@mut_{var}_{version}")
     }
 
+    fn is_ssa_reassignment(&self, var: &Var) -> bool {
+        self.is_mutable(var) && self.current_version(var) > 0
+    }
+
     fn check_immutable_assignment(&mut self, var: &Var) -> Result<(), String> {
         if var.starts_with('@') || self.assigned.insert(var.clone()) {
             Ok(())
@@ -2325,9 +2390,7 @@ fn simplify_lines(
                                             &mut res,
                                         )?;
                                         let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                        if state.mut_tracker.is_mutable(var)
-                                            && state.mut_tracker.current_version(var) > 0
-                                        {
+                                        if state.mut_tracker.is_ssa_reassignment(var) {
                                             res.push(SimpleLine::ForwardDeclaration {
                                                 var: target_var.clone(),
                                             });
@@ -2360,9 +2423,7 @@ fn simplify_lines(
                                                 .map(|idx| simplify_expr(ctx, state, const_malloc, idx, &mut res))
                                                 .collect::<Result<Vec<_>, _>>()?;
                                             let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                            if state.mut_tracker.is_mutable(var)
-                                                && state.mut_tracker.current_version(var) > 0
-                                            {
+                                            if state.mut_tracker.is_ssa_reassignment(var) {
                                                 res.push(SimpleLine::ForwardDeclaration {
                                                     var: target_var.clone(),
                                                 });
@@ -2383,9 +2444,7 @@ fn simplify_lines(
                                             .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                             .collect::<Result<Vec<_>, _>>()?;
                                         let target_var = get_target_var_name(state, var, *is_mutable)?;
-                                        if state.mut_tracker.is_mutable(var)
-                                            && state.mut_tracker.current_version(var) > 0
-                                        {
+                                        if state.mut_tracker.is_ssa_reassignment(var) {
                                             res.push(SimpleLine::ForwardDeclaration {
                                                 var: target_var.clone(),
                                             });
@@ -2405,7 +2464,7 @@ fn simplify_lines(
                                             }
                                             res.push(SimpleLine::Assignment {
                                                 var: target_var.into(),
-                                                operation: *operation,
+                                                op: *operation,
                                                 arg0: args_simplified[0].clone(),
                                                 arg1: args_simplified[1].clone(),
                                             });
@@ -2431,7 +2490,7 @@ fn simplify_lines(
                                 if let SimpleExpr::Constant(offset) = &simplified_index
                                     && let Some(array_name) = array.as_var()
                                     && let Some(label) = const_malloc.map.get(array_name)
-                                    && let Expression::MathExpr(operation, args) = value
+                                    && let Expression::MathExpr(op, args) = value
                                 {
                                     let var = VarOrConstMallocAccess::ConstMallocAccess {
                                         malloc_label: *label,
@@ -2443,18 +2502,18 @@ fn simplify_lines(
                                         .collect::<Result<Vec<_>, _>>()?;
                                     // If all operands are constants, evaluate at compile time
                                     if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
-                                        let result = ConstExpression::MathExpr(*operation, const_args);
+                                        let result = ConstExpression::MathExpr(*op, const_args);
                                         res.push(SimpleLine::equality(var, SimpleExpr::Constant(result)));
                                     } else {
-                                        if !operation.supports_runtime() {
+                                        if !op.supports_runtime() {
                                             return Err(format!(
-                                                "Operation `{operation}` is compile-time only; all operands must be constants"
+                                                "Operation `{op}` is compile-time only; all operands must be constants"
                                             ));
                                         }
                                         assert_eq!(simplified_args.len(), 2);
                                         res.push(SimpleLine::Assignment {
-                                            var,
-                                            operation: *operation,
+                                            var: var.into(),
+                                            op: *op,
                                             arg0: simplified_args[0].clone(),
                                             arg1: simplified_args[1].clone(),
                                         });
@@ -2484,21 +2543,22 @@ fn simplify_lines(
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
                 if *debug {
-                    res.push(SimpleLine::DebugAssert(
-                        BooleanExpr {
+                    res.push(SimpleLine::DebugAssert {
+                        expr: BooleanExpr {
                             left,
                             right,
                             kind: boolean.kind,
                         },
-                        *location,
-                    ));
+                        location: *location,
+                        preceds_runtime_inequality: false,
+                    });
                 } else {
                     match boolean.kind {
                         Boolean::Different => {
                             let diff_var = state.counters.aux_var();
                             res.push(SimpleLine::Assignment {
                                 var: diff_var.clone().into(),
-                                operation: MathOperation::Sub,
+                                op: MathOperation::Sub,
                                 arg0: left,
                                 arg1: right,
                             });
@@ -2541,20 +2601,21 @@ fn simplify_lines(
                             let bound_minus_one = state.counters.aux_var();
                             res.push(SimpleLine::Assignment {
                                 var: bound_minus_one.clone().into(),
-                                operation: MathOperation::Sub,
+                                op: MathOperation::Sub,
                                 arg0: right,
                                 arg1: SimpleExpr::one(),
                             });
 
                             // We add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: bound_minus_one.clone().into(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -2565,14 +2626,15 @@ fn simplify_lines(
                             // Range check: assert left <= right
 
                             // we add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: right.clone(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -2601,7 +2663,7 @@ fn simplify_lines(
                 let diff_var = state.counters.aux_var();
                 res.push(SimpleLine::Assignment {
                     var: diff_var.clone().into(),
-                    operation: MathOperation::Sub,
+                    op: MathOperation::Sub,
                     arg0: left_simplified,
                     arg1: right_simplified,
                 });
@@ -2826,106 +2888,25 @@ fn simplify_lines(
                 element,
                 location,
             } => {
-                // Get the vector and check it's a tracked vector
-                if !state.vec_tracker.is_vector(vector) {
-                    return Err(format!(
-                        "push called on non-vector variable '{}', at {}",
-                        vector, location
-                    ));
-                }
-
-                // Evaluate indices at compile time
-                let const_indices: Vec<usize> = indices
-                    .iter()
-                    .map(|idx| {
-                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
-                        let const_val = simplified
-                            .as_constant()
-                            .ok_or_else(|| format!("push index must be a compile-time constant, at {}", location))?;
-                        let val = const_val
-                            .naive_eval()
-                            .ok_or_else(|| format!("push index must be evaluable at compile time, at {}", location))?;
-                        Ok(val.to_usize())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-
-                // Build VectorValue for the element being pushed
+                let const_indices =
+                    simplify_const_indices(ctx, state, const_malloc, indices, &mut res, "push", *location)?;
                 let new_element =
                     build_vector_value_from_element(ctx, state, const_malloc, element, &mut res, *location)?;
-
-                // Navigate to the target vector and push
-                let vector_value = state
-                    .vec_tracker
-                    .get_mut(vector)
-                    .expect("Vector should exist after is_vector check");
-
-                if const_indices.is_empty() {
-                    // Push directly to the top-level vector
-                    vector_value.push(new_element);
-                } else {
-                    // Navigate to the nested vector and push
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("push target index out of bounds, at {}", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("push target must be a vector, not a scalar, at {}", location));
-                    }
-                    target.push(new_element);
-                }
+                let target = navigate_vector_target_mut(state.vec_tracker, vector, &const_indices, "push", *location)?;
+                target.push(new_element);
             }
             Line::Pop {
                 vector,
                 indices,
                 location,
             } => {
-                // Get the vector and check it's a tracked vector
-                if !state.vec_tracker.is_vector(vector) {
-                    return Err(format!(
-                        "pop called on non-vector variable '{}', at {}",
-                        vector, location
-                    ));
+                let const_indices =
+                    simplify_const_indices(ctx, state, const_malloc, indices, &mut res, "pop", *location)?;
+                let target = navigate_vector_target_mut(state.vec_tracker, vector, &const_indices, "pop", *location)?;
+                if target.len() == 0 {
+                    return Err(format!("pop on empty vector, at {}", location));
                 }
-
-                // Evaluate indices at compile time
-                let const_indices: Vec<usize> = indices
-                    .iter()
-                    .map(|idx| {
-                        let simplified = simplify_expr(ctx, state, const_malloc, idx, &mut res)?;
-                        let const_val = simplified
-                            .as_constant()
-                            .ok_or_else(|| format!("pop index must be a compile-time constant, at {}", location))?;
-                        let val = const_val
-                            .naive_eval()
-                            .ok_or_else(|| format!("pop index must be evaluable at compile time, at {}", location))?;
-                        Ok(val.to_usize())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-
-                // Navigate to the target vector and pop
-                let vector_value = state
-                    .vec_tracker
-                    .get_mut(vector)
-                    .expect("Vector should exist after is_vector check");
-
-                if const_indices.is_empty() {
-                    // Pop directly from the top-level vector
-                    if vector_value.len() == 0 {
-                        return Err(format!("pop on empty vector '{}', at {}", vector, location));
-                    }
-                    vector_value.pop();
-                } else {
-                    // Navigate to the nested vector and pop
-                    let target = vector_value
-                        .navigate_mut(&const_indices)
-                        .ok_or_else(|| format!("pop target index out of bounds, at {}", location))?;
-                    if !target.is_vector() {
-                        return Err(format!("pop target must be a vector, not a scalar, at {}", location));
-                    }
-                    if target.len() == 0 {
-                        return Err(format!("pop on empty vector, at {}", location));
-                    }
-                    target.pop();
-                }
+                target.pop();
             }
         }
     }
@@ -3044,24 +3025,24 @@ fn simplify_expr(
             );
             Ok(VarOrConstMallocAccess::Var(aux_arr).into())
         }
-        Expression::MathExpr(operation, args) => {
+        Expression::MathExpr(op, args) => {
             let simplified_args = args
                 .iter()
                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, lines))
                 .collect::<Result<Vec<_>, _>>()?;
             if let Some(const_args) = SimpleExpr::try_vec_as_constant(&simplified_args) {
-                return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*operation, const_args)));
+                return Ok(SimpleExpr::Constant(ConstExpression::MathExpr(*op, const_args)));
             }
-            if !operation.supports_runtime() {
+            if !op.supports_runtime() {
                 return Err(format!(
-                    "Operation `{operation}` is compile-time only; all operands must be constants"
+                    "Operation `{op}` is compile-time only; all operands must be constants"
                 ));
             }
             let aux_var = state.counters.aux_var();
             assert_eq!(simplified_args.len(), 2);
             lines.push(SimpleLine::Assignment {
                 var: aux_var.clone().into(),
-                operation: *operation,
+                op: *op,
                 arg0: simplified_args[0].clone(),
                 arg1: simplified_args[1].clone(),
             });
@@ -3557,7 +3538,7 @@ fn handle_array_assignment(
             let base_var = state.counters.aux_var();
             res.push(SimpleLine::Assignment {
                 var: base_var.clone().into(),
-                operation: MathOperation::Add,
+                op: MathOperation::Add,
                 arg0: array.clone(),
                 arg1: SimpleExpr::zero(),
             });
@@ -3579,7 +3560,7 @@ fn handle_array_assignment(
             let ptr_var = state.counters.aux_var();
             res.push(SimpleLine::Assignment {
                 var: ptr_var.clone().into(),
-                operation: MathOperation::Add,
+                op: MathOperation::Add,
                 arg0: base_addr,
                 arg1: simplified_index,
             });
@@ -3610,7 +3591,7 @@ fn create_recursive_function(
     let next_iter = format!("@incremented_{iterator}");
     body.push(SimpleLine::Assignment {
         var: next_iter.clone().into(),
-        operation: MathOperation::Add,
+        op: MathOperation::Add,
         arg0: iterator.clone().into(),
         arg1: SimpleExpr::one(),
     });
@@ -3632,7 +3613,7 @@ fn create_recursive_function(
     let instructions = vec![
         SimpleLine::Assignment {
             var: diff_var.clone().into(),
-            operation: MathOperation::Sub,
+            op: MathOperation::Sub,
             arg0: iterator.into(),
             arg1: end,
         },
@@ -3990,13 +3971,8 @@ impl SimpleLine {
                 format!("match {value} {{\n{arms_str}\n{spaces}}}")
             }
 
-            Self::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
-                format!("{var} = {arg0} {operation} {arg1}")
+            Self::Assignment { var, op, arg0, arg1 } => {
+                format!("{var} = {arg0} {op} {arg1}")
             }
             Self::CustomHint(hint, args) => {
                 format!(
@@ -4078,8 +4054,8 @@ impl SimpleLine {
                 None => "assert False".to_string(),
             },
             Self::LocationReport { .. } => Default::default(),
-            Self::DebugAssert(bool, _) => {
-                format!("debug_assert({bool})")
+            Self::DebugAssert { expr, .. } => {
+                format!("debug_assert({expr})")
             }
             Self::AssertEq { left, right, .. } => {
                 format!("assert_eq({left} == {right})")

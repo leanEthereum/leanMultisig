@@ -186,8 +186,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     eq_evals = Array(n_bytecode_claims * DIM)
     for i in range(0, n_bytecode_claims):
         claim_ptr = bytecode_claims[i]
-        eq_val = eq_mle_extension(claim_ptr, challenges, BYTECODE_POINT_N_VARS)
-        copy_ef(eq_val, eq_evals + i * DIM)
+        poly_eq_ee(claim_ptr, challenges, eq_evals + i * DIM, BYTECODE_POINT_N_VARS)
     w_r = Array(DIM)
     dot_product_ee_dynamic(eq_evals, alpha_powers, w_r, n_bytecode_claims)
 

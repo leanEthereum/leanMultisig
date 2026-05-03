@@ -26,8 +26,9 @@ fn test_aggregation() {
             raw_xmss: n_signatures,
             children: vec![],
             log_inv_rate: 1,
+            overlap: 0,
         };
-        run_aggregation_benchmark(&topology, 0, false);
+        run_aggregation_benchmark(&topology, false, true);
     }
 }
 

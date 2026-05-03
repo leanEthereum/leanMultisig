@@ -39,7 +39,7 @@ fn test_run_whir() {
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {
-        security_level: 123,
+        security_level: 124,
         max_num_variables_to_send_coeffs: 9,
         pow_bits: 18,
         folding_factor: FoldingFactor::new(7, 4),
@@ -136,7 +136,7 @@ fn test_run_whir() {
 }
 
 #[test]
-fn display_whir_nb_queries() {
+fn display_whir_round_info() {
     let first_folding_factor = 7;
     for n_vars in 20..31 {
         for log_inv_rate in 1..5 {
@@ -144,24 +144,35 @@ fn display_whir_nb_queries() {
                 continue;
             }
             let params = WhirConfigBuilder {
-                security_level: 123,
-                max_num_variables_to_send_coeffs: 9,
-                pow_bits: 18,
-                folding_factor: FoldingFactor::new(first_folding_factor, 4),
+                security_level: 124,
+                max_num_variables_to_send_coeffs: 8,
+                pow_bits: 16,
+                folding_factor: FoldingFactor::new(first_folding_factor, 5),
                 soundness_type: SecurityAssumption::JohnsonBound,
                 starting_log_inv_rate: log_inv_rate,
                 rs_domain_initial_reduction_factor: 5,
             };
             let params = WhirConfig::<EF>::new(&params, n_vars);
+            let folding_pow_bits = std::iter::once(params.starting_folding_pow_bits)
+                .chain(params.round_parameters.iter().map(|r| r.folding_pow_bits))
+                .collect::<Vec<_>>();
+            let query_pow_bits = params
+                .round_parameters
+                .iter()
+                .map(|r| r.query_pow_bits)
+                .chain(std::iter::once(params.final_query_pow_bits))
+                .collect::<Vec<_>>();
             println!(
-                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}",
+                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, folding_pow_bits: {:?}, query_pow_bits: {:?}",
                 n_vars,
                 log_inv_rate,
                 params
                     .round_parameters
                     .iter()
                     .map(|r| r.num_queries)
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+                folding_pow_bits,
+                query_pow_bits,
             );
         }
     }

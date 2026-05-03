@@ -58,7 +58,11 @@ pub enum IntermediateInstruction {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<IntermediateValue>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<IntermediateValue>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     PanicHint {
         message: Option<String>,
     },
@@ -188,8 +192,8 @@ impl Display for IntermediateInstruction {
                 Ok(())
             }
             Self::LocationReport { .. } => Ok(()),
-            Self::DebugAssert(boolean_expr, _) => {
-                write!(f, "debug_assert {boolean_expr}")
+            Self::DebugAssert { expr, .. } => {
+                write!(f, "debug_assert {expr}")
             }
             Self::DerefHint {
                 offset_src,

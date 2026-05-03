@@ -27,6 +27,14 @@ pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
     (Table::poseidon8(), 20),
 ];
 
+pub fn max_log_n_rows_per_table(table: &Table) -> usize {
+    MAX_LOG_N_ROWS_PER_TABLE
+        .iter()
+        .find(|(t, _)| t == table)
+        .map(|(_, m)| *m)
+        .unwrap()
+}
+
 /// Starting program counter
 pub const STARTING_PC: usize = 1;
 

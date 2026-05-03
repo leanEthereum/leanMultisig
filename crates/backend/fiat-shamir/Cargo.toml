@@ -8,6 +8,6 @@ field = { path = "../field", package = "mt-field" }
 goldilocks = { path = "../goldilocks", package = "mt-goldilocks" }
 symetric = { path = "../symetric", package = "mt-symetric" }
 utils = { path = "../utils", package = "mt-utils" }
-
+tracing.workspace = true
 serde.workspace = true
 rayon.workspace = true
