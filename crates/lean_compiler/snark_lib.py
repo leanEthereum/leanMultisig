@@ -67,8 +67,26 @@ class DynArray:
         self._data.pop()
 
 
-def poseidon16_compress(left, right, output, mode):
-    _ = left, right, output, mode
+def poseidon8_compress(left, right, output):
+    _ = left, right, output
+
+
+def poseidon8_compress_half(left, right, output):
+    """Poseidon8 compression outputting only the first 2 FE (last 2 unconstrained)."""
+    _ = left, right, output
+
+
+def poseidon8_compress_hardcoded_left(left, right, output, offset):
+    """Poseidon8 compression where the first 2 FE of the left input are read from
+    memory[offset..offset+2] instead of memory[left..left+2]. The last 2 FE of the
+    left input come from memory[left..left+2]. `offset` must be a compile-time
+    constant expression."""
+    _ = left, right, output, offset
+
+
+def poseidon8_compress_half_hardcoded_left(left, right, output, offset):
+    """Composition of `poseidon8_compress_half` and `poseidon8_compress_hardcoded_left`."""
+    _ = left, right, output, offset
 
 
 def add_be(a, b, result, length=None):

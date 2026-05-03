@@ -23,8 +23,8 @@ pub const MIN_BYTECODE_LOG_SIZE: usize = 8;
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
     (Table::execution(), 25),
-    (Table::extension_op(), 20),
-    (Table::poseidon8(), 20),
+    (Table::extension_op(), 21),
+    (Table::poseidon8(), 21),
 ];
 
 pub fn max_log_n_rows_per_table(table: &Table) -> usize {

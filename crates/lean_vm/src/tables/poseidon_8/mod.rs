@@ -11,27 +11,40 @@ use sparse::{PARTIAL_ROUNDS as SPARSE_PARTIAL_ROUNDS, get_partial_constants};
 
 pub(super) const WIDTH: usize = 8;
 pub(super) const DIGEST: usize = DIGEST_LEN; // 4
+pub const HALF_DIGEST_LEN: usize = DIGEST / 2; // 2
 
-pub const POSEIDON_PRECOMPILE_DATA: usize = 1; // domain separation: Poseidon8=1, ExtensionOp>=8
+// `PRECOMPILE_DATA` encoding: see `tables/mod.rs`.
+pub const POSEIDON_PRECOMPILE_DATA: usize = 1;
+pub const POSEIDON_HALF_OUTPUT_SHIFT: usize = 1 << 1;
+pub const POSEIDON_HARDCODED_LEFT_FLAG_SHIFT: usize = 1 << 2;
+pub const POSEIDON_HARDCODED_LEFT_OFFSET_SHIFT: usize = 1 << 3;
 
 // ---------- I/O columns ----------
 pub const POSEIDON_8_COL_FLAG: ColIndex = 0;
-pub const POSEIDON_8_COL_INDEX_INPUT_LEFT: ColIndex = 1;
-pub const POSEIDON_8_COL_INDEX_INPUT_RIGHT: ColIndex = 2;
-pub const POSEIDON_8_COL_INDEX_INPUT_RES: ColIndex = 3;
-pub const POSEIDON_8_COL_INPUT_START: ColIndex = 4;
-pub const POSEIDON_8_COL_OUTPUT_START: ColIndex = POSEIDON_8_COL_INPUT_START + WIDTH; // 12
-pub const POSEIDON_8_COL_ROUND_START: ColIndex = POSEIDON_8_COL_OUTPUT_START + DIGEST; // 16
-
-// Legacy aliases used by other tables/compiler code that still refers to the
-// KoalaBear-era names. Keeping them as shims keeps the diff small.
-pub const POSEIDON_16_COL_FLAG: ColIndex = POSEIDON_8_COL_FLAG;
-pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = POSEIDON_8_COL_INDEX_INPUT_LEFT;
-pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = POSEIDON_8_COL_INDEX_INPUT_RIGHT;
-pub const POSEIDON_16_COL_INDEX_INPUT_RES: ColIndex = POSEIDON_8_COL_INDEX_INPUT_RES;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = POSEIDON_8_COL_INPUT_START;
+pub const POSEIDON_8_COL_INDEX_INPUT_RIGHT: ColIndex = 1;
+pub const POSEIDON_8_COL_INDEX_INPUT_RES: ColIndex = 2;
+pub const POSEIDON_8_COL_FLAG_HALF_OUTPUT: ColIndex = 3;
+pub const POSEIDON_8_COL_FLAG_HARDCODED_LEFT: ColIndex = 4;
+pub const POSEIDON_8_COL_OFFSET_LEFT_HARDCODED: ColIndex = 5;
+pub const POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST: ColIndex = 6;
+pub const POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND: ColIndex = 7;
+pub const POSEIDON_8_COL_INPUT_START: ColIndex = 8;
+pub const POSEIDON_8_COL_OUTPUT_START: ColIndex = POSEIDON_8_COL_INPUT_START + WIDTH; // 16
+pub const POSEIDON_8_COL_ROUND_START: ColIndex = POSEIDON_8_COL_OUTPUT_START + DIGEST; // 20
+/// Non-committed columns ("virtual"):
+pub const POSEIDON_8_COL_INDEX_INPUT_LEFT: ColIndex = num_cols_poseidon_8();
+pub const POSEIDON_8_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_8() + 1;
 
 pub const POSEIDON8_NAME: &str = "poseidon8_compress";
+pub const POSEIDON8_HALF_NAME: &str = "poseidon8_compress_half";
+pub const POSEIDON8_HARDCODED_LEFT_NAME: &str = "poseidon8_compress_hardcoded_left";
+pub const POSEIDON8_HALF_HARDCODED_LEFT_NAME: &str = "poseidon8_compress_half_hardcoded_left";
+pub const ALL_POSEIDON8_NAMES: [&str; 4] = [
+    POSEIDON8_NAME,
+    POSEIDON8_HALF_NAME,
+    POSEIDON8_HARDCODED_LEFT_NAME,
+    POSEIDON8_HALF_HARDCODED_LEFT_NAME,
+];
 
 // ---------- Per-round aux columns ----------
 //
@@ -73,6 +86,11 @@ pub const fn round_data_offset(r: usize) -> usize {
 
 pub const fn num_cols_poseidon_8() -> usize {
     round_data_offset(POSEIDON1_N_ROUNDS)
+}
+
+pub const fn num_cols_total_poseidon_8() -> usize {
+    // +2 for non-committed columns: POSEIDON_8_COL_INDEX_INPUT_LEFT, POSEIDON_8_COL_PRECOMPILE_DATA
+    num_cols_poseidon_8() + 2
 }
 
 const AUX_COLS_PER_ROW: usize = num_cols_poseidon_8() - POSEIDON_8_COL_ROUND_START;
@@ -192,8 +210,12 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
     fn lookups(&self) -> Vec<LookupIntoMemory> {
         vec![
             LookupIntoMemory {
-                index: POSEIDON_8_COL_INDEX_INPUT_LEFT,
-                values: (POSEIDON_8_COL_INPUT_START..POSEIDON_8_COL_INPUT_START + DIGEST).collect(),
+                index: POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST,
+                values: (POSEIDON_8_COL_INPUT_START..POSEIDON_8_COL_INPUT_START + HALF_DIGEST_LEN).collect(),
+            },
+            LookupIntoMemory {
+                index: POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND,
+                values: (POSEIDON_8_COL_INPUT_START + HALF_DIGEST_LEN..POSEIDON_8_COL_INPUT_START + DIGEST).collect(),
             },
             LookupIntoMemory {
                 index: POSEIDON_8_COL_INDEX_INPUT_RIGHT,
@@ -206,25 +228,34 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
         ]
     }
 
+    fn n_columns_total(&self) -> usize {
+        num_cols_total_poseidon_8()
+    }
+
+    #[allow(clippy::vec_init_then_push)]
     fn bus(&self) -> Bus {
+        let mut data = Vec::with_capacity(4);
+        data.push(BusData::Column(POSEIDON_8_COL_PRECOMPILE_DATA));
+        data.push(BusData::Column(POSEIDON_8_COL_INDEX_INPUT_LEFT));
+        data.push(BusData::Column(POSEIDON_8_COL_INDEX_INPUT_RIGHT));
+        data.push(BusData::Column(POSEIDON_8_COL_INDEX_INPUT_RES));
         Bus {
             direction: BusDirection::Pull,
             selector: POSEIDON_8_COL_FLAG,
-            data: vec![
-                BusData::Constant(POSEIDON_PRECOMPILE_DATA),
-                BusData::Column(POSEIDON_8_COL_INDEX_INPUT_LEFT),
-                BusData::Column(POSEIDON_8_COL_INDEX_INPUT_RIGHT),
-                BusData::Column(POSEIDON_8_COL_INDEX_INPUT_RES),
-            ],
+            data,
         }
     }
 
     fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
-        let mut row = vec![F::ZERO; num_cols_poseidon_8()];
+        let mut row = vec![F::ZERO; num_cols_total_poseidon_8()];
         row[POSEIDON_8_COL_FLAG] = F::ZERO;
-        row[POSEIDON_8_COL_INDEX_INPUT_LEFT] = F::from_usize(zero_vec_ptr);
         row[POSEIDON_8_COL_INDEX_INPUT_RIGHT] = F::from_usize(zero_vec_ptr);
         row[POSEIDON_8_COL_INDEX_INPUT_RES] = F::from_usize(null_hash_ptr);
+        row[POSEIDON_8_COL_FLAG_HALF_OUTPUT] = F::ZERO;
+        row[POSEIDON_8_COL_FLAG_HARDCODED_LEFT] = F::ZERO;
+        row[POSEIDON_8_COL_OFFSET_LEFT_HARDCODED] = F::ZERO;
+        row[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST] = F::from_usize(zero_vec_ptr);
+        row[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND] = F::from_usize(zero_vec_ptr + HALF_DIGEST_LEN);
         // Inputs stay zero; compute and fill the matching witness + output.
         let (aux, output) = compute_poseidon8_witness([F::ZERO; WIDTH]);
         for (i, v) in output.iter().enumerate() {
@@ -233,6 +264,9 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
         for (i, v) in aux.iter().enumerate() {
             row[POSEIDON_8_COL_ROUND_START + i] = *v;
         }
+        // Non-committed columns
+        row[POSEIDON_8_COL_INDEX_INPUT_LEFT] = F::from_usize(zero_vec_ptr);
+        row[POSEIDON_8_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_PRECOMPILE_DATA);
         // Sanity: Davies-Meyer witness must agree with the direct primitive.
         debug_assert_eq!(output, poseidon8_compress([F::ZERO; WIDTH]));
         row
@@ -244,35 +278,78 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
         arg_a: F,
         arg_b: F,
         index_res_a: F,
-        _: PrecompileCompTimeArgs<usize>,
+        args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
+        let PrecompileCompTimeArgs::Poseidon8 {
+            half_output,
+            hardcoded_offset_left,
+        } = args
+        else {
+            unreachable!("Poseidon8 table called with non-Poseidon8 args");
+        };
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
-        let arg0 = ctx.memory.get_slice(arg_a.to_usize(), DIGEST)?;
+        let arg_a_usize = arg_a.to_usize();
+        let flag_hardcoded = hardcoded_offset_left.is_some();
+        // Convention:
+        //   flag_hardcoded = 0: left input = m[arg_a..arg_a+4] (split as [arg_a..+2], [arg_a+2..+4])
+        //   flag_hardcoded = 1: left input = m[offset..offset+2] | m[arg_a..arg_a+2]
+        //                   (i.e. arg_a now points to a 2-element data digest, and the first 2
+        //                    elements come from the hardcoded prefix at `offset`)
+        let left_first_addr = hardcoded_offset_left.unwrap_or(arg_a_usize);
+        let left_second_addr = if flag_hardcoded {
+            arg_a_usize
+        } else {
+            arg_a_usize + HALF_DIGEST_LEN
+        };
+        let arg0_first = ctx.memory.get_slice(left_first_addr, HALF_DIGEST_LEN)?;
+        let arg0_second = ctx.memory.get_slice(left_second_addr, HALF_DIGEST_LEN)?;
         let arg1 = ctx.memory.get_slice(arg_b.to_usize(), DIGEST)?;
 
         let mut input = [F::ZERO; WIDTH];
-        input[..DIGEST].copy_from_slice(&arg0);
+        input[..HALF_DIGEST_LEN].copy_from_slice(&arg0_first);
+        input[HALF_DIGEST_LEN..DIGEST].copy_from_slice(&arg0_second);
         input[DIGEST..].copy_from_slice(&arg1);
 
         let (aux, output) = compute_poseidon8_witness(input);
 
-        ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
+        if half_output {
+            ctx.memory
+                .set_slice(index_res_a.to_usize(), &output[..HALF_DIGEST_LEN])?;
+        } else {
+            ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
+        }
+
+        let hardcoded_offset_left_val = hardcoded_offset_left.unwrap_or(0);
 
         trace.columns[POSEIDON_8_COL_FLAG].push(F::ONE);
-        trace.columns[POSEIDON_8_COL_INDEX_INPUT_LEFT].push(arg_a);
         trace.columns[POSEIDON_8_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_8_COL_INDEX_INPUT_RES].push(index_res_a);
+        trace.columns[POSEIDON_8_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
+        trace.columns[POSEIDON_8_COL_FLAG_HARDCODED_LEFT].push(if flag_hardcoded { F::ONE } else { F::ZERO });
+        trace.columns[POSEIDON_8_COL_OFFSET_LEFT_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
+        trace.columns[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
+        trace.columns[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
         for (i, value) in input.iter().enumerate() {
             trace.columns[POSEIDON_8_COL_INPUT_START + i].push(*value);
         }
+        // The first HALF_DIGEST_LEN trace outputs always equal the permutation output.
+        // For half_output rows, the last HALF_DIGEST_LEN are filled later from memory in
+        // `fill_trace_poseidon_8`'s post-pass (lookup checks against memory, not the perm).
         for (i, value) in output.iter().enumerate() {
             trace.columns[POSEIDON_8_COL_OUTPUT_START + i].push(*value);
         }
         for (i, value) in aux.iter().enumerate() {
             trace.columns[POSEIDON_8_COL_ROUND_START + i].push(*value);
         }
+        // Non-committed columns
+        trace.columns[POSEIDON_8_COL_INDEX_INPUT_LEFT].push(arg_a);
+        let precompile_data = POSEIDON_PRECOMPILE_DATA
+            + POSEIDON_HALF_OUTPUT_SHIFT * (half_output as usize)
+            + POSEIDON_HARDCODED_LEFT_FLAG_SHIFT * (flag_hardcoded as usize)
+            + POSEIDON_HARDCODED_LEFT_OFFSET_SHIFT * hardcoded_offset_left_val;
+        trace.columns[POSEIDON_8_COL_PRECOMPILE_DATA].push(F::from_usize(precompile_data));
 
         Ok(())
     }
@@ -283,13 +360,15 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
 /// `eval()` exactly; used by the proving pipeline for pre-allocation.
 const fn poseidon8_n_constraints(bus: bool) -> usize {
     // 1 boolean flag.
+    // 2 boolean flags (half_output, hardcoded_left).
+    // 2 effective_index constraints (linking effective_index_left_first/second to flag_hardcoded).
     // Initial + terminal full rounds: 8 MDS equality gates per round (deg 7).
     // Partial rounds: 1 post_sbox gate per round (deg 7).
-    // Davies-Meyer: 4 output gates (deg 1).
+    // Davies-Meyer: HALF_DIGEST_LEN unconditional + HALF_DIGEST_LEN gated outputs (deg 1 / 2).
     // + bus (if enabled).
     let full_gates = 2 * POSEIDON1_HALF_FULL_ROUNDS * WIDTH;
     let partial_gates = POSEIDON1_PARTIAL_ROUNDS;
-    1 + full_gates + partial_gates + DIGEST + bus as usize
+    1 + 2 + 2 + full_gates + partial_gates + DIGEST + bus as usize
 }
 
 impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
@@ -298,7 +377,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         num_cols_poseidon_8()
     }
     fn degree_air(&self) -> usize {
-        7
+        // S-box is x⁷ → max degree 7. The half_output gating multiplies by (1 - flag_half_output)
+        // so output gates are at most 8.
+        8
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
@@ -312,9 +393,13 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         // Phase 1 — snapshot every `up[…]` column read into owned locals so we
         // can then use `builder` mutably without fighting the borrow checker.
         let flag;
-        let index_a;
         let index_b;
         let index_res;
+        let flag_half_output;
+        let flag_hardcoded_left;
+        let offset_hardcoded_left;
+        let effective_index_left_first;
+        let effective_index_left_second;
         let inputs: [AB::IF; WIDTH];
         let outputs: [AB::IF; DIGEST];
         // Per full round: `post[0..W]`. Per partial round: `post_sbox`.
@@ -323,9 +408,13 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         {
             let up = builder.up();
             flag = up[POSEIDON_8_COL_FLAG];
-            index_a = up[POSEIDON_8_COL_INDEX_INPUT_LEFT];
             index_b = up[POSEIDON_8_COL_INDEX_INPUT_RIGHT];
             index_res = up[POSEIDON_8_COL_INDEX_INPUT_RES];
+            flag_half_output = up[POSEIDON_8_COL_FLAG_HALF_OUTPUT];
+            flag_hardcoded_left = up[POSEIDON_8_COL_FLAG_HARDCODED_LEFT];
+            offset_hardcoded_left = up[POSEIDON_8_COL_OFFSET_LEFT_HARDCODED];
+            effective_index_left_first = up[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST];
+            effective_index_left_second = up[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND];
             inputs = std::array::from_fn(|i| up[POSEIDON_8_COL_INPUT_START + i]);
             outputs = std::array::from_fn(|i| up[POSEIDON_8_COL_OUTPUT_START + i]);
 
@@ -340,29 +429,41 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             }
         }
 
+        // Reconstruct precompile_data and index_a (virtual columns) from the committed flags.
+        let precompile_data_reconstructed = AB::IF::ONE
+            + flag_half_output * AB::F::from_usize(POSEIDON_HALF_OUTPUT_SHIFT)
+            + flag_hardcoded_left * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_FLAG_SHIFT)
+            + flag_hardcoded_left * offset_hardcoded_left * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_OFFSET_SHIFT);
+
+        // effective_index_left_first = index_a * (1 - flag_hardcoded_left) + offset * flag_hardcoded_left
+        //   ⇒ when flag_hardcoded_left = 0: effective_index_left_first = index_a
+        //                                  effective_index_left_second = index_a + HALF_DIGEST_LEN
+        //   ⇒ when flag_hardcoded_left = 1: effective_index_left_first = offset
+        //                                  effective_index_left_second = index_a
+        // We define index_a (virtual) via effective_index_left_second:
+        //   index_a = effective_index_left_second - (1 - flag_hardcoded_left) * HALF_DIGEST_LEN
+        let one_minus_flag_hardcoded_left = AB::IF::ONE - flag_hardcoded_left;
+        let index_a = effective_index_left_second - one_minus_flag_hardcoded_left * AB::F::from_usize(HALF_DIGEST_LEN);
+
         // Phase 2 — bus / declare.
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 flag,
-                &[
-                    AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
-                    index_a,
-                    index_b,
-                    index_res,
-                ],
+                &[precompile_data_reconstructed, index_a, index_b, index_res],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&flag));
-            builder.declare_values(&[
-                AB::IF::from_usize(POSEIDON_PRECOMPILE_DATA),
-                index_a,
-                index_b,
-                index_res,
-            ]);
+            builder.declare_values(&[precompile_data_reconstructed, index_a, index_b, index_res]);
         }
 
         builder.assert_bool(flag);
+        builder.assert_bool(flag_half_output);
+        builder.assert_bool(flag_hardcoded_left);
+
+        // Constrain effective_index_left_first to match its semantics.
+        builder.assert_zero(flag_hardcoded_left * (offset_hardcoded_left - effective_index_left_first));
+        builder.assert_zero(one_minus_flag_hardcoded_left * (index_a - effective_index_left_first));
 
         // Phase 3 — Poseidon1-8 permutation constraints with Davies-Meyer feed-forward.
         let mut state: [AB::IF; WIDTH] = inputs;
@@ -453,8 +554,15 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
         }
 
         // Davies-Meyer: outputs[i] = final_state[i] + inputs[i] for i in 0..DIGEST.
+        // First HALF_DIGEST_LEN outputs: always constrained.
+        // Last HALF_DIGEST_LEN outputs: only constrained when flag_half_output = 0.
+        let one_minus_flag_half_output = AB::IF::ONE - flag_half_output;
         for i in 0..DIGEST {
-            builder.assert_zero(outputs[i] - state[i] - inputs[i]);
+            if i < HALF_DIGEST_LEN {
+                builder.assert_zero(outputs[i] - state[i] - inputs[i]);
+            } else {
+                builder.assert_zero(one_minus_flag_half_output * (outputs[i] - state[i] - inputs[i]));
+            }
         }
     }
 }

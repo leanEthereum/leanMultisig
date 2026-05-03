@@ -12,10 +12,42 @@ DIM = 3
 N = 11
 M = 3
 DIGEST_LEN = 4
+HALF_DIGEST_LEN = 2
 
 def main():
     pub_start = 0
     poseidon8_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+
+    # poseidon8_compress_half: only first 2 FE constrained
+    full_out = pub_start + 6 * DIGEST_LEN
+    half_out = pub_start + 80
+    poseidon8_compress_half(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, half_out)
+    for i in unroll(0, HALF_DIGEST_LEN):
+        assert full_out[i] == half_out[i]
+
+    # poseidon8_compress_hardcoded_left: only HALF_DIGEST_LEN (=2) FE are read
+    # at the left pointer (the 2-element data digest at pub_start + 1496), and the first
+    # 2 FE of the left input come from memory[pub_start + 1500 .. pub_start + 1502]
+    # (the hardcoded prefix).
+    hardcoded_left = pub_start + 1496
+    hardcoded_full_out = pub_start + 1504
+    poseidon8_compress_hardcoded_left(
+        hardcoded_left,
+        pub_start + 5 * DIGEST_LEN,
+        hardcoded_full_out,
+        pub_start + 1500
+    )
+
+    # Same, but only first 2 FE of the output are constrained.
+    hardcoded_half_out = pub_start + 1512
+    poseidon8_compress_half_hardcoded_left(
+        hardcoded_left,
+        pub_start + 5 * DIGEST_LEN,
+        hardcoded_half_out,
+        pub_start + 1500
+    )
+    for i in unroll(0, HALF_DIGEST_LEN):
+        assert hardcoded_full_out[i] == hardcoded_half_out[i]
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -55,12 +87,34 @@ def main():
     let mut rng = StdRng::seed_from_u64(0);
     let mut public_input = F::zero_vec(1 << 13);
 
-    // Poseidon test data — width 8 / digest 4 for Goldilocks.
+    // Poseidon test data — width 8 / digest 4 / half-digest 2 for Goldilocks.
     // DSL uses `pub_start + 4*DIGEST_LEN..6*DIGEST_LEN` (positions 16..24) for the input
     // and `pub_start + 6*DIGEST_LEN..7*DIGEST_LEN` (positions 24..28) for the output.
     let poseidon_8_compress_input: [F; 8] = rng.random();
     public_input[16..24].copy_from_slice(&poseidon_8_compress_input);
-    public_input[24..28].copy_from_slice(&poseidon8_compress(poseidon_8_compress_input));
+    let poseidon_output = poseidon8_compress(poseidon_8_compress_input);
+    public_input[24..28].copy_from_slice(&poseidon_output);
+    // poseidon8_compress_half output at offset 80: first 2 = hash, last 2 = arbitrary pre-existing data
+    public_input[80..82].copy_from_slice(&poseidon_output[..2]);
+    public_input[82..84].copy_from_slice(&[F::from_usize(111), F::from_usize(222)]);
+
+    // poseidon8_compress_hardcoded_left:
+    //   left input = m[1500..1502] (hardcoded prefix) | m[1496..1498] (data)
+    //   right input = m[20..24] (= input[4..8])
+    let hardcoded_data: [F; 2] = rng.random();
+    let hardcoded_prefix: [F; 2] = rng.random();
+    public_input[1496..1498].copy_from_slice(&hardcoded_data);
+    public_input[1500..1502].copy_from_slice(&hardcoded_prefix);
+    let mut hardcoded_input = [F::ZERO; 8];
+    hardcoded_input[..2].copy_from_slice(&hardcoded_prefix);
+    hardcoded_input[2..4].copy_from_slice(&hardcoded_data);
+    hardcoded_input[4..8].copy_from_slice(&poseidon_8_compress_input[4..8]);
+    let hardcoded_output = poseidon8_compress(hardcoded_input);
+    // Full output at 1504..1508
+    public_input[1504..1508].copy_from_slice(&hardcoded_output);
+    // Half output at 1512..1516: first 2 = hash, last 2 = arbitrary pre-existing data
+    public_input[1512..1514].copy_from_slice(&hardcoded_output[..2]);
+    public_input[1514..1516].copy_from_slice(&[F::from_usize(555), F::from_usize(666)]);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();

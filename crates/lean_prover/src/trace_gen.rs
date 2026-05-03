@@ -108,6 +108,28 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let poseidon_trace = traces.get_mut(&Table::poseidon8()).unwrap();
     fill_trace_poseidon_8(&mut poseidon_trace.columns);
 
+    // For half_output rows, override last 4 output columns with actual memory values
+    // (the AIR doesn't constrain them, but the lookup checks against memory).
+    {
+        let split = POSEIDON_8_COL_OUTPUT_START + HALF_DIGEST_LEN;
+        let (left, right) = poseidon_trace.columns.split_at_mut(split);
+        let half_output_col = &left[POSEIDON_8_COL_FLAG_HALF_OUTPUT];
+        let res_col = &left[POSEIDON_8_COL_INDEX_INPUT_RES];
+        let output_cols: &mut [Vec<F>; HALF_DIGEST_LEN] = (&mut right[..HALF_DIGEST_LEN]).try_into().unwrap();
+
+        transposed_par_iter_mut(output_cols)
+            .zip(half_output_col)
+            .zip(res_col)
+            .for_each(|((row, &half), &res)| {
+                if half == F::ONE {
+                    let base = res.to_usize() + HALF_DIGEST_LEN;
+                    for j in 0..HALF_DIGEST_LEN {
+                        *row[j] = memory_padded[base + j];
+                    }
+                }
+            });
+    }
+
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
 
