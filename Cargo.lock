@@ -473,6 +473,7 @@ version = "0.1.0"
 dependencies = [
  "backend",
  "clap",
+ "lean_prover",
  "lean_vm",
  "rand",
  "rec_aggregation",
