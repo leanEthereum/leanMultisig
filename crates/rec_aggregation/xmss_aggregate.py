@@ -5,6 +5,7 @@ V = V_PLACEHOLDER
 W = W_PLACEHOLDER
 CHAIN_LENGTH = 2**W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
+ENCODING_NUM_FINAL_ZEROS = ENCODING_NUM_FINAL_ZEROS_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
@@ -15,7 +16,7 @@ PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST_LEN
 WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
 # wots_public_key pair stride: each pair occupies 10 cells `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. In order to be able to use copy_5 on both sides.
 WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
-NUM_ENCODING_FE = div_ceil(V, (24 / W))
+NUM_ENCODING_FE = div_ceil(V * W + ENCODING_NUM_FINAL_ZEROS, 24)
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
 INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE  # = DIGEST_LEN
@@ -76,6 +77,16 @@ def xmss_verify(pub_key, message, merkle_chunks):
         # remaining_i = (encoding_fe[i] - partial_sum) * inv(2^24) = (partial_sum - encoding_fe[i]) * 250
         remaining_i = (partial_sum - encoding_fe[i]) * 250
         assert remaining_i < 250  # ensures uniformity + prevent overflow
+
+    # encoding[V/2] is the 2*W-bit chunk holding bits V*W..V*W + 2*W - 1 of the
+    # encoding digest, just past the V*W bits used for chain indices. Force its
+    # ENCODING_NUM_FINAL_ZEROS lowest bits to zero, lifting the encoding constraint
+    # from V*W to V*W + ENCODING_NUM_FINAL_ZEROS bits.
+    match_range(
+        encoding[V / 2],
+        range(0, CHAIN_LENGTH**2),
+        lambda n: assert_encoding_gap_zero(n),
+    )
 
     debug_assert(V % 2 == 0)
     wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE)
@@ -175,6 +186,13 @@ def chain_hash_pair(
         chain_hash_pa(input_b, num_hashes_b, output_b, tweaks_b, chain_right)
 
     pair_sum_ptr[0] = raw_a + raw_b
+    return
+
+
+@inline
+def assert_encoding_gap_zero(n):
+    if n % (2**ENCODING_NUM_FINAL_ZEROS) != 0:
+        assert False
     return
 
 

@@ -22,6 +22,9 @@ pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const NUM_CHAIN_HASHES: usize = 110;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
+pub const ENCODING_NUM_FINAL_ZEROS: usize = 2;
+const _: () = assert!(V * W + ENCODING_NUM_FINAL_ZEROS <= 8 * 24); // fits in the 8×24-bit encoding digest
+const _: () = assert!(ENCODING_NUM_FINAL_ZEROS <= 2 * W); // fits in a single 2W-bit pair chunk (zkDSL assumption)
 pub const RANDOMNESS_LEN_FE: usize = 6;
 pub const MESSAGE_LEN_FE: usize = 8;
 pub const PUBLIC_PARAM_LEN_FE: usize = 4;
