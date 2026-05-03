@@ -18,10 +18,6 @@ Documentation: [PDF](minimal_zkVM.pdf)
 The VM design is inspired by the famous [Cairo paper](https://eprint.iacr.org/2021/1063.pdf).
 
 
-## Security
-
-124 bits of provable security, given by Johnson bound + degree 5 extension of koala-bear. (128 bits would require hash digests of more than 8 field elements, todo?). In the benchmarks, we also display performance with conjectured security, even though leanVM targets the proven regime by default.
-
 ## Benchmarks
 
 Machine: M4 Max 48GB (CPU only)
@@ -31,13 +27,14 @@ Machine: M4 Max 48GB (CPU only)
 ### XMSS aggregation
 
 ```bash
-cargo run --release -- xmss --n-signatures 1400 --log-inv-rate 1
+cargo run --release -- xmss --n-signatures 1500 --log-inv-rate 1
 ```
 
 | WHIR rate | Proven Regime         | Proximity Gaps Conjecture |
 | --------- | --------------------- | ------------------------- |
-| 1/2       | 1193 XMSS/s - 377 KiB | 1207 XMSS/s - 191 KiB     |
-| 1/4       | 863 XMSS/s - 243 KiB  | 872 XMSS/s - 129 KiB      |
+| 1/2       | 1319 XMSS/s - 338 KiB | 1345 XMSS/s - 176 KiB     |
+| 1/4       | 961 XMSS/s - 228 KiB  | 969 XMSS/s - 126 KiB      |
+
 
 (Proving throughput - proof size)
 
@@ -53,14 +50,15 @@ cargo run --release -- recursion --n 2 --log-inv-rate 2
 
 | n   | WHIR rate | Proven Regime               | Proximity Gaps Conjecture   |
 | --- | --------- | --------------------------- | --------------------------- |
-| 1   | 1/2       | 0.35s = 1 x 0.35s - 256 KiB | 0.24s = 1 x 0.24s - 146 KiB |
-| 1   | 1/4       | 0.33s = 1 x 0.33s - 183 KiB | 0.26s = 1 x 0.26s - 98 KiB  |
-| 2   | 1/2       | 0.65s = 2 x 0.33s - 272 KiB | 0.43s = 2 x 0.21s - 157 KiB |
-| 2   | 1/4       | 0.56s = 2 x 0.28s - 190 KiB | 0.41s = 2 x 0.21s - 101 KiB |
-| 3   | 1/2       | 0.83s = 3 x 0.28s - 303 KiB | 0.62s = 3 x 0.21s - 150 KiB |
-| 3   | 1/4       | 0.86s = 3 x 0.29s - 192 KiB | 0.71s = 3 x 0.24s - 107 KiB |
-| 4   | 1/2       | 1.23s = 4 x 0.31s - 327 KiB | 0.76s = 4 x 0.19s - 166 KiB |
-| 4   | 1/4       | 1.01s = 4 x 0.25s - 200 KiB | 0.76s = 4 x 0.19s - 106 KiB |
+| 1   | 1/2       | 0.39s = 1 x 0.39s - 278 KiB | 0.24s = 1 x 0.24s - 147 KiB |
+| 1   | 1/4       | 0.32s = 1 x 0.32s - 188 KiB | 0.27s = 1 x 0.27s - 100 KiB |
+| 2   | 1/2       | 0.7s = 2 x 0.35s - 293 KiB  | 0.43s = 2 x 0.21s - 157 KiB |
+| 2   | 1/4       | 0.56s = 2 x 0.28s - 194 KiB | 0.43s = 2 x 0.22s - 102 KiB |
+| 3   | 1/2       | 0.85s = 3 x 0.28s - 312 KiB | 0.63s = 3 x 0.21s - 150 KiB |
+| 3   | 1/4       | 0.94s = 3 x 0.31s - 203 KiB | 0.73s = 3 x 0.24s - 108 KiB |
+| 4   | 1/2       | 1.27s = 4 x 0.32s - 308 KiB | 0.78s = 4 x 0.2s - 166 KiB  |
+| 4   | 1/4       | 1.02s = 4 x 0.26s - 206 KiB | 0.79s = 4 x 0.2s - 108 KiB  |
+
 
 
 (time for n->1 recursive aggregation - proof size)
@@ -74,6 +72,20 @@ cargo run --release -- fancy-aggregation
 ![Recursive aggregation](./misc/images/fancy-aggregation.png)
 
 (Proven regime)
+
+## Security
+
+### snark
+
+≈ 124 bits of provable security, given by Johnson bound + degree 5 extension of koala-bear. (128 bits requires bigger hash digests (8 koalabears ≈ 248 bits) -> TODO). In the benchmarks, we also display performance with conjectured security, even though leanVM targets the proven regime by default.
+
+### XMSS
+
+Currently, we use an [XMSS](crates/xmss/xmss.md) with hash digests of 4 field elements ≈ 124 bits. Tweaks and public parameters ensure domain separation. An analysis in the ROM (resp. QROM), inspired by the section 3.1 of [Tight adaptive reprogramming in the QROM](https://arxiv.org/pdf/2010.15103) would lead to ≈ 124 (resp. 62) bits of classical (resp. quantum) security. Going to 128 / 64 bits of classical / quantum security, i.e. NIST level 1 (in the ROM/QROM), is an ongoing effort. It requires either:
+- hash digests of 5 field elements (drawback: we need to double the hash chain length from 8 to 16 if we want to stay below one IPv6 MTU = 1280 bytes)
+- a new prime, close to 32 bits (typically p = 125.2^25 + 1) or 64 bits ([goldilocks](https://2π.com/22/goldilocks/))
+
+It's important to mention that a security analysis in the ROM / QROM is not the most conservative. In particular, [eprint 2025/055](https://eprint.iacr.org/2025/055.pdf)'s security proof holds in the standard model (at the cost of bigger hash digests): the implementation is available in the [leanSig](https://github.com/leanEthereum/leanSig) repository. A compatible version of leanMultisig can be found in the [devnet4](https://github.com/leanEthereum/leanMultisig/tree/devnet4) branch.
 
 ## Credits
 
