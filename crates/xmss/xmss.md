@@ -28,10 +28,10 @@ KoalaBear (p = 2^31 - 2^24 + 1).
 
 ## Verification
 
-Inputs: public key `(merkle_root, pp)`, message `msg`, slot `s`, signature `(chain_tips, randomness, merkle_proof)`.
+Inputs: public key `(merkle_root, pp)`, message `msg`, slot `s`, signature `(randomness, chain_tips, merkle_proof)`.
 
-1. **Encode**: compute the 8-limb digest `D = H(H(msg | randomness | tweak_encoding(s)) | pp | 0)`. Reject if any limb of `D` equals `-1` (for a uniform sampling). For each limb, take its canonical representative's low 24 bits in little-endian order, concatenate to get 192 bits, then take the first `v · w = 126` bits split into `v = 42` little-endian chunks of `w = 3` bits → encoding `(e_0, ..., e_{v-1})` with each `e_i ∈ [0, chain_length)`. Reject if `sum(e_i) ≠ target_sum`.
-2. **Recover WOTS public key**: for each `i`, walk chain `i` from `chain_tips[i]` for `chain_length - 1 - e_i` steps, where each step is `H(tweak_chain(i, step, s) | 00 | acc | pp | 0000)` truncated to `n`.
+1. **Encode**: compute the 8-limb digest `D = H(H(msg | randomness | tweak_encoding(s)) | pp | 0000)`. Reject if any limb of `D` equals `-1` (for a uniform sampling). For each limb, take its canonical representative's low 24 bits in little-endian order, concatenate to get 192 bits, then take the first `v · w = 126` bits split into `v = 42` little-endian chunks of `w = 3` bits → encoding `(e_0, ..., e_{v-1})` with each `e_i ∈ [0, chain_length)`. Reject if `sum(e_i) ≠ target_sum`.
+2. **Recover WOTS public key**: for each `i`, walk chain `i` from `chain_tips[i]` for `chain_length - 1 - e_i` steps, where each step is `H(tweak_chain(i, step, s) | 00 | previous_value | pp | 0000)` truncated to `n`.
 3. **Hash WOTS public key**: T-sponge with replacement over the `v` recovered chain ends, with IV `[tweak_wots_pk(s) | 00 | pp]`, ingesting two chain end digests at a time. Output is the Merkle leaf.
 4. **Walk Merkle path**: for `level = 0..log_lifetime`, combine the current node with `merkle_proof[level]` (left/right determined by bit `level` of `s`) via `H(tweak_merkle(level+1, parent_index) | 00 | pp | left | right)` truncated to `n`.
 5. **Check root**: accept iff the final hash equals `merkle_root`.
@@ -39,10 +39,10 @@ Inputs: public key `(merkle_root, pp)`, message `msg`, slot `s`, signature `(cha
 
 ## Security
 
-target = 123,9 ≈ 124 bits of classical security in the ROM, and ≈ 62 bits of quantum security in the QROM, with an analysis inspired by the section 3.1 of [Tight adaptive reprogramming in the QROM](https://arxiv.org/pdf/2010.15103). TODO write it on paper.
+target = 123,9 ≈ 124 bits of classical security in the ROM, and ≈ 62 bits of quantum security in the QROM, with an analysis inspired by the section 3.1 of [Tight adaptive reprogramming in the QROM](https://arxiv.org/pdf/2010.15103). TODO write the complete proof.
 
 ## Signature size
 
- **1171 bytes** `log2(p).(|randomness| + n.(v + log_lifetime))`
+**1171 bytes** `log2(p).(|randomness| + n.(v + log_lifetime))`
 
 below IPv6 [MTU](https://fr.wikipedia.org/wiki/Maximum_transmission_unit) (1280 bytes)
