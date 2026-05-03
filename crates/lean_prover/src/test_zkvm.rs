@@ -203,7 +203,8 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
         &witness,
         &default_whir_config(starting_log_inv_rate),
         false,
-    );
+    )
+    .unwrap();
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof.proof).unwrap();
     println!("{}", proof.metadata.display());

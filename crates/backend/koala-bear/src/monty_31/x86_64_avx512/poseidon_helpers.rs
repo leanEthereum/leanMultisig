@@ -72,7 +72,6 @@ pub(crate) fn add_rc_and_sbox<PMP: PackedMontyParameters, const D: u64>(
 
 /// Applies the S-Box `x -> x^D` to a packed vector. Output is in canonical form.
 #[inline(always)]
-#[must_use]
 pub(crate) fn sbox<PMP: PackedMontyParameters, const D: u64>(
     val: PackedMontyField31AVX512<PMP>,
 ) -> PackedMontyField31AVX512<PMP> {

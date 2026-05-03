@@ -3,20 +3,23 @@
 use backend::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{CodeAddress, EF, F, FileId, FunctionName, Hint, SourceLocation};
+use crate::{EF, F, FileId, FunctionName, Hint, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeEntry {
+    pub hints: Box<[Hint]>, // executed before the instruction
+    pub instruction: Instruction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bytecode {
-    pub instructions: Vec<Instruction>,
-    #[serde(skip)]
+    pub code: Vec<CodeEntry>,
     pub instructions_multilinear: Vec<F>,
-    #[serde(skip)]
-    pub instructions_multilinear_packed: Vec<EFPacking<EF>>,
-    pub hints: BTreeMap<CodeAddress, Vec<Hint>>,
+    pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
     pub starting_frame_memory: usize,
     pub hash: [F; DIGEST_ELEMS],
     // debug
@@ -29,7 +32,7 @@ pub struct Bytecode {
 
 impl Bytecode {
     pub fn size(&self) -> usize {
-        self.instructions.len()
+        self.code.len()
     }
 
     pub fn padded_size(&self) -> usize {
@@ -43,13 +46,13 @@ impl Bytecode {
 
 impl Display for Bytecode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for (pc, instruction) in self.instructions.iter().enumerate() {
-            for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
+        for (pc, entry) in self.code.iter().enumerate() {
+            for hint in entry.hints.iter() {
                 if !matches!(hint, Hint::LocationReport { .. }) {
                     writeln!(f, "hint: {hint}")?;
                 }
             }
-            writeln!(f, "{pc:>4}: {instruction}")?;
+            writeln!(f, "{pc:>4}: {}", entry.instruction)?;
         }
         Ok(())
     }

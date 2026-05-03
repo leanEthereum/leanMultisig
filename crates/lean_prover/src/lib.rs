@@ -1,7 +1,9 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 
+use std::fmt::Display;
+
 use backend::*;
-use lean_vm::{EF, F, MAX_WHIR_LOG_INV_RATE, MIN_WHIR_LOG_INV_RATE};
+use lean_vm::{EF, F, MAX_WHIR_LOG_INV_RATE, MIN_LOG_N_ROWS_PER_TABLE, MIN_WHIR_LOG_INV_RATE, Table, TableT};
 use utils::*;
 
 mod trace_gen;
@@ -14,11 +16,10 @@ mod test_zkvm;
 
 use trace_gen::*;
 
-// Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 30.98 bits per field element)
-// so ≈ 123.92 bits of security against collisions
-pub const SECURITY_BITS: usize = 123; // TODO 128 bits security? (with Poseidon over 20 field elements or with a more subtle soundness analysis (cf. https://eprint.iacr.org/2021/188.pdf))
+// Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 31 bits per field element)
+pub const SECURITY_BITS: usize = 124; // TODO 128 bits security
 
-pub const GRINDING_BITS: usize = 18;
+pub const GRINDING_BITS: usize = 16;
 pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 8;
 pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 7;
 pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 5;
@@ -49,6 +50,25 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
         Ok(())
     } else {
         Err(ProofError::InvalidRate)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ProverError {
+    TooBigTable(TooBigTableError),
+}
+
+impl From<TooBigTableError> for ProverError {
+    fn from(err: TooBigTableError) -> Self {
+        Self::TooBigTable(err)
+    }
+}
+
+impl Display for ProverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooBigTable(e) => write!(f, "{}", e),
+        }
     }
 }
 

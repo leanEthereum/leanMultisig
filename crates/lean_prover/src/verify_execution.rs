@@ -33,18 +33,18 @@ pub fn verify_execution(
     let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 3])).collect();
     check_rate(log_inv_rate)?;
     let whir_config = default_whir_config(log_inv_rate);
-    for (table, &n_vars) in &table_n_vars {
-        if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
+    for (table, &log_n_rows) in &table_n_vars {
+        if log_n_rows < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);
         }
-        if n_vars
-            > MAX_LOG_N_ROWS_PER_TABLE
-                .iter()
-                .find(|(t, _)| t == table)
-                .map(|(_, m)| *m)
-                .unwrap()
-        {
-            return Err(ProofError::InvalidProof);
+        let log_limit = max_log_n_rows_per_table(table);
+        if log_n_rows > log_limit {
+            return Err(TooBigTableError {
+                table_name: table.name(),
+                log_n_rows,
+                log_limit,
+            }
+            .into());
         }
     }
     // check memory is bigger than any other table
@@ -55,6 +55,10 @@ pub fn verify_execution(
     let public_memory = padd_with_zero_to_next_power_of_two(public_input);
 
     if !(MIN_LOG_MEMORY_SIZE..=MAX_LOG_MEMORY_SIZE).contains(&log_memory) {
+        return Err(ProofError::InvalidProof);
+    }
+
+    if bytecode.log_size() < MIN_BYTECODE_LOG_SIZE {
         return Err(ProofError::InvalidProof);
     }
 

@@ -269,6 +269,10 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
     fn degree_air(&self) -> usize {
         10
     }
+    fn low_degree_air(&self) -> Option<(usize, usize)> {
+        // Each partial round contributes one `assert_eq_low` per round (1 S-box / round), of degree 3 (= the "low" degree part)
+        Some((3, PARTIAL_ROUNDS_24))
+    }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
@@ -362,27 +366,32 @@ fn eval_poseidon1_24<AB: AirBuilder>(
     }
 
     // --- Sparse partial rounds ---
-    let frc = poseidon1_24_sparse_first_round_constants();
-    for (s, &c) in state.iter_mut().zip(frc.iter()) {
-        add_kb_24(s, c);
-    }
-    dense_mat_vec_air_24(poseidon1_24_sparse_m_i(), &mut state);
+    // Transition: add first-round constants, multiply by m_i
+    builder.low_degree_block(&mut state, |b, state| {
+        let state: &mut [AB::IF; WIDTH_24] = state.try_into().unwrap();
 
-    let first_rows = poseidon1_24_sparse_first_row();
-    let v_vecs = poseidon1_24_sparse_v();
-    let scalar_rc = poseidon1_24_sparse_scalar_round_constants();
-    for round in 0..PARTIAL_ROUNDS_24 {
-        // S-box on state[0]
-        state[0] = state[0].cube();
-        builder.assert_eq(state[0], local.partial_rounds[round]);
-        state[0] = local.partial_rounds[round];
-        // Scalar round constant (not on last round)
-        if round < PARTIAL_ROUNDS_24 - 1 {
-            add_kb_24(&mut state[0], scalar_rc[round]);
+        let frc = poseidon1_24_sparse_first_round_constants();
+        for (s, &c) in state.iter_mut().zip(frc.iter()) {
+            add_kb_24(s, c);
         }
-        // Sparse matrix
-        sparse_mat_air_24(&mut state, &first_rows[round], &v_vecs[round]);
-    }
+        dense_mat_vec_air_24(poseidon1_24_sparse_m_i(), state);
+
+        let first_rows = poseidon1_24_sparse_first_row();
+        let v_vecs = poseidon1_24_sparse_v();
+        let scalar_rc = poseidon1_24_sparse_scalar_round_constants();
+        for round in 0..PARTIAL_ROUNDS_24 {
+            // S-box on state[0]
+            state[0] = state[0].cube();
+            b.assert_eq_low(state[0], local.partial_rounds[round]);
+            state[0] = local.partial_rounds[round];
+            // Scalar round constant (not on last round)
+            if round < PARTIAL_ROUNDS_24 - 1 {
+                add_kb_24(&mut state[0], scalar_rc[round]);
+            }
+            // Sparse matrix: new_s0 = dot(first_row, state), state[i] += old_s0 * v[i-1]
+            sparse_mat_air_24(state, &first_rows[round], &v_vecs[round]);
+        }
+    });
 
     let final_constants = poseidon1_24_final_constants();
     for round in 0..HALF_FINAL_FULL_ROUNDS_24 - 1 {

@@ -62,7 +62,9 @@ impl<PMP: PackedMontyParameters> PackedMontyField31AVX512<PMP> {
     #[inline]
     /// Make a packed field vector from an arch-specific vector.
     ///
-    /// SAFETY: The caller must ensure that each element of `vector` represents a valid
+    /// # Safety
+    ///
+    /// The caller must ensure that each element of `vector` represents a valid
     /// `MontyField31`. In particular, each element of vector must be in `0..=P`.
     pub unsafe fn from_vector(vector: __m512i) -> Self {
         unsafe {

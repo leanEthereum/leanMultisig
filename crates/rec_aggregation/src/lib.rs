@@ -36,12 +36,32 @@ pub struct AggregationTopology {
     pub raw_xmss: usize,
     pub children: Vec<AggregationTopology>,
     pub log_inv_rate: usize,
+    pub overlap: usize, // Ignored for leaves.
 }
 
-pub(crate) fn count_signers(topology: &AggregationTopology, overlap: usize) -> usize {
-    let child_count: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
+pub fn biggest_leaf(topology: &AggregationTopology) -> Option<AggregationTopology> {
+    fn visit(t: &AggregationTopology, best: &mut Option<(usize, usize)>) {
+        if t.raw_xmss > 0 && best.is_none_or(|(n, _)| t.raw_xmss > n) {
+            *best = Some((t.raw_xmss, t.log_inv_rate));
+        }
+        for c in &t.children {
+            visit(c, best);
+        }
+    }
+    let mut best = None;
+    visit(topology, &mut best);
+    best.map(|(raw_xmss, log_inv_rate)| AggregationTopology {
+        raw_xmss,
+        children: vec![],
+        log_inv_rate,
+        overlap: 0,
+    })
+}
+
+pub(crate) fn count_signers(topology: &AggregationTopology) -> usize {
+    let child_count: usize = topology.children.iter().map(count_signers).sum();
     let n_overlaps = topology.children.len().saturating_sub(1);
-    topology.raw_xmss + child_count - overlap * n_overlaps
+    topology.raw_xmss + child_count - topology.overlap * n_overlaps
 }
 
 /// Hash pubkeys via Poseidon24 sponge: capacity(9) || root(8) || pp(5) || zeros(2) per key.
@@ -472,7 +492,7 @@ pub fn xmss_aggregate(
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
         hints,
     };
-    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false);
+    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false).unwrap();
 
     (
         global_pub_keys,

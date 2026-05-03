@@ -90,6 +90,9 @@ impl<V, S> PrecompileArgs<V, S> {
     pub fn operand_exprs(&self) -> [&V; 3] {
         [&self.arg_0, &self.arg_1, &self.res]
     }
+    pub fn operand_exprs_mut(&mut self) -> [&mut V; 3] {
+        [&mut self.arg_0, &mut self.arg_1, &mut self.res]
+    }
 }
 
 pub type PrecompileInstruction = PrecompileArgs<MemOrFpOrConstant, usize>;

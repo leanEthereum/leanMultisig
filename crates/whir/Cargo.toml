@@ -11,6 +11,7 @@ sumcheck = { path = "../backend/sumcheck", package = "mt-sumcheck" }
 fiat-shamir = { path = "../backend/fiat-shamir", package = "mt-fiat-shamir" }
 utils = { path = "../backend/utils", package = "mt-utils" }
 symetric = { path = "../backend/symetric", package = "mt-symetric" }
+system-info.workspace = true
 
 itertools.workspace = true
 rayon.workspace = true

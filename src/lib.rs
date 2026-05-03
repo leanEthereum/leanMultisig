@@ -15,3 +15,5 @@ pub fn setup_prover() {
 pub fn setup_verifier() {
     rec_aggregation::init_aggregation_bytecode();
 }
+
+// TODO: expose zk-alloc for max performance

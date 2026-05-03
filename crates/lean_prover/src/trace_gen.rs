@@ -29,7 +29,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         .zip(execution_result.pcs.par_iter())
         .zip(execution_result.fps.par_iter())
         .for_each(|((trace_row, &pc), &fp)| {
-            let instruction = &bytecode.instructions[pc];
+            let instruction = &bytecode.code[pc].instruction;
             let field_repr = &bytecode.instructions_multilinear[pc * N_INSTRUCTION_COLUMNS.next_power_of_two()..]
                 [..N_INSTRUCTION_COLUMNS];
 

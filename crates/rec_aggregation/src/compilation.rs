@@ -117,10 +117,10 @@ fn write_cache_file(bytecode: &Bytecode, fingerprint: &[u8; FINGERPRINT_SIZE]) {
 fn rebuild_derived_fields(bytecode: &mut Bytecode) {
     let padded_cols = N_INSTRUCTION_COLUMNS.next_power_of_two();
     let mut instructions_multilinear: Vec<F> = bytecode
-        .instructions
+        .code
         .par_iter()
-        .flat_map_iter(|instr| {
-            let encoded = field_representation(instr);
+        .flat_map_iter(|entry| {
+            let encoded = field_representation(&entry.instruction);
             encoded
                 .into_iter()
                 .chain(std::iter::repeat_n(F::ZERO, padded_cols - N_INSTRUCTION_COLUMNS))

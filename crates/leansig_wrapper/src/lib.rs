@@ -9,12 +9,13 @@ use leansig::{
         },
     },
     symmetric::{
-        message_hash::{aborting::AbortingHypercubeMessageHash, encode_message},
-        prf::shake_to_field::ShakePRFtoF,
+        message_hash::aborting::AbortingHypercubeMessageHash, prf::shake_to_field::ShakePRFtoF,
         tweak_hash::poseidon::PoseidonTweakHash,
     },
 };
-use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
+use leansig_fast_keygen::{
+    signature::SignatureScheme as FastKeyGenSignatureScheme, symmetric::message_hash::encode_message,
+};
 use p3_field::PrimeField32;
 use std::array;
 
