@@ -2,8 +2,6 @@
 
 use alloc::vec::Vec;
 use core::arch::aarch64::{self, int32x4_t, uint32x4_t, uint64x2_t};
-use core::arch::asm;
-use core::hint::unreachable_unchecked;
 use core::iter::{Product, Sum};
 use core::mem::transmute;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -67,21 +65,6 @@ impl<PMP: PackedMontyParameters> PackedMontyField31Neon<PMP> {
             // Safety: `MontyField31` is `repr(transparent)` so it can be transmuted to `u32`. It
             // follows that `[MontyField31; WIDTH]` can be transmuted to `[u32; WIDTH]`, which can be
             // transmuted to `uint32x4_t`, since arrays are guaranteed to be contiguous in memory.
-            // Finally `PackedMontyField31Neon` is `repr(transparent)` so it can be transmuted to
-            // `[MontyField31; WIDTH]`.
-            transmute(self)
-        }
-    }
-
-    /// Get an arch-specific vector representing the packed values.
-    #[inline]
-    #[must_use]
-    pub(crate) fn to_signed_vector(self) -> int32x4_t {
-        unsafe {
-            // Safety: `MontyField31` is `repr(transparent)` so it can be transmuted to `u32` furthermore
-            // the u32 is guaranteed to be less than `2^31` so it can be safely reinterpreted as an `i32`. It
-            // follows that `[MontyField31; WIDTH]` can be transmuted to `[i32; WIDTH]`, which can be
-            // transmuted to `int32x4_t`, since arrays are guaranteed to be contiguous in memory.
             // Finally `PackedMontyField31Neon` is `repr(transparent)` so it can be transmuted to
             // `[MontyField31; WIDTH]`.
             transmute(self)
@@ -285,32 +268,6 @@ impl<FP: FieldParameters + RelativelyPrimePower<D>, const D: u64> PermutationMon
     }
 }
 
-/// No-op. Prevents the compiler from deducing the value of the vector.
-///
-/// Similar to `core::hint::black_box`, it can be used to stop the compiler applying undesirable
-/// "optimizations". Unlike the built-in `black_box`, it does not force the value to be written to
-/// and then read from the stack.
-#[inline]
-#[must_use]
-fn confuse_compiler(x: uint32x4_t) -> uint32x4_t {
-    let y;
-    unsafe {
-        asm!(
-            "/*{0:v}*/",
-            inlateout(vreg) x => y,
-            options(nomem, nostack, preserves_flags, pure),
-        );
-        // Below tells the compiler the semantics of this so it can still do constant folding, etc.
-        // You may ask, doesn't it defeat the point of the inline asm block to tell the compiler
-        // what it does? The answer is that we still inhibit the transform we want to avoid, so
-        // apparently not. Idk, LLVM works in mysterious ways.
-        if transmute::<uint32x4_t, [u32; 4]>(x) != transmute::<uint32x4_t, [u32; 4]>(y) {
-            unreachable_unchecked();
-        }
-    }
-    y
-}
-
 // MONTGOMERY MULTIPLICATION
 //   This implementation is based on [1] but with changes. The reduction is as follows:
 //
@@ -338,51 +295,6 @@ fn confuse_compiler(x: uint32x4_t) -> uint32x4_t {
 //
 // [1] Modern Computer Arithmetic, Richard Brent and Paul Zimmermann, Cambridge University Press,
 //     2010, algorithm 2.7.
-
-#[inline]
-#[must_use]
-fn mulby_mu<MPNeon: MontyParametersNeon>(val: int32x4_t) -> int32x4_t {
-    // We want this to compile to:
-    //      mul      res.4s, val.4s, MU.4s
-    // throughput: .25 cyc/vec (16 els/cyc)
-    // latency: 3 cyc
-
-    unsafe { aarch64::vmulq_s32(val, MPNeon::PACKED_MU) }
-}
-
-#[inline]
-#[must_use]
-fn get_c_hi(lhs: int32x4_t, rhs: int32x4_t) -> int32x4_t {
-    // We want this to compile to:
-    //      sqdmulh  c_hi.4s, lhs.4s, rhs.4s
-    // throughput: .25 cyc/vec (16 els/cyc)
-    // latency: 3 cyc
-
-    unsafe {
-        // Get bits 31, ..., 62 of C. Note that `sqdmulh` saturates when the product doesn't fit in
-        // an `i63`, but this cannot happen here due to our bounds on `lhs` and `rhs`.
-        aarch64::vqdmulhq_s32(lhs, rhs)
-    }
-}
-
-#[inline]
-#[must_use]
-fn get_qp_hi<MPNeon: MontyParametersNeon>(lhs: int32x4_t, mu_rhs: int32x4_t) -> int32x4_t {
-    // We want this to compile to:
-    //      mul      q.4s, lhs.4s, mu_rhs.4s
-    //      sqdmulh  qp_hi.4s, q.4s, P.4s
-    // throughput: .5 cyc/vec (8 els/cyc)
-    // latency: 6 cyc
-
-    unsafe {
-        // Form `Q`.
-        let q = aarch64::vmulq_s32(lhs, mu_rhs);
-
-        // Gets bits 31, ..., 62 of Q P. Again, saturation is not an issue because `P` is not
-        // -2**31.
-        aarch64::vqdmulhq_s32(q, aarch64::vreinterpretq_s32_u32(MPNeon::PACKED_P))
-    }
-}
 
 /// Montgomery reduction of a 64-bit product to canonical form [0, P).
 ///

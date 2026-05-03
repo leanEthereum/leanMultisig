@@ -2,11 +2,11 @@
 
 //! NEON helpers shared by Poseidon1 permutations.
 
-use core::arch::aarch64::{self, int32x4_t, uint32x4_t};
+use core::arch::aarch64::{self, uint32x4_t};
 use core::mem::transmute;
 
 use super::exp_small;
-use crate::{FieldParameters, MontyParameters, PackedMontyField31Neon, PackedMontyParameters, RelativelyPrimePower};
+use crate::{FieldParameters, PackedMontyField31Neon, PackedMontyParameters, RelativelyPrimePower};
 use field::uint32x4_mod_add;
 
 /// A specialized representation of the Poseidon state for a width of 16.
@@ -35,7 +35,7 @@ impl<PMP: PackedMontyParameters> InternalLayer16<PMP> {
 
 /// Converts a scalar constant into a packed NEON vector (canonical unsigned form).
 #[inline(always)]
-pub(crate) fn convert_to_vec_neon<MP: MontyParameters>(input: u32) -> uint32x4_t {
+pub(crate) fn convert_to_vec_neon(input: u32) -> uint32x4_t {
     unsafe { aarch64::vdupq_n_u32(input) }
 }
 

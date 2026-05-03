@@ -578,7 +578,7 @@ fn precomputed() -> &'static Precomputed {
             use crate::convert_to_vec_neon;
 
             let pack = |c: KoalaBear| PackedMontyField31Neon::<FP>::from(c);
-            let canon_form = |c: KoalaBear| convert_to_vec_neon::<FP>(c.value);
+            let canon_form = |c: KoalaBear| convert_to_vec_neon(c.value);
 
             // Initial full round constants (only first 3; 4th is fused).
             let init_rc = poseidon1_initial_constants();
