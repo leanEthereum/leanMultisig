@@ -92,6 +92,7 @@ rand.workspace = true
 sub_protocols.workspace = true
 utils.workspace = true
 lean_vm.workspace = true
+lean_prover.workspace = true
 xmss.workspace = true
 backend.workspace = true
 serde_json.workspace = true
