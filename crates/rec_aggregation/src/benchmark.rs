@@ -1,5 +1,6 @@
 use backend::*;
 use lean_vm::*;
+use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::time::Instant;
 use utils::ansi as s;
@@ -13,15 +14,34 @@ fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
 }
 
-#[derive(Clone)]
-struct NodeStats {
-    time_secs: f64,
-    proof_kib: usize,
-    cycles: usize,
-    memory: usize,
-    poseidons: usize,
-    dots: usize,
-    n_xmss: Option<usize>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeStats {
+    pub time_secs: f64,
+    pub proof_kib: usize,
+    pub cycles: usize,
+    pub memory: usize,
+    pub poseidons: usize,
+    pub dots: usize,
+    pub n_xmss: Option<usize>,
+}
+
+/// `path` is the topology-relative path from the root (`[]` = root)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeReport {
+    pub path: Vec<usize>,
+    pub stats: NodeStats,
+}
+
+/// Per-node metrics in tree-walk order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkReport {
+    pub nodes: Vec<NodeReport>,
+}
+
+impl BenchmarkReport {
+    pub fn total_time_secs(&self) -> f64 {
+        self.nodes.iter().map(|n| n.stats.time_secs).sum()
+    }
 }
 
 struct LiveTree {
@@ -51,7 +71,7 @@ impl LiveTree {
         let pad = self.max_plain_len + 6; // desc + dots + " ▸ "
         let spacer = " ".repeat(pad);
         format!(
-            "{}{}{:>10}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
+            "{}{}{:>20}  {:>8}  {:>10}  {:>10}  {:>10}  {:>10}{}",
             s::D,
             spacer,
             "time",
@@ -71,16 +91,18 @@ impl LiveTree {
         match &self.statuses[i] {
             None => desc.to_string(),
             Some(st) => {
-                // Both branches produce exactly 10 visible characters.
-                let time_col = match st.n_xmss {
+                // Both branches produce exactly 20 visible characters.
+                let time_col_text = match st.n_xmss {
                     Some(n) => {
                         let throughput = n as f64 / st.time_secs;
-                        // " 536 sig/s" = 10 chars
-                        format!("{}{}{:>4.0} sig/s{}", s::ORG, s::B, throughput, s::R)
+                        // "1200 XMSS/s - 0.781s" = 20 chars (3-digit throughput
+                        // pads to 4 chars: " 766 XMSS/s - 0.781s")
+                        format!("{:>4.0} XMSS/s - {:>5.3}s", throughput, st.time_secs)
                     }
-                    // "    1.815s" = 10 chars
-                    None => format!("{}{}{:>9.3}s{}", s::ORG, s::B, st.time_secs, s::R),
+                    // "              1.815s" = 20 chars (right-aligned)
+                    None => format!("{:>20}", format!("{:.3}s", st.time_secs)),
                 };
+                let time_col = format!("{}{}{}{}", s::ORG, s::B, time_col_text, s::R);
                 format!(
                     "{} {} {}▸{} {}  {}{}{:>4} KiB{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}  {}{:>10}{}",
                     desc,
@@ -121,8 +143,8 @@ impl LiveTree {
         io::stdout().flush().unwrap();
     }
 
-    fn update_node(&mut self, index: usize, stats: NodeStats) {
-        self.statuses[index] = Some(stats);
+    fn update_node(&mut self, index: usize, stats: &NodeStats) {
+        self.statuses[index] = Some(stats.clone());
         if self.silent {
             return;
         }
@@ -136,7 +158,6 @@ impl LiveTree {
 #[allow(clippy::too_many_arguments)]
 fn build_tree_descs(
     topology: &AggregationTopology,
-    overlap: usize,
     prefix: &str,
     child_prefix: &str,
     plain_prefix: &str,
@@ -144,13 +165,17 @@ fn build_tree_descs(
     descs: &mut Vec<String>,
     plain_lens: &mut Vec<usize>,
 ) {
-    let n_sigs = count_signers(topology, overlap);
+    let n_sigs = count_signers(topology);
     let n_children = topology.children.len();
     let is_leaf = n_children == 0;
 
     let (icon, icon_color) = if is_leaf { ("◇", s::ORG) } else { ("◆", s::PUR) };
-    let reduced = if n_children > 1 { overlap * (n_children - 1) } else { 0 };
-    let children_sum: usize = topology.children.iter().map(|c| count_signers(c, overlap)).sum();
+    let reduced = if n_children > 1 {
+        topology.overlap * (n_children - 1)
+    } else {
+        0
+    };
+    let children_sum: usize = topology.children.iter().map(count_signers).sum();
     let detail = if is_leaf {
         format!("{}{}{}", s::GRN, n_sigs, s::R)
     } else {
@@ -200,7 +225,7 @@ fn build_tree_descs(
                 format!("{}│    ", plain_child_prefix),
             )
         };
-        build_tree_descs(child, overlap, &p, &cp, &pp, &pcp, descs, plain_lens);
+        build_tree_descs(child, &p, &cp, &pp, &pcp, descs, plain_lens);
     }
 
     // Then the node itself (below its children).
@@ -217,12 +242,14 @@ fn build_tree_descs(
 fn build_aggregation(
     topology: &AggregationTopology,
     display_index: usize,
-    display: &mut LiveTree,
+    nodes: &mut Vec<NodeReport>,
+    live_tree: &mut LiveTree,
+    path: &mut Vec<usize>,
     pub_keys: &[XmssPublicKey],
     signatures: &[XmssSignature],
-    overlap: usize,
     tracing: bool,
-) -> (Vec<XmssPublicKey>, AggregatedXMSS, f64) {
+    is_root: bool,
+) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
@@ -233,22 +260,26 @@ fn build_aggregation(
     let mut child_start = raw_count;
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
-        let child_count = count_signers(child, overlap);
-        let (child_pks, child_agg, _) = build_aggregation(
+        let child_count = count_signers(child);
+        path.push(child_idx);
+        let (child_pks, child_agg) = build_aggregation(
             child,
             child_display_index,
-            display,
+            nodes,
+            live_tree,
+            path,
             &pub_keys[child_start..child_start + child_count],
             &signatures[child_start..child_start + child_count],
-            overlap,
             tracing,
+            false,
         );
+        path.pop();
         child_pub_keys_list.push(child_pks);
         child_aggs.push(child_agg);
         child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
-            child_start -= overlap;
+            child_start -= topology.overlap;
         }
     }
 
@@ -259,6 +290,10 @@ fn build_aggregation(
         .collect();
 
     let time = Instant::now();
+
+    if tracing && is_root {
+        utils::init_tracing();
+    }
 
     #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::begin_phase();
@@ -279,10 +314,13 @@ fn build_aggregation(
     };
 
     let elapsed = time.elapsed();
+    let meta = result.metadata.as_ref().unwrap();
+    let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
+    let is_leaf = topology.children.is_empty();
 
     if tracing {
-        println!("{}", result.metadata.as_ref().unwrap().display());
-        if topology.children.is_empty() {
+        println!("{}", meta.display());
+        if is_leaf {
             println!(
                 "{} XMSS/s",
                 (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
@@ -290,45 +328,39 @@ fn build_aggregation(
         } else {
             println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
         }
-        println!(
-            "Proof size: {} KiB",
-            result.proof.proof_size_fe() * F::bits() / (8 * 1024)
-        );
+        println!("Proof size: {} KiB", proof_kib);
     }
 
+    let stats = NodeStats {
+        time_secs: elapsed.as_secs_f64(),
+        proof_kib,
+        cycles: meta.cycles,
+        memory: meta.memory,
+        poseidons: meta.n_poseidons,
+        dots: meta.n_extension_ops,
+        n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
+    };
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
-        let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
-        let is_leaf = topology.children.is_empty();
-        display.update_node(
-            own_display_index,
-            NodeStats {
-                time_secs: elapsed.as_secs_f64(),
-                proof_kib,
-                cycles: result.metadata.as_ref().unwrap().cycles,
-                memory: result.metadata.as_ref().unwrap().memory,
-                poseidons: result.metadata.as_ref().unwrap().n_poseidons,
-                dots: result.metadata.as_ref().unwrap().n_extension_ops,
-                n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
-            },
-        );
+        live_tree.update_node(own_display_index, &stats);
     }
+    nodes.push(NodeReport {
+        path: path.clone(),
+        stats,
+    });
 
-    (global_pub_keys, result, elapsed.as_secs_f64())
+    (global_pub_keys, result)
 }
 
-pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool, silent: bool) -> f64 {
+pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, silent: bool) -> BenchmarkReport {
     // Tell macOS this is a user-initiated, latency-critical computation and
     // should not be throttled / App-Napped.
     #[cfg(target_os = "macos")]
     let _activity = macos_activity::Activity::begin("lean-multisig benchmark");
 
-    if tracing {
-        utils::init_tracing();
-    }
     precompute_dft_twiddles::<F>(1 << 24);
 
-    let n_sigs = count_signers(topology, overlap);
+    let n_sigs = count_signers(topology);
 
     let cache = get_benchmark_signatures();
     assert!(cache.len() >= n_sigs);
@@ -346,15 +378,26 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
     // Build display
     let mut descs = vec![];
     let mut plain_lens = vec![];
-    build_tree_descs(topology, overlap, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
+    build_tree_descs(topology, "  ", "  ", "  ", "  ", &mut descs, &mut plain_lens);
     let mut display = LiveTree::new(descs, plain_lens, silent);
 
     if !tracing {
         display.print_initial();
     }
 
-    let (global_pub_keys, aggregated_sigs, time) =
-        build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
+    let mut nodes: Vec<NodeReport> = Vec::new();
+    let mut path: Vec<usize> = Vec::new();
+    let (global_pub_keys, aggregated_sigs) = build_aggregation(
+        topology,
+        0,
+        &mut nodes,
+        &mut display,
+        &mut path,
+        &pub_keys,
+        &signatures,
+        tracing,
+        true,
+    );
 
     // Verify root proof
     crate::xmss_verify_aggregation(
@@ -364,7 +407,8 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         BENCHMARK_SLOT,
     )
     .unwrap();
-    time
+
+    BenchmarkReport { nodes }
 }
 
 // TODO is there a better fix?
@@ -419,8 +463,9 @@ fn test_aggregation_throughput_per_num_xmss() {
             raw_xmss: num_xmss,
             children: vec![],
             log_inv_rate,
+            overlap: 0,
         };
-        let time = run_aggregation_benchmark(&topology, 0, false, true);
+        let time = run_aggregation_benchmark(&topology, false, true).total_time_secs();
         num_xmss_and_time.push((num_xmss, time));
         println!(
             "{} XMSS -> {} XMSS/s",
