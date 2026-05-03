@@ -6,6 +6,8 @@
 
 OUTPUT_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/new_tables.md"
 
+N_SIGNATURES=1550
+
 set -euo pipefail
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -56,10 +58,10 @@ recursion_cell() {
 }
 
 # --- XMSS aggregation runs ---
-xmss_r1_proven=$(run_bench "" xmss --n-signatures 1400 --log-inv-rate 1); sleep 1
-xmss_r2_proven=$(run_bench "" xmss --n-signatures 1400 --log-inv-rate 2); sleep 1
-xmss_r1_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures 1400 --log-inv-rate 1); sleep 1
-xmss_r2_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures 1400 --log-inv-rate 2); sleep 1
+xmss_r1_proven=$(run_bench "" xmss --n-signatures "$N_SIGNATURES" --log-inv-rate 1); sleep 1
+xmss_r2_proven=$(run_bench "" xmss --n-signatures "$N_SIGNATURES" --log-inv-rate 2); sleep 1
+xmss_r1_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures "$N_SIGNATURES" --log-inv-rate 1); sleep 1
+xmss_r2_conj=$(run_bench prox-gaps-conjecture xmss --n-signatures "$N_SIGNATURES" --log-inv-rate 2); sleep 1
 
 # --- Recursion runs: len(RECURSION_NS) fan-ins x 2 rates x 2 regimes ---
 # Stored in flat shell variables `rec_<n>_<rate>_<regime>` for bash 3.2 compatibility.

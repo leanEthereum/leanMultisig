@@ -91,7 +91,7 @@ fn main() {
                 raw_xmss: 0,
                 children: vec![
                     AggregationTopology {
-                        raw_xmss: 750,
+                        raw_xmss: 775,
                         children: vec![],
                         log_inv_rate,
                         overlap: 0,
@@ -116,13 +116,13 @@ fn main() {
                                     raw_xmss: 0,
                                     children: vec![
                                         AggregationTopology {
-                                            raw_xmss: 1500,
+                                            raw_xmss: 1550,
                                             children: vec![],
                                             log_inv_rate: 1,
                                             overlap: 0,
                                         },
                                         AggregationTopology {
-                                            raw_xmss: 558,
+                                            raw_xmss: 508,
                                             children: vec![],
                                             log_inv_rate: 2,
                                             overlap: 0,
@@ -135,13 +135,13 @@ fn main() {
                                     raw_xmss: 0,
                                     children: vec![
                                         AggregationTopology {
-                                            raw_xmss: 1500,
+                                            raw_xmss: 1550,
                                             children: vec![],
                                             log_inv_rate: 2,
                                             overlap: 0,
                                         },
                                         AggregationTopology {
-                                            raw_xmss: 558,
+                                            raw_xmss: 508,
                                             children: vec![],
                                             log_inv_rate: 2,
                                             overlap: 0,
