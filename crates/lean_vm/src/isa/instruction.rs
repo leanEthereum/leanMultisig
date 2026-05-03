@@ -63,21 +63,35 @@ pub struct PrecompileArgs<V, S> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrecompileCompTimeArgs<S> {
-    Poseidon16,
-    ExtensionOp { size: S, mode: ExtensionOpMode },
+    Poseidon16 {
+        half_output: bool,
+        //   hardcoded_offset_left = None:              left_input = m[arg_a..arg_a+8]
+        //   hardcoded_offset_left = Some(offset_left): left_input = m[offset_left..offset_left+4] | m[arg_a..arg_a+4] (arg_a is the first runtime parameter)
+        hardcoded_offset_left: Option<S>,
+    },
+    ExtensionOp {
+        size: S,
+        mode: ExtensionOpMode,
+    },
 }
 
 impl<S> PrecompileCompTimeArgs<S> {
     pub fn table(&self) -> Table {
         match self {
-            Self::Poseidon16 => Table::poseidon16(),
+            Self::Poseidon16 { .. } => Table::poseidon16(),
             Self::ExtensionOp { .. } => Table::extension_op(),
         }
     }
 
-    pub fn map_size<T>(self, f: impl FnOnce(S) -> T) -> PrecompileCompTimeArgs<T> {
+    pub fn map_size<T>(self, mut f: impl FnMut(S) -> T) -> PrecompileCompTimeArgs<T> {
         match self {
-            Self::Poseidon16 => PrecompileCompTimeArgs::Poseidon16,
+            Self::Poseidon16 {
+                half_output,
+                hardcoded_offset_left: hardcoded_left_4,
+            } => PrecompileCompTimeArgs::Poseidon16 {
+                half_output,
+                hardcoded_offset_left: hardcoded_left_4.map(&mut f),
+            },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
     }
@@ -236,9 +250,18 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
             data,
         } = self;
         match data {
-            PrecompileCompTimeArgs::Poseidon16 => {
-                write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})")
-            }
+            PrecompileCompTimeArgs::Poseidon16 {
+                half_output,
+                hardcoded_offset_left: hardcoded_left_4,
+            } => match (*half_output, hardcoded_left_4) {
+                (false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
+                (true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
+                (false, Some(off)) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, hardcoded_left_4={off})"),
+                (true, Some(off)) => write!(
+                    f,
+                    "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
+                ),
+            },
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
             }

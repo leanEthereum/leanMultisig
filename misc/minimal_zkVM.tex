@@ -37,7 +37,8 @@
 
 \newtheorem{lemma}{Lemma}
 
-\title{Minimal zkVM for Lean Ethereum (draft 0.6.0)}
+\title{Minimal zkVM for Lean Ethereum (draft 0.7.0)}
+\author{}
 \date{}
 \begin{document}
 
@@ -269,15 +270,17 @@ $\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, wit
 
 \subsubsection{POSEIDON}
 
-Compression of 16 field elements (two blocks of 8) into 8 field elements.
+Compression (feed-forward) of 16 field elements (two blocks of 8) into 8 field elements.
 
 $$
-\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] | \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
+\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
 $$
 
 \vspace{2mm}
 
 \texttt{PRECOMPILE\_DATA} $= 1$
+
+Recently some additonal paramters were introduced (see \ref{efficiently_verrifying_hash-based_signatures} for details), allowing more granular input / output.
 
 \subsubsection{EXTENSION\_OP}\label{extension_op_instruction}
 
@@ -346,7 +349,7 @@ The remaining loops are transformed into recursive functions (by the leanISA com
 
 \subsubsection{Range checks}
 
-\fbox{It's possible to check that a given memory cell is smaller than some value $t$ (for $t \leq 2^{16})$ in 3 cycles.}
+\fbox{It's possible to check that a memory cell is smaller than $t$ (for $t \leq 2^{16}$) in 3 cycles.}
 
 We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
 We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
@@ -393,11 +396,10 @@ This idea was pointed out by D. Khovratovich, and is an unplanned use of the DER
 
 Suppose we want a different logic depending on the value $x$ of a given memory cell, where $x$ is known to be $< k$ (if the value $x$ comes from a "hint", don't forget to range-check it).
 
-Each of the $k$ different value leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
-One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to a $a+ b.x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
-\newline
-\newline
-Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i-th$ block of code we could jump to will execute $i$ times the hash function (unrolled loop).
+Each of the $k$ different values leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
+One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to $a + b \cdot x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
+
+Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i$-th block of code we could jump to will execute $i$ times the hash function (unrolled loop).
 
 \section{Proving system}\label{sec:proving}
 
@@ -558,7 +560,42 @@ TODO: Verify and (formally) prove soundness.
 We use poseidon \cite{poseidon1} over 16 field elements, in compression mode, i.e. for $\texttt{input} \in \Fp^{16}$ and interpreting the addition as coordinate-wise in $\Fp^8$:
  $$\text{poseidon\_compress}(\texttt{input}) = \text{poseidon}(\texttt{input})[..8] + \texttt{input}[..8]$$.
 
-The Poseidon precompile receives 3 arguments: $\nu_A$, $\nu_B$, $\nu_C$ interpreted as memory pointers. 3 lookups (each of size 8) into the memory are used to fetch $\texttt{left}$ = $\textbf{m}[\nu_A..\nu_A + 8] \in \Fp^8$, $\texttt{right}$ = $\textbf{m}[\nu_B..\nu_B + 8] \in \Fp^8$, and $\texttt{res}$ = $\textbf{m}[\nu_C..\nu_C + 8] \in \Fp^8$. AIR constraints, of degree 9, assert that $\texttt{res} = \text{poseidon\_compress}(\texttt{left} | \texttt{right})$. Degree 3 is also an alternative, but with $\approx$ 2x more columns committed.
+The Poseidon precompile receives 3 runtime arguments: $\nu_A$, $\nu_B$, $\nu_C$ interpreted as memory pointers. 3 lookups (each of size 8) into the memory are used to fetch $\texttt{left}$ = $\textbf{m}[\nu_A..\nu_A + 8] \in \Fp^8$, $\texttt{right}$ = $\textbf{m}[\nu_B..\nu_B + 8] \in \Fp^8$, and $\texttt{res}$ = $\textbf{m}[\nu_C..\nu_C + 8] \in \Fp^8$. AIR constraints, of degree 9, assert that $\texttt{res} = \text{poseidon\_compress}(\texttt{left} \;\|\; \texttt{right})$. Degree 3 is also an alternative, at the cost of more committed columns ($\approx 160$ vs. $\approx 100$).
+
+\subsubsection{Efficiently verrifying hash-based signatures}\label{efficiently_verrifying_hash-based_signatures}
+
+Hash-based signatures often rely on tweaks and public parameters (see \cite{ethereum_signatures}).
+
+We present two independent (and composable) optimizations of the poseidon precompile, when both the hash digest and the public parameters are composed of $n = 4$ field elements. We also assume each tweak occupies less than $n$ field elements (in practice 2 is enough).
+
+\vspace{5mm}
+
+\textbf{1. Chopped output}
+
+We introduce a boolean flag $\texttt{flag\_short}$ that signals that only the first $\texttt{n}$ field elements of the output should be written to memory, at $\textbf{m}[\nu_C..\nu_C + \texttt{n}]$ (the remaining $8 - \texttt{n}$ ones are ignored), 
+
+\vspace{5mm}
+
+\textbf{2. Custom first-half of left-input}
+
+We introduce a boolean flag $\texttt{flag\_left}$, alongside a compile-time parameter $\texttt{offset\_left}$:
+$$\texttt{left} = \begin{cases} \textbf{m}[\nu_A..\nu_A + 8] & \text{if } \texttt{flag\_left} = 0 \text{ (default)} \\ \textbf{m}[\texttt{offset\_left}..\texttt{offset\_left} + 4] \;\|\; \textbf{m}[\nu_A..\nu_A + 4] & \text{if } \texttt{flag\_left} = 1 \end{cases}$$
+
+\vspace{5mm}
+
+Both optimizations can be implemented (together), at the cost of 4 additional columns, and incrementing the degree of the constraints by 1.
+
+Both flags ($\texttt{flag\_short}$ and $\texttt{flag\_left}$) and the offset ($\texttt{offset\_left}$) can be encoded in a single (compile-time) parameter, as follows:
+$$\texttt{AUX} = 1 + 2 \cdot \texttt{flag\_short} + 4 \cdot \texttt{flag\_left} + 8 \cdot \texttt{offset\_left} \cdot  \texttt{flag\_left}$$
+
+Soundness of this encoding (encoding multiple data into a single field element requires care, to avoid overflows that would break injectivity):
+\begin{itemize}
+    \item both flags are asserted to be boolean by the AIR constraints
+    \item if $\texttt{flag\_left} = 0$: then $\texttt{offset\_left}$ is unconstrained: but it does not contribute to the encoding $\texttt{AUX}$, and it has no effect in the AIR logic.
+    \item if $\texttt{flag\_left} = 1$: then for the lookup into memory $\textbf{m}[\texttt{offset\_left}..\texttt{offset\_left} + 4]$ to be valid, $\texttt{offset\_left}$ must be smaller than the memory size $M \leq 2^{26} < p / 2$. As a result no overflow can occur in the encoding of $\texttt{AUX}$, which is thus injective.
+\end{itemize}
+
+\textbf{Conclusion.} Every tuple $(\nu_A, \nu_B, \nu_C, \texttt{AUX})$ pushed by the execution table is faithfully pulled and decoded by the Poseidon table: the recovered triple $(\texttt{flag\_short}, \texttt{flag\_left}, \texttt{offset\_left})$ matches the one used at the call site, with one harmless exception: when $\texttt{flag\_left} = 0$, $\texttt{offset\_left}$ is left unconstrained, but this is inconsequential since it then has no effect at the AIR level.
 
 \subsection{Extension op table}
 
@@ -638,7 +675,7 @@ All columns are base field ($\Fp$) columns. Extension field values are represent
 \end{itemize}
 
 \subsubsection{Bus interaction}
-On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pull}s $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Push}es a matching tuple for each EXTENSION\_OP instruction.
+On rows where $\texttt{activation\_flag} = 1$ (i.e.\ $\texttt{start} = 1$ and $\texttt{active} = 1$), the table \textsc{Pulls} the tuple $(\texttt{aux}, \text{idx}_A, \text{idx}_B, \text{idx}_R)$ from the precompile bus. The execution table \textsc{Pushes} a matching tuple for each EXTENSION\_OP instruction.
 
 
 The $\texttt{aux}$ encoding ensures both the mode and the length are bound to the bus data. Since $\texttt{is\_be}$, $\texttt{flag\_add}$, $\texttt{flag\_mul}$, and $\texttt{flag\_poly\_eq}$ are constrained to be boolean, and since the length is constrained to be $\leq 2^{20}$ (by Lemma~\ref{lem:len-bound}), no overflow can occur modulo $p$ and the $\texttt{aux}$ value is unique for each combination of parameters, which enforces that all values of PRECOMPILE\_DATA sent by the execution table are correctly received by the extension\_op table.

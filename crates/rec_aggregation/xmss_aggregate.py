@@ -2,42 +2,62 @@ from snark_lib import *
 from utils import *
 
 V = V_PLACEHOLDER
-V_GRINDING = V_GRINDING_PLACEHOLDER
 W = W_PLACEHOLDER
 CHAIN_LENGTH = 2**W
 TARGET_SUM = TARGET_SUM_PLACEHOLDER
 LOG_LIFETIME = LOG_LIFETIME_PLACEHOLDER
 MESSAGE_LEN = MESSAGE_LEN_PLACEHOLDER
 RANDOMNESS_LEN = RANDOMNESS_LEN_PLACEHOLDER
-SIG_SIZE = RANDOMNESS_LEN + (V + LOG_LIFETIME) * DIGEST_LEN
-NUM_ENCODING_FE = div_ceil((V + V_GRINDING), (24 / W))  # 24 should be divisible by W (works for W=2,3,4)
+PUBLIC_PARAM_LEN_FE = PUBLIC_PARAM_LEN_FE_PLACEHOLDER
+XMSS_DIGEST_LEN = XMSS_DIGEST_LEN_PLACEHOLDER
+PUB_KEY_SIZE = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE
+PP_IN_LEFT = DIGEST_LEN - XMSS_DIGEST_LEN
+WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
+# wots_public_key pair stride: each pair occupies 10 cells `[leading_0 | tip_a(4) | tip_b(4) | trailing_0]`. In order to be able to use copy_5 on both sides.
+WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
+NUM_ENCODING_FE = div_ceil(V, (24 / W))
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
 N_MERKLE_CHUNKS = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK
+INNER_PUB_MEM_SIZE = 2**INNER_PUBLIC_MEMORY_LOG_SIZE  # = DIGEST_LEN
+TWEAK_TABLE_ADDR = PREAMBLE_MEMORY_END
 
+# Tweak table layout: all tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0]
+TWEAK_LEN = 4  # stride / slot size for non-encoding tweaks
+N_TWEAKS = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME
+TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(N_TWEAKS * TWEAK_LEN, DIGEST_LEN)
+TWEAK_ENCODING_OFFSET = 0
+TWEAK_CHAIN_OFFSET = TWEAK_ENCODING_OFFSET + TWEAK_LEN  # just after the encoding tweak
+TWEAK_WOTS_PK_OFFSET = TWEAK_CHAIN_OFFSET + V * CHAIN_LENGTH * TWEAK_LEN
+TWEAK_MERKLE_OFFSET = TWEAK_WOTS_PK_OFFSET + TWEAK_LEN
 
 @inline
-def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
-    # signature: randomness | chain_tips | merkle_path
-    # return the hashed xmss public key
-    signature = Array(SIG_SIZE)
-    hint_witness("xmss_signature", signature)
-    randomness = signature
-    chain_starts = signature + RANDOMNESS_LEN
-    merkle_path = chain_starts + V * DIGEST_LEN
+def xmss_verify(pub_key, message, merkle_chunks):
+    wots = Array(WOTS_SIG_SIZE)
+    hint_witness("wots", wots)
 
-    # 1) We encode message_hash + randomness into the layer of the hypercube with target sum = TARGET_SUM
-
+    public_param = pub_key + XMSS_DIGEST_LEN
+    randomness = wots
+    chain_starts = wots + RANDOMNESS_LEN
+   
+    # 1) Encode: poseidon16_compress(message[0:8], [randomness(6) | tweak_encoding(2))
+    #            poseidon16_compress(pre_compressed, [pp(4) | zeros(4)])
+    encoding_tweak = TWEAK_TABLE_ADDR + TWEAK_ENCODING_OFFSET
     a_input_right = Array(DIGEST_LEN)
-    b_input = Array(DIGEST_LEN * 2)
-    a_input_right[0] = message[DIGEST_LEN]
-    copy_7(randomness, a_input_right + 1)
-    poseidon16_compress(message, a_input_right, b_input)
-    b_input[DIGEST_LEN] = slot_lo
-    b_input[DIGEST_LEN + 1] = slot_hi
-    copy_6(merkle_root, b_input + DIGEST_LEN + 2)
+    copy_6(randomness, a_input_right)
+    a_input_right[6] = encoding_tweak[0]
+    a_input_right[7] = encoding_tweak[1]
+    pre_compressed = Array(DIGEST_LEN)
+    poseidon16_compress(message, a_input_right, pre_compressed)
+    
+    public_params_paded_buff = Array(DIGEST_LEN + 2) # 0 [public_param(4) | zeros(4)] 0
+    copy_5(public_param - 1, public_params_paded_buff)
+    set_to_5_zeros(public_params_paded_buff + 5)
+    public_params_paded = public_params_paded_buff + 1
     encoding_fe = Array(DIGEST_LEN)
-    poseidon16_compress(b_input, b_input + DIGEST_LEN, encoding_fe)
+    poseidon16_compress(pre_compressed, public_params_paded, encoding_fe)
 
+    # Decompose the encoding into chunks of 2*W bits. Each chunk packs the chain step
+    # counts of two consecutive WOTS chains: chunk i = step_{2i} + CHAIN_LENGTH * step_{2i+1}.
     encoding = Array(NUM_ENCODING_FE * 24 / (2 * W))
 
     hint_decompose_bits_xmss(encoding, encoding_fe, NUM_ENCODING_FE, 2 * W)
@@ -51,86 +71,141 @@ def xmss_verify(merkle_root, message, slot_lo, slot_hi, merkle_chunks):
         for j in unroll(1, 24 / (2 * W)):
             partial_sum += encoding[i * (24 / (2 * W)) + j] * (CHAIN_LENGTH**2) ** j
 
-        # p = 2^31 - 2^24 + 1, so inv(2^24) = -127 (mod p).
+        # p = 2^31 - 2^24 + 1 = 127.2^24 + 1, so inv(2^24) = -127 (mod p).
         # Deduce remaining_i from partial_sum + remaining_i * 2^24 == encoding_fe[i]:
         # remaining_i = (encoding_fe[i] - partial_sum) * inv(2^24) = (partial_sum - encoding_fe[i]) * 127
         remaining_i = (partial_sum - encoding_fe[i]) * 127
-        assert remaining_i < 2**7 - 1  # ensures uniformity + prevent overflow
+        assert remaining_i < 127  # ensures uniformity + prevent overflow
 
-    # grinding
-    debug_assert(V_GRINDING % 2 == 0)
+
     debug_assert(V % 2 == 0)
-    for i in unroll(V / 2, (V + V_GRINDING) / 2):
-        assert encoding[i] == CHAIN_LENGTH**2 - 1
-
+    wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE)
     target_sum: Mut = 0
-
-    wots_public_key = Array(V * DIGEST_LEN)
-
-    local_zero_buff = Array(DIGEST_LEN)
-    set_to_8_zeros(local_zero_buff)
-
     for i in unroll(0, V / 2):
-        # num_hashes = (CHAIN_LENGTH - 1) - encoding[i]
-        chain_start = chain_starts + i * (DIGEST_LEN * 2)
-        chain_end = wots_public_key + i * (DIGEST_LEN * 2)
-        pair_chain_length_sum_ptr = Array(1)
+        chain_start_a = chain_starts + (2 * i) * XMSS_DIGEST_LEN
+        chain_start_b = chain_starts + (2 * i + 1) * XMSS_DIGEST_LEN
+        chain_end_a = wots_public_key + i * WOTS_PK_PAIR_STRIDE + 1
+        chain_end_b = chain_end_a + XMSS_DIGEST_LEN
+        tweaks_a = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i) * CHAIN_LENGTH * TWEAK_LEN
+        tweaks_b = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i + 1) * CHAIN_LENGTH * TWEAK_LEN
+        pair_sum_ptr = Array(1)
+
         match_range(
-            encoding[i], range(0, CHAIN_LENGTH**2), lambda n: chain_hash(chain_start, n, chain_end, pair_chain_length_sum_ptr, local_zero_buff)
+            encoding[i],
+            range(0, CHAIN_LENGTH**2),
+            lambda n: chain_hash_pair(
+                chain_start_a,
+                chain_start_b,
+                n,
+                chain_end_a,
+                chain_end_b,
+                tweaks_a,
+                tweaks_b,
+                public_params_paded,
+                pair_sum_ptr,
+            ),
         )
-        target_sum += pair_chain_length_sum_ptr[0]
+        target_sum += pair_sum_ptr[0]
 
     assert target_sum == TARGET_SUM
 
-    wots_pubkey_hashed = slice_hash(wots_public_key, V)
+    merkle_leaf = wots_pk_hash(wots_public_key, public_param)
 
-    xmss_merkle_verify(wots_pubkey_hashed, merkle_path, merkle_chunks, merkle_root)
-
+    merkle_tweaks = TWEAK_TABLE_ADDR + TWEAK_MERKLE_OFFSET
+    xmss_merkle_verify(merkle_leaf, merkle_chunks, pub_key, public_param, merkle_tweaks)
     return
 
 
 @inline
-def chain_hash(input_left, n, output_left, pair_chain_length_sum_ptr, local_zero_buff):
-    debug_assert(n < CHAIN_LENGTH**2)
-
-    raw_left = n % CHAIN_LENGTH
-    raw_right = (n - raw_left) / CHAIN_LENGTH
-
-    n_left = (CHAIN_LENGTH - 1) - raw_left
-    if n_left == 0:
-        copy_8(input_left, output_left)
-    elif n_left == 1:
-        poseidon16_compress(input_left, local_zero_buff, output_left)
+def chain_hash_pa(input, n, output, chain_i_tweaks, chain_right):
+    starting_step = CHAIN_LENGTH - 1 - n
+    if n == 1:
+        first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
+        poseidon16_compress_half_hardcoded_left(input, chain_right, output, first_tweak)
     else:
-        states_left = Array((n_left - 1) * DIGEST_LEN)
-        poseidon16_compress(input_left, local_zero_buff, states_left)
-        for i in unroll(1, n_left - 1):
-            poseidon16_compress(states_left + (i - 1) * DIGEST_LEN, local_zero_buff, states_left + i * DIGEST_LEN)
-        poseidon16_compress(states_left + (n_left - 2) * DIGEST_LEN, local_zero_buff, output_left)
+        digests = Array(n * XMSS_DIGEST_LEN)
 
-    n_right = (CHAIN_LENGTH - 1) - raw_right
-    debug_assert(raw_right < CHAIN_LENGTH)
-    input_right = input_left + DIGEST_LEN
-    output_right = output_left + DIGEST_LEN
-    if n_right == 0:
-        copy_8(input_right, output_right)
-    elif n_right == 1:
-        poseidon16_compress(input_right, local_zero_buff, output_right)
-    else:
-        states_right = Array((n_right - 1) * DIGEST_LEN)
-        poseidon16_compress(input_right, local_zero_buff, states_right)
-        for i in unroll(1, n_right - 1):
-            poseidon16_compress(states_right + (i - 1) * DIGEST_LEN, local_zero_buff, states_right + i * DIGEST_LEN)
-        poseidon16_compress(states_right + (n_right - 2) * DIGEST_LEN, local_zero_buff, output_right)
+        # Hash 0: input → digests[0..4]
+        first_tweak = chain_i_tweaks + starting_step * TWEAK_LEN
+        poseidon16_compress_half_hardcoded_left(input, chain_right, digests, first_tweak)
 
-    pair_chain_length_sum_ptr[0] = raw_left + raw_right
+        # Hashes 1..n-2: digests[(j-1)*4..j*4] → digests[j*4..(j+1)*4]
+        for j in unroll(1, n - 1):
+            cur_tweak = chain_i_tweaks + (starting_step + j) * TWEAK_LEN
+            poseidon16_compress_half_hardcoded_left(
+                digests + (j - 1) * XMSS_DIGEST_LEN,
+                chain_right,
+                digests + j * XMSS_DIGEST_LEN,
+                cur_tweak,
+            )
 
+        # Final hash: digests[(n-2)*4..(n-1)*4] → output
+        last_tweak = chain_i_tweaks + (starting_step + n - 1) * TWEAK_LEN
+        poseidon16_compress_half_hardcoded_left(
+            digests + (n - 2) * XMSS_DIGEST_LEN, chain_right, output, last_tweak
+        )
     return
 
 
 @inline
-def do_4_merkle_levels(b, state_in, path_chunk, state_out):
-    # Extract bits of b (compile-time; each division is exact so field div == integer div)
+def chain_hash_pair(
+    input_a,
+    input_b,
+    n,
+    output_a,
+    output_b,
+    tweaks_a,
+    tweaks_b,
+    chain_right,
+    pair_sum_ptr,
+):
+    # Pair-encoded chain hash. `n` is a compile-time constant in [0, CHAIN_LENGTH^2)
+    raw_a = n % CHAIN_LENGTH
+    raw_b = (n - raw_a) / CHAIN_LENGTH
+    num_hashes_a = (CHAIN_LENGTH - 1) - raw_a
+    num_hashes_b = (CHAIN_LENGTH - 1) - raw_b
+
+    if num_hashes_a == 0:
+        copy_5(input_a - 1, output_a - 1)
+    else:
+        chain_hash_pa(input_a, num_hashes_a, output_a, tweaks_a, chain_right)
+
+    if num_hashes_b == 0:
+        copy_5(input_b, output_b)
+    else:
+        chain_hash_pa(input_b, num_hashes_b, output_b, tweaks_b, chain_right)
+
+    pair_sum_ptr[0] = raw_a + raw_b
+    return
+
+
+@inline
+def wots_pk_hash(wots_public_key, public_param):
+    N_CHUNKS = V / 2
+    states = Array((N_CHUNKS + 1) * DIGEST_LEN)
+    poseidon16_compress_hardcoded_left(
+        public_param, ZERO_VEC_PTR, states, TWEAK_TABLE_ADDR + TWEAK_WOTS_PK_OFFSET
+    )
+    for i in unroll(0, N_CHUNKS):
+        poseidon16_compress(
+            states + i * DIGEST_LEN,
+            wots_public_key + i * WOTS_PK_PAIR_STRIDE + 1,
+            states + (i + 1) * DIGEST_LEN,
+        )
+
+    return states + N_CHUNKS * DIGEST_LEN
+
+
+@inline
+def set_buf_prefix_right(buf, public_param):
+    # Writes [pp(4)] to buf[0..4] — the RIGHT-input prefix.
+    for k in unroll(0, PP_IN_LEFT):
+        buf[k] = public_param[k]
+    return
+
+
+@inline
+def do_4_merkle_levels(b, state_in, state_out, public_param, merkle_tweaks_chunk):
     b0 = b % 2
     r1 = (b - b0) / 2
     b1 = r1 % 2
@@ -139,71 +214,82 @@ def do_4_merkle_levels(b, state_in, path_chunk, state_out):
     r3 = (r2 - b2) / 2
     b3 = r3 % 2
 
-    temps = Array(3 * DIGEST_LEN)
-
-    # Level 0: state_in -> temps
-    if b0 == 0:
-        poseidon16_compress(path_chunk, state_in, temps)
+    buf0_alloc = Array(XMSS_DIGEST_LEN * 2 + 2)
+    buf0 = buf0_alloc + 1
+    if b0 == 1:
+        # state_in is the LEFT child → state_in[0..4] lands at buf0[0..4].
+        copy_5(state_in - 1, buf0 - 1)
+        hint_witness("xmss_merkle_node", buf0 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress(state_in, path_chunk, temps)
+        # state_in is the RIGHT child → state_in[0..4] lands at buf0[4..8].
+        hint_witness("xmss_merkle_node", buf0)
+        copy_5(state_in, buf0 + XMSS_DIGEST_LEN)
 
-    # Level 1
-    if b1 == 0:
-        poseidon16_compress(path_chunk + 1 * DIGEST_LEN, temps, temps + DIGEST_LEN)
+    # Level 0 hash
+    buf1 = Array(XMSS_DIGEST_LEN * 2)
+    if b1 == 1:
+        poseidon16_compress_half_hardcoded_left(public_param, buf0, buf1, merkle_tweaks_chunk)
+        hint_witness("xmss_merkle_node", buf1 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress(temps, path_chunk + 1 * DIGEST_LEN, temps + DIGEST_LEN)
+        poseidon16_compress_half_hardcoded_left(public_param, buf0, buf1 + XMSS_DIGEST_LEN, merkle_tweaks_chunk)
+        hint_witness("xmss_merkle_node", buf1)
 
-    # Level 2
-    if b2 == 0:
-        poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
+    # Level 1 hash → buf2
+    buf2 = Array(XMSS_DIGEST_LEN * 2)
+    if b2 == 1:
+        poseidon16_compress_half_hardcoded_left(public_param, buf1, buf2, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        hint_witness("xmss_merkle_node", buf2 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
+        poseidon16_compress_half_hardcoded_left(public_param, buf1, buf2 + XMSS_DIGEST_LEN, merkle_tweaks_chunk + 1 * TWEAK_LEN)
+        hint_witness("xmss_merkle_node", buf2)
 
-    # Level 3: -> state_out
-    if b3 == 0:
-        poseidon16_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
+    # Level 2 hash → buf3
+    buf3 = Array(XMSS_DIGEST_LEN * 2)
+    if b3 == 1:
+        poseidon16_compress_half_hardcoded_left(public_param, buf2, buf3, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        hint_witness("xmss_merkle_node", buf3 + XMSS_DIGEST_LEN)
     else:
-        poseidon16_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
+        poseidon16_compress_half_hardcoded_left(public_param, buf2, buf3 + XMSS_DIGEST_LEN, merkle_tweaks_chunk + 2 * TWEAK_LEN)
+        hint_witness("xmss_merkle_node", buf3)
+
+    poseidon16_compress_half_hardcoded_left(public_param, buf3, state_out, merkle_tweaks_chunk + 3 * TWEAK_LEN)
     return
 
 
 @inline
-def xmss_merkle_verify(leaf_digest, merkle_path, merkle_chunks, expected_root):
-    states = Array((N_MERKLE_CHUNKS - 1) * DIGEST_LEN)
+def xmss_merkle_verify(leaf_digest, merkle_chunks, expected_root, public_param, merkle_tweaks):
+    states_alloc = Array(DIM * N_MERKLE_CHUNKS)
+    states = states_alloc + 1
 
-    # First chunk: leaf_digest -> states
-    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, merkle_path, states))
+    # First chunk
+    match_range(merkle_chunks[0], range(0, 16), lambda b: do_4_merkle_levels(b, leaf_digest, states, public_param, merkle_tweaks))
 
-    # Middle chunks
+    state_indexes = Array(N_MERKLE_CHUNKS - 1)
+    state_indexes[0] = states
     for j in unroll(1, N_MERKLE_CHUNKS - 1):
+        state_indexes[j] = state_indexes[j - 1] + DIM
         match_range(
             merkle_chunks[j],
             range(0, 16),
             lambda b: do_4_merkle_levels(
-                b, states + (j - 1) * DIGEST_LEN, merkle_path + j * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, states + j * DIGEST_LEN
+                b,
+                state_indexes[j - 1],
+                state_indexes[j],
+                public_param,
+                merkle_tweaks + j * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
             ),
         )
 
-    # Last chunk: -> expected_root
+    # last chunk → write directly to expected_root
     match_range(
         merkle_chunks[N_MERKLE_CHUNKS - 1],
         range(0, 16),
         lambda b: do_4_merkle_levels(
-            b, states + (N_MERKLE_CHUNKS - 2) * DIGEST_LEN, merkle_path + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * DIGEST_LEN, expected_root
+            b,
+            state_indexes[N_MERKLE_CHUNKS - 2],
+            expected_root,
+            public_param,
+            merkle_tweaks + (N_MERKLE_CHUNKS - 1) * MERKLE_LEVELS_PER_CHUNK * TWEAK_LEN,
         ),
     )
-    return
-
-
-@inline
-def copy_7(x, y):
-    dot_product_ee(x, ONE_EF_PTR, y)
-    dot_product_ee(x + (7 - DIM), ONE_EF_PTR, y + (7 - DIM))
-    return
-
-
-@inline
-def copy_6(x, y):
-    dot_product_ee(x, ONE_EF_PTR, y)
-    y[DIM] = x[DIM]
     return

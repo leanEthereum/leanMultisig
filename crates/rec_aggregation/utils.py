@@ -360,6 +360,11 @@ def set_to_5_zeros(a):
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
+@inline
+def copy_6(a, b):
+    dot_product_ee(a, ONE_EF_PTR, b)
+    a[5] = b[5]
+    return
 
 @inline
 def set_to_7_zeros(a):
@@ -384,12 +389,6 @@ def copy_8(a, b):
     dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
     return
 
-
-@inline
-def copy_9(a, b):
-    dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
-    return
 
 @inline
 def copy_16(a, b):
