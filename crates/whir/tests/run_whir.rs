@@ -102,7 +102,7 @@ fn test_run_whir() {
     let polynomial: MleOwned<EF> = MleOwned::Base(polynomial);
 
     let time = Instant::now();
-    let witness = params.commit(&mut prover_state, &polynomial, num_coeffs);
+    let witness = params.commit(&mut prover_state, &polynomial);
     let commit_time = time.elapsed();
 
     let witness_clone = witness.clone();
