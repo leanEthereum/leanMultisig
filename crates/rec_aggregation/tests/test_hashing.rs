@@ -1,4 +1,4 @@
-use backend::PrimeCharacteristicRing;
+use backend::{EFFECTIVE_TWO_ADICITY, PrimeCharacteristicRing};
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -14,6 +14,10 @@ fn test_slice_hashing() {
         (
             "NUM_REPEATED_ONES_PLACEHOLDER".to_string(),
             NUM_REPEATED_ONES.to_string(),
+        ),
+        (
+            "EFFECTIVE_TWO_ADICITY_PLACEHOLDER".to_string(),
+            EFFECTIVE_TWO_ADICITY.to_string(),
         ),
     ]);
     let bytecode = compile_program_with_flags(&ProgramSource::Filepath(path), CompilationFlags { replacements });

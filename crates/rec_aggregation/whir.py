@@ -416,7 +416,7 @@ def get_num_queries(log_inv_rate, n_vars):
 def get_num_queries_const_rate(log_inv_rate: Const, n_vars):
     res = match_range(
         n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
+        range(MIN_STACKED_N_VARS, EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
         lambda nv: get_num_queries_const(log_inv_rate, nv),
     )
     return res
@@ -439,7 +439,7 @@ def get_query_grinding_bits(log_inv_rate, n_vars):
 def get_query_grinding_bits_const_rate(log_inv_rate: Const, n_vars):
     res = match_range(
         n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
+        range(MIN_STACKED_N_VARS, EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
         lambda nv: get_query_grinding_bits_const(log_inv_rate, nv),
     )
     return res
@@ -461,7 +461,7 @@ def get_num_oods(log_inv_rate, n_vars):
 def get_num_oods_const_rate(log_inv_rate: Const, n_vars):
     res = match_range(
         n_vars,
-        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
+        range(MIN_STACKED_N_VARS, EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate + 1),
         lambda nv: get_num_oods_const(log_inv_rate, nv),
     )
     return res

@@ -88,7 +88,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     assert LOG_GUEST_BYTECODE_LEN <= log_memory
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
-    assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
+    assert stacked_n_vars <= EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
