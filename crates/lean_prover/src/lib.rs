@@ -23,8 +23,8 @@ pub const SECURITY_BITS: usize = 128; // TODO 128 bits security
 
 pub const GRINDING_BITS: usize = 16;
 pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 8;
-pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 7;
-pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 5;
+pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 6;
+pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 4;
 pub const RS_DOMAIN_INITIAL_REDUCTION_FACTOR: usize = 5;
 
 // Domain-separation digest for the zkVM SNARK. Arbitrary nothing-up-my-sleeve field
