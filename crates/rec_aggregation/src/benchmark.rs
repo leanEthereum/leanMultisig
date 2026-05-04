@@ -304,7 +304,8 @@ fn build_aggregation(
         &message_for_benchmark(),
         BENCHMARK_SLOT,
         topology.log_inv_rate,
-    );
+    )
+    .unwrap();
 
     // Clone the outputs out of the arena before the next phase resets its slabs.
     #[cfg(not(feature = "standard-alloc"))]

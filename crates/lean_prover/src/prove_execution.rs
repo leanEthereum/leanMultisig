@@ -30,11 +30,11 @@ pub fn prove_execution(
         public_memory_size,
         mut memory, // padded with zeros to next power of two
         metadata,
-    } = info_span!("Witness generation").in_scope(|| {
+    } = info_span!("Witness generation").in_scope(|| -> Result<_, ProverError> {
         let execution_result = info_span!("Executing bytecode")
-            .in_scope(|| execute_bytecode(bytecode, public_input, witness, vm_profiler));
-        info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
-    });
+            .in_scope(|| try_execute_bytecode(bytecode, public_input, witness, vm_profiler))?;
+        Ok(info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result)))
+    })?;
 
     // Memory must be at least MIN_LOG_MEMORY_SIZE and at least bytecode size
     // (required by the stacked polynomial ordering)

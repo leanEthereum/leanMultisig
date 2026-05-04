@@ -42,16 +42,16 @@ fn test_recursive_aggregation() {
     let signatures = get_benchmark_signatures();
 
     let pub_keys_and_sigs_a = signatures[0..3].to_vec();
-    let (pub_keys_a, aggregated_a) = xmss_aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate);
+    let (pub_keys_a, aggregated_a) = xmss_aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate).unwrap();
 
     let pub_keys_and_sigs_b = signatures[3..5].to_vec();
-    let (pub_keys_b, aggregated_b) = xmss_aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate);
+    let (pub_keys_b, aggregated_b) = xmss_aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate).unwrap();
 
     let pub_keys_and_sigs_c = signatures[5..6].to_vec();
 
     let children: Vec<(&[_], AggregatedXMSS)> = vec![(&pub_keys_a, aggregated_a), (&pub_keys_b, aggregated_b)];
     let (final_pub_keys, aggregated_final) =
-        xmss_aggregate(&children, pub_keys_and_sigs_c, &message, slot, log_inv_rate);
+        xmss_aggregate(&children, pub_keys_and_sigs_c, &message, slot, log_inv_rate).unwrap();
 
     let serialized_final = aggregated_final.serialize();
     println!("Serialized aggregated final: {} KiB", serialized_final.len() / 1024);

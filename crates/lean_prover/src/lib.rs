@@ -3,7 +3,9 @@
 use std::fmt::Display;
 
 use backend::*;
-use lean_vm::{EF, F, MAX_WHIR_LOG_INV_RATE, MIN_LOG_N_ROWS_PER_TABLE, MIN_WHIR_LOG_INV_RATE, Table, TableT};
+use lean_vm::{
+    EF, F, MAX_WHIR_LOG_INV_RATE, MIN_LOG_N_ROWS_PER_TABLE, MIN_WHIR_LOG_INV_RATE, RunnerError, Table, TableT,
+};
 use utils::*;
 
 mod trace_gen;
@@ -56,6 +58,7 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
 #[derive(Debug, Clone)]
 pub enum ProverError {
     TooBigTable(TooBigTableError),
+    Runner(RunnerError),
 }
 
 impl From<TooBigTableError> for ProverError {
@@ -64,10 +67,17 @@ impl From<TooBigTableError> for ProverError {
     }
 }
 
+impl From<RunnerError> for ProverError {
+    fn from(err: RunnerError) -> Self {
+        Self::Runner(err)
+    }
+}
+
 impl Display for ProverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooBigTable(e) => write!(f, "{}", e),
+            Self::Runner(e) => write!(f, "{}", e),
         }
     }
 }
