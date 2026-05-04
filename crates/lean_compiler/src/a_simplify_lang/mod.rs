@@ -2280,6 +2280,32 @@ fn simplify_lines(
                             continue;
                         }
 
+                        // Special handling for SHA256 compression precompile
+                        if function_name == Table::sha256_compress().name() {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
+                            }
+                            if args.len() != 3 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 arguments (state_ptr, block_ptr, out_ptr), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let simplified_args = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::Sha256Compress,
+                            }));
+                            continue;
+                        }
+
                         // Special handling for custom hints
                         if let Some(hint) = CustomHint::find_by_name(function_name) {
                             if !targets.is_empty() {

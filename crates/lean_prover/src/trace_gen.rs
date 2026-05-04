@@ -99,6 +99,24 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let null_poseidon_16_hash_ptr = memory_padded.len();
     memory_padded.extend_from_slice(get_poseidon_16_of_zero());
 
+    let sha256_padding_state_ptr = memory_padded.len();
+    memory_padded.extend(words_to_field_limbs_le(SHA256_IV));
+    let sha256_padding_block_ptr = memory_padded.len();
+    memory_padded.extend(words_to_field_limbs_le(SHA256_ZERO_BLOCK));
+    let sha256_padding_out_ptr = memory_padded.len();
+    memory_padded.extend(words_to_field_limbs_le(sha256_compress_words(
+        SHA256_IV,
+        SHA256_ZERO_BLOCK,
+    )));
+
+    let padding_memory = PaddingMemory {
+        zero_vec_ptr: padding_zero_vec_ptr,
+        null_poseidon_16_hash_ptr,
+        sha256_state_ptr: sha256_padding_state_ptr,
+        sha256_block_ptr: sha256_padding_block_ptr,
+        sha256_out_ptr: sha256_padding_out_ptr,
+    };
+
     // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
     memory_padded.resize(padded_memory_len, F::ZERO);
@@ -120,7 +138,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
-        pad_table(&table, &mut traces, padding_zero_vec_ptr, null_poseidon_16_hash_ptr);
+        pad_table(&table, &mut traces, &padding_memory);
     }
 
     ExecutionTrace {
@@ -131,12 +149,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
-fn pad_table(
-    table: &Table,
-    traces: &mut BTreeMap<Table, TableTrace>,
-    zero_vec_ptr: usize,
-    null_poseidon_16_hash_ptr: usize,
-) {
+fn pad_table(table: &Table, traces: &mut BTreeMap<Table, TableTrace>, padding_memory: &PaddingMemory) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.columns[0].len();
     trace
@@ -148,7 +161,7 @@ fn pad_table(
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let n_rows = 1 << trace.log_n_rows;
-    let padding_row = table.padding_row(zero_vec_ptr, null_poseidon_16_hash_ptr);
+    let padding_row = table.padding_row(padding_memory);
     trace.columns.par_iter_mut().enumerate().for_each(|(i, col)| {
         assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon -> we fill it later with SIMD + parallelism), but the first one should always be representative
         col.resize(n_rows, padding_row[i]);

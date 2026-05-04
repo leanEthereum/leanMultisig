@@ -15,6 +15,7 @@ pub enum RunnerError {
     PCOutOfBounds,
     DebugAssertFailed(String, SourceLocation),
     InvalidExtensionOp,
+    InvalidSha256Input,
     ParallelSegmentFailed(usize, Box<RunnerError>),
 }
 

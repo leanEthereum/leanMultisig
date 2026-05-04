@@ -3,8 +3,13 @@ use backend::*;
 use crate::execution::memory::MemoryAccess;
 use crate::*;
 
-pub const N_TABLES: usize = 3;
-pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+pub const N_TABLES: usize = 4;
+pub const ALL_TABLES: [Table; N_TABLES] = [
+    Table::execution(),
+    Table::extension_op(),
+    Table::poseidon16(),
+    Table::sha256_compress(),
+];
 pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -13,6 +18,7 @@ pub enum Table {
     Execution(ExecutionTable<true>),
     ExtensionOp(ExtensionOpPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
+    Sha256Compress(Sha256CompressPrecompile<true>),
 }
 
 #[macro_export]
@@ -22,6 +28,7 @@ macro_rules! delegate_to_inner {
         match $self {
             Self::ExtensionOp(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
+            Self::Sha256Compress(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
         }
     };
@@ -30,6 +37,7 @@ macro_rules! delegate_to_inner {
         match $self {
             Table::ExtensionOp(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
+            Table::Sha256Compress(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
         }
     };
@@ -44,6 +52,9 @@ impl Table {
     }
     pub const fn poseidon16() -> Self {
         Self::Poseidon16(Poseidon16Precompile)
+    }
+    pub const fn sha256_compress() -> Self {
+        Self::Sha256Compress(Sha256CompressPrecompile)
     }
     pub fn embed<PF: PrimeCharacteristicRing>(&self) -> PF {
         PF::from_usize(self.index())
@@ -69,8 +80,8 @@ impl TableT for Table {
     fn bus(&self) -> Bus {
         delegate_to_inner!(self, bus)
     }
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<PF<EF>> {
-        delegate_to_inner!(self, padding_row, zero_vec_ptr, null_hash_ptr)
+    fn padding_row(&self, padding: &PaddingMemory) -> Vec<PF<EF>> {
+        delegate_to_inner!(self, padding_row, padding)
     }
     fn execute<M: MemoryAccess>(
         &self,

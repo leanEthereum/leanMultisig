@@ -6,6 +6,114 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{init_tracing, poseidon16_compress};
 
 #[test]
+#[ignore = "benchmark; run with `cargo test --release -p lean_prover bench_poseidon -- --ignored --nocapture`"]
+fn bench_poseidon() {
+    utils::init_tracing();
+    let n_poseidon_calls = std::env::var("POSEIDON_BENCH_CALLS")
+        .ok()
+        .map(|raw| raw.parse::<usize>().expect("POSEIDON_BENCH_CALLS must be a usize"))
+        .unwrap_or(1);
+    let program_str = format!(
+        r#"
+N_POSEIDON_CALLS = {n_poseidon_calls}
+DIGEST_LEN = 8
+
+def main():
+    input_left = 0
+    input_right = DIGEST_LEN
+    outputs = Array(N_POSEIDON_CALLS * DIGEST_LEN)
+    for i in dynamic_unroll(0, N_POSEIDON_CALLS, 20):
+        out = outputs + i * DIGEST_LEN
+        poseidon16_compress(input_left, input_right, out)
+    return
+"#
+    );
+
+    let public_input: Vec<F> = (0..16).map(F::new).collect();
+    let bytecode = compile_program(&ProgramSource::Raw(program_str));
+    let witness = ExecutionWitness::default();
+    let starting_log_inv_rate = 1;
+
+    let time = std::time::Instant::now();
+    let proof = prove_execution(
+        &bytecode,
+        &public_input,
+        &witness,
+        &default_whir_config(starting_log_inv_rate),
+        false,
+    );
+    let proof_time = time.elapsed();
+    let proof_size_kib = proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
+
+    println!("{}", proof.metadata.display());
+    println!("Proof time: {:.3} s", proof_time.as_secs_f32());
+    println!("Proof size: {proof_size_kib} KiB");
+
+    verify_execution(&bytecode, &public_input, proof.proof).unwrap();
+}
+
+#[test]
+#[ignore = "benchmark; run with `cargo test --release -p lean_prover bench_sha256_compress -- --ignored --nocapture`"]
+fn bench_sha256_compress() {
+    utils::init_tracing();
+    let n_sha_calls = std::env::var("SHA256_BENCH_CALLS")
+        .ok()
+        .map(|raw| raw.parse::<usize>().expect("SHA256_BENCH_CALLS must be a usize"))
+        .unwrap_or(1);
+    const SHA_FIXTURE_STRIDE: usize = SHA256_STATE_LIMBS + SHA256_BLOCK_LIMBS + SHA256_STATE_LIMBS;
+    let program_str = format!(
+        r#"
+N_SHA_CALLS = {n_sha_calls}
+SHA_FIXTURE_STRIDE = 64
+
+def main():
+    for j in unroll(0, N_SHA_CALLS):
+        base = j * SHA_FIXTURE_STRIDE
+        state = base
+        block = base + 16
+        expected = base + 48
+        out = Array(16)
+        sha256_compress(state, block, out)
+
+        for i in unroll(0, 16):
+            assert out[i] == expected[i]
+    return
+"#
+    );
+
+    let mut public_input = vec![F::ZERO; n_sha_calls * SHA_FIXTURE_STRIDE];
+    let expected = words_to_field_limbs_le(sha256_compress_words(SHA256_IV, SHA256_ABC_BLOCK));
+    for j in 0..n_sha_calls {
+        let base = j * SHA_FIXTURE_STRIDE;
+        public_input[base..base + SHA256_STATE_LIMBS].copy_from_slice(&words_to_field_limbs_le(SHA256_IV));
+        public_input[base + 16..base + 16 + SHA256_BLOCK_LIMBS]
+            .copy_from_slice(&words_to_field_limbs_le(SHA256_ABC_BLOCK));
+        public_input[base + 48..base + 48 + SHA256_STATE_LIMBS].copy_from_slice(&expected);
+    }
+
+    let bytecode = compile_program(&ProgramSource::Raw(program_str));
+    let witness = ExecutionWitness::default();
+    let starting_log_inv_rate = 1;
+
+    let time = std::time::Instant::now();
+    let proof = prove_execution(
+        &bytecode,
+        &public_input,
+        &witness,
+        &default_whir_config(starting_log_inv_rate),
+        false,
+    );
+    let proof_time = time.elapsed();
+    let proof_size_kib = proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
+
+    println!("{}", proof.metadata.display());
+    println!("Proof time: {:.3} s", proof_time.as_secs_f32());
+    println!("Proof size: {proof_size_kib} KiB");
+
+    verify_execution(&bytecode, &public_input, proof.proof).unwrap();
+}
+
+#[test]
 fn test_zk_vm_all_precompiles() {
     let program_str = r#"
 DIM = 5
@@ -16,6 +124,15 @@ DIGEST_LEN = 8
 def main():
     pub_start = 0
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+
+    # Keep the SHA fixture away from the extension-op fixture ranges below.
+    sha_state = pub_start + 1400
+    sha_block = sha_state + 16
+    sha_expected = sha_block + 32
+    sha_out = Array(16)
+    sha256_compress(sha_state, sha_block, sha_out)
+    for i in unroll(0, 16):
+        assert sha_out[i] == sha_expected[i]
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -61,6 +178,19 @@ def main():
     public_input[48..56].copy_from_slice(&poseidon16_compress(poseidon_16_compress_input)[..8]);
     let poseidon_24_input: [F; 24] = rng.random();
     public_input[56..80].copy_from_slice(&poseidon_24_input);
+
+    // SHA256 compression test data: IV + padded "abc" block.
+    // This mirrors the program's pub_start + 1400 offset; public_input is 2^13 cells,
+    // so the state, block, and expected digest all fit in the public memory prefix.
+    let sha_state_ptr = 1400;
+    let sha_block_ptr = sha_state_ptr + SHA256_STATE_LIMBS;
+    let sha_expected_ptr = sha_block_ptr + SHA256_BLOCK_LIMBS;
+    public_input[sha_state_ptr..sha_state_ptr + SHA256_STATE_LIMBS]
+        .copy_from_slice(&words_to_field_limbs_le(SHA256_IV));
+    public_input[sha_block_ptr..sha_block_ptr + SHA256_BLOCK_LIMBS]
+        .copy_from_slice(&words_to_field_limbs_le(SHA256_ABC_BLOCK));
+    let sha_expected = words_to_field_limbs_le(sha256_compress_words(SHA256_IV, SHA256_ABC_BLOCK));
+    public_input[sha_expected_ptr..sha_expected_ptr + SHA256_STATE_LIMBS].copy_from_slice(&sha_expected);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();

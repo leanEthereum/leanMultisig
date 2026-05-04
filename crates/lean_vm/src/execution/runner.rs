@@ -331,6 +331,7 @@ fn execute_bytecode_helper(
         cycles: trace.pcs.len(),
         memory: memory.0.len(),
         n_poseidons: trace.tables[&Table::poseidon16()].columns[0].len(),
+        n_sha256_compress: trace.tables[&Table::sha256_compress()].columns[0].len(),
         n_extension_ops: trace.tables[&Table::extension_op()].columns[0].len(),
         bytecode_size: bytecode.code.len(),
         public_input_size: public_input.len(),

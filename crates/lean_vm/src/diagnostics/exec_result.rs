@@ -10,6 +10,7 @@ pub struct ExecutionMetadata {
     pub cycles: usize,
     pub memory: usize,
     pub n_poseidons: usize,
+    pub n_sha256_compress: usize,
     pub n_extension_ops: usize,
     pub bytecode_size: usize,
     pub public_input_size: usize,
@@ -55,6 +56,12 @@ impl ExecutionMetadata {
                 "Poseidon16 calls: {} (1 poseidon per {} instructions)\n",
                 pretty_integer(self.n_poseidons),
                 self.cycles / self.n_poseidons
+            ));
+        }
+        if self.n_sha256_compress > 0 {
+            out.push_str(&format!(
+                "SHA256Compress calls: {}\n",
+                pretty_integer(self.n_sha256_compress)
             ));
         }
         if self.n_extension_ops > 0 {

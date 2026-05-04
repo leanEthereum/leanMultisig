@@ -144,7 +144,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         }
     }
 
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
+    fn padding_row(&self, padding: &PaddingMemory) -> Vec<F> {
         let mut row = vec![F::ZERO; num_cols_poseidon_16()];
         let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
             .map(|i| unsafe { row.as_mut_ptr().add(i) })
@@ -153,9 +153,9 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
         perm.inputs.iter_mut().for_each(|x| **x = F::ZERO);
         *perm.flag = F::ZERO;
-        *perm.index_a = F::from_usize(zero_vec_ptr);
-        *perm.index_b = F::from_usize(zero_vec_ptr);
-        *perm.index_res = F::from_usize(null_hash_ptr);
+        *perm.index_a = F::from_usize(padding.zero_vec_ptr);
+        *perm.index_b = F::from_usize(padding.zero_vec_ptr);
+        *perm.index_res = F::from_usize(padding.null_poseidon_16_hash_ptr);
 
         generate_trace_rows_for_perm(perm);
         row
