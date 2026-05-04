@@ -149,21 +149,29 @@ pub fn find_randomness_for_wots_encoding(
     }
 }
 
+pub fn wots_encode_fe(
+    message: &[F; MESSAGE_LEN_FE],
+    slot: u32,
+    xmss_pub_key: &XmssPublicKey,
+    randomness: &Randomness,
+) -> [F; DIGEST_LEN_FE] {
+    let mut first_input_right = [F::default(); DIGEST_LEN_FE];
+    first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
+    first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
+    let pre_compressed = poseidon16_compress_pair(message, &first_input_right);
+
+    let mut second_input_right = [F::default(); DIGEST_LEN_FE];
+    second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
+    poseidon16_compress_pair(&pre_compressed, &second_input_right)
+}
+
 pub fn wots_encode(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     xmss_pub_key: &XmssPublicKey,
     randomness: &Randomness,
 ) -> Option<[u8; V]> {
-    let first_input_left = message;
-    let mut first_input_right = [F::default(); DIGEST_LEN_FE];
-    first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
-    first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
-    let pre_compressed = poseidon16_compress_pair(first_input_left, &first_input_right);
-
-    let mut second_input_right = [F::default(); DIGEST_LEN_FE];
-    second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
-    let compressed = poseidon16_compress_pair(&pre_compressed, &second_input_right);
+    let compressed = wots_encode_fe(message, slot, xmss_pub_key, randomness);
 
     if compressed.iter().any(|&kb| kb == -F::ONE) {
         // ensures uniformity of encoding
