@@ -310,6 +310,7 @@ fn compute_partial_constants() -> PartialConstants {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop, clippy::assign_op_pattern)]
 mod tests {
     use super::*;
     use backend::{POSEIDON1_HALF_FULL_ROUNDS, PrimeField64};
