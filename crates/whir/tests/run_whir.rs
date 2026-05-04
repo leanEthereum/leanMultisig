@@ -153,9 +153,6 @@ fn display_whir_round_info() {
                 rs_domain_initial_reduction_factor: 5,
             };
             let params = WhirConfig::<EF>::new(&params, n_vars);
-            let folding_pow_bits = std::iter::once(params.starting_folding_pow_bits)
-                .chain(params.round_parameters.iter().map(|r| r.folding_pow_bits))
-                .collect::<Vec<_>>();
             let query_pow_bits = params
                 .round_parameters
                 .iter()
@@ -163,7 +160,7 @@ fn display_whir_round_info() {
                 .chain(std::iter::once(params.final_query_pow_bits))
                 .collect::<Vec<_>>();
             println!(
-                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, folding_pow_bits: {:?}, query_pow_bits: {:?}",
+                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, query_pow_bits: {:?}",
                 n_vars,
                 log_inv_rate,
                 params
@@ -171,7 +168,6 @@ fn display_whir_round_info() {
                     .iter()
                     .map(|r| r.num_queries)
                     .collect::<Vec<_>>(),
-                folding_pow_bits,
                 query_pow_bits,
             );
         }

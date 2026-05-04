@@ -111,12 +111,8 @@ where
         round_constraints.push((combination_randomness, constraints));
 
         // Initial sumcheck
-        let folding_randomness = verify_sumcheck_rounds::<F, EF>(
-            verifier_state,
-            &mut claimed_sum,
-            self.folding_factor.at_round(0),
-            self.starting_folding_pow_bits,
-        )?;
+        let folding_randomness =
+            verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.folding_factor.at_round(0))?;
         round_folding_randomness.push(folding_randomness);
 
         for round_index in 0..self.n_rounds() {
@@ -150,7 +146,6 @@ where
                 verifier_state,
                 &mut claimed_sum,
                 self.folding_factor.at_round(round_index + 1),
-                round_params.folding_pow_bits,
             )?;
 
             round_folding_randomness.push(folding_randomness);
@@ -180,7 +175,7 @@ where
             .ok_or(ProofError::InvalidProof)?;
 
         let final_sumcheck_randomness =
-            verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds, 0)?;
+            verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds)?;
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
         // Compute folding randomness across all rounds.
@@ -404,7 +399,6 @@ pub(crate) fn verify_sumcheck_rounds<F, EF>(
     verifier_state: &mut impl FSVerifier<EF>,
     claimed_sum: &mut EF,
     rounds: usize,
-    pow_bits: usize,
 ) -> ProofResult<SumcheckRandomness<EF>>
 where
     F: TwoAdicField,
@@ -416,8 +410,6 @@ where
     for _ in 0..rounds {
         let coeffs = verifier_state.next_sumcheck_polynomial(3, *claimed_sum, None)?;
         let poly = DensePolynomial::new(coeffs);
-
-        verifier_state.check_pow_grinding(pow_bits)?;
 
         // Sample the next verifier folding randomness rᵢ
         let rand: EF = verifier_state.sample();
