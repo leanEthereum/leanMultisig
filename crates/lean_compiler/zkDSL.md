@@ -456,7 +456,7 @@ hints = prover-supplied values at runtime (without adding snark constraints). Li
 | `hint_decompose_bits` | `(to_decompose, ptr, num_bits, endianness)` | `num_bits` field elements at `ptr` (the 0/1 bit decomposition of `to_decompose`); `endianness` is `0` for big-endian, `1` for little-endian |
 | `hint_less_than` | `(a, b, result_ptr)` | `1` at `result_ptr` if `a < b` else `0` |
 | `hint_log2_ceil` | `(n, result_ptr)` | `ceil(log2(n))` at `result_ptr` |
-| `hint_decompose_bits_xmss` | `(decomposed_ptr, remaining_ptr, to_decompose_ptr, num_to_decompose, chunk_size)` | XMSS-specific decomposition (see `crates/lean_vm/src/isa/hint.rs`) |
+| `hint_decompose_bits_xmss` | `(chunks_ptr, limbs_ptr, src_value)` | WOTS-encoding decomposition of one Goldilocks FE: 10 W-bit chunks of the low 30 bits at `chunks_ptr[0..10]` + 2 u16 limbs of the high 32 bits at `limbs_ptr[0..2]` (the top 2 bits of the low limb are implicit zeros — see `crates/lean_vm/src/isa/hint.rs`) |
 | `hint_decompose_bits_merkle_whir` | `(decomposed_ptr, remaining_ptr, value, chunk_size)` | Merkle/WHIR-specific decomposition |
 
 Hints only *suggest* a value; the guest must add appropriate constraints to bind that value to its specification.

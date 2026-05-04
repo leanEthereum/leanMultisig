@@ -101,11 +101,10 @@ impl<T> HintWitnessDestination<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CustomHint {
-    // Decompose values into their custom representations:
-    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
-    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
-    /// and ai < 4, b < 2^7 - 1
-    /// The decomposition is unique, and always exists (except for x = -1)
+    /// WOTS-encoding decomposition of one Goldilocks FE.
+    /// Args: (chunks_ptr, limbs_ptr, src_value).
+    /// Writes 10 W=3-bit chunks of the low 30 bits to `chunks_ptr[0..10]`
+    /// and 2 u16 limbs of the high 32 bits to `limbs_ptr[0..2]`.
     DecomposeBitsXMSS,
     DecomposeBitsMerkleWhir,
     DecomposeBits,
@@ -134,7 +133,7 @@ impl CustomHint {
 
     pub fn n_args(&self) -> usize {
         match self {
-            Self::DecomposeBitsXMSS => 5,
+            Self::DecomposeBitsXMSS => 3,
             Self::DecomposeBitsMerkleWhir => 4,
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
@@ -149,25 +148,22 @@ impl CustomHint {
     ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
-                // Decompose `num_fe` field elements into `chunks_per_fe` chunks of
-                // `chunk_size` bits each. Extracts the low `chunks_per_fe * chunk_size`
-                // bits of each FE's canonical u64 representation (caller is responsible
-                // for ensuring `chunks_per_fe * chunk_size <= F::bits()`).
-                let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let to_decompose_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let num_fe = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunks_per_fe = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[4].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(chunks_per_fe * chunk_size <= F::bits());
-                let mut memory_index_decomposed = decomposed_ptr;
-                for i in 0..num_fe {
-                    let value = ctx.memory.get(to_decompose_ptr + i)?.as_canonical_u64();
-                    for j in 0..chunks_per_fe {
-                        let chunk = F::from_u64((value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1));
-                        ctx.memory.set(memory_index_decomposed, chunk)?;
-                        memory_index_decomposed += 1;
-                    }
+                // WOTS-encoding decomposition. Writes:
+                //   chunks_ptr[0..10] = 10 chunks of W=3 bits (low bits 0..29)
+                //   limbs_ptr[0..2]   = 2 u16 limbs of the high 32 bits (bits 32..47, 48..63)
+                // The 2 high bits of the low limb are implicit zeros, enforced by
+                // the SNARK constraint structure (and rejected at signing time).
+                let chunks_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let limbs_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[2].read_value(ctx.memory, ctx.fp)?.as_canonical_u64();
+                const NUM_CHUNKS: usize = 10;
+                const CHUNK_SIZE: usize = 3;
+                for j in 0..NUM_CHUNKS {
+                    let chunk = (value >> (CHUNK_SIZE * j)) & ((1u64 << CHUNK_SIZE) - 1);
+                    ctx.memory.set(chunks_ptr + j, F::from_u64(chunk))?;
                 }
+                ctx.memory.set(limbs_ptr, F::from_u64((value >> 32) & 0xFFFF))?;
+                ctx.memory.set(limbs_ptr + 1, F::from_u64((value >> 48) & 0xFFFF))?;
             }
             Self::DecomposeBitsMerkleWhir => {
                 // Decompose a single FE's canonical u64 into `num_chunks` chunks of

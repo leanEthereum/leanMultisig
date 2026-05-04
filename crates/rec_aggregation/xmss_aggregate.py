@@ -17,10 +17,6 @@ WOTS_SIG_SIZE = RANDOMNESS_LEN + V * XMSS_DIGEST_LEN
 # `[leading_0 | tip_a(2) | tip_b(2) | trailing_0]` so that copy_ef can be used on
 # both halves under Goldilocks (DIM = 3 = 1 + XMSS_DIGEST_LEN).
 WOTS_PK_PAIR_STRIDE = 2 + 2 * XMSS_DIGEST_LEN
-# Goldilocks encoding: low 32 bits of each of 4 output FE are concatenated into
-# a 128-bit pool. V × W = 42 × 3 = 126 bits are used as Winternitz indices via
-# chunks that straddle FE boundaries; the top 2 bits of the pool are forced to
-# zero, giving 128-bit collision security on the (message → encoding) map.
 NUM_ENCODING_FE = 4
 LOW_BITS_PER_ENCODING_FE = 32
 MERKLE_LEVELS_PER_CHUNK = MERKLE_LEVELS_PER_CHUNK_PLACEHOLDER
@@ -65,34 +61,9 @@ def xmss_verify(pub_key, message, merkle_chunks):
     encoding_fe = Array(DIGEST_LEN)
     poseidon8_compress(pre_compressed, public_params_paded, encoding_fe)
 
-    # Decompose each output FE into 64 canonical bits (checked_decompose_bits
-    # enforces a == low + 2^32 · high mod p with the unique canonical form).
-    bits_0, _ = checked_decompose_bits(encoding_fe[0])
-    bits_1, _ = checked_decompose_bits(encoding_fe[1])
-    bits_2, _ = checked_decompose_bits(encoding_fe[2])
-    bits_3, _ = checked_decompose_bits(encoding_fe[3])
-
-    # Build V = 42 Winternitz indices from the 128-bit stream
-    #   bit p ∈ [0, 128) = bits_(p // 32)[p % 32]
-    # via straddling at FE0/FE1 (chunk 10) and FE1/FE2 (chunk 21) boundaries.
-    # Each chunk is `b0 + 2·b1 + 4·b2` of 3 bool bits, so it is automatically
-    # a valid W-bit Winternitz index in [0, 8).
     encoding = Array(V)
-    for k in unroll(0, 10):
-        encoding[k] = bits_0[3*k] + bits_0[3*k + 1] * 2 + bits_0[3*k + 2] * 4
-    encoding[10] = bits_0[30] + bits_0[31] * 2 + bits_1[0] * 4
-    for k in unroll(11, 21):
-        encoding[k] = bits_1[3*k - 32] + bits_1[3*k - 31] * 2 + bits_1[3*k - 30] * 4
-    encoding[21] = bits_1[31] + bits_2[0] * 2 + bits_2[1] * 4
-    for k in unroll(22, 32):
-        encoding[k] = bits_2[3*k - 64] + bits_2[3*k - 63] * 2 + bits_2[3*k - 62] * 4
-    for k in unroll(32, 42):
-        encoding[k] = bits_3[3*k - 96] + bits_3[3*k - 95] * 2 + bits_3[3*k - 94] * 4
-
-    # Top 2 bits of the 128-bit stream must be zero — adds 2 bits of constrained
-    # entropy on top of V·W = 126 chunk bits to reach 128-bit security.
-    assert bits_3[30] == 0
-    assert bits_3[31] == 0
+    for i in unroll(0, NUM_ENCODING_FE):
+        decompose_encoding_fe(encoding_fe[i], encoding + i * (V / NUM_ENCODING_FE))
 
     debug_assert(V % 2 == 0)
     wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE)
@@ -198,6 +169,27 @@ def chain_hash_b(input, n, output, chain_i_tweaks, chain_right, chain_length_ptr
     else:
         chain_hash_inner(input, n, output, chain_i_tweaks, chain_right)
     chain_length_ptr[0] = n
+    return
+
+
+@inline
+def decompose_encoding_fe(fe_value, chunks_ptr):
+    limbs = Array(2)
+    hint_decompose_bits_xmss(chunks_ptr, limbs, fe_value)
+
+    for k in unroll(0, 10):
+        assert chunks_ptr[k] < CHAIN_LENGTH
+    assert limbs[0] < 2**16
+    assert limbs[1] < 2**16
+
+    low: Mut = chunks_ptr[0]
+    for k in unroll(1, 10):
+        low += chunks_ptr[k] * (2 ** (W * k))
+
+    high = limbs[0] + limbs[1] * (2**16)
+    assert fe_value == low + (2**32) * high
+    assert high != 2**32 - 1 # ensures uniformity + prevents overflow
+
     return
 
 

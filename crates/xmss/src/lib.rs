@@ -17,11 +17,15 @@ type PublicParam = [F; PUBLIC_PARAM_LEN_FE];
 type Randomness = [F; RANDOMNESS_LEN_FE];
 
 // WOTS
-pub const V: usize = 42;
+pub const V: usize = 40;
 pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const NUM_CHAIN_HASHES: usize = 110;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
+pub const ENCODING_NUM_FINAL_ZEROS: usize = 8;
+const _: () = assert!(V * W + ENCODING_NUM_FINAL_ZEROS == DIGEST_LEN_FE * 32);
+const _: () = assert!(V.is_multiple_of(DIGEST_LEN_FE)); // V chunks split evenly across the 4 FEs
+const _: () = assert!(ENCODING_NUM_FINAL_ZEROS.is_multiple_of(DIGEST_LEN_FE)); // same for the zero bits
 pub const RANDOMNESS_LEN_FE: usize = 3;
 pub const MESSAGE_LEN_FE: usize = 4;
 pub const PUBLIC_PARAM_LEN_FE: usize = 2;

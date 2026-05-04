@@ -149,14 +149,6 @@ pub fn find_randomness_for_wots_encoding(
     }
 }
 
-// Encoding stream: low 32 bits of each output FE are concatenated into a
-// 128-bit pool that straddles FE boundaries. V = 42 chunks of W = 3 bits = 126
-// bits are used as Winternitz indices; the remaining 2 bits at the top of the
-// stream are forced to zero, giving 128-bit collision security on the
-// (message → encoding) map.
-const LOW_BITS_PER_ENCODING_FE: usize = 32;
-const _: () = assert!(DIGEST_LEN_FE * LOW_BITS_PER_ENCODING_FE == V * W + 2);
-
 pub fn wots_encode(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
@@ -173,22 +165,23 @@ pub fn wots_encode(
     second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
     let compressed = poseidon8_compress_pair(&pre_compressed, &second_input_right);
 
-    let mut stream: u128 = 0;
-    for (i, g) in compressed.iter().enumerate() {
-        let low = g.as_canonical_u64() & ((1u64 << LOW_BITS_PER_ENCODING_FE) - 1);
-        stream |= u128::from(low) << (LOW_BITS_PER_ENCODING_FE * i);
+    // Per-FE decomposition: each output FE contributes V/DIGEST_LEN_FE
+    // = 10 W-bit chunks from the low 30 bits of its low limb; the top 2 bits
+    // of each FE's low limb must be zero (ENCODING_NUM_FINAL_ZEROS = 8 bits
+    // total, evenly distributed = 2 per FE)
+    const CHUNKS_PER_FE: usize = V / DIGEST_LEN_FE;
+    const CHUNK_BITS_PER_FE: usize = CHUNKS_PER_FE * W;
+    let mut all_indices = [0u8; V];
+    for (i, fe) in compressed.iter().enumerate() {
+        let low = fe.as_canonical_u64() & ((1u64 << 32) - 1);
+        if (low >> CHUNK_BITS_PER_FE) != 0 {
+            return None;
+        }
+        for j in 0..CHUNKS_PER_FE {
+            all_indices[i * CHUNKS_PER_FE + j] = ((low >> (W * j)) & ((1u64 << W) - 1)) as u8;
+        }
     }
-    if (stream >> (V * W)) != 0 {
-        // The 2 high bits of the 128-bit stream must be zero — the signer
-        // brute-forces randomness until this holds (≈ 2 grinding bits).
-        return None;
-    }
-
-    let mut used = [0u8; V];
-    for (j, slot) in used.iter_mut().enumerate() {
-        *slot = ((stream >> (j * W)) & ((1u128 << W) - 1)) as u8;
-    }
-    is_valid_encoding(&used).then_some(used)
+    is_valid_encoding(&all_indices).then_some(all_indices)
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {
