@@ -162,10 +162,11 @@ def main():
 
     verbose = "--verbose" in sys.argv
     fail = False
-    # Goldilocks two-adicity is 32; after the initial fold of 7 the domain has
-    # 2^(num_vars + log_inv_rate - 7) elements, which must fit. So skip cells
-    # with num_vars + log_inv_rate > 39.
-    max_sum = FIELD.two_adicity + 7
+    # We cap the folded-domain size at 2^EFFECTIVE_TWO_ADICITY (=2^24) — see
+    # `whir::EFFECTIVE_TWO_ADICITY` in the Rust crate. This restricts every
+    # admissible config to `num_vars + log_inv_rate ≤ 24 + first_fold (=7) = 31`.
+    EFFECTIVE_TWO_ADICITY = 24
+    max_sum = EFFECTIVE_TWO_ADICITY + 7
 
     for nv in NUM_VARS_RANGE:
         cells = []
