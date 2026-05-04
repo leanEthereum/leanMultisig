@@ -92,7 +92,11 @@ fn load_or_compile() -> Bytecode {
         let stored_fp: [u8; FINGERPRINT_SIZE] = CACHED_BYTECODE_BYTES[..FINGERPRINT_SIZE].try_into().unwrap();
         if current_fp == stored_fp {
             let cache_data = &CACHED_BYTECODE_BYTES[FINGERPRINT_SIZE..];
-            return deserialize_cache(cache_data).unwrap();
+            if let Some(bytecode) = deserialize_cache(cache_data) {
+                return bytecode;
+            } else {
+                eprintln!("Failed to deserialize bytecode");
+            }
         }
     }
     let bytecode = compile_from_source();
