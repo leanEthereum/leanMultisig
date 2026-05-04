@@ -97,7 +97,7 @@ fn test_run_whir() {
 
     let mut prover_state = ProverState::new(poseidon8);
 
-    precompute_dft_twiddles::<F>(1 << F::TWO_ADICITY);
+    precompute_dft_twiddles::<F>(1 << 24);
 
     let polynomial: MleOwned<EF> = MleOwned::Base(polynomial);
 
