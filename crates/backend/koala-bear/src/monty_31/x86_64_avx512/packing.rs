@@ -24,6 +24,7 @@ use field::{
 };
 use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
+use serde::{Deserialize, Serialize};
 use utils::reconstitute_from_base;
 
 use crate::{FieldParameters, MontyField31, PackedMontyParameters, RelativelyPrimePower, halve_avx512};
@@ -39,7 +40,8 @@ const EVENS: __mmask16 = 0b0101010101010101;
 const EVENS_8: __mmask8 = 0b01010101;
 
 /// Vectorized AVX-512F implementation of `MontyField31` arithmetic.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(serialize = "PMP: FieldParameters", deserialize = "PMP: FieldParameters"))]
 #[repr(transparent)] // Needed to make `transmute`s safe.
 #[must_use]
 pub struct PackedMontyField31AVX512<PMP: PackedMontyParameters>(pub [MontyField31<PMP>; WIDTH]);

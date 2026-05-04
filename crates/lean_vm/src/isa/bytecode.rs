@@ -19,6 +19,8 @@ pub struct CodeEntry {
 pub struct Bytecode {
     pub code: Vec<CodeEntry>,
     pub instructions_multilinear: Vec<F>,
+    // SIMD layout is architecture-specific; skip in (de)serialization and rebuild after load.
+    #[serde(skip)]
     pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
     pub starting_frame_memory: usize,
     pub hash: [F; DIGEST_ELEMS],
