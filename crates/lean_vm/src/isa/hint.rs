@@ -103,8 +103,10 @@ impl<T> HintWitnessDestination<T> {
 pub enum CustomHint {
     /// WOTS-encoding decomposition of one Goldilocks FE.
     /// Args: (chunks_ptr, limbs_ptr, src_value).
-    /// Writes 10 W=3-bit chunks of the low 30 bits to `chunks_ptr[0..10]`
-    /// and 2 u16 limbs of the high 32 bits to `limbs_ptr[0..2]`.
+    /// Writes 5 2W=6-bit chunks of the low 30 bits to `chunks_ptr[0..5]`
+    /// (each chunk packs two consecutive W=3-bit chain steps as
+    /// `step_a + CHAIN_LENGTH * step_b`) and 2 u16 limbs of the high
+    /// 32 bits to `limbs_ptr[0..2]`.
     DecomposeBitsXMSS,
     DecomposeBitsMerkleWhir,
     DecomposeBits,
@@ -149,15 +151,17 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => {
                 // WOTS-encoding decomposition. Writes:
-                //   chunks_ptr[0..10] = 10 chunks of W=3 bits (low bits 0..29)
+                //   chunks_ptr[0..5] = 5 chunks of 2W=6 bits (low bits 0..29).
+                //                       Each chunk packs two consecutive chain
+                //                       steps as `step_a + CHAIN_LENGTH * step_b`.
                 //   limbs_ptr[0..2]   = 2 u16 limbs of the high 32 bits (bits 32..47, 48..63)
                 // The 2 high bits of the low limb are implicit zeros, enforced by
                 // the SNARK constraint structure (and rejected at signing time).
                 let chunks_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let limbs_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let value = args[2].read_value(ctx.memory, ctx.fp)?.as_canonical_u64();
-                const NUM_CHUNKS: usize = 10;
-                const CHUNK_SIZE: usize = 3;
+                const NUM_CHUNKS: usize = 5;
+                const CHUNK_SIZE: usize = 6;
                 for j in 0..NUM_CHUNKS {
                     let chunk = (value >> (CHUNK_SIZE * j)) & ((1u64 << CHUNK_SIZE) - 1);
                     ctx.memory.set(chunks_ptr + j, F::from_u64(chunk))?;

@@ -61,11 +61,11 @@ def xmss_verify(pub_key, message, merkle_chunks):
     encoding_fe = Array(DIGEST_LEN)
     poseidon8_compress(pre_compressed, public_params_paded, encoding_fe)
 
-    encoding = Array(V)
-    for i in unroll(0, NUM_ENCODING_FE):
-        decompose_encoding_fe(encoding_fe[i], encoding + i * (V / NUM_ENCODING_FE))
-
     debug_assert(V % 2 == 0)
+    encoding = Array(V / 2)
+    for i in unroll(0, NUM_ENCODING_FE):
+        decompose_encoding_fe(encoding_fe[i], encoding + i * ((V / 2) / NUM_ENCODING_FE))
+
     wots_public_key = Array((V / 2) * WOTS_PK_PAIR_STRIDE)
     target_sum: Mut = 0
     # Pair structure: `[leading_0 | tip_a(XMSS_DIGEST_LEN) | tip_b(XMSS_DIGEST_LEN) | trailing_0]`
@@ -77,25 +77,24 @@ def xmss_verify(pub_key, message, merkle_chunks):
         chain_end_b = chain_end_a + XMSS_DIGEST_LEN
         tweaks_a = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i) * CHAIN_LENGTH * TWEAK_LEN
         tweaks_b = TWEAK_TABLE_ADDR + TWEAK_CHAIN_OFFSET + (2 * i + 1) * CHAIN_LENGTH * TWEAK_LEN
-        len_a_ptr = Array(1)
-        len_b_ptr = Array(1)
+        pair_sum_ptr = Array(1)
 
         match_range(
-            encoding[2 * i],
-            range(0, CHAIN_LENGTH),
-            lambda n: chain_hash_a(
-                chain_start_a, n, chain_end_a, tweaks_a, public_params_paded, len_a_ptr,
+            encoding[i],
+            range(0, CHAIN_LENGTH**2),
+            lambda n: chain_hash_pair(
+                chain_start_a,
+                chain_start_b,
+                n,
+                chain_end_a,
+                chain_end_b,
+                tweaks_a,
+                tweaks_b,
+                public_params_paded,
+                pair_sum_ptr,
             ),
         )
-        match_range(
-            encoding[2 * i + 1],
-            range(0, CHAIN_LENGTH),
-            lambda n: chain_hash_b(
-                chain_start_b, n, chain_end_b, tweaks_b, public_params_paded, len_b_ptr,
-            ),
-        )
-        target_sum += len_a_ptr[0]
-        target_sum += len_b_ptr[0]
+        target_sum += pair_sum_ptr[0]
 
     assert target_sum == TARGET_SUM
 
@@ -143,32 +142,33 @@ def chain_hash_inner(input, n, output, chain_i_tweaks, chain_right):
 
 
 @inline
-def chain_hash_a(input, n, output, chain_i_tweaks, chain_right, chain_length_ptr):
-    # Even (chain_a) variant: when num_hashes == 0, the buffer slot occupies
-    # `[output-1 .. output+XMSS_DIGEST_LEN)` (= leading_0 | tip_a) so copy_ef
-    # writes through the leading zero cell.
-    debug_assert(n < CHAIN_LENGTH)
-    num_hashes = (CHAIN_LENGTH - 1) - n
-    if num_hashes == 0:
-        copy_ef(input - 1, output - 1)
-    else:
-        chain_hash_inner(input, n, output, chain_i_tweaks, chain_right)
-    chain_length_ptr[0] = n
-    return
+def chain_hash_pair(
+    input_a,
+    input_b,
+    n,
+    output_a,
+    output_b,
+    tweaks_a,
+    tweaks_b,
+    chain_right,
+    pair_sum_ptr,
+):
+    raw_a = n % CHAIN_LENGTH
+    raw_b = (n - raw_a) / CHAIN_LENGTH
+    num_hashes_a = (CHAIN_LENGTH - 1) - raw_a
+    num_hashes_b = (CHAIN_LENGTH - 1) - raw_b
 
-
-@inline
-def chain_hash_b(input, n, output, chain_i_tweaks, chain_right, chain_length_ptr):
-    # Odd (chain_b) variant: when num_hashes == 0, the buffer slot occupies
-    # `[output .. output+XMSS_DIGEST_LEN+1)` (= tip_b | trailing_0) so copy_ef
-    # writes through the trailing zero cell.
-    debug_assert(n < CHAIN_LENGTH)
-    num_hashes = (CHAIN_LENGTH - 1) - n
-    if num_hashes == 0:
-        copy_ef(input, output)
+    if num_hashes_a == 0:
+        copy_ef(input_a - 1, output_a - 1)
     else:
-        chain_hash_inner(input, n, output, chain_i_tweaks, chain_right)
-    chain_length_ptr[0] = n
+        chain_hash_inner(input_a, raw_a, output_a, tweaks_a, chain_right)
+
+    if num_hashes_b == 0:
+        copy_ef(input_b, output_b)
+    else:
+        chain_hash_inner(input_b, raw_b, output_b, tweaks_b, chain_right)
+
+    pair_sum_ptr[0] = raw_a + raw_b
     return
 
 
@@ -177,14 +177,14 @@ def decompose_encoding_fe(fe_value, chunks_ptr):
     limbs = Array(2)
     hint_decompose_bits_xmss(chunks_ptr, limbs, fe_value)
 
-    for k in unroll(0, 10):
-        assert chunks_ptr[k] < CHAIN_LENGTH
+    for k in unroll(0, 5):
+        assert chunks_ptr[k] < CHAIN_LENGTH**2
     assert limbs[0] < 2**16
     assert limbs[1] < 2**16
 
     low: Mut = chunks_ptr[0]
-    for k in unroll(1, 10):
-        low += chunks_ptr[k] * (2 ** (W * k))
+    for k in unroll(1, 5):
+        low += chunks_ptr[k] * (2 ** (2 * W * k))
 
     high = limbs[0] + limbs[1] * (2**16)
     assert fe_value == low + (2**32) * high
