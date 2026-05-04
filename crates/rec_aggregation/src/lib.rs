@@ -14,10 +14,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::compilation::bytecode_reduction_sumcheck_proof_size;
-pub use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
+pub use crate::compilation::{
+    TYPE1_BYTECODE_CLAIM_OFFSET, TYPE2_COMPONENT_HEADER_SIZE, TYPE2_HEADERS_OFFSET, TYPE2_MAX_COMPONENTS,
+    get_aggregation_bytecode, init_aggregation_bytecode, unified_input_data_size_padded,
+};
 
 pub mod benchmark;
 mod compilation;
+mod multi_signature;
+pub use multi_signature::*;
 
 const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
 const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
@@ -141,8 +146,10 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
     chunks
 }
 
-/// Builds the (padded) public-input data buffer that ends up being hashed.
-fn build_input_data(
+/// Builds the (padded) public-input data buffer for a type-1 proof. The buffer
+/// is zero-padded to the unified size shared with type-2 so the bytecode can
+/// hash a fixed-length region.
+pub(crate) fn build_input_data(
     n_sigs: usize,
     slice_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
@@ -158,12 +165,12 @@ fn build_input_data(
     data.extend(compute_merkle_chunks_for_slot(slot));
     data.extend_from_slice(tweaks_hash);
     data.extend_from_slice(bytecode_claim_output);
-    // Pad the bytecode claim itself up to DIGEST_LEN
     let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
     data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
     data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
-    // Round the whole buffer up to DIGEST_LEN so `slice_hash_with_iv` can absorb it chunk by chunk.
-    data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
+    let total = unified_input_data_size_padded(get_aggregation_bytecode().log_size());
+    assert!(data.len() <= total);
+    data.resize(total, F::ZERO);
     data
 }
 
@@ -206,12 +213,7 @@ impl AggregatedXMSS {
         let bytecode_claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
 
         let bytecode_claim_output = match &self.bytecode_point {
-            Some(point) => {
-                let value = bytecode.instructions_multilinear.evaluate(point);
-                let mut ef_claim: Vec<EF> = point.0.clone();
-                ef_claim.push(value);
-                flatten_scalars_to_base::<F, EF>(&ef_claim)
-            }
+            Some(point) => bytecode_claim_output_from_point(bytecode, point),
             None => {
                 let mut claim = vec![F::ZERO; bytecode_claim_size];
                 claim[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
@@ -304,76 +306,18 @@ pub fn xmss_aggregate(
         child_raw_proofs.push(raw_proof);
     }
 
-    // Bytecode sumcheck reduction
     let (bytecode_claim_output, bytecode_point, final_sumcheck_transcript) = if n_recursions > 0 {
-        let bytecode_claim_offset = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
-        let mut claims = vec![];
+        let mut claims = Vec::with_capacity(2 * n_recursions);
         for (i, _child) in children.iter().enumerate() {
-            let first_claim = extract_bytecode_claim_from_input_data(
-                &child_input_data[i][bytecode_claim_offset..],
+            claims.push(extract_bytecode_claim_from_input_data(
+                &child_input_data[i][TYPE1_BYTECODE_CLAIM_OFFSET..],
                 bytecode_point_n_vars,
-            );
-            claims.push(first_claim);
+            ));
             claims.push(child_bytecode_evals[i].clone());
         }
-
-        let claims_hash = hash_bytecode_claims(&claims);
-
-        let mut reduction_prover = build_prover_state();
-        reduction_prover.add_base_scalars(&claims_hash);
-        let alpha: EF = reduction_prover.sample();
-
-        let n_claims = claims.len();
-        let alpha_powers: Vec<EF> = alpha.powers().take(n_claims).collect();
-
-        let weights_packed = claims
-            .par_iter()
-            .zip(&alpha_powers)
-            .map(|(eval, &alpha_i)| eval_eq_packed_scaled(&eval.point.0, alpha_i))
-            .reduce_with(|mut acc, eq_i| {
-                acc.par_iter_mut().zip(&eq_i).for_each(|(w, e)| *w += *e);
-                acc
-            })
-            .unwrap();
-
-        let claimed_sum: EF = dot_product(claims.iter().map(|c| c.value), alpha_powers.iter().copied());
-
-        let witness =
-            MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
-
-        let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
-            witness,
-            &ProductComputation {},
-            &vec![],
-            None,
-            &mut reduction_prover,
-            claimed_sum,
-            false,
-        );
-
-        let reduced_point = challenges;
-        let reduced_value = final_evals[0];
-
-        let mut ef_claim: Vec<EF> = reduced_point.0.clone();
-        ef_claim.push(reduced_value);
-        let claim_output = flatten_scalars_to_base::<F, EF>(&ef_claim);
-        assert_eq!(claim_output.len(), bytecode_claim_size);
-
-        let final_sumcheck_proof = {
-            // Recover the transcript of the final sumcheck (for bytecode claim reduction)
-            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
-            vs.next_base_scalars_vec(claims_hash.len()).unwrap();
-            let _: EF = vs.sample();
-            sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
-            vs.into_raw_proof().transcript
-        };
-        assert_eq!(
-            final_sumcheck_proof.len(),
-            bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars),
-            "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
-        );
-
-        (claim_output, Some(reduced_point), final_sumcheck_proof)
+        let (claim_output, reduced_point, transcript) =
+            run_bytecode_claims_reduction(&claims, bytecode, bytecode_point_n_vars, bytecode_claim_size);
+        (claim_output, Some(reduced_point), transcript)
     } else {
         let mut claim_output = vec![F::ZERO; bytecode_claim_size];
         claim_output[bytecode_point_n_vars * DIMENSION] = bytecode.instructions_multilinear[0];
@@ -419,7 +363,6 @@ pub fn xmss_aggregate(
     let mut inner_bytecode_claim_blobs = Vec::with_capacity(n_recursions);
     let mut proof_transcript_blobs = Vec::with_capacity(n_recursions);
 
-    let claim_offset_in_input = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
     let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
 
     // Sources 1..n_recursions: recursive children
@@ -439,7 +382,8 @@ pub fn xmss_aggregate(
 
         bytecode_value_hint_blobs.push(child_bytecode_evals[i].value.as_basis_coefficients_slice().to_vec());
 
-        inner_bytecode_claim_blobs.push(child_input_data[i][claim_offset_in_input..][..claim_size_padded].to_vec());
+        inner_bytecode_claim_blobs
+            .push(child_input_data[i][TYPE1_BYTECODE_CLAIM_OFFSET..][..claim_size_padded].to_vec());
 
         // Transcript minus Merkle data;
         proof_transcript_blobs.push(child_raw_proofs[i].transcript.clone());
@@ -455,15 +399,7 @@ pub fn xmss_aggregate(
         pubkeys_blob.extend_from_slice(&pk.flaten());
     }
 
-    let (merkle_leaf_blobs, merkle_path_blobs): (Vec<Vec<F>>, Vec<Vec<F>>) = child_raw_proofs
-        .iter()
-        .flat_map(|p| p.merkle_openings.iter())
-        .map(|o| {
-            let leaf = o.leaf_data.clone();
-            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
-            (leaf, path)
-        })
-        .unzip();
+    let (merkle_leaf_blobs, merkle_path_blobs) = extract_merkle_hint_blobs(&child_raw_proofs);
 
     let aggregate_sizes: Vec<F> = sub_indices_blobs.iter().map(|b| F::from_usize(b.len())).collect();
 
@@ -484,6 +420,10 @@ pub fn xmss_aggregate(
     let fast_path = n_recursions == 1 && raw_count == 0 && dup_pub_keys.is_empty();
     let sub_indices_for_hints = if fast_path { Vec::new() } else { sub_indices_blobs };
     hints.insert("sub_indices".to_string(), sub_indices_for_hints);
+    // Tell the bytecode that, when it enters the fast path, the recursive child is itself
+    // a type-1 proof (split overrides this with [F::ONE]).
+    let is_inner_type2_for_hints = if fast_path { vec![vec![F::ZERO]] } else { Vec::new() };
+    hints.insert("is_inner_type2".to_string(), is_inner_type2_for_hints);
     hints.insert("bytecode_value_hint".to_string(), bytecode_value_hint_blobs);
     hints.insert("inner_bytecode_claim".to_string(), inner_bytecode_claim_blobs);
     hints.insert(
@@ -518,6 +458,100 @@ pub fn xmss_aggregate(
             metadata: Some(execution_proof.metadata),
         },
     ))
+}
+
+/// Runs the prover side of the batched bytecode-claim reduction sumcheck used
+/// at the end of an aggregation. Collapses `claims` (typically 2*n claims —
+/// each recursive child contributes its forwarded inner claim plus the claim
+/// returned by recursive verification) into a single reduced claim that gets
+/// embedded into the outer public input. Returns
+/// `(reduced_claim_padded_to_DIGEST_LEN, reduced_point, sumcheck_transcript)`.
+pub(crate) fn run_bytecode_claims_reduction(
+    claims: &[Evaluation<EF>],
+    bytecode: &Bytecode,
+    bytecode_point_n_vars: usize,
+    bytecode_claim_size: usize,
+) -> (Vec<F>, MultilinearPoint<EF>, Vec<F>) {
+    let claims_hash = hash_bytecode_claims(claims);
+
+    let mut reduction_prover = build_prover_state();
+    reduction_prover.add_base_scalars(&claims_hash);
+    let alpha: EF = reduction_prover.sample();
+
+    let n_claims = claims.len();
+    let alpha_powers: Vec<EF> = alpha.powers().take(n_claims).collect();
+
+    let weights_packed = claims
+        .par_iter()
+        .zip(&alpha_powers)
+        .map(|(eval, &alpha_i)| eval_eq_packed_scaled(&eval.point.0, alpha_i))
+        .reduce_with(|mut acc, eq_i| {
+            acc.par_iter_mut().zip(&eq_i).for_each(|(w, e)| *w += *e);
+            acc
+        })
+        .unwrap();
+
+    let claimed_sum: EF = dot_product(claims.iter().map(|c| c.value), alpha_powers.iter().copied());
+
+    let witness =
+        MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
+
+    let (challenges, final_evals, _) = sumcheck_prove::<EF, _, _>(
+        witness,
+        &ProductComputation {},
+        &vec![],
+        None,
+        &mut reduction_prover,
+        claimed_sum,
+        false,
+    );
+
+    let claim_output = flatten_bytecode_claim(&challenges, final_evals[0]);
+    assert_eq!(claim_output.len(), bytecode_claim_size);
+
+    let final_sumcheck_proof = {
+        let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
+        vs.next_base_scalars_vec(claims_hash.len()).unwrap();
+        let _: EF = vs.sample();
+        sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
+        vs.into_raw_proof().transcript
+    };
+    assert_eq!(
+        final_sumcheck_proof.len(),
+        bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars),
+        "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
+    );
+
+    (claim_output, challenges, final_sumcheck_proof)
+}
+
+/// Flatten an `(point, value)` extension claim into the base-field layout
+/// embedded in the public-input data buffer (= `point.0 ++ [value]` then
+/// `EF -> [F; DIMENSION]`).
+pub(crate) fn flatten_bytecode_claim(point: &MultilinearPoint<EF>, value: EF) -> Vec<F> {
+    let mut ef_claim: Vec<EF> = point.0.clone();
+    ef_claim.push(value);
+    flatten_scalars_to_base::<F, EF>(&ef_claim)
+}
+
+/// Same as [`flatten_bytecode_claim`] but evaluates the bytecode polynomial
+/// at `point` to obtain the value first.
+pub(crate) fn bytecode_claim_output_from_point(bytecode: &Bytecode, point: &MultilinearPoint<EF>) -> Vec<F> {
+    flatten_bytecode_claim(point, bytecode.instructions_multilinear.evaluate(point))
+}
+
+/// Flatten WHIR Merkle openings from a batch of recursive sub-proofs into the
+/// `(merkle_leaf, merkle_path)` hint-blob pair the bytecode consumes.
+pub(crate) fn extract_merkle_hint_blobs(raw_proofs: &[RawProof<F>]) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
+    raw_proofs
+        .iter()
+        .flat_map(|p| p.merkle_openings.iter())
+        .map(|o| {
+            let leaf = o.leaf_data.clone();
+            let path: Vec<F> = o.path.iter().flat_map(|d| d.iter().copied()).collect();
+            (leaf, path)
+        })
+        .unzip()
 }
 
 pub fn extract_bytecode_claim_from_input_data(public_input: &[F], bytecode_point_n_vars: usize) -> Evaluation<EF> {

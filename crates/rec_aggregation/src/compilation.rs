@@ -27,16 +27,55 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+/// Offset of the bytecode_claim slot inside a type-1 outer public-input buffer
+/// (= the size of the type-1 prefix: n_sigs + slice_hash + message +
+/// merkle_chunks + tweaks_hash, which happens to equal the per-component
+/// header size used by type-2 — same fields, same order).
+pub const TYPE1_BYTECODE_CLAIM_OFFSET: usize = 1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+
+/// Per-component header inside the type-2 outer public input. Injected into
+/// main.py as `TYPE2_COMPONENT_HEADER_SIZE_PLACEHOLDER`.
+pub const TYPE2_COMPONENT_HEADER_SIZE: usize = TYPE1_BYTECODE_CLAIM_OFFSET;
+
+/// Maximum number of components in a type-2 multi-signature. Injected into
+/// main.py as `TYPE2_MAX_COMPONENTS_PLACEHOLDER`.
+pub const TYPE2_MAX_COMPONENTS: usize = 4;
+
+/// Sentinel value at `data_buf[0]` that selects the type-2 dispatch path at
+/// runtime (any non-sentinel value at that offset is interpreted as the type-1
+/// `n_sigs`). Injected into main.py as `TYPE2_DISCRIMINATOR_PLACEHOLDER`.
+pub const TYPE2_DISCRIMINATOR: usize = 0;
+
+/// Offset of the per-component-headers section in the type-2 layout
+/// (after the discriminator and the `n_components` slot).
+pub const TYPE2_HEADERS_OFFSET: usize = 2;
+
+/// Offset of the reduced bytecode claim inside a type-2 outer public-input buffer.
+pub const TYPE2_BYTECODE_CLAIM_OFFSET: usize =
+    TYPE2_HEADERS_OFFSET + TYPE2_MAX_COMPONENTS * TYPE2_COMPONENT_HEADER_SIZE;
+
+/// Unified public-input buffer size — both type-1 and type-2 proofs use this
+/// size, padded with zeros wherever their layout doesn't reach. Must equal
+/// the value of `INPUT_DATA_SIZE_PADDED` baked into main.py.
+pub fn unified_input_data_size_padded(program_log_size: usize) -> usize {
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
-    let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
-    let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // input_data_buf layout (part of the witness, "hinted" then hashed to a single digest that should match public input):
-    //   n_sigs(1) + pubkeys_hash(8) + message + merkle_chunks_for_slot
-    //   + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
-    let input_data_size =
+    let claim_data_size_padded = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
+
+    // Type-1 layout: n_sigs(1) + pubkeys_hash(8) + message + merkle_chunks
+    //                + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
+    let type1_size =
         1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size_padded + DIGEST_LEN;
-    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
+
+    // Type-2 layout: 0(1) + n_components(1) + MAX_COMPONENTS * COMPONENT_HEADER_SIZE
+    //                + bytecode_claim_padded + bytecode_hash_domsep(8)
+    let type2_size =
+        TYPE2_HEADERS_OFFSET + TYPE2_MAX_COMPONENTS * TYPE2_COMPONENT_HEADER_SIZE + claim_data_size_padded + DIGEST_LEN;
+
+    type1_size.max(type2_size).next_multiple_of(DIGEST_LEN)
+}
+
+fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let input_data_size_padded = unified_input_data_size_padded(program_log_size);
     let replacements = build_replacements(program_log_size, bytecode_zero_eval, input_data_size_padded);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -361,6 +400,16 @@ fn build_replacements(
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
     );
     replacements.insert("XMSS_DIGEST_LEN_PLACEHOLDER".to_string(), XMSS_DIGEST_LEN.to_string());
+
+    // Type-2 layout (Rust is the source of truth — main.py just reads these placeholders).
+    replacements.insert(
+        "TYPE2_DISCRIMINATOR_PLACEHOLDER".to_string(),
+        TYPE2_DISCRIMINATOR.to_string(),
+    );
+    replacements.insert(
+        "TYPE2_MAX_COMPONENTS_PLACEHOLDER".to_string(),
+        TYPE2_MAX_COMPONENTS.to_string(),
+    );
 
     // Bytecode zero eval
     replacements.insert(
