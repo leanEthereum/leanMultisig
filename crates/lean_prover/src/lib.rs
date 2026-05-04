@@ -17,7 +17,7 @@ mod test_zkvm;
 use trace_gen::*;
 
 // Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 31 bits per field element)
-pub const SECURITY_BITS: usize = 124; // TODO 128 bits security
+pub const SECURITY_BITS: usize = 128; // TODO 128 bits security
 
 pub const GRINDING_BITS: usize = 16;
 pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 8;

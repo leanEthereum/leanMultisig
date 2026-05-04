@@ -39,7 +39,7 @@ fn test_run_whir() {
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {
-        security_level: 124,
+        security_level: 128,
         max_num_variables_to_send_coeffs: 9,
         pow_bits: 18,
         folding_factor: FoldingFactor::new(7, 4),
@@ -144,7 +144,7 @@ fn display_whir_round_info() {
                 continue;
             }
             let params = WhirConfigBuilder {
-                security_level: 124,
+                security_level: 128,
                 max_num_variables_to_send_coeffs: 8,
                 pow_bits: 16,
                 folding_factor: FoldingFactor::new(first_folding_factor, 5),
