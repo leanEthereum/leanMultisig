@@ -72,32 +72,6 @@ where
     }
 
     #[inline]
-    fn assert_eq_low(&mut self, x: IF, y: IF) {
-        let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
-        let contrib = EFPacking::<EF>::from(alpha_power) * (x - y);
-        self.accumulator += contrib;
-        self.accumulator_low += contrib;
-        self.constraint_index += 1;
-    }
-
-    #[inline]
-    fn low_degree_block<F>(&mut self, state: &mut [IF], block: F)
-    where
-        F: FnOnce(&mut Self, &mut [IF]),
-    {
-        if self.skip_low {
-            state.copy_from_slice(self.cached_state.as_ref().unwrap());
-            self.constraint_index += self.low_ci_count;
-        } else {
-            block(self, state);
-            if let Some(cache) = &mut self.cached_state {
-                cache.clear();
-                cache.extend_from_slice(state);
-            }
-        }
-    }
-
-    #[inline]
     fn eval_virtual_column(&mut self, x: Self::EF) {
         self.assert_zero_ef(x);
     }

@@ -22,11 +22,11 @@ pub fn mle_of_zeros_then_ones<F: Field>(n_zeros: usize, point: &[F]) -> F {
 mod tests {
     use crate::{EvaluationsList, MultilinearPoint};
     use field::PrimeCharacteristicRing;
-    use koala_bear::KoalaBear;
+    use goldilocks::Goldilocks;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
-    type F = KoalaBear;
+    type F = Goldilocks;
 
     #[test]
     fn test_mle_of_zeros_then_ones() {

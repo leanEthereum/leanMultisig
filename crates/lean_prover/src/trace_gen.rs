@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::*;
 use std::{array, collections::BTreeMap};
-use utils::{ToUsize, get_poseidon_16_of_zero, transposed_par_iter_mut};
+use utils::{ToUsize, get_poseidon_8_of_zero, transposed_par_iter_mut};
 
 #[derive(Debug)]
 pub struct ExecutionTrace {
@@ -97,7 +97,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let padding_zero_vec_ptr = memory_padded.len();
     memory_padded.extend(std::iter::repeat_n(F::ZERO, 16));
     let null_poseidon_16_hash_ptr = memory_padded.len();
-    memory_padded.extend_from_slice(get_poseidon_16_of_zero());
+    memory_padded.extend_from_slice(get_poseidon_8_of_zero());
 
     // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
@@ -105,16 +105,16 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.columns);
+    let poseidon_trace = traces.get_mut(&Table::poseidon8()).unwrap();
+    fill_trace_poseidon_8(&mut poseidon_trace.columns);
 
     // For half_output rows, override last 4 output columns with actual memory values
     // (the AIR doesn't constrain them, but the lookup checks against memory).
     {
-        let split = POSEIDON_16_COL_OUTPUT_START + HALF_DIGEST_LEN;
+        let split = POSEIDON_8_COL_OUTPUT_START + HALF_DIGEST_LEN;
         let (left, right) = poseidon_trace.columns.split_at_mut(split);
-        let half_output_col = &left[POSEIDON_16_COL_FLAG_HALF_OUTPUT];
-        let res_col = &left[POSEIDON_16_COL_INDEX_INPUT_RES];
+        let half_output_col = &left[POSEIDON_8_COL_FLAG_HALF_OUTPUT];
+        let res_col = &left[POSEIDON_8_COL_INDEX_INPUT_RES];
         let output_cols: &mut [Vec<F>; HALF_DIGEST_LEN] = (&mut right[..HALF_DIGEST_LEN]).try_into().unwrap();
 
         transposed_par_iter_mut(output_cols)

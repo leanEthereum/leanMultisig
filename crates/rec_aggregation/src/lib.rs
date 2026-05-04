@@ -7,7 +7,7 @@ use lean_prover::verify_execution::ProofVerificationDetails;
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
-use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{build_prover_state, get_poseidon8, poseidon_compress_slice, poseidon8_compress_pair};
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUB_KEY_FLAT_SIZE, V, W, WOTS_SIG_SIZE_FE, XmssPublicKey, XmssSignature};
 
 use serde::{Deserialize, Serialize};
@@ -31,8 +31,8 @@ const TWEAK_TYPE_ENCODING: usize = 3;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + 1 wots_pk + LOG_LIFETIME merkle
 const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME;
-/// All,  tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0].
-const TWEAK_SLOT_SIZE: usize = 4;
+/// All tweaks are stored as a 2-FE slot [tw[0], 0].
+const TWEAK_SLOT_SIZE: usize = 2;
 const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
 
 const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
@@ -85,22 +85,22 @@ pub fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
     Digest(poseidon_compress_slice(&flat, true))
 }
 
-fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 2] {
-    let index_lo = (index & 0xFFFF) as usize;
-    let index_hi = (index >> 16) as usize;
-    [
-        F::from_usize((tweak_type << 26) + (index_hi << 10) + sub_position),
-        F::from_usize(index_lo),
-    ]
+fn make_tweak_values(tweak_type: usize, sub_position: usize, index: u32) -> [F; 1] {
+    // Goldilocks: pack the entire (tweak_type, sub_position, index) tuple into one 64-bit FE.
+    //   bits  0..32 : index (u32)
+    //   bits 32..42 : sub_position (10 bits)
+    //   bits 42..44 : tweak_type (2 bits)
+    let packed = ((tweak_type as u64) << 42) | ((sub_position as u64) << 32) | u64::from(index);
+    [F::from_u64(packed)]
 }
 
-/// Tweak slots are 4-FE [tw[0], tw[1], 0, 0]
+/// Tweak slots are 2-FE `[tw[0], 0]`
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
         table.extend(make_tweak_values(tweak_type, sub_position, index));
-        table.extend(std::iter::repeat_n(F::ZERO, 2));
+        table.push(F::ZERO);
     };
 
     // Encoding tweak
@@ -161,7 +161,7 @@ fn build_input_data(
     // Pad the bytecode claim itself up to DIGEST_LEN
     let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
     data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
-    data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
+    data.extend_from_slice(&poseidon8_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
     // Round the whole buffer up to DIGEST_LEN so `slice_hash_with_iv` can absorb it chunk by chunk.
     data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
     data
@@ -361,7 +361,7 @@ pub fn xmss_aggregate(
 
         let final_sumcheck_proof = {
             // Recover the transcript of the final sumcheck (for bytecode claim reduction)
-            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
+            let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), *get_poseidon8()).unwrap();
             vs.next_base_scalars_vec(claims_hash.len()).unwrap();
             let _: EF = vs.sample();
             sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
@@ -537,7 +537,7 @@ pub fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
         data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
 
         let claim_hash = poseidon_compress_slice(&data, false);
-        running_hash = poseidon16_compress_pair(&running_hash, &claim_hash);
+        running_hash = poseidon8_compress_pair(&running_hash, &claim_hash);
     }
     running_hash
 }

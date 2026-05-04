@@ -101,11 +101,12 @@ impl<T> HintWitnessDestination<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CustomHint {
-    // Decompose values into their custom representations:
-    /// each field element x is decomposed to: (a0, a1, a2, ..., a11, b) where:
-    /// x = a0 + a1.4 + a2.4^2 + a3.4^3 + ... + a11.4^11 + b.2^24
-    /// and ai < 4, b < 2^7 - 1
-    /// The decomposition is unique, and always exists (except for x = -1)
+    /// WOTS-encoding decomposition of one Goldilocks FE.
+    /// Args: (chunks_ptr, limbs_ptr, src_value).
+    /// Writes 5 2W=6-bit chunks of the low 30 bits to `chunks_ptr[0..5]`
+    /// (each chunk packs two consecutive W=3-bit chain steps as
+    /// `step_a + CHAIN_LENGTH * step_b`) and 2 u16 limbs of the high
+    /// 32 bits to `limbs_ptr[0..2]`.
     DecomposeBitsXMSS,
     DecomposeBitsMerkleWhir,
     DecomposeBits,
@@ -134,8 +135,8 @@ impl CustomHint {
 
     pub fn n_args(&self) -> usize {
         match self {
-            Self::DecomposeBitsXMSS => 4,
-            Self::DecomposeBitsMerkleWhir => 3,
+            Self::DecomposeBitsXMSS => 3,
+            Self::DecomposeBitsMerkleWhir => 4,
             Self::DecomposeBits => 4,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
@@ -149,33 +150,37 @@ impl CustomHint {
     ) -> Result<(), RunnerError> {
         match self {
             Self::DecomposeBitsXMSS => {
-                let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let to_decompose_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let num_to_decompose = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(24_usize.is_multiple_of(chunk_size));
-                let mut memory_index_decomposed = decomposed_ptr;
-                #[allow(clippy::explicit_counter_loop)]
-                for i in 0..num_to_decompose {
-                    let value = ctx.memory.get(to_decompose_ptr + i)?.to_usize();
-                    for i in 0..24 / chunk_size {
-                        let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
-                        ctx.memory.set(memory_index_decomposed, value)?;
-                        memory_index_decomposed += 1;
-                    }
+                // WOTS-encoding decomposition. Writes:
+                //   chunks_ptr[0..5] = 5 chunks of 2W=6 bits (low bits 0..29).
+                //                       Each chunk packs two consecutive chain
+                //                       steps as `step_a + CHAIN_LENGTH * step_b`.
+                //   limbs_ptr[0..2]   = 2 u16 limbs of the high 32 bits (bits 32..47, 48..63)
+                // The 2 high bits of the low limb are implicit zeros, enforced by
+                // the SNARK constraint structure (and rejected at signing time).
+                let chunks_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let limbs_ptr = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let value = args[2].read_value(ctx.memory, ctx.fp)?.as_canonical_u64();
+                const NUM_CHUNKS: usize = 5;
+                const CHUNK_SIZE: usize = 6;
+                for j in 0..NUM_CHUNKS {
+                    let chunk = (value >> (CHUNK_SIZE * j)) & ((1u64 << CHUNK_SIZE) - 1);
+                    ctx.memory.set(chunks_ptr + j, F::from_u64(chunk))?;
                 }
+                ctx.memory.set(limbs_ptr, F::from_u64((value >> 32) & 0xFFFF))?;
+                ctx.memory.set(limbs_ptr + 1, F::from_u64((value >> 48) & 0xFFFF))?;
             }
             Self::DecomposeBitsMerkleWhir => {
+                // Decompose a single FE's canonical u64 into `num_chunks` chunks of
+                // `chunk_size` bits (low bits first). Caller must ensure
+                // `num_chunks * chunk_size <= F::bits()`.
                 let decomposed_ptr = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let value = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let chunk_size = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(24_usize.is_multiple_of(chunk_size));
-                let mut memory_index_decomposed = decomposed_ptr;
-                #[allow(clippy::explicit_counter_loop)]
-                for i in 0..24 / chunk_size {
-                    let value = F::from_usize((value >> (chunk_size * i)) & ((1 << chunk_size) - 1));
-                    ctx.memory.set(memory_index_decomposed, value)?;
-                    memory_index_decomposed += 1;
+                let value = args[1].read_value(ctx.memory, ctx.fp)?.as_canonical_u64();
+                let num_chunks = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
+                let chunk_size = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
+                assert!(num_chunks * chunk_size <= F::bits());
+                for j in 0..num_chunks {
+                    let chunk = F::from_u64((value >> (chunk_size * j)) & ((1u64 << chunk_size) - 1));
+                    ctx.memory.set(decomposed_ptr + j, chunk)?;
                 }
             }
             Self::DecomposeBits => {

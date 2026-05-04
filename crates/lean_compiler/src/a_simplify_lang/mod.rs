@@ -6,8 +6,8 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
+    ALL_POSEIDON8_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
+    POSEIDON8_HALF_HARDCODED_LEFT_NAME, POSEIDON8_HALF_NAME, POSEIDON8_HARDCODED_LEFT_NAME, PrecompileArgs,
     PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
@@ -2259,18 +2259,17 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile (4 variants)
-                        if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
+                        // Special handling for poseidon8 precompile (4 variants)
+                        if ALL_POSEIDON8_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
+                            let half_output = [POSEIDON8_HALF_NAME, POSEIDON8_HALF_HARDCODED_LEFT_NAME]
                                 .contains(&function_name.as_str());
-                            let is_hardcoded_left =
-                                [POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
-                                    .contains(&function_name.as_str());
+                            let is_hardcoded_left = [POSEIDON8_HARDCODED_LEFT_NAME, POSEIDON8_HALF_HARDCODED_LEFT_NAME]
+                                .contains(&function_name.as_str());
                             let expected_args = if is_hardcoded_left { 4 } else { 3 };
                             if args.len() != expected_args {
                                 let signature = if is_hardcoded_left {
@@ -2300,7 +2299,7 @@ fn simplify_lines(
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16 {
+                                data: PrecompileCompTimeArgs::Poseidon8 {
                                     half_output,
                                     hardcoded_offset_left,
                                 },
@@ -2479,6 +2478,9 @@ fn simplify_lines(
                                             res.push(SimpleLine::equality(target_var, SimpleExpr::Constant(result)));
                                         } else {
                                             if !operation.supports_runtime() {
+                                                eprintln!(
+                                                    "[COMPILE-TIME-OP DEBUG] operation={operation:?}, args={args_simplified:?}, var={var:?}, target_var={target_var:?}, is_mutable={is_mutable}"
+                                                );
                                                 return Err(format!(
                                                     "Operation `{operation}` is compile-time only; all operands must be constants"
                                                 ));

@@ -98,7 +98,7 @@ dependencies = [
  "mt-air",
  "mt-fiat-shamir",
  "mt-field",
- "mt-koala-bear",
+ "mt-goldilocks",
  "mt-poly",
  "mt-sumcheck",
  "mt-symetric",
@@ -595,7 +595,7 @@ name = "mt-fiat-shamir"
 version = "0.1.0"
 dependencies = [
  "mt-field",
- "mt-koala-bear",
+ "mt-goldilocks",
  "mt-symetric",
  "mt-utils",
  "rayon",
@@ -608,6 +608,21 @@ name = "mt-field"
 version = "0.1.0"
 dependencies = [
  "itertools",
+ "mt-utils",
+ "num-bigint",
+ "paste",
+ "rand",
+ "rayon",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "mt-goldilocks"
+version = "0.1.0"
+dependencies = [
+ "itertools",
+ "mt-field",
  "mt-utils",
  "num-bigint",
  "paste",
@@ -638,7 +653,7 @@ version = "0.1.0"
 dependencies = [
  "itertools",
  "mt-field",
- "mt-koala-bear",
+ "mt-goldilocks",
  "mt-utils",
  "rand",
  "rayon",
@@ -664,7 +679,7 @@ name = "mt-symetric"
 version = "0.1.0"
 dependencies = [
  "mt-field",
- "mt-koala-bear",
+ "mt-goldilocks",
  "rayon",
 ]
 
@@ -682,7 +697,7 @@ dependencies = [
  "itertools",
  "mt-fiat-shamir",
  "mt-field",
- "mt-koala-bear",
+ "mt-goldilocks",
  "mt-poly",
  "mt-sumcheck",
  "mt-symetric",

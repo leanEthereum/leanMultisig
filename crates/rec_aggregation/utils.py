@@ -1,10 +1,13 @@
 from snark_lib import *
 from hashing import *
 
-F_BITS = 31  # koala-bear = 31 bits
+F_BITS = 64  # Goldilocks (P = 2^64 - 2^32 + 1, values fit in u64)
+HALF_BITS = 32  # Goldilocks splits cleanly at 32:32 for canonical-form checks.
 
-TWO_ADICITY = 24
-ROOT = 1791270792  # of order 2^TWO_ADICITY
+TWO_ADICITY = 32
+ROOT = 1753635133440165772  # = 0x185629dcda58878c, of order 2^TWO_ADICITY
+
+EFFECTIVE_TWO_ADICITY = EFFECTIVE_TWO_ADICITY_PLACEHOLDER
 
 
 @inline
@@ -55,7 +58,7 @@ def powers_const(alpha, n: Const):
     set_to_one(res)
     if n == 1:
         return res
-    copy_5(alpha, res + DIM)
+    copy_ef(alpha, res + DIM)
     for i in unroll(1, n - 1):
         mul_extension(res + i * DIM, res + DIM, res + (i + 1) * DIM)
     return res
@@ -91,7 +94,7 @@ def compute_eq_mle_extension(point, n: Const):
 
     for s in unroll(0, n):
         p = Array(DIM)
-        copy_5(point + (n - 1 - s) * DIM, p)
+        copy_ef(point + (n - 1 - s) * DIM, p)
         for i in unroll(0, 2**s):
             mul_extension(p, res + (2**s - 1 + i) * DIM, res + (2 ** (s + 1) - 1 + 2**s + i) * DIM)
             sub_extension(
@@ -152,7 +155,7 @@ def expand_from_univariate_base_const(alpha, n: Const):
 
 def expand_from_univariate_ext(alpha, n):
     res = Array(n * DIM)
-    copy_5(alpha, res)
+    copy_ef(alpha, res)
     for i in range(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
@@ -177,7 +180,7 @@ def eval_multilinear_coeffs_rev(coeffs, point, n: Const):
     set_to_one(basis)
     for k in unroll(0, n):
         p = Array(DIM)
-        copy_5(point + k * DIM, p)
+        copy_ef(point + k * DIM, p)
         for j in unroll(0, 2**k):
             mul_extension(basis + j * DIM, p, basis + (j + 2**k) * DIM)
     result = Array(DIM)
@@ -348,54 +351,67 @@ def sub_extension_ret(a, b):
     return c
 
 
+# Semantic copy / zero helpers. Sized to Goldilocks (DIM=3, DIGEST_LEN=4,
+# MESSAGE_LEN=4). Each helper is a thin wrapper over `dot_product_ee(_, ONE_EF_PTR, _)`
+# which copies DIM elements via the extension-op precompile.
+
+
 @inline
-def copy_5(a, b):
+def copy_ef(a, b):
+    # Copy one extension-field element = DIM entries.
     dot_product_ee(a, ONE_EF_PTR, b)
     return
 
 
 @inline
-def set_to_5_zeros(a):
+def zero_ef(a):
+    # Zero one extension-field element = DIM entries.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
-@inline
-def copy_6(a, b):
-    dot_product_ee(a, ONE_EF_PTR, b)
-    a[5] = b[5]
-    return
 
 @inline
-def set_to_7_zeros(a):
+def zero_digest_tail(a):
+    # Zero DIGEST_LEN-1 entries — typically called on `ptr + 1` after writing a
+    # domain-sep byte into slot 0 of a digest-sized buffer. Under Goldilocks
+    # DIGEST_LEN-1 == DIM so one dot_product_ee suffices.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
-    a[5] = 0
-    a[6] = 0
     return
 
 
 @inline
-def set_to_8_zeros(a):
+def zero_digest(a):
+    # Zero one digest = DIGEST_LEN entries via two overlapping DIM clears.
     zero_ptr = ZERO_VEC_PTR
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
-    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, zero_ptr)
     return
 
 
 @inline
-def copy_8(a, b):
+def copy_digest(a, b):
+    # Copy one digest = DIGEST_LEN entries via two overlapping DIM copies.
     dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + (8 - DIM), ONE_EF_PTR, b + (8 - DIM))
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
     return
 
 
 @inline
-def copy_16(a, b):
+def copy_message(a, b):
+    # Copy one message = MESSAGE_LEN entries. Under Goldilocks MESSAGE_LEN ==
+    # DIGEST_LEN, so this is structurally identical to `copy_digest`.
     dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
-    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
-    a[15] = b[15]
+    dot_product_ee(a + (DIGEST_LEN - DIM), ONE_EF_PTR, b + (DIGEST_LEN - DIM))
+    return
+
+
+@inline
+def copy_poseidon_input(a, b):
+    # Copy a full Poseidon8 input block = 2 × DIGEST_LEN entries.
+    copy_digest(a, b)
+    copy_digest(a + DIGEST_LEN, b + DIGEST_LEN)
     return
 
 
@@ -447,35 +463,34 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     return sum_num, common_den
 
 
-# p = 2^31 - 2^24 + 1
-# in binary: p = 1111111000000000000000000000001
-#        p - 1 = 1111111000000000000000000000000
-#        p - 2 = 1111110111111111111111111111111
-#        p - 3 = 1111110111111111111111111111110
-#        ...
+# Goldilocks: p = 2^64 - 2^32 + 1 = 0xFFFFFFFF_00000001
+#   p - 1 = 0xFFFFFFFF_00000000
+#   p - 2 = 0xFFFFFFFE_FFFFFFFF
+#   ...
 # Any field element (< p) is either:
-# -   1111111    | 00...00
-# - not(1111111) | xx...xx
+#   - high 32 bits = 0xFFFFFFFF and low 32 bits = 0
+#   - high 32 bits < 0xFFFFFFFF and low 32 bits arbitrary
 def checked_decompose_bits(a):
-    # return a pointer to the 31 bits of a
-    # .. and the first 24 partial sums of these bits
+    # Return a pointer to the F_BITS=64 little-endian bits of `a`, plus the
+    # partial sums over the low HALF_BITS=32 bits. Enforces canonicality.
     bits = Array(F_BITS)
     hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
 
     for i in unroll(0, F_BITS):
         assert bits[i] * (1 - bits[i]) == 0
-    partial_sums_24 = Array(24)
-    partial_sums_24[0] = bits[0]
-    for i in unroll(1, 24):
-        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
-    sum_7: Mut = bits[24]
-    for i in unroll(1, 7):
-        sum_7 += bits[24 + i] * 2**i
-    if sum_7 == 127:
-        assert partial_sums_24[23] == 0
+    partial_sums_low = Array(HALF_BITS)
+    partial_sums_low[0] = bits[0]
+    for i in unroll(1, HALF_BITS):
+        partial_sums_low[i] = partial_sums_low[i - 1] + bits[i] * 2**i
+    sum_high: Mut = bits[HALF_BITS]
+    for i in unroll(1, F_BITS - HALF_BITS):
+        sum_high += bits[HALF_BITS + i] * 2**i
+    # If the high 32 bits are all set, the low 32 bits must be zero (only p-1).
+    if sum_high == 2**(F_BITS - HALF_BITS) - 1:
+        assert partial_sums_low[HALF_BITS - 1] == 0
 
-    assert a == partial_sums_24[23] + sum_7 * 2**24
-    return bits, partial_sums_24
+    assert a == partial_sums_low[HALF_BITS - 1] + sum_high * 2**HALF_BITS
+    return bits, partial_sums_low
 
 
 @inline
@@ -504,23 +519,22 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
 
 @inline
 def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
-    nibbles = Array(6)
-    hint_decompose_bits_merkle_whir(nibbles, a, 4)
+    # Decompose the full 64-bit Goldilocks FE `a` into 16 × 4-bit nibbles so
+    # that `a == partial_sum` holds for any valid field element (no top-bits
+    # restriction). The first `n_nibbles = ceil(domain_size/4)` nibbles encode
+    # the Merkle query index modulo 2^domain_size.
+    NUM_NIBBLES = F_BITS / 4
+    nibbles = Array(NUM_NIBBLES)
+    hint_decompose_bits_merkle_whir(nibbles, a, NUM_NIBBLES, 4)
 
-    for i in unroll(0, 6):
+    for i in unroll(0, NUM_NIBBLES):
         assert nibbles[i] < 16
 
     partial_sum: Mut = nibbles[0]
-    for i in unroll(1, 6):
+    for i in unroll(1, NUM_NIBBLES):
         partial_sum += nibbles[i] * 16**i
 
-    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
-    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
-    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
-    top7 = (partial_sum - a) * 127
-    assert top7 < 2**7
-    if top7 == 2**7 - 1:
-        assert partial_sum == 0
+    assert a == partial_sum
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
@@ -738,11 +752,12 @@ def _verify_log2_large(n, log2: Const):
 
 
 def log2_ceil_runtime(n):
-    # requires: 2 < n <= 2^30
+    # requires: 2 < n <= 2^30 (still inside HALF_BITS=32, so `_verify_log2_small`
+    # is always chosen under Goldilocks).
     log2: Imu
     hint_log2_ceil(n, log2)
     assert log2 < 31
     if two_exp(log2) != n:
-        _, partial_sums_24 = checked_decompose_bits(n)
-        match_range(log2, range(2, 24), lambda i: _verify_log2_small(n, partial_sums_24, i), range(24, 31), lambda i: _verify_log2_large(n, i))
+        _, partial_sums_low = checked_decompose_bits(n)
+        match_range(log2, range(2, 31), lambda i: _verify_log2_small(n, partial_sums_low, i))
     return log2

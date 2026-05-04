@@ -19,16 +19,21 @@ mod test_zkvm;
 use trace_gen::*;
 
 // Right now, hash digests = 8 koala-bear (p = 2^31 - 2^24 + 1, i.e. ≈ 31 bits per field element)
-pub const SECURITY_BITS: usize = 124; // TODO 128 bits security
+pub const SECURITY_BITS: usize = 128; // TODO 128 bits security
 
 pub const GRINDING_BITS: usize = 16;
 pub const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 8;
-pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 7;
-pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 5;
+pub const WHIR_INITIAL_FOLDING_FACTOR: usize = 6;
+pub const WHIR_SUBSEQUENT_FOLDING_FACTOR: usize = 4;
 pub const RS_DOMAIN_INITIAL_REDUCTION_FACTOR: usize = 5;
 
-pub const SNARK_DOMAIN_SEP: [F; 8] = F::new_array([
-    130704175, 1303721200, 493664240, 1035493700, 2063844858, 1410214009, 1938905908, 1696767928,
+// Domain-separation digest for the zkVM SNARK. Arbitrary nothing-up-my-sleeve field
+// elements; size matches `DIGEST_LEN = 4` for the Goldilocks width-8 Poseidon.
+pub const SNARK_DOMAIN_SEP: [F; 4] = F::new_array([
+    0x4c45_414e_5f5a_4b56, // "LEAN_ZKV"
+    0x4d5f_534e_4152_4b5f, // "M_SNARK_"
+    0x444f_4d53_4550_3031, // "DOMSEP01"
+    0xcccc_cccc_cccc_cccc, // nothing-up-my-sleeve tail
 ]);
 
 pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
@@ -84,10 +89,10 @@ impl Display for ProverError {
 
 #[cfg(test)]
 mod tests {
-    use backend::{PrimeCharacteristicRing, default_koalabear_poseidon1_16, hash_slice};
+    use backend::{PrimeCharacteristicRing, default_goldilocks_poseidon1_8, hash_slice};
     use lean_vm::F;
     use rec_aggregation::{get_aggregation_bytecode, init_aggregation_bytecode};
-    use utils::poseidon16_compress_pair;
+    use utils::poseidon8_compress_pair;
 
     #[test]
     fn compute_snark_domain_sep() {
@@ -98,19 +103,19 @@ mod tests {
             .iter()
             .map(|b| F::from_u8(*b))
             .collect::<Vec<_>>();
-        let mut prefix_free_name_fe = vec![F::ZERO; 8];
+        let mut prefix_free_name_fe = vec![F::ZERO; 4];
         let len = name_fe.len();
         prefix_free_name_fe.extend(name_fe);
-        while prefix_free_name_fe.len() % 8 != 7 {
+        while prefix_free_name_fe.len() % 4 != 3 {
             prefix_free_name_fe.push(F::ZERO);
         }
         prefix_free_name_fe.push(F::from_u64(len as u64));
-        let comp = default_koalabear_poseidon1_16();
-        let name_hash = hash_slice::<_, _, _, 8, 8>(&comp, &prefix_free_name_fe);
+        let comp = default_goldilocks_poseidon1_8();
+        let name_hash = hash_slice::<_, _, _, 8, 4>(&comp, &prefix_free_name_fe);
 
         // We incorporate the recursion program hash, containing all the verifier logic, into fiat shamir domain separator
         // (likely not necessary but why not, is there a cleaner approach?)
-        let domain_sep = poseidon16_compress_pair(&name_hash, &recursion_bytecode_hash);
+        let domain_sep = poseidon8_compress_pair(&name_hash, &recursion_bytecode_hash);
 
         println!("Computed SNARK_DOMAIN_SEP: {:?}", domain_sep); // We dont assert equality here to avoid the pain of having to update the hardcoded SNARK_DOMAIN_SEP every time we change the recursion program
     }

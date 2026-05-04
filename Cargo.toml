@@ -12,7 +12,7 @@ members = [
     "crates/*",
     "crates/backend/utils",
     "crates/backend/field",
-    "crates/backend/koala-bear",
+    "crates/backend/goldilocks",
     "crates/backend/poly",
     "crates/backend/symetric",
     "crates/backend/air",

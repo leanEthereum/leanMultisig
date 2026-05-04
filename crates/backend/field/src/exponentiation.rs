@@ -8,7 +8,7 @@ pub(crate) const fn bits_u64(n: u64) -> usize {
 
 /// Compute the exponential `x -> x^1420470955` using a custom addition chain.
 ///
-/// This map computes the third root of `x` if `x` is a member of the field `KoalaBear`.
+/// This map computes the third root of `x` if `x` is a member of the field `Goldilocks`.
 /// This follows from the computation: `3 * 1420470955 = 2*(2^31 - 2^24) + 1 = 1 mod (p - 1)`.
 #[must_use]
 pub fn exp_1420470955<R: PrimeCharacteristicRing>(val: R) -> R {

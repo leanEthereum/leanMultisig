@@ -13,5 +13,5 @@ def main():
     data = Array(len)
     hint_witness("input", data)
     hash = slice_hash_with_iv_dynamic_unroll(data, len, 15)
-    copy_8(hash, expected_hash)
+    copy_digest(hash, expected_hash)
     return

@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 use backend::PrimeCharacteristicRing;
-use backend::{DIGEST_LEN_FE, KoalaBear, POSEIDON1_WIDTH};
+use backend::{DIGEST_LEN_FE, Goldilocks, POSEIDON1_WIDTH};
 
 pub mod signers_cache;
 mod wots;
@@ -8,23 +8,27 @@ pub use wots::*;
 mod xmss;
 pub use xmss::*;
 
-pub const XMSS_DIGEST_LEN: usize = 4;
-pub(crate) const TWEAK_LEN: usize = 2;
+pub const XMSS_DIGEST_LEN: usize = 2;
+pub(crate) const TWEAK_LEN: usize = 1;
 
-type F = KoalaBear;
+type F = Goldilocks;
 type Digest = [F; XMSS_DIGEST_LEN];
 type PublicParam = [F; PUBLIC_PARAM_LEN_FE];
 type Randomness = [F; RANDOMNESS_LEN_FE];
 
 // WOTS
-pub const V: usize = 42;
+pub const V: usize = 40;
 pub const W: usize = 3;
 pub const CHAIN_LENGTH: usize = 1 << W;
 pub const NUM_CHAIN_HASHES: usize = 110;
 pub const TARGET_SUM: usize = V * (CHAIN_LENGTH - 1) - NUM_CHAIN_HASHES;
-pub const RANDOMNESS_LEN_FE: usize = 6;
-pub const MESSAGE_LEN_FE: usize = 8;
-pub const PUBLIC_PARAM_LEN_FE: usize = 4;
+pub const ENCODING_NUM_FINAL_ZEROS: usize = 8;
+const _: () = assert!(V * W + ENCODING_NUM_FINAL_ZEROS == DIGEST_LEN_FE * 32);
+const _: () = assert!(V.is_multiple_of(DIGEST_LEN_FE)); // V chunks split evenly across the 4 FEs
+const _: () = assert!(ENCODING_NUM_FINAL_ZEROS.is_multiple_of(DIGEST_LEN_FE)); // same for the zero bits
+pub const RANDOMNESS_LEN_FE: usize = 3;
+pub const MESSAGE_LEN_FE: usize = 4;
+pub const PUBLIC_PARAM_LEN_FE: usize = 2;
 pub const PUB_KEY_FLAT_SIZE: usize = XMSS_DIGEST_LEN + PUBLIC_PARAM_LEN_FE;
 pub const WOTS_SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + V * XMSS_DIGEST_LEN;
 
@@ -40,18 +44,20 @@ pub(crate) const TWEAK_TYPE_ENCODING: usize = 3;
 const _: () = assert!(V.is_multiple_of(2)); // For efficiency of the snark (we can batch chains in pairs)
 
 /// index = slot or node_index in Merkle tree
+///
+/// Goldilocks (64-bit field): the entire `(tweak_type, sub_position, index)` tuple
+/// fits comfortably in one field element. We pack:
+///   bits  0..32 : index (u32)
+///   bits 32..42 : sub_position (10 bits)
+///   bits 42..44 : tweak_type (2 bits)
 pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> [F; TWEAK_LEN] {
     assert!(tweak_type < 4);
     assert!(sub_position < 1 << 10);
-    let index_lo = (index & 0xFFFF) as usize;
-    let index_hi = (index >> 16) as usize;
-    [
-        F::from_usize((tweak_type << 26) + (index_hi << 10) + sub_position),
-        F::from_usize(index_lo),
-    ]
+    let packed = ((tweak_type as u64) << 42) | ((sub_position as u64) << 32) | u64::from(index);
+    [F::from_u64(packed)]
 }
 
-/// [tweak(2) | zeros(2) | public_param(4) | left_child(4) | right_child(4)]
+/// `[tweak(1) | zeros(1) | public_param(2) | left_child(2) | right_child(2)]`
 pub(crate) fn build_merkle_data(
     tweak: [F; TWEAK_LEN],
     public_param: &PublicParam,
@@ -60,14 +66,14 @@ pub(crate) fn build_merkle_data(
 ) -> [F; POSEIDON1_WIDTH] {
     let mut data = [F::default(); POSEIDON1_WIDTH];
     data[..TWEAK_LEN].copy_from_slice(&tweak);
-    // data[2..4] = zeros (default)
+    // data[1..2] = zeros (default)
     data[DIGEST_LEN_FE - PUBLIC_PARAM_LEN_FE..][..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);
     data[DIGEST_LEN_FE..][..XMSS_DIGEST_LEN].copy_from_slice(left_child);
     data[DIGEST_LEN_FE + XMSS_DIGEST_LEN..].copy_from_slice(right_child);
     data
 }
 
-/// [tweak(2) | zeros(2) | data(4)]
+/// `[tweak(1) | zeros(1) | data(2)]`
 pub(crate) fn build_left_chain_input(tweak: [F; TWEAK_LEN], data: &Digest) -> [F; DIGEST_LEN_FE] {
     let mut left = [F::default(); DIGEST_LEN_FE];
     left[..TWEAK_LEN].copy_from_slice(&tweak);
@@ -75,7 +81,7 @@ pub(crate) fn build_left_chain_input(tweak: [F; TWEAK_LEN], data: &Digest) -> [F
     left
 }
 
-/// [public_param(4) | zeros(4)]
+/// `[public_param(2) | zeros(2)]`
 pub(crate) fn build_right_chain_input(public_param: &PublicParam) -> [F; DIGEST_LEN_FE] {
     let mut right = [F::default(); DIGEST_LEN_FE];
     right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(public_param);

@@ -1,7 +1,7 @@
 use backend::*;
 use rand::{CryptoRng, RngExt};
 use serde::{Deserialize, Serialize};
-use utils::{ToUsize, poseidon16_compress_pair};
+use utils::poseidon8_compress_pair;
 
 use crate::*;
 
@@ -92,23 +92,23 @@ impl WotsSignature {
 }
 
 impl WotsPublicKey {
-    // We use a T-Sponge with replacement, i.e. we use Poseidon in compression mode + replace (instead of modular addition) when ingesting 8 new field elements.
+    // We use a T-Sponge with replacement, i.e. we use Poseidon in compression mode + replace (instead of modular addition) when ingesting 4 new field elements.
     pub fn hash(&self, public_param: PublicParam, slot: u32) -> Digest {
-        // IV: [tweak(2) | 00 | pp(4)]
+        // IV: [tweak(1) | 0 | pp(2)]
         let tweak = make_tweak(TWEAK_TYPE_WOTS_PK, 0, slot);
-        let mut state = [F::default(); 8];
+        let mut state = [F::default(); DIGEST_LEN_FE];
         state[..TWEAK_LEN].copy_from_slice(&tweak);
-        // state[2..4] = 00 (default)
-        state[4..4 + PUBLIC_PARAM_LEN_FE].copy_from_slice(&public_param);
+        // state[1..2] = 0 (default)
+        state[DIGEST_LEN_FE - PUBLIC_PARAM_LEN_FE..].copy_from_slice(&public_param);
 
-        let zeros = [F::ZERO; 8]; // for snark-friendliless (not necessary for security)
-        state = poseidon16_compress_pair(&state, &zeros);
+        let zeros = [F::ZERO; DIGEST_LEN_FE]; // for snark-friendliness (not necessary for security)
+        state = poseidon8_compress_pair(&state, &zeros);
 
         for i in (0..V).step_by(2) {
-            let mut chunk = [F::default(); 8];
+            let mut chunk = [F::default(); DIGEST_LEN_FE];
             chunk[..XMSS_DIGEST_LEN].copy_from_slice(&self.0[i]);
             chunk[XMSS_DIGEST_LEN..].copy_from_slice(&self.0[i + 1]);
-            state = poseidon16_compress_pair(&state, &chunk);
+            state = poseidon8_compress_pair(&state, &chunk);
         }
         state[..XMSS_DIGEST_LEN].try_into().unwrap()
     }
@@ -122,12 +122,12 @@ pub fn iterate_hash(
     chain_index: usize,
     start_step: usize,
 ) -> Digest {
-    // Chain hash layout: left = [tweak (2) | zeros (2) | data (4)], right = [public_param(4) | zeros(4)].
+    // Chain hash layout: left = [tweak (1) | zero (1) | data (2)], right = [public_param(2) | zeros(2)].
     let right = build_right_chain_input(&public_param);
     (0..n).fold(*a, |acc, j| {
         let tweak = make_tweak(TWEAK_TYPE_CHAIN, chain_index * CHAIN_LENGTH + start_step + j, slot);
         let left = build_left_chain_input(tweak, &acc);
-        poseidon16_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
+        poseidon8_compress_pair(&left, &right)[..XMSS_DIGEST_LEN]
             .try_into()
             .unwrap()
     })
@@ -159,30 +159,29 @@ pub fn wots_encode(
     let mut first_input_right = [F::default(); DIGEST_LEN_FE];
     first_input_right[..RANDOMNESS_LEN_FE].copy_from_slice(randomness);
     first_input_right[RANDOMNESS_LEN_FE..][..TWEAK_LEN].copy_from_slice(&make_tweak(TWEAK_TYPE_ENCODING, 0, slot));
-    let pre_compressed = poseidon16_compress_pair(first_input_left, &first_input_right);
+    let pre_compressed = poseidon8_compress_pair(first_input_left, &first_input_right);
 
     let mut second_input_right = [F::default(); DIGEST_LEN_FE];
     second_input_right[..PUBLIC_PARAM_LEN_FE].copy_from_slice(&xmss_pub_key.public_param);
-    let compressed = poseidon16_compress_pair(&pre_compressed, &second_input_right);
+    let compressed = poseidon8_compress_pair(&pre_compressed, &second_input_right);
 
-    if compressed.iter().any(|&kb| kb == -F::ONE) {
-        // ensures uniformity of encoding
-        return None;
+    // Per-FE decomposition: each output FE contributes V/DIGEST_LEN_FE
+    // = 10 W-bit chunks from the low 30 bits of its low limb; the top 2 bits
+    // of each FE's low limb must be zero (ENCODING_NUM_FINAL_ZEROS = 8 bits
+    // total, evenly distributed = 2 per FE)
+    const CHUNKS_PER_FE: usize = V / DIGEST_LEN_FE;
+    const CHUNK_BITS_PER_FE: usize = CHUNKS_PER_FE * W;
+    let mut all_indices = [0u8; V];
+    for (i, fe) in compressed.iter().enumerate() {
+        let low = fe.as_canonical_u64() & ((1u64 << 32) - 1);
+        if (low >> CHUNK_BITS_PER_FE) != 0 {
+            return None;
+        }
+        for j in 0..CHUNKS_PER_FE {
+            all_indices[i * CHUNKS_PER_FE + j] = ((low >> (W * j)) & ((1u64 << W) - 1)) as u8;
+        }
     }
-    let all_indices: Vec<_> = compressed
-        .iter()
-        .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
-        .collect::<Vec<_>>()
-        .chunks_exact(W)
-        .take(V)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .enumerate()
-                .fold(0u8, |acc, (i, &bit)| acc | (u8::from(bit) << i))
-        })
-        .collect();
-    is_valid_encoding(&all_indices).then(|| all_indices[..V].try_into().unwrap())
+    is_valid_encoding(&all_indices).then_some(all_indices)
 }
 
 fn is_valid_encoding(encoding: &[u8]) -> bool {

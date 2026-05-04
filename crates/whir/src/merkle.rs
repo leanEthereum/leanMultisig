@@ -8,7 +8,7 @@ use field::BasedVectorSpace;
 use field::ExtensionField;
 use field::Field;
 use field::PackedValue;
-use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
+use goldilocks::{CubicExtensionFieldGL, Goldilocks, default_goldilocks_poseidon1_8};
 use poly::*;
 
 use rayon::prelude::*;
@@ -30,22 +30,22 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     full_n_cols: usize,
     effective_n_cols: usize,
 ) -> ([F; DIGEST_ELEMS], RoundMerkleTree<F>) {
-    if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
-        let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<QuinticExtensionFieldKB>>(matrix) };
-        let dim = <QuinticExtensionFieldKB as BasedVectorSpace<KoalaBear>>::DIMENSION;
+    if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, CubicExtensionFieldGL)>() {
+        let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<CubicExtensionFieldGL>>(matrix) };
+        let dim = <CubicExtensionFieldGL as BasedVectorSpace<Goldilocks>>::DIMENSION;
         let dft_base_width = matrix.width * dim;
         let full_base_width = full_n_cols * dim;
         let effective_base_width = effective_n_cols * dim;
-        let base_values = QuinticExtensionFieldKB::flatten_to_base(matrix.values);
-        let base_matrix = DenseMatrix::<KoalaBear>::new(base_values, dft_base_width);
-        let tree = build_merkle_tree_koalabear(base_matrix, full_base_width, effective_base_width);
+        let base_values = CubicExtensionFieldGL::flatten_to_base(matrix.values);
+        let base_matrix = DenseMatrix::<Goldilocks>::new(base_values, dft_base_width);
+        let tree = build_merkle_tree_goldilocks(base_matrix, full_base_width, effective_base_width);
         let root: [_; DIGEST_ELEMS] = tree.root();
         let root = unsafe { std::mem::transmute_copy::<_, [F; DIGEST_ELEMS]>(&root) };
         let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F>>(tree) };
         (root, tree)
-    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
-        let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<KoalaBear>>(matrix) };
-        let tree = build_merkle_tree_koalabear(matrix, full_n_cols, effective_n_cols);
+    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, Goldilocks)>() {
+        let matrix = unsafe { std::mem::transmute::<_, DenseMatrix<Goldilocks>>(matrix) };
+        let tree = build_merkle_tree_goldilocks(matrix, full_n_cols, effective_n_cols);
         let root: [_; DIGEST_ELEMS] = tree.root();
         let root = unsafe { std::mem::transmute_copy::<_, [F; DIGEST_ELEMS]>(&root) };
         let tree = unsafe { std::mem::transmute::<_, RoundMerkleTree<F>>(tree) };
@@ -56,30 +56,30 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
 }
 
 #[instrument(name = "build merkle tree", skip_all)]
-fn build_merkle_tree_koalabear(
-    leaf: DenseMatrix<KoalaBear>,
+fn build_merkle_tree_goldilocks(
+    leaf: DenseMatrix<Goldilocks>,
     full_base_width: usize,
     effective_base_width: usize,
-) -> RoundMerkleTree<KoalaBear> {
-    let perm = default_koalabear_poseidon1_16();
-    let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 8;
+) -> RoundMerkleTree<Goldilocks> {
+    let perm = default_goldilocks_poseidon1_8();
+    let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 4;
     let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-        let scalar_state = symetric::precompute_zero_suffix_state::<KoalaBear, _, 16, 8, DIGEST_ELEMS>(
+        let scalar_state = symetric::precompute_zero_suffix_state::<Goldilocks, _, 8, 4, DIGEST_ELEMS>(
             &perm,
             n_zero_suffix_rate_chunks,
         );
-        let packed_state: [PFPacking<KoalaBear>; 16] =
-            std::array::from_fn(|i| PFPacking::<KoalaBear>::from_fn(|_| scalar_state[i]));
-        first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(
+        let packed_state: [PFPacking<Goldilocks>; 8] =
+            std::array::from_fn(|i| PFPacking::<Goldilocks>::from_fn(|_| scalar_state[i]));
+        first_digest_layer_with_initial_state::<PFPacking<Goldilocks>, _, _, DIGEST_ELEMS, 8, 4>(
             &perm,
             &leaf,
             &packed_state,
             effective_base_width,
         )
     } else {
-        first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(&perm, &leaf, full_base_width)
+        first_digest_layer::<PFPacking<Goldilocks>, _, _, DIGEST_ELEMS, 8, 4>(&perm, &leaf, full_base_width)
     };
-    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer);
+    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<Goldilocks>, _, 8>(&perm, first_layer);
     WhirMerkleTree {
         leaf,
         tree,
@@ -92,17 +92,17 @@ pub(crate) fn merkle_open<F: Field, EF: ExtensionField<F>>(
     merkle_tree: &RoundMerkleTree<F>,
     index: usize,
 ) -> (Vec<EF>, Vec<[F; DIGEST_ELEMS]>) {
-    if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
-        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
+    if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, CubicExtensionFieldGL)>() {
+        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<Goldilocks>>(merkle_tree) };
         let (inner_leaf, proof) = merkle_tree.open(index);
-        let leaf = QuinticExtensionFieldKB::reconstitute_from_base(inner_leaf);
+        let leaf = CubicExtensionFieldGL::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
         let proof = unsafe { std::mem::transmute::<_, Vec<[F; DIGEST_ELEMS]>>(proof) };
         (leaf, proof)
-    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
-        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
+    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, Goldilocks)>() {
+        let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<Goldilocks>>(merkle_tree) };
         let (inner_leaf, proof) = merkle_tree.open(index);
-        let leaf = KoalaBear::reconstitute_from_base(inner_leaf);
+        let leaf = Goldilocks::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
         let proof = unsafe { std::mem::transmute::<_, Vec<[F; DIGEST_ELEMS]>>(proof) };
         (leaf, proof)
@@ -119,14 +119,14 @@ pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
     data: Vec<EF>,
     proof: &Vec<[F; DIGEST_ELEMS]>,
 ) -> bool {
-    let perm = default_koalabear_poseidon1_16();
+    let perm = default_goldilocks_poseidon1_8();
     let log_max_height = utils::log2_strict_usize(dimension.height.next_power_of_two());
-    if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
-        let merkle_root = unsafe { std::mem::transmute_copy::<_, [KoalaBear; DIGEST_ELEMS]>(&merkle_root) };
-        let data = unsafe { std::mem::transmute::<_, Vec<QuinticExtensionFieldKB>>(data) };
-        let proof = unsafe { std::mem::transmute::<_, &Vec<[KoalaBear; DIGEST_ELEMS]>>(proof) };
-        let base_data = QuinticExtensionFieldKB::flatten_to_base(data);
-        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 16, 8>(
+    if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, CubicExtensionFieldGL)>() {
+        let merkle_root = unsafe { std::mem::transmute_copy::<_, [Goldilocks; DIGEST_ELEMS]>(&merkle_root) };
+        let data = unsafe { std::mem::transmute::<_, Vec<CubicExtensionFieldGL>>(data) };
+        let proof = unsafe { std::mem::transmute::<_, &Vec<[Goldilocks; DIGEST_ELEMS]>>(proof) };
+        let base_data = CubicExtensionFieldGL::flatten_to_base(data);
+        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 8, 4>(
             &perm,
             &merkle_root,
             log_max_height,
@@ -134,12 +134,12 @@ pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
             &base_data,
             proof,
         )
-    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
-        let merkle_root = unsafe { std::mem::transmute_copy::<_, [KoalaBear; DIGEST_ELEMS]>(&merkle_root) };
-        let data = unsafe { std::mem::transmute::<_, Vec<KoalaBear>>(data) };
-        let proof = unsafe { std::mem::transmute::<_, &Vec<[KoalaBear; DIGEST_ELEMS]>>(proof) };
-        let base_data = KoalaBear::flatten_to_base(data);
-        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 16, 8>(
+    } else if TypeId::of::<(F, EF)>() == TypeId::of::<(Goldilocks, Goldilocks)>() {
+        let merkle_root = unsafe { std::mem::transmute_copy::<_, [Goldilocks; DIGEST_ELEMS]>(&merkle_root) };
+        let data = unsafe { std::mem::transmute::<_, Vec<Goldilocks>>(data) };
+        let proof = unsafe { std::mem::transmute::<_, &Vec<[Goldilocks; DIGEST_ELEMS]>>(proof) };
+        let base_data = Goldilocks::flatten_to_base(data);
+        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 8, 4>(
             &perm,
             &merkle_root,
             log_max_height,

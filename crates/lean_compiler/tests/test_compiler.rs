@@ -4,32 +4,33 @@ use backend::BasedVectorSpace;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::poseidon16_compress;
+use utils::poseidon8_compress;
 
 #[test]
 fn test_poseidon() {
+    // Goldilocks width-8 Poseidon: two 4-element halves in, one 4-element digest out.
     let program = r#"
 def main():
     a = 0
-    b = a + 8
-    c = Array(8)
-    poseidon16_compress(a, b, c)
+    b = a + 4
+    c = Array(4)
+    poseidon8_compress(a, b, c)
 
-    for i in range(0, 8):
+    for i in range(0, 4):
         cc = c[i]
         print(cc)
     return
    "#;
-    let public_input: [F; 16] = (0..16).map(F::new).collect::<Vec<F>>().try_into().unwrap();
+    let public_input: [F; 8] = (0..8).map(F::new).collect::<Vec<F>>().try_into().unwrap();
     compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
 
-    let _ = dbg!(poseidon16_compress(public_input));
+    let _ = dbg!(poseidon8_compress(public_input));
 }
 
 #[test]
 fn test_div_extension_field() {
     let program = r#"
-DIM = 5
+DIM = 3
 
 def main():
     n = 0
@@ -170,8 +171,8 @@ def main():
         let bytecode = compile_program(&ProgramSource::Raw(program));
 
         let run = |end_val: u32| -> usize {
-            let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>() as u32;
-            let public_input = [F::new(end_val), F::new(expected_sum)];
+            let expected_sum = (start..end_val).map(|i| i as u64).sum::<u64>();
+            let public_input = [F::new(end_val as u64), F::new(expected_sum)];
             let result = try_execute_bytecode(&bytecode, &public_input, &ExecutionWitness::default(), false).unwrap();
             result.pcs.len()
         };
@@ -211,7 +212,7 @@ def main():
 
 @inline
 def func(a, b):
-    poseidon16_compress(a, a, b)
+    poseidon8_compress(a, a, b)
     return
    "#;
     let bytecode = compile_program(&ProgramSource::Raw(program.to_string()));
@@ -288,7 +289,7 @@ fn test_soundness_suite() {
         ("soundness_5", &[3, 4, 7, 19, 49, 28, 1, 3],  &[(0, 4), (1, 5), (2, 8), (3, 20), (4, 50), (5, 29), (6, 0), (6, 2), (7, 4)]),
     ];
 
-    let to_input = |v: &[u32]| v.iter().copied().map(F::new).collect::<Vec<_>>();
+    let to_input = |v: &[u32]| v.iter().copied().map(|x| F::new(x as u64)).collect::<Vec<_>>();
 
     for &(name, valid, perturbations) in cases {
         let path = format!("{}/{}.py", test_data_dir(), name);

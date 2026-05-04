@@ -56,11 +56,11 @@ where
 #[cfg(test)]
 mod tests {
     use field::PrimeCharacteristicRing;
-    use koala_bear::KoalaBear;
+    use goldilocks::Goldilocks;
 
     use crate::{EvaluationsList, MultilinearPoint, matrix_next_mle_folded, next_mle, to_big_endian_in_field};
 
-    type F = KoalaBear;
+    type F = Goldilocks;
 
     #[test]
     fn test_matrix_down_folded() {

@@ -3,6 +3,11 @@
 use field::{Field, TwoAdicField};
 use poly::*;
 
+// (Goldilocks two adicity is 32) We use a smaller one to avoid having to deal with PoW grinding at folding in WHIR
+// TODO we likely want a bit more than 24, so we should reintroduce PoW grinding for folding in the future
+// But hopefully we will have better proximity gaps formulas by then 
+pub const EFFECTIVE_TWO_ADICITY: usize = 24;
+
 /// Defines the folding factor for polynomial commitments.
 #[derive(Debug, Clone, Copy)]
 pub struct FoldingFactor {
@@ -103,7 +108,6 @@ pub struct WhirConfigBuilder {
 #[derive(Debug, Clone)]
 pub struct RoundConfig<EF: Field> {
     pub query_pow_bits: usize,
-    pub folding_pow_bits: usize,
     pub num_queries: usize,
     pub ood_samples: usize,
     pub log_inv_rate: usize,
@@ -119,7 +123,6 @@ pub struct WhirConfig<EF: Field> {
 
     pub commitment_ood_samples: usize,
     pub starting_log_inv_rate: usize,
-    pub starting_folding_pow_bits: usize,
 
     pub folding_factor: FoldingFactor,
     pub rs_domain_initial_reduction_factor: usize,
@@ -137,40 +140,22 @@ where
     PF<EF>: TwoAdicField,
 {
     /// `log_c` controls the proximity parameter `η` (η = √ρ/c for JB, η = ρ/c for CB).
-    /// Increasing `log_c` shrinks `η`, which:
-    /// - reduces the number of queries, but
-    /// - grows the list size, which tightens the `prox_gaps_error` and `sumcheck_error` -> more PoW grinding
-    ///
-    /// Both errors are decreasing functions in `log_c`. Among feasible `m ∈ [3, 100]` (with `log_c = log2(2m)`,
-    /// and `folding_pow_bits ≤ pow_bits`) we pick the smallest `m` that achieves the minimum query count.
-    fn compute_optimal_log_c_for_rate(
-        whir_parameters: &WhirConfigBuilder,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-    ) -> f64 {
+    /// Increasing `log_c` shrinks `η`, which reduces the number of queries but grows the list size.
+    /// With the field we use (192-bit cubic extension over Goldilocks), the list size never threatens
+    /// `prox_gaps_error` / `sumcheck_error` enough to require folding PoW, so we pick the smallest
+    /// `m ∈ [3, 100]` (with `log_c = log2(2m)`) that achieves the minimum query count — keeping
+    /// `log_c` (and the dependent OOD sample count) as small as possible.
+    fn compute_optimal_log_c_for_rate(whir_parameters: &WhirConfigBuilder, log_inv_rate: usize) -> f64 {
         if matches!(whir_parameters.soundness_type, SecurityAssumption::UniqueDecoding) {
             return 0.0;
         }
 
-        let pow_budget = whir_parameters.pow_bits;
-        let query_security_level = whir_parameters.security_level.saturating_sub(pow_budget);
+        let query_security_level = whir_parameters.security_level.saturating_sub(whir_parameters.pow_bits);
 
         let mut best_m = 3;
         let mut best_queries = usize::MAX;
         for m in 3..=100 {
             let log_c = (2.0 * m as f64).log2();
-            let folding_pow = Self::folding_pow_bits(
-                whir_parameters.security_level,
-                whir_parameters.soundness_type,
-                field_size_bits,
-                num_variables,
-                log_inv_rate,
-                log_c,
-            );
-            if folding_pow.ceil() as usize > pow_budget {
-                break;
-            }
             let queries = whir_parameters
                 .soundness_type
                 .queries(query_security_level, log_inv_rate, log_c);
@@ -182,7 +167,6 @@ where
         (2.0 * best_m as f64).log2()
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn new(whir_parameters: &WhirConfigBuilder, num_variables: usize) -> Self {
         whir_parameters.folding_factor.check_validity(num_variables).unwrap();
 
@@ -200,31 +184,29 @@ where
 
         let log_folded_domain_size = log_domain_size - whir_parameters.folding_factor.at_round(0);
         assert!(
-            log_folded_domain_size <= PF::<EF>::TWO_ADICITY,
-            "Increase folding_factor_0"
+            log_folded_domain_size <= EFFECTIVE_TWO_ADICITY,
+            "num_variables + log_inv_rate must be ≤ EFFECTIVE_TWO_ADICITY ({}) + first_folding_factor ({}); \
+             got {}.",
+            EFFECTIVE_TWO_ADICITY,
+            whir_parameters.folding_factor.at_round(0),
+            log_domain_size,
+        );
+        debug_assert!(
+            EFFECTIVE_TWO_ADICITY <= PF::<EF>::TWO_ADICITY,
+            "EFFECTIVE_TWO_ADICITY exceeds the field's actual two-adicity",
         );
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
             .compute_number_of_rounds(num_variables, whir_parameters.max_num_variables_to_send_coeffs);
 
-        let mut log_c_old =
-            Self::compute_optimal_log_c_for_rate(whir_parameters, field_size_bits, num_variables, log_inv_rate);
+        let mut log_c_old = Self::compute_optimal_log_c_for_rate(whir_parameters, log_inv_rate);
 
         let commitment_ood_samples = whir_parameters.soundness_type.determine_ood_samples(
             whir_parameters.security_level,
             num_variables,
             log_inv_rate,
             field_size_bits,
-            log_c_old,
-        );
-
-        let starting_folding_pow_bits = Self::folding_pow_bits(
-            whir_parameters.security_level,
-            whir_parameters.soundness_type,
-            field_size_bits,
-            num_variables,
-            log_inv_rate,
             log_c_old,
         );
 
@@ -241,8 +223,7 @@ where
             };
             let next_rate = log_inv_rate + (whir_parameters.folding_factor.at_round(round) - rs_reduction_factor);
 
-            let log_c_new =
-                Self::compute_optimal_log_c_for_rate(whir_parameters, field_size_bits, num_variables_moving, next_rate);
+            let log_c_new = Self::compute_optimal_log_c_for_rate(whir_parameters, next_rate);
 
             let num_queries = whir_parameters
                 .soundness_type
@@ -272,21 +253,12 @@ where
             let query_pow_bits =
                 0_f64.max(whir_parameters.security_level as f64 - (query_error.min(combination_error)));
 
-            let folding_pow_bits = Self::folding_pow_bits(
-                whir_parameters.security_level,
-                whir_parameters.soundness_type,
-                field_size_bits,
-                num_variables_moving,
-                next_rate,
-                log_c_new,
-            );
             let folding_factor = whir_parameters.folding_factor.at_round(round);
             let next_folding_factor = whir_parameters.folding_factor.at_round(round + 1);
             let folded_domain_gen = PF::<EF>::two_adic_generator(domain_size.ilog2() as usize - folding_factor);
 
             round_parameters.push(RoundConfig {
                 query_pow_bits: query_pow_bits.ceil() as usize,
-                folding_pow_bits: folding_pow_bits.ceil() as usize,
                 num_queries,
                 ood_samples,
                 log_inv_rate,
@@ -322,7 +294,6 @@ where
             commitment_ood_samples,
             num_variables,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
-            starting_folding_pow_bits: starting_folding_pow_bits.ceil() as usize,
             folding_factor: whir_parameters.folding_factor,
             rs_domain_initial_reduction_factor: whir_parameters.rs_domain_initial_reduction_factor,
             round_parameters,
@@ -366,41 +337,6 @@ where
         self.num_variables - self.folding_factor.total_number(self.n_rounds())
     }
 
-    pub fn max_folding_pow_bits(&self) -> usize {
-        self.round_parameters.iter().map(|r| r.folding_pow_bits).max().unwrap()
-    }
-
-    #[must_use]
-    pub fn rbr_soundness_fold_sumcheck(
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-        log_c: f64,
-    ) -> f64 {
-        let list_size = soundness_type.list_size_bits(num_variables, log_inv_rate, log_c);
-
-        field_size_bits as f64 - (list_size + 1.)
-    }
-
-    #[must_use]
-    pub fn folding_pow_bits(
-        security_level: usize,
-        soundness_type: SecurityAssumption,
-        field_size_bits: usize,
-        num_variables: usize,
-        log_inv_rate: usize,
-        log_c: f64,
-    ) -> f64 {
-        let prox_gaps_error = soundness_type.prox_gaps_error(num_variables, log_inv_rate, field_size_bits, 2, log_c);
-        let sumcheck_error =
-            Self::rbr_soundness_fold_sumcheck(soundness_type, field_size_bits, num_variables, log_inv_rate, log_c);
-
-        let error = prox_gaps_error.min(sumcheck_error);
-
-        0_f64.max(security_level as f64 - error)
-    }
-
     #[must_use]
     pub fn rbr_soundness_queries_combination(
         soundness_type: SecurityAssumption,
@@ -436,7 +372,6 @@ where
             domain_size,
             folded_domain_gen,
             ood_samples: last.ood_samples,
-            folding_pow_bits: 0,
             log_inv_rate: last.log_inv_rate,
         }
     }
@@ -462,7 +397,7 @@ impl SecurityAssumption {
     ///
     /// `log_c` is log2 of the divisor c, where η = √ρ/c (JB) or ρ/c (CB).
     /// It is computed per rate phase by `WhirConfig::compute_optimal_log_c_for_rate` to
-    /// balance folding PoW vs queries.
+    /// minimize the query count.
     #[must_use]
     pub fn log_eta(&self, log_inv_rate: usize, log_c: f64) -> f64 {
         match self {

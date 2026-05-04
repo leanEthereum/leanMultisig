@@ -1,7 +1,7 @@
 from snark_lib import *
 
-DIM = 5  # extension degree
-DIGEST_LEN = 8
+DIM = 3  # extension degree (Goldilocks cubic extension)
+DIGEST_LEN = 4
 
 # memory layout: [public_input (PUBLIC_INPUT_LEN)] [preamble_memory (PREAMBLE_MEMORY_LEN)] [runtime ...]
 # `preamble_memory` is a region that is filled by the guest program, with usefull constants [0000...][1000...]...
@@ -47,6 +47,13 @@ def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, nu
 
 
 def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks: Const):
+    # num_chunks=1 is a trivial pass-through: the "hash" of a single digest is
+    # the digest itself. Handled inline here so `slice_hash_rtl` never has to
+    # deal with num_chunks<2 (it would otherwise generate invalid offsets).
+    if num_chunks == 1:
+        for i in range(0, num_queries):
+            all_resulting_hashes[i] = all_data_to_hash[i]
+        return
     for i in range(0, num_queries):
         data = all_data_to_hash[i]
         res = slice_hash_rtl(data, num_chunks)
@@ -56,20 +63,24 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
 
 @inline
 def slice_hash_rtl(data, num_chunks):
+    # Precondition: num_chunks >= 2. Callers must dispatch the num_chunks=1 case
+    # separately (the single chunk is its own hash). Without this the generated
+    # offset `data + (num_chunks-2) * DIGEST_LEN` underflows for num_chunks=1
+    # and confuses @inline expansion.
     states = Array((num_chunks - 1) * DIGEST_LEN)
 
-    poseidon16_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
+    poseidon8_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
     for j in unroll(1, num_chunks - 1):
-        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
+        poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
 
 
 @inline
 def slice_hash(data, num_chunks):
     states = Array((num_chunks - 1) * DIGEST_LEN)
-    poseidon16_compress(data, data + DIGEST_LEN, states)
+    poseidon8_compress(data, data + DIGEST_LEN, states)
     for j in unroll(1, num_chunks - 1):
-        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
+        poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
 
 
@@ -77,36 +88,36 @@ def slice_hash(data, num_chunks):
 def slice_hash_with_iv(data, num_chunks):
     debug_assert(0 < num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
-    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    poseidon8_compress(ZERO_VEC_PTR, data, states)
     for j in unroll(1, num_chunks):
-        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+        poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 1) * DIGEST_LEN
 
 
 def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
     remainder = modulo_8(len, len_bits)
     num_full_elements = len - remainder
-    num_full_chunks = num_full_elements / 8
+    num_full_chunks = num_full_elements / DIGEST_LEN
 
     if num_full_chunks == 0:
         left = Array(DIGEST_LEN)
         fill_padded_chunk(left, data, remainder)
         result = Array(DIGEST_LEN)
-        poseidon16_compress(ZERO_VEC_PTR, left, result)
+        poseidon8_compress(ZERO_VEC_PTR, left, result)
         return result
 
     if num_full_chunks == 1:
         if remainder == 0:
             result = Array(DIGEST_LEN)
-            poseidon16_compress(ZERO_VEC_PTR, data, result)
+            poseidon8_compress(ZERO_VEC_PTR, data, result)
             return result
         else:
             h0 = Array(DIGEST_LEN)
-            poseidon16_compress(ZERO_VEC_PTR, data, h0)
+            poseidon8_compress(ZERO_VEC_PTR, data, h0)
             right = Array(DIGEST_LEN)
             fill_padded_chunk(right, data + DIGEST_LEN, remainder)
             result = Array(DIGEST_LEN)
-            poseidon16_compress(h0, right, result)
+            poseidon8_compress(h0, right, result)
             return result
 
     partial_hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
@@ -116,7 +127,7 @@ def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
         padded_last = Array(DIGEST_LEN)
         fill_padded_chunk(padded_last, data + num_full_elements, remainder)
         final_hash = Array(DIGEST_LEN)
-        poseidon16_compress(partial_hash, padded_last, final_hash)
+        poseidon8_compress(partial_hash, padded_last, final_hash)
         return final_hash
 
 
@@ -124,13 +135,13 @@ def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
 def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
     debug_assert(1 < num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
-    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    poseidon8_compress(ZERO_VEC_PTR, data, states)
     n_iters = num_chunks - 1
     state_ptr: Mut = states
     data_ptr: Mut = data + DIGEST_LEN
     for _ in dynamic_unroll(0, n_iters, num_chunks_bits):
         new_state = state_ptr + DIGEST_LEN
-        poseidon16_compress(state_ptr, data_ptr, new_state)
+        poseidon8_compress(state_ptr, data_ptr, new_state)
         state_ptr = new_state
         data_ptr = data_ptr + DIGEST_LEN
     return state_ptr
@@ -152,7 +163,9 @@ def fill_padded_chunk_const(dst, src, n: Const):
 
 
 def modulo_8(n, n_bits: Const):
-    debug_assert(2 < n_bits)
+    # Name is legacy; returns `n mod DIGEST_LEN`. For DIGEST_LEN=4 (Goldilocks)
+    # this is the low 2 bits of n; for DIGEST_LEN=8 (KoalaBear) it's the low 3.
+    debug_assert(1 < n_bits)
     debug_assert(n < 2**n_bits)
     bits = Array(n_bits)
     hint_decompose_bits(n, bits, n_bits, BIG_ENDIAN)
@@ -164,7 +177,9 @@ def modulo_8(n, n_bits: Const):
         assert b * (1 - b) == 0
         partial_sums[i] = partial_sums[i - 1] + b * 2**i
     assert n == partial_sums[n_bits - 1]
-    return partial_sums[2]
+    # DIGEST_LEN = 2^DIGEST_LEN_BITS; we want partial_sums[DIGEST_LEN_BITS - 1]
+    # (low DIGEST_LEN_BITS bits). log2(4) = 2 → index 1; log2(8) = 3 → index 2.
+    return partial_sums[log2_ceil(DIGEST_LEN) - 1]
 
 
 @inline
@@ -180,24 +195,24 @@ def whir_do_4_merkle_levels(b, state_in, path_chunk, state_out):
     temps = Array(3 * DIGEST_LEN)
 
     if b0 == 0:
-        poseidon16_compress(state_in, path_chunk, temps)
+        poseidon8_compress(state_in, path_chunk, temps)
     else:
-        poseidon16_compress(path_chunk, state_in, temps)
+        poseidon8_compress(path_chunk, state_in, temps)
 
     if b1 == 0:
-        poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
+        poseidon8_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
-        poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+        poseidon8_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
 
     if b2 == 0:
-        poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
+        poseidon8_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, temps + 2 * DIGEST_LEN)
     else:
-        poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
+        poseidon8_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, temps + 2 * DIGEST_LEN)
 
     if b3 == 0:
-        poseidon16_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
+        poseidon8_compress(temps + 2 * DIGEST_LEN, path_chunk + 3 * DIGEST_LEN, state_out)
     else:
-        poseidon16_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
+        poseidon8_compress(path_chunk + 3 * DIGEST_LEN, temps + 2 * DIGEST_LEN, state_out)
     return
 
 
@@ -212,19 +227,19 @@ def whir_do_3_merkle_levels(b, state_in, path_chunk, state_out):
     temps = Array(2 * DIGEST_LEN)
 
     if b0 == 0:
-        poseidon16_compress(state_in, path_chunk, temps)
+        poseidon8_compress(state_in, path_chunk, temps)
     else:
-        poseidon16_compress(path_chunk, state_in, temps)
+        poseidon8_compress(path_chunk, state_in, temps)
 
     if b1 == 0:
-        poseidon16_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
+        poseidon8_compress(temps, path_chunk + DIGEST_LEN, temps + DIGEST_LEN)
     else:
-        poseidon16_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
+        poseidon8_compress(path_chunk + DIGEST_LEN, temps, temps + DIGEST_LEN)
 
     if b2 == 0:
-        poseidon16_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, state_out)
+        poseidon8_compress(temps + DIGEST_LEN, path_chunk + 2 * DIGEST_LEN, state_out)
     else:
-        poseidon16_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, state_out)
+        poseidon8_compress(path_chunk + 2 * DIGEST_LEN, temps + DIGEST_LEN, state_out)
     return
 
 
@@ -237,14 +252,14 @@ def whir_do_2_merkle_levels(b, state_in, path_chunk, state_out):
     temp = Array(DIGEST_LEN)
 
     if b0 == 0:
-        poseidon16_compress(state_in, path_chunk, temp)
+        poseidon8_compress(state_in, path_chunk, temp)
     else:
-        poseidon16_compress(path_chunk, state_in, temp)
+        poseidon8_compress(path_chunk, state_in, temp)
 
     if b1 == 0:
-        poseidon16_compress(temp, path_chunk + DIGEST_LEN, state_out)
+        poseidon8_compress(temp, path_chunk + DIGEST_LEN, state_out)
     else:
-        poseidon16_compress(path_chunk + DIGEST_LEN, temp, state_out)
+        poseidon8_compress(path_chunk + DIGEST_LEN, temp, state_out)
     return
 
 
@@ -253,9 +268,9 @@ def whir_do_1_merkle_level(b, state_in, path_chunk, state_out):
     b0 = b % 2
 
     if b0 == 0:
-        poseidon16_compress(state_in, path_chunk, state_out)
+        poseidon8_compress(state_in, path_chunk, state_out)
     else:
-        poseidon16_compress(path_chunk, state_in, state_out)
+        poseidon8_compress(path_chunk, state_in, state_out)
     return
 
 
@@ -300,25 +315,25 @@ def merkle_verify(leaf_digest, merkle_path, leaf_position_bits, root, height: Co
     # First merkle round
     match leaf_position_bits[0]:
         case 0:
-            poseidon16_compress(leaf_digest, merkle_path, states)
+            poseidon8_compress(leaf_digest, merkle_path, states)
         case 1:
-            poseidon16_compress(merkle_path, leaf_digest, states)
+            poseidon8_compress(merkle_path, leaf_digest, states)
 
     # Remaining merkle rounds
     for j in unroll(1, height):
         # Warning: this works only if leaf_position_bits[i] is known to be boolean:
         match leaf_position_bits[j]:
             case 0:
-                poseidon16_compress(
+                poseidon8_compress(
                     states + (j - 1) * DIGEST_LEN,
                     merkle_path + j * DIGEST_LEN,
                     states + j * DIGEST_LEN,
                 )
             case 1:
-                poseidon16_compress(
+                poseidon8_compress(
                     merkle_path + j * DIGEST_LEN,
                     states + (j - 1) * DIGEST_LEN,
                     states + j * DIGEST_LEN,
                 )
-    copy_8(states + (height - 1) * DIGEST_LEN, root)
+    copy_digest(states + (height - 1) * DIGEST_LEN, root)
     return

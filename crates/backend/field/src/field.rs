@@ -71,7 +71,7 @@ pub trait PrimeCharacteristicRing:
     + PartialEq
 {
     /// The field `ℤ/p` where the characteristic of this ring is p.
-    type PrimeSubfield: PrimeField32;
+    type PrimeSubfield: PrimeField64;
 
     /// The additive identity of the ring.
     ///

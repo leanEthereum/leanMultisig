@@ -4,15 +4,15 @@ use std::time::Instant;
 
 use fiat_shamir::{ProverState, VerifierState};
 use field::{Field, TwoAdicField};
-use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
+use goldilocks::{CubicExtensionFieldGL, Goldilocks, default_goldilocks_poseidon1_8};
 use mt_whir::*;
 use poly::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use tracing_forest::{ForestLayer, util::LevelFilter};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
-type F = KoalaBear;
-type EF = QuinticExtensionFieldKB;
+type F = Goldilocks;
+type EF = CubicExtensionFieldGL;
 
 /*
 WHIR_NUM_VARIABLES=25 WHIR_LOG_INV_RATE=1 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
@@ -30,7 +30,7 @@ fn test_run_whir() {
             .with(ForestLayer::default())
             .try_init();
     }
-    let poseidon16 = default_koalabear_poseidon1_16();
+    let poseidon8 = default_goldilocks_poseidon1_8();
 
     let num_variables = std::env::var("WHIR_NUM_VARIABLES")
         .ok()
@@ -44,7 +44,7 @@ fn test_run_whir() {
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {
-        security_level: 124,
+        security_level: 128,
         max_num_variables_to_send_coeffs: 9,
         pow_bits: 18,
         folding_factor: FoldingFactor::new(7, 4),
@@ -100,9 +100,9 @@ fn test_run_whir() {
         ));
     }
 
-    let mut prover_state = ProverState::new(poseidon16.clone());
+    let mut prover_state = ProverState::new(poseidon8);
 
-    precompute_dft_twiddles::<F>(1 << F::TWO_ADICITY);
+    precompute_dft_twiddles::<F>(1 << 24);
 
     let polynomial: MleOwned<EF> = MleOwned::Base(polynomial);
 
@@ -123,7 +123,7 @@ fn test_run_whir() {
 
     let proof_size_single = pruned_proof.proof_size_fe() as f64 * F::bits() as f64 / 8.0;
 
-    let mut verifier_state = VerifierState::<EF, _>::new(pruned_proof, poseidon16.clone()).unwrap();
+    let mut verifier_state = VerifierState::<EF, _>::new(pruned_proof, poseidon8).unwrap();
 
     let parsed_commitment = params.parse_commitment::<F>(&mut verifier_state).unwrap();
 
@@ -149,7 +149,7 @@ fn display_whir_round_info() {
                 continue;
             }
             let params = WhirConfigBuilder {
-                security_level: 124,
+                security_level: 128,
                 max_num_variables_to_send_coeffs: 8,
                 pow_bits: 16,
                 folding_factor: FoldingFactor::new(first_folding_factor, 5),
@@ -158,9 +158,6 @@ fn display_whir_round_info() {
                 rs_domain_initial_reduction_factor: 5,
             };
             let params = WhirConfig::<EF>::new(&params, n_vars);
-            let folding_pow_bits = std::iter::once(params.starting_folding_pow_bits)
-                .chain(params.round_parameters.iter().map(|r| r.folding_pow_bits))
-                .collect::<Vec<_>>();
             let query_pow_bits = params
                 .round_parameters
                 .iter()
@@ -168,7 +165,7 @@ fn display_whir_round_info() {
                 .chain(std::iter::once(params.final_query_pow_bits))
                 .collect::<Vec<_>>();
             println!(
-                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, folding_pow_bits: {:?}, query_pow_bits: {:?}",
+                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, query_pow_bits: {:?}",
                 n_vars,
                 log_inv_rate,
                 params
@@ -176,7 +173,6 @@ fn display_whir_round_info() {
                     .iter()
                     .map(|r| r.num_queries)
                     .collect::<Vec<_>>(),
-                folding_pow_bits,
                 query_pow_bits,
             );
         }
