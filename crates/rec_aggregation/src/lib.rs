@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), allow(unused_crate_dependencies))]
 use backend::*;
+use lean_prover::ProverError;
 use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::prove_execution;
 use lean_prover::verify_execution::ProofVerificationDetails;
@@ -254,7 +255,7 @@ pub fn xmss_verify_aggregation(
     verify_execution(bytecode, &public_input, agg_sig.proof.clone()).map(|(details, _)| details)
 }
 
-/// panics if one of the sub-proof (children) is invalid
+/// Errors if a signature is invalid
 #[instrument(skip_all)]
 pub fn xmss_aggregate(
     children: &[(&[XmssPublicKey], AggregatedXMSS)],
@@ -262,7 +263,7 @@ pub fn xmss_aggregate(
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     log_inv_rate: usize,
-) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
+) -> Result<(Vec<XmssPublicKey>, AggregatedXMSS), ProverError> {
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
     raw_xmss.dedup_by(|(a, _), (b, _)| a == b);
 
@@ -507,16 +508,16 @@ pub fn xmss_aggregate(
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
         hints,
     };
-    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false).unwrap();
+    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false)?;
 
-    (
+    Ok((
         global_pub_keys,
         AggregatedXMSS {
             proof: execution_proof.proof,
             bytecode_point,
             metadata: Some(execution_proof.metadata),
         },
-    )
+    ))
 }
 
 pub fn extract_bytecode_claim_from_input_data(public_input: &[F], bytecode_point_n_vars: usize) -> Evaluation<EF> {

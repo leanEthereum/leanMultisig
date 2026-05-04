@@ -1,5 +1,7 @@
 # zkDSL Language Reference
 
+Warning: still under construction (i.e. it's messy).
+
 ## Program Structure
 
 ```
@@ -87,11 +89,11 @@ The number of return values is automatically inferred from the `return` statemen
 
 ### Parameter Modifiers
 
-| Syntax | Meaning |
-|--------|---------|
-| `x` | immutable parameter |
+| Syntax     | Meaning                                                   |
+| ---------- | --------------------------------------------------------- |
+| `x`        | immutable parameter                                       |
 | `x: Const` | compile-time value (enables `unroll` with dynamic bounds) |
-| `x: Mut` | mutable within function body only |
+| `x: Mut`   | mutable within function body only                         |
 
 **All parameters are pass-by-value.** The `: Mut` modifier allows reassignment within the function, but changes are not visible to the caller. Use return values to communicate results.
 
@@ -118,12 +120,12 @@ def square(x):
 
 ## Variables
 
-| Declaration | Mutability | Notes |
-|-------------|------------|-------|
-| `x = 10` | immutable | cannot be reassigned |
-| `x: Mut = 10` | mutable | can be reassigned |
-| `x: Imu` | immutable | forward declaration, assign exactly once later |
-| `x: Mut` | mutable | forward declaration for mutable variable |
+| Declaration   | Mutability | Notes                                          |
+| ------------- | ---------- | ---------------------------------------------- |
+| `x = 10`      | immutable  | cannot be reassigned                           |
+| `x: Mut = 10` | mutable    | can be reassigned                              |
+| `x: Imu`      | immutable  | forward declaration, assign exactly once later |
+| `x: Mut`      | mutable    | forward declaration for mutable variable       |
 
 ### Forward Declarations
 
@@ -490,11 +492,11 @@ func(ptr_a, ptr_b, ptr_result, length)    # explicit length (N elements)
 
 **Operations:**
 
-| Function | Element-wise | Accumulation |
-|----------|-------------|--------------|
-| `add_ee` / `add_be` | `e_i = a_i + b_i` | `result = sum(e_i)` |
-| `dot_product_ee` / `dot_product_be` | `e_i = a_i * b_i` | `result = sum(e_i)` |
-| `poly_eq_ee` / `poly_eq_be` | `e_i = a_i*b_i + (1-a_i)*(1-b_i)` | `result = prod(e_i)` |
+| Function                            | Element-wise                      | Accumulation         |
+| ----------------------------------- | --------------------------------- | -------------------- |
+| `add_ee` / `add_be`                 | `e_i = a_i + b_i`                 | `result = sum(e_i)`  |
+| `dot_product_ee` / `dot_product_be` | `e_i = a_i * b_i`                 | `result = sum(e_i)`  |
+| `poly_eq_ee` / `poly_eq_be`         | `e_i = a_i*b_i + (1-a_i)*(1-b_i)` | `result = prod(e_i)` |
 
 **Note:** `length` must be a compile-time constant. For runtime-known lengths, use `match_range` to dispatch (see example below).
 
@@ -725,3 +727,16 @@ def loop(i, x_buff, y_buff):
     return
 ```
 
+## Dev experience
+
+If using VScode, add the following to your local settings `.vscode/settings.json` :
+
+```json
+{                                                                                                                                                
+    "python.analysis.extraPaths": [                                                                                                                
+      "./crates/lean_compiler"                                                                                                                     
+    ],
+}
+```
+
+(you will get better linting for the zkDSL files starting with `from snark_lib import *`, since it will expose zkDSL special functions from `crates/lean_compiler/snark_lib.py`).

@@ -15,7 +15,7 @@ type F = Goldilocks;
 type EF = CubicExtensionFieldGL;
 
 /*
-WHIR_NUM_VARIABLES=25 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
+WHIR_NUM_VARIABLES=25 WHIR_LOG_INV_RATE=1 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
 */
 
 #[test]
@@ -36,6 +36,11 @@ fn test_run_whir() {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(18);
+    let starting_log_inv_rate = std::env::var("WHIR_LOG_INV_RATE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2);
+
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {
@@ -44,7 +49,7 @@ fn test_run_whir() {
         pow_bits: 18,
         folding_factor: FoldingFactor::new(7, 4),
         soundness_type: SecurityAssumption::JohnsonBound,
-        starting_log_inv_rate: 2,
+        starting_log_inv_rate,
         rs_domain_initial_reduction_factor: 5,
     };
     let params = WhirConfig::new(&params, num_variables);

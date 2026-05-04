@@ -1511,7 +1511,7 @@ fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine
 }
 
 fn check_program_scoping(program: &Program) {
-    for (_, function) in program.functions.iter() {
+    for function in program.functions.values() {
         let mut scope = Scope { vars: BTreeSet::new() };
         for arg in function.arguments.iter() {
             scope.vars.insert(arg.name.clone());
