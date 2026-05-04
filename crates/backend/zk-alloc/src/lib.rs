@@ -3,8 +3,8 @@
 //! One mmap region split into per-thread slabs. Allocation = increment a thread-local
 //! pointer; free = no-op. `begin_phase()` resets the arena: each thread's next
 //! allocation starts over at the beginning of its slab, overwriting the previous
-//! phase's data. Allocations that don't fit (too large, or beyond `MAX_THREADS`) fall
-//! back to the system allocator.
+//! phase's data. Allocations that don't fit (too large, beyond `MAX_THREADS`, or
+//! smaller than `ARENA_MIN_ALLOC_SIZE`) fall back to the system allocator.
 //!
 //! ```ignore
 //! init();                          // once, at process start
@@ -29,6 +29,24 @@ const SLAB_SIZE: usize = 8 << 30; // 8GB
 const SLACK: usize = 4; // SLACK absorbs the main thread and any non-rayon helpers.
 const MAX_THREADS: usize = NUM_THREADS + SLACK;
 const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
+
+/// Allocations smaller than this go straight to System even while the arena is on.
+///
+/// The arena's contract is "free is a no-op, slabs reset between phases" — that only
+/// works if every arena-allocated pointer is dropped before the next reset. Application
+/// code respects that, but rayon/crossbeam internals don't: they hold pointers to
+/// `crossbeam_deque::Injector` blocks (~1520 B for `JobRef`) and `Worker` buffers
+/// (start at 1024 B, doubled on resize) for the lifetime of the global thread pool —
+/// across many phases. Routing those into the arena means the next `begin_phase()`
+/// resets the slab the block lives in, the application's new allocations land on top
+/// of it, and the next `Injector::push` writes a `JobRef` straight through the
+/// (now-reused) memory of some user buffer, corrupting it. The user-visible symptom
+/// is a non-deterministic `InvalidProof` panic in a later proof.
+///
+/// 4 KiB comfortably covers every rayon/crossbeam persistent allocation we have
+/// observed and is well below the size of every polynomial buffer the prover wants
+/// in the arena, so we lose nothing by bypassing the arena for sub-page allocations.
+const ARENA_MIN_ALLOC_SIZE: usize = 4096;
 
 #[derive(Debug)]
 pub struct ZkAllocator;
@@ -147,7 +165,7 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
 unsafe impl GlobalAlloc for ZkAllocator {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ARENA_ACTIVE.load(Ordering::Relaxed) {
+        if ARENA_ACTIVE.load(Ordering::Relaxed) && layout.size() >= ARENA_MIN_ALLOC_SIZE {
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
                 let align = layout.align();
