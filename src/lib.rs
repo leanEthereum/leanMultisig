@@ -17,4 +17,15 @@ pub fn setup_verifier() {
     rec_aggregation::init_aggregation_bytecode();
 }
 
-// TODO: expose zk-alloc for max performance
+/// Bump-arena allocator.
+///
+/// **Optional.**
+///
+/// To enable, set it as the `#[global_allocator]` in your binary and call
+/// [`init_allocator`] once at startup. Then bracket each proving call with
+/// [`begin_phase`] / [`end_phase`] and **clone the outputs after
+/// [`end_phase`]** so the cloned copy lands in the system allocator before the
+/// next [`begin_phase`] resets the arena slabs.
+///
+/// See `tests/test_zk_alloc.rs` for a runnable end-to-end example.
+pub use zk_alloc::{ZkAllocator, begin_phase, end_phase, init as init_allocator};
