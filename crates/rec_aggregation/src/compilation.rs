@@ -81,7 +81,7 @@ fn build_replacements(
     let mut all_potential_query_grinding = vec![];
     let mut all_potential_num_oods = vec![];
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
-        let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
+        let max_n_vars = EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate);
 
         let mut queries_for_rate = vec![];
@@ -173,6 +173,10 @@ fn build_replacements(
     replacements.insert(
         "WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER".to_string(),
         WHIR_SUBSEQUENT_FOLDING_FACTOR.to_string(),
+    );
+    replacements.insert(
+        "EFFECTIVE_TWO_ADICITY_PLACEHOLDER".to_string(),
+        EFFECTIVE_TWO_ADICITY.to_string(),
     );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),

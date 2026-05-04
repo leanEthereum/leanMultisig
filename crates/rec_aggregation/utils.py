@@ -7,6 +7,8 @@ HALF_BITS = 32  # Goldilocks splits cleanly at 32:32 for canonical-form checks.
 TWO_ADICITY = 32
 ROOT = 1753635133440165772  # = 0x185629dcda58878c, of order 2^TWO_ADICITY
 
+EFFECTIVE_TWO_ADICITY = EFFECTIVE_TWO_ADICITY_PLACEHOLDER
+
 
 @inline
 def build_preamble_memory():

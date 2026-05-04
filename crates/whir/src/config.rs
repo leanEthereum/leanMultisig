@@ -3,6 +3,11 @@
 use field::{Field, TwoAdicField};
 use poly::*;
 
+// (Goldilocks two adicity is 32) We use a smaller one to avoid having to deal with PoW grinding at folding in WHIR
+// TODO we likely want a bit more than 24, so we should reintroduce PoW grinding for folding in the future
+// But hopefully we will have better proximity gaps formulas by then 
+pub const EFFECTIVE_TWO_ADICITY: usize = 24;
+
 /// Defines the folding factor for polynomial commitments.
 #[derive(Debug, Clone, Copy)]
 pub struct FoldingFactor {
@@ -194,8 +199,16 @@ where
 
         let log_folded_domain_size = log_domain_size - whir_parameters.folding_factor.at_round(0);
         assert!(
-            log_folded_domain_size <= PF::<EF>::TWO_ADICITY,
-            "Increase folding_factor_0"
+            log_folded_domain_size <= EFFECTIVE_TWO_ADICITY,
+            "num_variables + log_inv_rate must be ≤ EFFECTIVE_TWO_ADICITY ({}) + first_folding_factor ({}); \
+             got {}.",
+            EFFECTIVE_TWO_ADICITY,
+            whir_parameters.folding_factor.at_round(0),
+            log_domain_size,
+        );
+        debug_assert!(
+            EFFECTIVE_TWO_ADICITY <= PF::<EF>::TWO_ADICITY,
+            "EFFECTIVE_TWO_ADICITY exceeds the field's actual two-adicity",
         );
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters

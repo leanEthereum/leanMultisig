@@ -14,6 +14,10 @@ fn test_log2_ceil() {
             "NUM_REPEATED_ONES_PLACEHOLDER".to_string(),
             NUM_REPEATED_ONES.to_string(),
         ),
+        (
+            "EFFECTIVE_TWO_ADICITY_PLACEHOLDER".to_string(),
+            EFFECTIVE_TWO_ADICITY.to_string(),
+        ),
     ]);
     let bytecode = compile_program_with_flags(&ProgramSource::Filepath(path), CompilationFlags { replacements });
     let witness = ExecutionWitness {
