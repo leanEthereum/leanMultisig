@@ -18,6 +18,7 @@ use field::{
 };
 use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
+use serde::{Deserialize, Serialize};
 use utils::reconstitute_from_base;
 
 use crate::{FieldParameters, MontyField31, PackedMontyParameters, RelativelyPrimePower, halve_avx2, signed_add_avx2};
@@ -30,7 +31,8 @@ pub trait MontyParametersAVX2 {
 }
 
 /// Vectorized AVX2 implementation of `MontyField31<FP>` arithmetic.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(bound(serialize = "PMP: FieldParameters", deserialize = "PMP: FieldParameters"))]
 #[repr(transparent)] // This is needed to make `transmute`s safe.
 #[must_use]
 pub struct PackedMontyField31AVX2<PMP: PackedMontyParameters>(pub [MontyField31<PMP>; WIDTH]);
