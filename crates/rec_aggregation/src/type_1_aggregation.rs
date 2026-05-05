@@ -197,10 +197,14 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
 }
 
 pub(crate) struct ReducedClaims {
-    pub bytecode_claim_output: Vec<F>,
-    pub reduced_point: MultilinearPoint<EF>,
-    pub reduced_value: EF,
+    pub bytecode_eval: Evaluation<EF>,
     pub sumcheck_transcript: Vec<F>,
+}
+
+impl ReducedClaims {
+    pub fn bytecode_claim_flat(&self) -> Vec<F> {
+        flatten_bytecode_claim(&self.bytecode_eval.point, self.bytecode_eval.value)
+    }
 }
 
 pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaims {
@@ -212,9 +216,7 @@ pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaim
         let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode_point_n_vars]);
         let zero_value = compute_bytecode_value_at(&zero_point);
         return ReducedClaims {
-            bytecode_claim_output: flatten_bytecode_claim(&zero_point, zero_value),
-            reduced_point: zero_point,
-            reduced_value: zero_value,
+            bytecode_eval: Evaluation::new(zero_point, zero_value),
             sumcheck_transcript: vec![],
         };
     }
@@ -279,9 +281,7 @@ pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaim
     );
 
     ReducedClaims {
-        bytecode_claim_output,
-        reduced_point,
-        reduced_value,
+        bytecode_eval: Evaluation::new(reduced_point, reduced_value),
         sumcheck_transcript,
     }
 }
@@ -339,12 +339,7 @@ pub fn aggregate_type_1(
     let tweak_table = compute_tweak_table(slot);
     let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
-    let ReducedClaims {
-        bytecode_claim_output,
-        reduced_point: bytecode_point,
-        reduced_value: bytecode_value,
-        sumcheck_transcript: final_sumcheck_transcript,
-    } = reduce_verified_claims(&verified_children);
+    let reduced_claims = reduce_verified_claims(&verified_children);
 
     let slice_hash = hash_pubkeys(&global_pub_keys);
     let pub_input_data = build_input_data(
@@ -353,7 +348,7 @@ pub fn aggregate_type_1(
         message,
         slot,
         &tweaks_hash,
-        &bytecode_claim_output,
+        &reduced_claims.bytecode_claim_flat(),
         &bytecode.hash,
     );
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
@@ -463,7 +458,7 @@ pub fn aggregate_type_1(
     hints.insert("aggregate_sizes".to_string(), vec![aggregate_sizes]);
     hints.insert("tweak_table".to_string(), vec![tweak_table]);
     if n_recursions > 0 {
-        hints.insert("bytecode_sumcheck_proof".to_string(), vec![final_sumcheck_transcript]);
+        hints.insert("bytecode_sumcheck_proof".to_string(), vec![reduced_claims.sumcheck_transcript]);
     }
 
     let witness = ExecutionWitness {
@@ -480,8 +475,8 @@ pub fn aggregate_type_1(
         },
         proof: AggregationProof {
             execution_proof,
-            bytecode_point,
-            bytecode_value,
+            bytecode_point: reduced_claims.bytecode_eval.point,
+            bytecode_value: reduced_claims.bytecode_eval.value,
         },
     })
 }

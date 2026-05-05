@@ -12,7 +12,7 @@ use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, PREAMBLE_MEMORY_LEN, TYPE2_FLAG, get_aggregation_bytecode,
 };
 use crate::type_1_aggregation::{
-    AggregationProof, InnerVerified, ReducedClaims, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
+    AggregationProof, InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
     bytecode_claim_output_from_point, extract_merkle_hint_blobs, reduce_verified_claims, verify_inner, verify_type_1,
 };
 
@@ -90,15 +90,10 @@ pub fn merge_many_type_1(
         .map(|sig| (sig.info, sig.proof.bytecode_point))
         .unzip();
 
-    let ReducedClaims {
-        bytecode_claim_output,
-        reduced_point,
-        reduced_value,
-        sumcheck_transcript,
-    } = reduce_verified_claims(&verified_children);
+    let reduced_claims = reduce_verified_claims(&verified_children);
 
     let digests: Vec<[F; DIGEST_LEN]> = verified_children.iter().map(|v| v.input_data_hash).collect();
-    let pub_input_data = build_type2_input_data_skeleton(&digests, &bytecode_claim_output);
+    let pub_input_data = build_type2_input_data_skeleton(&digests, &reduced_claims.bytecode_claim_flat());
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
 
     let bytecode_value_hint_blobs: Vec<Vec<F>> = verified_children
@@ -137,7 +132,10 @@ pub fn merge_many_type_1(
     hints.insert("proof_transcript".to_string(), proof_transcript_blobs);
     hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
     hints.insert("merkle_path".to_string(), merkle_path_blobs);
-    hints.insert("bytecode_sumcheck_proof".to_string(), vec![sumcheck_transcript]);
+    hints.insert(
+        "bytecode_sumcheck_proof".to_string(),
+        vec![reduced_claims.sumcheck_transcript],
+    );
 
     let witness = ExecutionWitness {
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
@@ -150,8 +148,8 @@ pub fn merge_many_type_1(
         component_bytecode_points,
         proof: AggregationProof {
             execution_proof,
-            bytecode_point: reduced_point,
-            bytecode_value: reduced_value,
+            bytecode_point: reduced_claims.bytecode_eval.point,
+            bytecode_value: reduced_claims.bytecode_eval.value,
         },
     })
 }
@@ -217,12 +215,7 @@ pub fn split_type_2(
         .map(|(info, bp)| type1_input_data_from_parts(info, bp))
         .collect();
 
-    let ReducedClaims {
-        bytecode_claim_output,
-        reduced_point,
-        reduced_value,
-        sumcheck_transcript,
-    } = reduce_verified_claims(std::slice::from_ref(&outer_verified));
+    let reduced_claims = reduce_verified_claims(std::slice::from_ref(&outer_verified));
     let bytecode_value_hint_blob: Vec<F> = outer_verified
         .bytecode_evaluation
         .value
@@ -238,7 +231,7 @@ pub fn split_type_2(
         &kept_info.pubkeys,
         &kept_info.message,
         kept_info.slot,
-        &bytecode_claim_output,
+        &reduced_claims.bytecode_claim_flat(),
     );
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
 
@@ -270,7 +263,10 @@ pub fn split_type_2(
     hints.insert("proof_transcript".to_string(), vec![proof_transcript]);
     hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
     hints.insert("merkle_path".to_string(), merkle_path_blobs);
-    hints.insert("bytecode_sumcheck_proof".to_string(), vec![sumcheck_transcript]);
+    hints.insert(
+        "bytecode_sumcheck_proof".to_string(),
+        vec![reduced_claims.sumcheck_transcript],
+    );
 
     let witness = ExecutionWitness {
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
@@ -282,8 +278,8 @@ pub fn split_type_2(
         info: kept_info,
         proof: AggregationProof {
             execution_proof,
-            bytecode_point: reduced_point,
-            bytecode_value: reduced_value,
+            bytecode_point: reduced_claims.bytecode_eval.point,
+            bytecode_value: reduced_claims.bytecode_eval.value,
         },
     })
 }
