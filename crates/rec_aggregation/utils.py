@@ -398,6 +398,14 @@ def copy_16(a, b):
     a[15] = b[15]
     return
 
+@inline
+def copy_32(a, b):
+    for i in unroll(0, div_floor(32, DIM)):
+        copy_5(a + i * DIM, b + i * DIM)
+    for i in unroll(DIM * div_floor(32, DIM), 32):
+        assert a[i] == b[i]
+    return
+
 
 @inline
 def copy_many_ef(a, b, n):

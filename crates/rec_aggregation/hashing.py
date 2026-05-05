@@ -72,6 +72,15 @@ def slice_hash(data, num_chunks):
         poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
 
+def slice_hash_with_iv_range(data, num_chunks, dest):
+    debug_assert(0 < num_chunks)
+    debug_assert(2 < num_chunks)
+    states = Array((num_chunks - 1) * DIGEST_LEN)
+    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    for j in range(1, num_chunks - 1):
+        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    poseidon16_compress(states + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, dest)
+    return
 
 @inline
 def slice_hash_with_iv(data, num_chunks):

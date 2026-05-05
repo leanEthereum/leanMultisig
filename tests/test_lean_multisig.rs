@@ -1,6 +1,6 @@
-use lean_multisig::{AggregatedXMSS, AggregationTopology, setup_prover, xmss_aggregate, xmss_verify_aggregation};
+use lean_multisig::{AggregationProof, aggregate_type_1, setup_prover, verify_type_1};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use rec_aggregation::benchmark::run_aggregation_benchmark;
+use rec_aggregation::benchmark::{AggregationTopology, run_aggregation_benchmark};
 use xmss::{
     signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark},
     xmss_key_gen, xmss_sign, xmss_verify,
@@ -41,21 +41,18 @@ fn test_recursive_aggregation() {
     let slot: u32 = BENCHMARK_SLOT;
     let signatures = get_benchmark_signatures();
 
-    let pub_keys_and_sigs_a = signatures[0..3].to_vec();
-    let (pub_keys_a, aggregated_a) = xmss_aggregate(&[], pub_keys_and_sigs_a, &message, slot, log_inv_rate).unwrap();
+    let raws_a = signatures[0..3].to_vec();
+    let type1_a = aggregate_type_1(&[], raws_a, message, slot, log_inv_rate).unwrap();
 
-    let pub_keys_and_sigs_b = signatures[3..5].to_vec();
-    let (pub_keys_b, aggregated_b) = xmss_aggregate(&[], pub_keys_and_sigs_b, &message, slot, log_inv_rate).unwrap();
+    let raws_b = signatures[3..5].to_vec();
+    let type1_b = aggregate_type_1(&[], raws_b, message, slot, log_inv_rate).unwrap();
 
-    let pub_keys_and_sigs_c = signatures[5..6].to_vec();
+    let raws_c = signatures[5..6].to_vec();
+    let mut final_sig = aggregate_type_1(&[type1_a, type1_b], raws_c, message, slot, log_inv_rate).unwrap();
 
-    let children: Vec<(&[_], AggregatedXMSS)> = vec![(&pub_keys_a, aggregated_a), (&pub_keys_b, aggregated_b)];
-    let (final_pub_keys, aggregated_final) =
-        xmss_aggregate(&children, pub_keys_and_sigs_c, &message, slot, log_inv_rate).unwrap();
+    let serialized_proof = final_sig.proof.serialize();
+    println!("Serialized aggregated final: {} KiB", serialized_proof.len() / 1024);
+    final_sig.proof = AggregationProof::deserialize(&serialized_proof).unwrap();
 
-    let serialized_final = aggregated_final.serialize();
-    println!("Serialized aggregated final: {} KiB", serialized_final.len() / 1024);
-    let deserialized_final = AggregatedXMSS::deserialize(&serialized_final).unwrap();
-
-    xmss_verify_aggregation(&final_pub_keys, &deserialized_final, &message, slot).unwrap();
+    verify_type_1(&final_sig).unwrap();
 }

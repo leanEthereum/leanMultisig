@@ -13,7 +13,17 @@ use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W, XMSS_DIGEST_LEN};
 
-use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
+use crate::type_1_aggregation::TWEAK_TABLE_SIZE_FE_PADDED;
+
+// preamble memory layout: see `build_preamble_memory` in utils.py:
+// [000.. (ZERO_VEC_LEN)][10000000 (fiat-shamir domain sep)][10000 (one in extension field)][111... (NUM_REPEATED_ONES)][tweak table]
+pub const ZERO_VEC_LEN: usize = 16;
+pub const NUM_REPEATED_ONES: usize = 32;
+pub const PREAMBLE_MEMORY_LEN: usize =
+    ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES + TWEAK_TABLE_SIZE_FE_PADDED;
+
+pub(crate) const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
+pub(crate) const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
 
@@ -27,17 +37,36 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+pub const MAX_RECURSIONS: usize = 16;
+pub const MAX_XMSS_AGGREGATED: usize = 1 << 15; // TODO increase (we would need a bigger minimal memory size, totally doable)
+pub const MAX_XMSS_DUPLICATES: usize = 1 << 15; // ...same
+
+pub(crate) const TYPE1_FLAG: usize = 1;
+pub(crate) const TYPE2_FLAG: usize = 0;
+
+pub(crate) const BYTECODE_CLAIM_OFFSET: usize = DIGEST_LEN;
+/// Type-1's component data: pubkeys_hash | message | merkle_chunks | tweaks_hash.
+pub(crate) const COMPONENT_DATA_SIZE: usize = DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+
+pub(crate) fn bytecode_claim_size_padded(program_log_size: usize) -> usize {
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
-    let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
-    let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    // input_data_buf layout (part of the witness, "hinted" then hashed to a single digest that should match public input):
-    //   n_sigs(1) + pubkeys_hash(8) + message + merkle_chunks_for_slot
-    //   + tweaks_hash(8) + bytecode_claim_padded + bytecode_hash_domsep(8)
-    let input_data_size =
-        1 + DIGEST_LEN + MESSAGE_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN + claim_data_size_padded + DIGEST_LEN;
-    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    let replacements = build_replacements(program_log_size, bytecode_zero_eval, input_data_size_padded);
+    ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN)
+}
+
+pub(crate) fn bytecode_hash_domsep_offset(program_log_size: usize) -> usize {
+    BYTECODE_CLAIM_OFFSET + bytecode_claim_size_padded(program_log_size)
+}
+
+pub(crate) fn component_data_offset(program_log_size: usize) -> usize {
+    bytecode_hash_domsep_offset(program_log_size) + DIGEST_LEN
+}
+
+pub(crate) fn type1_input_data_size_padded(program_log_size: usize) -> usize {
+    component_data_offset(program_log_size) + COMPONENT_DATA_SIZE
+}
+
+fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let replacements = build_replacements(program_log_size, bytecode_zero_eval);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("main.py")
@@ -67,11 +96,7 @@ fn compile_main_program_self_referential() -> Bytecode {
     }
 }
 
-fn build_replacements(
-    inner_program_log_size: usize,
-    bytecode_zero_eval: F,
-    input_data_size_padded: usize,
-) -> BTreeMap<String, String> {
+fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
     let log_inner_bytecode = inner_program_log_size;
@@ -238,10 +263,6 @@ fn build_replacements(
         log_inner_bytecode.to_string(),
     );
     replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
-    replacements.insert(
-        "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
-        input_data_size_padded.to_string(),
-    );
     let bytecode_point_n_vars = log_inner_bytecode + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     replacements.insert(
         "BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER".to_string(),
@@ -361,6 +382,18 @@ fn build_replacements(
         MERKLE_LEVELS_PER_CHUNK_FOR_SLOT.to_string(),
     );
     replacements.insert("XMSS_DIGEST_LEN_PLACEHOLDER".to_string(), XMSS_DIGEST_LEN.to_string());
+
+    replacements.insert("TYPE_1_FLAG_PLACEHOLDER".to_string(), TYPE1_FLAG.to_string());
+    replacements.insert("TYPE_2_FLAG_PLACEHOLDER".to_string(), TYPE2_FLAG.to_string());
+    replacements.insert(
+        "MAX_XMSS_AGGREGATED_PLACEHOLDER".to_string(),
+        MAX_XMSS_AGGREGATED.to_string(),
+    );
+    replacements.insert(
+        "MAX_XMSS_DUPLICATES_PLACEHOLDER".to_string(),
+        MAX_XMSS_DUPLICATES.to_string(),
+    );
+    replacements.insert("MAX_RECURSIONS_PLACEHOLDER".to_string(), MAX_RECURSIONS.to_string());
 
     // Bytecode zero eval
     replacements.insert(

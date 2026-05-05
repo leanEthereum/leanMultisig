@@ -248,6 +248,6 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     .unwrap();
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof.proof).unwrap();
-    println!("{}", proof.metadata.display());
+    println!("{}", proof.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }
