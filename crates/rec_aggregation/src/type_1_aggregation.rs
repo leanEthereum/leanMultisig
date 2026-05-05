@@ -166,60 +166,52 @@ fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
+#[allow(missing_debug_implementations)]
+pub struct InnerVerified {
+    pub input_data: Vec<F>,
+    pub input_data_hash: [F; DIGEST_LEN],
+    pub bytecode_evaluation: Evaluation<EF>,
+    pub raw_proof: RawProof<F>,
+}
+
+pub(crate) fn verify_inner(input_data: Vec<F>, proof: Proof<F>) -> Result<InnerVerified, ProofError> {
+    let input_data_hash = poseidon_compress_slice(&input_data, true);
+    let bytecode = get_aggregation_bytecode();
+    let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, proof)?;
+    Ok(InnerVerified {
+        input_data,
+        input_data_hash,
+        bytecode_evaluation: verif.bytecode_evaluation,
+        raw_proof,
+    })
+}
+
 // assumes `bytecode_value` in TypeOneMultiSignature::proof is correct (it should not be read / deserialized from an untrusted source)
-pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<(), ProofError> {
+pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, ProofError> {
     if !sig.info.pubkeys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
     let claim_output = sig.proof.bytecode_claim_flat();
     let input_data = build_type1_input_data(&sig.info.pubkeys, &sig.info.message, sig.info.slot, &claim_output);
-    let public_input_digest = poseidon_compress_slice(&input_data, true).to_vec();
-    let bytecode = get_aggregation_bytecode();
-    verify_execution(bytecode, &public_input_digest, sig.proof.execution_proof.proof.clone()).map(|_| ())
+    verify_inner(input_data, sig.proof.execution_proof.proof.clone())
 }
 
-pub(crate) struct VerifiedChildren {
-    pub pub_mem_digests: Vec<[F; DIGEST_LEN]>,
-    pub child_input_data: Vec<Vec<F>>,
-    pub child_bytecode_evals: Vec<Evaluation<EF>>,
-    pub child_raw_proofs: Vec<RawProof<F>>,
+pub(crate) struct ReducedClaims {
     pub bytecode_claim_output: Vec<F>,
     pub reduced_point: MultilinearPoint<EF>,
     pub reduced_value: EF,
     pub sumcheck_transcript: Vec<F>,
 }
 
-pub(crate) fn verify_children_and_reduce_claims(
-    children: impl IntoIterator<Item = (Vec<F>, Proof<F>)>,
-) -> VerifiedChildren {
+pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaims {
     let bytecode = get_aggregation_bytecode();
     let bytecode_point_n_vars = bytecode.total_n_vars();
     let bytecode_claim_size = bytecode.bytecode_claim_size();
 
-    let mut digests = vec![];
-    let mut child_input_data = vec![];
-    let mut child_bytecode_evals = vec![];
-    let mut child_raw_proofs = vec![];
-
-    for (input_data, proof) in children {
-        let input_data_hash = poseidon_compress_slice(&input_data, true);
-        let (verif, raw_proof) =
-            verify_execution(bytecode, &input_data_hash, proof).expect("child proof failed to verify");
-        digests.push(input_data_hash);
-        child_bytecode_evals.push(verif.bytecode_evaluation);
-        child_input_data.push(input_data);
-        child_raw_proofs.push(raw_proof);
-    }
-
-    let n = child_input_data.len();
-    if n == 0 {
+    if verified.is_empty() {
         let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode_point_n_vars]);
         let zero_value = compute_bytecode_value_at(&zero_point);
-        return VerifiedChildren {
-            pub_mem_digests: digests,
-            child_input_data,
-            child_bytecode_evals,
-            child_raw_proofs,
+        return ReducedClaims {
             bytecode_claim_output: flatten_bytecode_claim(&zero_point, zero_value),
             reduced_point: zero_point,
             reduced_value: zero_value,
@@ -227,13 +219,13 @@ pub(crate) fn verify_children_and_reduce_claims(
         };
     }
 
-    let mut claims = Vec::with_capacity(2 * n);
-    for i in 0..n {
+    let mut claims = Vec::with_capacity(2 * verified.len());
+    for v in verified {
         claims.push(extract_bytecode_claim_from_input_data(
-            &child_input_data[i][BYTECODE_CLAIM_OFFSET..],
+            &v.input_data[BYTECODE_CLAIM_OFFSET..],
             bytecode_point_n_vars,
         ));
-        claims.push(child_bytecode_evals[i].clone());
+        claims.push(v.bytecode_evaluation.clone());
     }
     let claims_hash = hash_bytecode_claims(&claims);
 
@@ -286,11 +278,7 @@ pub(crate) fn verify_children_and_reduce_claims(
         "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
     );
 
-    VerifiedChildren {
-        pub_mem_digests: digests,
-        child_input_data,
-        child_bytecode_evals,
-        child_raw_proofs,
+    ReducedClaims {
         bytecode_claim_output,
         reduced_point,
         reduced_value,
@@ -320,8 +308,11 @@ pub fn aggregate_type_1(
         );
     }
     let message = &message;
-    let children: Vec<(&[XmssPublicKey], &AggregationProof)> =
-        children.iter().map(|c| (c.info.pubkeys.as_slice(), &c.proof)).collect();
+    let verified_children: Vec<InnerVerified> = children
+        .iter()
+        .map(|c| verify_type_1(c).expect("child proof failed to verify"))
+        .collect();
+    let children: Vec<&[XmssPublicKey]> = children.iter().map(|c| c.info.pubkeys.as_slice()).collect();
     let children = children.as_slice();
 
     raw_xmss.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -336,7 +327,7 @@ pub fn aggregate_type_1(
 
     // Build global_pub_keys as sorted deduplicated union
     let mut global_pub_keys: Vec<XmssPublicKey> = raw_xmss.iter().map(|(pk, _)| pk.clone()).collect();
-    for (child_pub_keys, _) in children.iter() {
+    for child_pub_keys in children.iter() {
         assert!(child_pub_keys.is_sorted(), "child pub_keys must be sorted");
         global_pub_keys.extend_from_slice(child_pub_keys);
     }
@@ -348,22 +339,12 @@ pub fn aggregate_type_1(
     let tweak_table = compute_tweak_table(slot);
     let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
-    let VerifiedChildren {
-        child_input_data,
-        child_bytecode_evals,
-        child_raw_proofs,
+    let ReducedClaims {
         bytecode_claim_output,
         reduced_point: bytecode_point,
         reduced_value: bytecode_value,
         sumcheck_transcript: final_sumcheck_transcript,
-        ..
-    } = verify_children_and_reduce_claims(children.iter().map(|(pub_keys, child)| {
-        let claim_output = child.bytecode_claim_flat();
-        (
-            build_type1_input_data(pub_keys, message, slot, &claim_output),
-            child.execution_proof.proof.clone(),
-        )
-    }));
+    } = reduce_verified_claims(&verified_children);
 
     let slice_hash = hash_pubkeys(&global_pub_keys);
     let pub_input_data = build_input_data(
@@ -405,7 +386,7 @@ pub fn aggregate_type_1(
 
     let claim_size_padded = bytecode_claim_size.next_multiple_of(DIGEST_LEN);
 
-    for (i, (child_pub_keys, _)) in children.iter().enumerate() {
+    for (i, child_pub_keys) in children.iter().enumerate() {
         // sub_indices: [idx_0, idx_1, ...] into global_pub_keys + dup_pub_keys.
         // The length n_sub is communicated via the matching `aggregate_sizes` entry.
         let mut sub_indices = Vec::with_capacity(child_pub_keys.len());
@@ -420,11 +401,10 @@ pub fn aggregate_type_1(
         }
         sub_indices_blobs.push(sub_indices);
 
-        bytecode_value_hint_blobs.push(child_bytecode_evals[i].value.as_basis_coefficients_slice().to_vec());
-
-        inner_bytecode_claim_blobs.push(child_input_data[i][BYTECODE_CLAIM_OFFSET..][..claim_size_padded].to_vec());
-
-        proof_transcript_blobs.push(child_raw_proofs[i].transcript.clone());
+        let v = &verified_children[i];
+        bytecode_value_hint_blobs.push(v.bytecode_evaluation.value.as_basis_coefficients_slice().to_vec());
+        inner_bytecode_claim_blobs.push(v.input_data[BYTECODE_CLAIM_OFFSET..][..claim_size_padded].to_vec());
+        proof_transcript_blobs.push(v.raw_proof.transcript.clone());
     }
 
     let n_dup = dup_pub_keys.len();
@@ -438,7 +418,8 @@ pub fn aggregate_type_1(
         pubkeys_blob.extend_from_slice(&pk.flaten());
     }
 
-    let (merkle_leaf_blobs, merkle_path_blobs) = extract_merkle_hint_blobs(&child_raw_proofs);
+    let (merkle_leaf_blobs, merkle_path_blobs) =
+        extract_merkle_hint_blobs(verified_children.iter().map(|v| &v.raw_proof));
 
     let aggregate_sizes: Vec<F> = sub_indices_blobs.iter().map(|b| F::from_usize(b.len())).collect();
 
@@ -551,9 +532,11 @@ pub(crate) fn build_type1_input_data(
 
 /// Flatten WHIR Merkle openings from a batch of recursive sub-proofs into the
 /// `(merkle_leaf, merkle_path)` hint-blob pair the bytecode consumes.
-pub(crate) fn extract_merkle_hint_blobs(raw_proofs: &[RawProof<F>]) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
+pub(crate) fn extract_merkle_hint_blobs<'a>(
+    raw_proofs: impl IntoIterator<Item = &'a RawProof<F>>,
+) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
     raw_proofs
-        .iter()
+        .into_iter()
         .flat_map(|p| p.merkle_openings.iter())
         .map(|o| {
             let leaf = o.leaf_data.clone();

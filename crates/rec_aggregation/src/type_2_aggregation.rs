@@ -2,7 +2,6 @@ use backend::*;
 use lean_prover::ProverError;
 use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::prove_execution;
-use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,9 +12,8 @@ use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, PREAMBLE_MEMORY_LEN, TYPE2_FLAG, get_aggregation_bytecode,
 };
 use crate::type_1_aggregation::{
-    AggregationProof, TypeOneInfo, TypeOneMultiSignature, VerifiedChildren, build_type1_input_data,
-    bytecode_claim_output_from_point, extract_merkle_hint_blobs, flatten_bytecode_claim,
-    verify_children_and_reduce_claims,
+    AggregationProof, InnerVerified, ReducedClaims, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
+    bytecode_claim_output_from_point, extract_merkle_hint_blobs, reduce_verified_claims, verify_inner, verify_type_1,
 };
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
@@ -83,46 +81,43 @@ pub fn merge_many_type_1(
 
     let bytecode = get_aggregation_bytecode();
 
-    let mut info_vec: Vec<TypeOneInfo> = Vec::with_capacity(n_components);
-    let mut component_bytecode_points: Vec<MultilinearPoint<EF>> = Vec::with_capacity(n_components);
-    let helper_pairs = type_1_multi_signatures.into_iter().map(|sig| {
-        assert!(sig.info.pubkeys.is_sorted(), "component pubkeys must be sorted");
-        let TypeOneMultiSignature { info, proof } = sig;
-        let claim_output = proof.bytecode_claim_flat();
-        let input_data = build_type1_input_data(&info.pubkeys, &info.message, info.slot, &claim_output);
-        info_vec.push(info);
-        component_bytecode_points.push(proof.bytecode_point.clone());
-        (input_data, proof.execution_proof.proof)
-    });
+    let verified_children: Vec<InnerVerified> = type_1_multi_signatures
+        .iter()
+        .map(|sig| verify_type_1(sig).expect("component proof failed to verify"))
+        .collect();
+    let (info_vec, component_bytecode_points): (Vec<TypeOneInfo>, Vec<MultilinearPoint<EF>>) = type_1_multi_signatures
+        .into_iter()
+        .map(|sig| (sig.info, sig.proof.bytecode_point))
+        .unzip();
 
-    let VerifiedChildren {
-        pub_mem_digests: digests,
-        child_input_data,
-        child_bytecode_evals,
-        child_raw_proofs,
+    let ReducedClaims {
         bytecode_claim_output,
         reduced_point,
         reduced_value,
         sumcheck_transcript,
-        ..
-    } = verify_children_and_reduce_claims(helper_pairs);
+    } = reduce_verified_claims(&verified_children);
 
+    let digests: Vec<[F; DIGEST_LEN]> = verified_children.iter().map(|v| v.input_data_hash).collect();
     let pub_input_data = build_type2_input_data_skeleton(&digests, &bytecode_claim_output);
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
 
-    let bytecode_value_hint_blobs: Vec<Vec<F>> = child_bytecode_evals
+    let bytecode_value_hint_blobs: Vec<Vec<F>> = verified_children
         .iter()
-        .map(|eval| eval.value.as_basis_coefficients_slice().to_vec())
+        .map(|v| v.bytecode_evaluation.value.as_basis_coefficients_slice().to_vec())
         .collect();
 
     // The bytecode materializes each component's full type-1 layout in one
     // shot and binds it to the committed digest by hash, so we just forward
     // the layout verbatim — its claim region is what gets used as the
     // forwarded claim in the soundness chain.
-    let component_layout_blobs: Vec<Vec<F>> = child_input_data;
+    let component_layout_blobs: Vec<Vec<F>> = verified_children.iter().map(|v| v.input_data.clone()).collect();
 
-    let proof_transcript_blobs: Vec<Vec<F>> = child_raw_proofs.iter().map(|p| p.transcript.clone()).collect();
-    let (merkle_leaf_blobs, merkle_path_blobs) = extract_merkle_hint_blobs(&child_raw_proofs);
+    let proof_transcript_blobs: Vec<Vec<F>> = verified_children
+        .iter()
+        .map(|v| v.raw_proof.transcript.clone())
+        .collect();
+    let (merkle_leaf_blobs, merkle_path_blobs) =
+        extract_merkle_hint_blobs(verified_children.iter().map(|v| &v.raw_proof));
 
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
     hints.insert(
@@ -164,29 +159,21 @@ pub fn merge_many_type_1(
 /// Verify a type-2 multi-signature: recompute each component's type-1 digest
 /// from `info[i]` + `component_bytecode_points[i]`, hash the assembled outer
 /// buffer, and verify the SNARK proof.
-pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<(), ProofError> {
+pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<InnerVerified, ProofError> {
     if sig.info.is_empty() || sig.info.len() > MAX_RECURSIONS {
         return Err(ProofError::InvalidProof);
     }
     if sig.info.len() != sig.component_bytecode_points.len() {
         return Err(ProofError::InvalidProof);
     }
-
-    let bytecode = get_aggregation_bytecode();
-
-    let bytecode_claim_output = flatten_bytecode_claim(&sig.proof.bytecode_point, sig.proof.bytecode_value);
-
     let digests: Vec<[F; DIGEST_LEN]> = sig
         .info
         .iter()
         .zip(&sig.component_bytecode_points)
         .map(|(info, bp)| type1_component_digest(info, bp))
         .collect();
-
-    let pub_input_data = build_type2_input_data_skeleton(&digests, &bytecode_claim_output);
-    let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
-
-    verify_execution(bytecode, &public_input, sig.proof.execution_proof.proof.clone()).map(|_| ())
+    let input_data = build_type2_input_data_skeleton(&digests, &sig.proof.bytecode_claim_flat());
+    verify_inner(input_data, sig.proof.execution_proof.proof.clone())
 }
 
 /// Recover an independent type-1 multi-signature for the component at `index`
@@ -211,46 +198,38 @@ pub fn split_type_2(
 
     let bytecode = get_aggregation_bytecode();
 
+    // Verify the outer type-2 proof up-front; the resulting `InnerVerified`
+    // carries the type-2 input layout (used as the inner kept-claim hint) plus
+    // the natural bytecode evaluation that feeds the claim reduction.
+    let outer_verified = verify_type_2(&type_2_multi_signature).expect("type-2 outer proof failed to verify");
+
     let TypeTwoMultiSignature {
         mut info,
         component_bytecode_points,
-        proof: outer_proof,
+        ..
     } = type_2_multi_signature;
 
-    // Recompute per-component digests + each component's type-1 layout (the
-    // kept component's layout is what the split SNARK takes as its outer data,
-    // and we also need each component's bytecode_claim to feed the kept-claim hint).
+    // Recompute per-component type-1 layouts; the kept component's layout is
+    // what the split SNARK takes as its outer data.
     let mut component_data: Vec<Vec<F>> = info
         .iter()
         .zip(&component_bytecode_points)
         .map(|(info, bp)| type1_input_data_from_parts(info, bp))
         .collect();
 
-    let type2_bytecode_claim_output = outer_proof.bytecode_claim_flat();
-    let outer_digests: Vec<[F; DIGEST_LEN]> = component_data
-        .iter()
-        .map(|d| poseidon_compress_slice(d, true))
-        .collect();
-    let type2_input_data = build_type2_input_data_skeleton(&outer_digests, &type2_bytecode_claim_output);
-
-    let VerifiedChildren {
-        mut child_input_data,
-        mut child_bytecode_evals,
-        mut child_raw_proofs,
+    let ReducedClaims {
         bytecode_claim_output,
         reduced_point,
         reduced_value,
         sumcheck_transcript,
-        ..
-    } = verify_children_and_reduce_claims(std::iter::once((type2_input_data, outer_proof.execution_proof.proof)));
-    let bytecode_value_hint_blob: Vec<F> = child_bytecode_evals
-        .pop()
-        .unwrap()
+    } = reduce_verified_claims(std::slice::from_ref(&outer_verified));
+    let bytecode_value_hint_blob: Vec<F> = outer_verified
+        .bytecode_evaluation
         .value
         .as_basis_coefficients_slice()
         .to_vec();
-    let raw_proof = child_raw_proofs.pop().unwrap();
-    let inner_type2_layout = child_input_data.pop().unwrap();
+    let raw_proof = outer_verified.raw_proof;
+    let inner_type2_layout = outer_verified.input_data;
 
     // Outer (split) public input: type-1 layout for the kept component, with the SPLIT's
     // reduced claim (not the original component's claim).
