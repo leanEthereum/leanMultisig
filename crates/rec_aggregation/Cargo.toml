@@ -25,6 +25,7 @@ postcard.workspace = true
 lz4_flex.workspace = true
 serde.workspace = true
 zk-alloc.workspace = true
+rust-embed = { workspace = true, features = ["debug-embed", "include-exclude"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", default-features = false, features = ["std"] }

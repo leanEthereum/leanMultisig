@@ -5,8 +5,9 @@ use lean_prover::{
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
+use rust_embed::Embed;
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
@@ -27,6 +28,26 @@ pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
+#[derive(Embed)]
+#[folder = "."]
+#[include = "**/*.py"]
+#[exclude = "tests/*"]
+struct ZkDslFiles;
+
+fn zk_dsl_dir() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = std::env::temp_dir().join(concat!("rec_aggregation-", env!("CARGO_PKG_VERSION")));
+        std::fs::create_dir_all(&dir).expect("create rec_aggregation cache dir");
+        for name in ZkDslFiles::iter() {
+            let f = ZkDslFiles::get(&name).expect("embedded zkDSL file present");
+            std::fs::write(dir.join(name.as_ref()), &f.data).expect("write embedded zkDSL file");
+        }
+        dir
+    })
+    .as_path()
+}
+
 fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     let claim_data_size = (bytecode_point_n_vars + 1) * DIMENSION;
@@ -39,11 +60,11 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
     let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
     let replacements = build_replacements(program_log_size, bytecode_zero_eval, input_data_size_padded);
 
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let filepath = zk_dsl_dir()
         .join("main.py")
-        .to_str()
-        .unwrap()
-        .to_string();
+        .into_os_string()
+        .into_string()
+        .unwrap();
     compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
 }
 
