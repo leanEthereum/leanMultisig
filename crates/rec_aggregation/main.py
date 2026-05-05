@@ -79,7 +79,7 @@ def main():
             return
 
     # General path
-    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs, log2_ceil(MAX_N_SIGS))
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Buffer for partition verification

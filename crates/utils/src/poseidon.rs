@@ -34,6 +34,7 @@ pub fn poseidon16_compress_pair(left: &[KoalaBear; 8], right: &[KoalaBear; 8]) -
 /// If `use_iv` is false, the length of the slice must be constant (not malleable).
 pub fn poseidon_compress_slice(data: &[KoalaBear], use_iv: bool) -> [KoalaBear; 8] {
     assert!(!data.is_empty());
+    assert!(data.len().is_multiple_of(8));
     if use_iv {
         let mut hash = [KoalaBear::default(); 8];
         for chunk in data.chunks(8) {
