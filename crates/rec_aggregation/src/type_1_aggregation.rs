@@ -196,26 +196,24 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
     verify_inner(input_data, sig.proof.execution_proof.proof.clone())
 }
 
-pub(crate) struct ReducedClaims {
+pub(crate) struct ReducedBytecodeClaims {
     pub bytecode_eval: Evaluation<EF>,
     pub sumcheck_transcript: Vec<F>,
 }
 
-impl ReducedClaims {
+impl ReducedBytecodeClaims {
     pub fn bytecode_claim_flat(&self) -> Vec<F> {
         flatten_bytecode_claim(&self.bytecode_eval.point, self.bytecode_eval.value)
     }
 }
 
-pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaims {
+pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytecodeClaims {
     let bytecode = get_aggregation_bytecode();
-    let bytecode_point_n_vars = bytecode.total_n_vars();
-    let bytecode_claim_size = bytecode.bytecode_claim_size();
 
     if verified.is_empty() {
-        let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode_point_n_vars]);
+        let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.total_n_vars()]);
         let zero_value = compute_bytecode_value_at(&zero_point);
-        return ReducedClaims {
+        return ReducedBytecodeClaims {
             bytecode_eval: Evaluation::new(zero_point, zero_value),
             sumcheck_transcript: vec![],
         };
@@ -225,7 +223,7 @@ pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaim
     for v in verified {
         claims.push(extract_bytecode_claim_from_input_data(
             &v.input_data[BYTECODE_CLAIM_OFFSET..],
-            bytecode_point_n_vars,
+            bytecode.total_n_vars(),
         ));
         claims.push(v.bytecode_evaluation.clone());
     }
@@ -265,22 +263,22 @@ pub(crate) fn reduce_verified_claims(verified: &[InnerVerified]) -> ReducedClaim
 
     let reduced_value = final_evals[0];
     let bytecode_claim_output = flatten_bytecode_claim(&reduced_point, reduced_value);
-    assert_eq!(bytecode_claim_output.len(), bytecode_claim_size);
+    assert_eq!(bytecode_claim_output.len(), bytecode.bytecode_claim_size());
 
     let sumcheck_transcript = {
         let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
         vs.next_base_scalars_vec(claims_hash.len()).unwrap();
         let _: EF = vs.sample();
-        sumcheck_verify(&mut vs, bytecode_point_n_vars, 2, claimed_sum, None).unwrap();
+        sumcheck_verify(&mut vs, bytecode.total_n_vars(), 2, claimed_sum, None).unwrap();
         vs.into_raw_proof().transcript
     };
     assert_eq!(
         sumcheck_transcript.len(),
-        bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars),
+        bytecode_reduction_sumcheck_proof_size(bytecode.total_n_vars()),
         "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
     );
 
-    ReducedClaims {
+    ReducedBytecodeClaims {
         bytecode_eval: Evaluation::new(reduced_point, reduced_value),
         sumcheck_transcript,
     }
@@ -339,7 +337,7 @@ pub fn aggregate_type_1(
     let tweak_table = compute_tweak_table(slot);
     let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
 
-    let reduced_claims = reduce_verified_claims(&verified_children);
+    let reduced_claims = reduce_bytecode_claims(&verified_children);
 
     let slice_hash = hash_pubkeys(&global_pub_keys);
     let pub_input_data = build_input_data(
@@ -458,7 +456,10 @@ pub fn aggregate_type_1(
     hints.insert("aggregate_sizes".to_string(), vec![aggregate_sizes]);
     hints.insert("tweak_table".to_string(), vec![tweak_table]);
     if n_recursions > 0 {
-        hints.insert("bytecode_sumcheck_proof".to_string(), vec![reduced_claims.sumcheck_transcript]);
+        hints.insert(
+            "bytecode_sumcheck_proof".to_string(),
+            vec![reduced_claims.sumcheck_transcript],
+        );
     }
 
     let witness = ExecutionWitness {

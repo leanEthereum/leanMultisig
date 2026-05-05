@@ -13,7 +13,7 @@ use crate::compilation::{
 };
 use crate::type_1_aggregation::{
     AggregationProof, InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
-    bytecode_claim_output_from_point, extract_merkle_hint_blobs, reduce_verified_claims, verify_inner, verify_type_1,
+    bytecode_claim_output_from_point, extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner, verify_type_1,
 };
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
@@ -90,7 +90,7 @@ pub fn merge_many_type_1(
         .map(|sig| (sig.info, sig.proof.bytecode_point))
         .unzip();
 
-    let reduced_claims = reduce_verified_claims(&verified_children);
+    let reduced_claims = reduce_bytecode_claims(&verified_children);
 
     let digests: Vec<[F; DIGEST_LEN]> = verified_children.iter().map(|v| v.input_data_hash).collect();
     let pub_input_data = build_type2_input_data_skeleton(&digests, &reduced_claims.bytecode_claim_flat());
@@ -215,7 +215,7 @@ pub fn split_type_2(
         .map(|(info, bp)| type1_input_data_from_parts(info, bp))
         .collect();
 
-    let reduced_claims = reduce_verified_claims(std::slice::from_ref(&outer_verified));
+    let reduced_claims = reduce_bytecode_claims(std::slice::from_ref(&outer_verified));
     let bytecode_value_hint_blob: Vec<F> = outer_verified
         .bytecode_evaluation
         .value
