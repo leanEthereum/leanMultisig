@@ -279,7 +279,6 @@ pub fn fold_and_compute_product_sumcheck_polynomial<
         sumcheck_quadratic(((&x_0, &x_1), (&y_0, &y_1)))
     };
 
-
     let (c0_packed, c2_packed) = zip_fold_2(pol_0, &mut pol_0_folded)
         .zip(zip_fold_2(pol_1, &mut pol_1_folded))
         .map(|(p0, p1)| process_element(p0, p1))
