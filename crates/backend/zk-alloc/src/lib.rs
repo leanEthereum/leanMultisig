@@ -106,8 +106,12 @@ pub fn begin_phase() {
 
 /// Deactivates the arena. New allocations go to the system allocator; existing arena
 /// pointers stay valid until the next `begin_phase()` resets the slabs.
+///
+/// Also calls [`system_info::flush_rayon`] to release any rayon/crossbeam storage
+/// still referencing this phase's arena memory.
 pub fn end_phase() {
     ARENA_ACTIVE.store(false, Ordering::Release);
+    system_info::flush_rayon();
 }
 
 #[cold]
