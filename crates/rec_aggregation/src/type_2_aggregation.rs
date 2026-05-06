@@ -38,7 +38,7 @@ impl<'de> Deserialize<'de> for TypeTwoMultiSignature {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let (info, bytecode_claim_point, proof) =
             <(Vec<TypeOneInfo>, MultilinearPoint<EF>, ExecutionProof)>::deserialize(d)?;
-        if bytecode_claim_point.len() != get_aggregation_bytecode().total_n_vars() {
+        if bytecode_claim_point.len() != get_aggregation_bytecode().cumulated_n_vars() {
             return Err(serde::de::Error::custom("invalid bytecode point"));
         }
         let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);

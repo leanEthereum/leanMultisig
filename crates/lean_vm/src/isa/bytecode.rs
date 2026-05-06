@@ -42,12 +42,12 @@ impl Bytecode {
         log2_ceil_usize(self.size())
     }
 
-    pub fn total_n_vars(&self) -> usize {
+    pub fn cumulated_n_vars(&self) -> usize {
         self.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS)
     }
 
     pub fn bytecode_claim_size(&self) -> usize {
-        (self.total_n_vars() + 1) * DIMENSION
+        (self.cumulated_n_vars() + 1) * DIMENSION
     }
 }
 

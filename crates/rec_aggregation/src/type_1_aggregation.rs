@@ -61,7 +61,7 @@ impl<'de> Deserialize<'de> for TypeOneInfo {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let (message, slot, pubkeys, bytecode_claim_point) =
             <([F; MESSAGE_LEN_FE], u32, Vec<XmssPublicKey>, MultilinearPoint<EF>)>::deserialize(d)?;
-        if bytecode_claim_point.len() != get_aggregation_bytecode().total_n_vars() {
+        if bytecode_claim_point.len() != get_aggregation_bytecode().cumulated_n_vars() {
             return Err(serde::de::Error::custom("invalid bytecode point"));
         }
         if !pubkeys.is_sorted() {

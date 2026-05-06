@@ -36,7 +36,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
     let bytecode = get_aggregation_bytecode();
 
     if verified.is_empty() {
-        let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.total_n_vars()]);
+        let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.cumulated_n_vars()]);
         let zero_value = compute_bytecode_value_at(&zero_point);
         return ReducedBytecodeClaims {
             final_claim: Evaluation::new(zero_point, zero_value),
@@ -48,7 +48,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
     for v in verified {
         claims.push(extract_bytecode_claim_from_input_data(
             &v.input_data[BYTECODE_CLAIM_OFFSET..],
-            bytecode.total_n_vars(),
+            bytecode.cumulated_n_vars(),
         ));
         claims.push(v.bytecode_evaluation.clone());
     }
@@ -94,12 +94,12 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
         let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
         vs.next_base_scalars_vec(claims_hash.len()).unwrap();
         let _: EF = vs.sample();
-        sumcheck_verify(&mut vs, bytecode.total_n_vars(), 2, claimed_sum, None).unwrap();
+        sumcheck_verify(&mut vs, bytecode.cumulated_n_vars(), 2, claimed_sum, None).unwrap();
         vs.into_raw_proof().transcript
     };
     assert_eq!(
         sumcheck_transcript.len(),
-        bytecode_reduction_sumcheck_proof_size(bytecode.total_n_vars()),
+        bytecode_reduction_sumcheck_proof_size(bytecode.cumulated_n_vars()),
         "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
     );
 
