@@ -60,7 +60,7 @@ def main():
             component_digest = data_buf + TYPE_2_DIGESTS_OFFSET + c * DIGEST_LEN
             inner_type1_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
             hint_witness("component_layout", inner_type1_buf)
-            ensure_well_formed_type1_buffer(inner_type1_buf, bytecode_hash_domsep)
+            ensure_well_formed_input_data(inner_type1_buf, bytecode_hash_domsep)
             digest_recomputed = slice_hash_with_iv(inner_type1_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS)
             copy_8(digest_recomputed, component_digest)
 
@@ -89,14 +89,14 @@ def main():
         type2_num_chunks = type2_n_components + TYPE_2_BASE_NUM_CHUNKS
         type2_data_buf = Array(type2_num_chunks * DIGEST_LEN)
         hint_witness("inner_type2_layout", type2_data_buf)
-        copy_8(bytecode_hash_domsep, type2_data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
+        ensure_well_formed_input_data(type2_data_buf, bytecode_hash_domsep)
         type2_digests = type2_data_buf + TYPE_2_DIGESTS_OFFSET
      
         kept_type1_buff = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
         hint_witness("kept_type1_buff", kept_type1_buff)
         copy_8(data_buf, kept_type1_buff) # type-1 flag | n_signatures | 0×6
-        copy_8(bytecode_hash_domsep, kept_type1_buff + BYTECODE_HASH_DOMSEP_OFFSET)
         copy_32(data_buf + COMPONENT_DATA_OFFSET, kept_type1_buff + COMPONENT_DATA_OFFSET )
+        ensure_well_formed_input_data(kept_type1_buff, bytecode_hash_domsep)
         digest_kept = slice_hash_with_iv(kept_type1_buff, TYPE_1_INPUT_DATA_NUM_CHUNKS)
 
         copy_8(digest_kept, type2_digests + type2_kept_index * DIGEST_LEN)
@@ -153,7 +153,7 @@ def main():
             copy_8(data_buf, type1_data_buf)  # prefix
             copy_32(data_buf + COMPONENT_DATA_OFFSET, type1_data_buf + COMPONENT_DATA_OFFSET )
             hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
-            ensure_well_formed_type1_buffer(type1_data_buf, bytecode_hash_domsep)
+            ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep)
             inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
             copy_8(slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
             bytecode_claims = Array(2)
@@ -220,7 +220,7 @@ def main():
         copy_8(merkle_chunks_for_slot, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET + DIGEST_LEN + MESSAGE_LEN)
         copy_8(tweaks_hash_expected, type1_data_buf + TYPE_1_TWEAKS_HASH_OFFSET)
         hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
-        ensure_well_formed_type1_buffer(type1_data_buf, bytecode_hash_domsep)
+        ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep)
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
         copy_8(slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
 
@@ -288,7 +288,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
 
 
 @inline
-def ensure_well_formed_type1_buffer(data_buf, bytecode_hash_domsep):
+def ensure_well_formed_input_data(data_buf, bytecode_hash_domsep):
     for k in unroll(BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE, BYTECODE_HASH_DOMSEP_OFFSET):
         data_buf[k] = 0
     copy_8(bytecode_hash_domsep, data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
