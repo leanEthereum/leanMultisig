@@ -400,10 +400,11 @@ def copy_16(a, b):
 
 @inline
 def copy_32(a, b):
-    for i in unroll(0, div_floor(32, DIM)):
+    chunks = div_floor(32, DIM)
+    for i in unroll(0, chunks):
         copy_5(a + i * DIM, b + i * DIM)
-    for i in unroll(DIM * div_floor(32, DIM), 32):
-        assert a[i] == b[i]
+    if DIM * chunks != 32:
+        copy_5(a + (32 - DIM), b + (32 - DIM))
     return
 
 
