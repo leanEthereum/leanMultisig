@@ -15,8 +15,8 @@ use crate::compilation::{
 use crate::type_1_aggregation::compute_bytecode_value_at;
 use crate::type_1_aggregation::flatten_bytecode_claim;
 use crate::type_1_aggregation::{
-    InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data, extract_merkle_hint_blobs,
-    reduce_bytecode_claims, verify_inner, verify_type_1,
+    InnerVerified, TypeOneInfo, TypeOneMultiSignature, extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner,
+    verify_type_1,
 };
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
@@ -66,16 +66,10 @@ impl TypeTwoMultiSignature {
     }
 }
 
-/// Reconstruct the type-1 public-input data buffer from `info` and the
-/// component's saved `bytecode_point`.
-pub(crate) fn type1_input_data_from_parts(info: &TypeOneInfo) -> Vec<F> {
-    build_type1_input_data(&info.pubkeys, &info.message, info.slot, &info.bytecode_claim_flat())
-}
-
 /// The 8-FE digest the type-2 buffer commits to per component (= the type-1
 /// public-input hash for that component).
 fn type1_component_digest(info: &TypeOneInfo) -> [F; DIGEST_LEN] {
-    poseidon_compress_slice(&type1_input_data_from_parts(info), true)
+    poseidon_compress_slice(&info.build_input_data(), true)
 }
 
 /// Builds the type-2 outer public-input data buffer (live region only).
@@ -129,7 +123,7 @@ pub fn merge_many_type_1(
     let reduced_claims = reduce_bytecode_claims(&verified_children);
 
     let digests: Vec<[F; DIGEST_LEN]> = verified_children.iter().map(|v| v.input_data_hash).collect();
-    let pub_input_data = build_type2_input_data_skeleton(&digests, &reduced_claims.bytecode_claim_flat());
+    let pub_input_data = build_type2_input_data_skeleton(&digests, &reduced_claims.final_claim_flat());
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
 
     let bytecode_value_hint_blobs: Vec<Vec<F>> = verified_children
@@ -181,7 +175,7 @@ pub fn merge_many_type_1(
 
     Ok(TypeTwoMultiSignature {
         info: type_1_multi_signatures.into_iter().map(|sig| sig.info).collect(),
-        bytecode_claim: reduced_claims.bytecode_claim,
+        bytecode_claim: reduced_claims.final_claim,
         proof: execution_proof,
     })
 }
@@ -224,7 +218,7 @@ pub fn split_type_2(
 
     // Recompute per-component type-1 layouts; the kept component's layout is
     // what the split SNARK takes as its outer data.
-    let mut component_data: Vec<Vec<F>> = info.iter().map(type1_input_data_from_parts).collect();
+    let mut component_data: Vec<Vec<F>> = info.iter().map(|type1| type1.build_input_data()).collect();
 
     let reduced_claims = reduce_bytecode_claims(std::slice::from_ref(&outer_verified));
     let bytecode_value_hint_blob: Vec<F> = outer_verified
@@ -238,13 +232,8 @@ pub fn split_type_2(
     // Outer (split) public input: type-1 layout for the kept component, with the SPLIT's
     // reduced claim (not the original component's claim).
     let mut kept_info = info.swap_remove(index);
-    kept_info.bytecode_claim = reduced_claims.bytecode_claim.clone();
-    let pub_input_data = build_type1_input_data(
-        &kept_info.pubkeys,
-        &kept_info.message,
-        kept_info.slot,
-        &reduced_claims.bytecode_claim_flat(),
-    );
+    kept_info.bytecode_claim = reduced_claims.final_claim.clone();
+    let pub_input_data = kept_info.build_input_data();
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
 
     // The split bytecode reconstructs the inner type-2 layout and the kept

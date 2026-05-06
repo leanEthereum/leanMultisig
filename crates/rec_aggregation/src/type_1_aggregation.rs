@@ -90,11 +90,25 @@ impl TypeOneInfo {
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
         flatten_bytecode_claim(&self.bytecode_claim)
     }
+
+    pub(crate) fn build_input_data(&self) -> Vec<F> {
+        let tweak_table = compute_tweak_table(self.slot);
+        let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
+        build_input_data(
+            self.pubkeys.len(),
+            &hash_pubkeys(&self.pubkeys),
+            &self.message,
+            self.slot,
+            &tweaks_hash,
+            &self.bytecode_claim_flat(),
+            &get_aggregation_bytecode().hash,
+        )
+    }
 }
 
-pub(crate) fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
+pub(crate) fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
     let flat: Vec<F> = pub_keys.iter().flat_map(|pk| pk.flaten().into_iter()).collect();
-    Digest(poseidon_compress_slice(&flat, true))
+    poseidon_compress_slice(&flat, true)
 }
 
 /// Tweak slots are 4-FE [tw[0], tw[1], 0, 0]
@@ -141,11 +155,11 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 /// Layout: [prefix(8) | bytecode_claim_padded | bytecode_hash_domsep(8) | pubkeys_hash | message | merkle_chunks | tweaks_hash].
 pub(crate) fn build_input_data(
     n_sigs: usize,
-    slice_hash: &[F; DIGEST_LEN],
+    pubkeys_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
     slot: u32,
     tweaks_hash: &[F; DIGEST_LEN],
-    bytecode_claim_output: &[F],
+    bytecode_claim_flat: &[F],
     bytecode_hash: &[F; DIGEST_LEN],
 ) -> Vec<F> {
     let log_size = get_aggregation_bytecode().log_size();
@@ -153,11 +167,11 @@ pub(crate) fn build_input_data(
     data.push(F::from_usize(TYPE1_FLAG));
     data.push(F::from_usize(n_sigs));
     data.resize(DIGEST_LEN, F::ZERO);
-    data.extend_from_slice(bytecode_claim_output);
-    let claim_padding = bytecode_claim_output.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_output.len();
+    data.extend_from_slice(bytecode_claim_flat);
+    let claim_padding = bytecode_claim_flat.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_flat.len();
     data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
     data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
-    data.extend_from_slice(slice_hash);
+    data.extend_from_slice(pubkeys_hash);
     data.extend_from_slice(message);
     data.extend(compute_merkle_chunks_for_slot(slot));
     data.extend_from_slice(tweaks_hash);
@@ -197,19 +211,17 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
     if !sig.info.pubkeys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let claim_output = sig.bytecode_claim_flat();
-    let input_data = build_type1_input_data(&sig.info.pubkeys, &sig.info.message, sig.info.slot, &claim_output);
-    verify_inner(input_data, sig.proof.proof.clone())
+    verify_inner(sig.info.build_input_data(), sig.proof.proof.clone())
 }
 
 pub(crate) struct ReducedBytecodeClaims {
-    pub bytecode_claim: Evaluation<EF>,
+    pub final_claim: Evaluation<EF>,
     pub sumcheck_transcript: Vec<F>,
 }
 
 impl ReducedBytecodeClaims {
-    pub fn bytecode_claim_flat(&self) -> Vec<F> {
-        flatten_bytecode_claim(&self.bytecode_claim)
+    pub fn final_claim_flat(&self) -> Vec<F> {
+        flatten_bytecode_claim(&self.final_claim)
     }
 }
 
@@ -220,7 +232,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
         let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.total_n_vars()]);
         let zero_value = compute_bytecode_value_at(&zero_point);
         return ReducedBytecodeClaims {
-            bytecode_claim: Evaluation::new(zero_point, zero_value),
+            final_claim: Evaluation::new(zero_point, zero_value),
             sumcheck_transcript: vec![],
         };
     }
@@ -285,7 +297,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
     );
 
     ReducedBytecodeClaims {
-        bytecode_claim: Evaluation::new(reduced_point, reduced_value),
+        final_claim: Evaluation::new(reduced_point, reduced_value),
         sumcheck_transcript,
     }
 }
@@ -345,14 +357,13 @@ pub fn aggregate_type_1(
 
     let reduced_claims = reduce_bytecode_claims(&verified_children);
 
-    let slice_hash = hash_pubkeys(&global_pub_keys);
     let pub_input_data = build_input_data(
         n_sigs,
-        &slice_hash.0,
+        &hash_pubkeys(&global_pub_keys),
         message,
         slot,
         &tweaks_hash,
-        &reduced_claims.bytecode_claim_flat(),
+        &reduced_claims.final_claim_flat(),
         &bytecode.hash,
     );
     let public_input = poseidon_compress_slice(&pub_input_data, true).to_vec();
@@ -479,7 +490,7 @@ pub fn aggregate_type_1(
             message: *message,
             slot,
             pubkeys: global_pub_keys,
-            bytecode_claim: reduced_claims.bytecode_claim,
+            bytecode_claim: reduced_claims.final_claim,
         },
         proof,
     })
@@ -501,32 +512,7 @@ pub(crate) fn compute_bytecode_value_at(point: &MultilinearPoint<EF>) -> EF {
     }
 }
 
-/// Builds the type-1 public-input data buffer from already-encoded parts.
-/// Used by every flow that needs a type-1 layout: standalone aggregation,
-/// per-component reconstruction in type-2 verification, and the kept-component
-/// reconstruction in `split_type_2`.
-pub(crate) fn build_type1_input_data(
-    pubkeys: &[XmssPublicKey],
-    message: &[F; MESSAGE_LEN_FE],
-    slot: u32,
-    bytecode_claim_output: &[F],
-) -> Vec<F> {
-    let slice_hash = hash_pubkeys(pubkeys);
-    let tweak_table = compute_tweak_table(slot);
-    let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
-    build_input_data(
-        pubkeys.len(),
-        &slice_hash.0,
-        message,
-        slot,
-        &tweaks_hash,
-        bytecode_claim_output,
-        &get_aggregation_bytecode().hash,
-    )
-}
-
-/// Flatten WHIR Merkle openings from a batch of recursive sub-proofs into the
-/// `(merkle_leaf, merkle_path)` hint-blob pair the bytecode consumes.
+/// return `([merkle_leafs], [merkle_paths])`
 pub(crate) fn extract_merkle_hint_blobs<'a>(
     raw_proofs: impl IntoIterator<Item = &'a RawProof<F>>,
 ) -> (Vec<Vec<F>>, Vec<Vec<F>>) {
