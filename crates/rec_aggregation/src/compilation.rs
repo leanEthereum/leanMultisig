@@ -1,5 +1,4 @@
 use backend::*;
-use lean_compiler::instruction_encoder::field_representation;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
     GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
@@ -9,30 +8,56 @@ use lean_vm::*;
 use leansig_wrapper::{
     LOG_LIFETIME, MSG_LEN_FE, PARAMETER_LEN, RAND_LEN_FE, TARGET_SUM, TWEAK_LEN_FE, V, W, WOTS_PUBKET_SPONGE_DOMAIN_SEP,
 };
-use sha3::{Digest, Sha3_256};
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
 use std::sync::OnceLock;
 use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
 
-use crate::{MERKLE_LEVELS_PER_CHUNK_FOR_SLOT, N_MERKLE_CHUNKS_FOR_SLOT, NUM_REPEATED_ONES, ZERO_VEC_LEN};
+use crate::bytecode_claims::bytecode_reduction_sumcheck_proof_size;
+use crate::type_1_aggregation::TWEAK_TABLE_SIZE_FE_PADDED;
+
+// preamble memory layout: see `build_preamble_memory` in utils.py:
+// [000.. (ZERO_VEC_LEN)][10000000 (fiat-shamir domain sep)][10000 (one in extension field)][111... (NUM_REPEATED_ONES)][tweak table]
+pub const ZERO_VEC_LEN: usize = 16;
+pub const NUM_REPEATED_ONES: usize = 32;
+pub const PREAMBLE_MEMORY_LEN: usize =
+    ZERO_VEC_LEN + DIGEST_LEN + DIMENSION + NUM_REPEATED_ONES + TWEAK_TABLE_SIZE_FE_PADDED;
+
+pub(crate) const MERKLE_LEVELS_PER_CHUNK_FOR_SLOT: usize = 4;
+pub(crate) const N_MERKLE_CHUNKS_FOR_SLOT: usize = LOG_LIFETIME / MERKLE_LEVELS_PER_CHUNK_FOR_SLOT;
 
 static BYTECODE: OnceLock<Bytecode> = OnceLock::new();
-const BYTECODE_GUESSED_LOG_SIZE: usize = 18;
 
-/// Format: `[32 bytes: SHA3-256 fingerprint][lz4(postcard(bytecode))]`
-#[cfg(not(any(feature = "prox-gaps-conjecture", feature = "test-config")))]
-const CACHED_BYTECODE_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode.bin"));
-#[cfg(feature = "prox-gaps-conjecture")]
-const CACHED_BYTECODE_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode_prox_gaps.bin"));
-#[cfg(feature = "test-config")]
-const CACHED_BYTECODE_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/cached_bytecode_test_config.bin"));
+static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/zkdsl_implem");
 
-const FINGERPRINT_SIZE: usize = 32; // in bytes
+pub const MAX_RECURSIONS: usize = 16;
+pub const MAX_XMSS_AGGREGATED: usize = 1 << 15; // TODO increase (we would need a bigger minimal memory size, totally doable)
+pub const MAX_XMSS_DUPLICATES: usize = 1 << 15; // ...same
+
+pub(crate) const TYPE1_FLAG: usize = 1;
+pub(crate) const TYPE2_FLAG: usize = 0;
+
+pub(crate) const BYTECODE_CLAIM_OFFSET: usize = DIGEST_LEN;
+/// Type-1's component data: pubkeys_hash | message | merkle_chunks | tweaks_hash.
+pub(crate) const COMPONENT_DATA_SIZE: usize = DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+
+pub(crate) fn bytecode_claim_size_padded(program_log_size: usize) -> usize {
+    let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
+    ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN)
+}
+
+pub(crate) fn bytecode_hash_domsep_offset(program_log_size: usize) -> usize {
+    BYTECODE_CLAIM_OFFSET + bytecode_claim_size_padded(program_log_size)
+}
+
+pub(crate) fn component_data_offset(program_log_size: usize) -> usize {
+    bytecode_hash_domsep_offset(program_log_size) + DIGEST_LEN
+}
+
+pub(crate) fn type1_input_data_size_padded(program_log_size: usize) -> usize {
+    component_data_offset(program_log_size) + COMPONENT_DATA_SIZE
+}
 
 pub fn get_aggregation_bytecode() -> &'static Bytecode {
     BYTECODE
@@ -41,105 +66,22 @@ pub fn get_aggregation_bytecode() -> &'static Bytecode {
 }
 
 pub fn init_aggregation_bytecode() {
-    BYTECODE.get_or_init(load_or_compile);
+    BYTECODE.get_or_init(compile_main_program_self_referential);
 }
 
-const PY_SOURCE_FINGERPRINT_HEX: &str = env!("REC_AGGREGATION_PY_FINGERPRINT");
+fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
+    let replacements = build_replacements(program_log_size, bytecode_zero_eval);
 
-fn compute_source_fingerprint() -> [u8; FINGERPRINT_SIZE] {
-    let replacements = compute_replacements(BYTECODE_GUESSED_LOG_SIZE, F::ONE);
-
-    let mut hasher = Sha3_256::new();
-    hasher.update(PY_SOURCE_FINGERPRINT_HEX.as_bytes());
-    hasher.update(b"\0");
-    for (key, value) in &replacements {
-        hasher.update(key.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(value.as_bytes());
-        hasher.update(b"\0");
-    }
-    hasher.finalize().into()
-}
-
-/// Returns the cache file name for the active feature configuration.
-fn cache_file_name() -> &'static str {
-    #[cfg(feature = "prox-gaps-conjecture")]
-    {
-        assert!(
-            !cfg!(feature = "test-config"),
-            "features `prox-gaps-conjecture` and `test-config` cannot be enabled at the same time"
-        );
-        "cached_bytecode_prox_gaps.bin"
-    }
-    #[cfg(feature = "test-config")]
-    {
-        "cached_bytecode_test_config.bin"
-    }
-    #[cfg(not(any(feature = "prox-gaps-conjecture", feature = "test-config")))]
-    {
-        "cached_bytecode.bin"
-    }
-}
-
-fn cache_file_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(cache_file_name())
-}
-
-fn load_or_compile() -> Bytecode {
-    let current_fp = compute_source_fingerprint();
-
-    if CACHED_BYTECODE_BYTES.len() > FINGERPRINT_SIZE {
-        let stored_fp: [u8; FINGERPRINT_SIZE] = CACHED_BYTECODE_BYTES[..FINGERPRINT_SIZE].try_into().unwrap();
-        if current_fp == stored_fp {
-            let cache_data = &CACHED_BYTECODE_BYTES[FINGERPRINT_SIZE..];
-            return deserialize_cache(cache_data).unwrap();
-        }
-    }
-    let bytecode = compile_from_source();
-    write_cache_file(&bytecode, &current_fp);
-    bytecode
-}
-
-fn deserialize_cache(data: &[u8]) -> Option<Bytecode> {
-    let decompressed = lz4_flex::decompress_size_prepended(data).ok()?;
-    let mut bytecode: Bytecode = postcard::from_bytes(&decompressed).ok()?;
-    rebuild_derived_fields(&mut bytecode);
-    Some(bytecode)
-}
-
-fn write_cache_file(bytecode: &Bytecode, fingerprint: &[u8; FINGERPRINT_SIZE]) {
-    let mut out = Vec::from(fingerprint.as_slice());
-    let encoded = postcard::to_allocvec(bytecode).expect("postcard serialization failed");
-    out.extend_from_slice(&lz4_flex::compress_prepend_size(&encoded));
-    std::fs::write(cache_file_path(), &out).expect("failed to write bytecode cache file");
-}
-
-fn rebuild_derived_fields(bytecode: &mut Bytecode) {
-    let padded_cols = N_INSTRUCTION_COLUMNS.next_power_of_two();
-    let mut instructions_multilinear: Vec<F> = bytecode
-        .code
-        .par_iter()
-        .flat_map_iter(|entry| {
-            let encoded = field_representation(&entry.instruction);
-            encoded
-                .into_iter()
-                .chain(std::iter::repeat_n(F::ZERO, padded_cols - N_INSTRUCTION_COLUMNS))
-        })
-        .collect();
-    instructions_multilinear.resize(instructions_multilinear.len().next_power_of_two(), F::ZERO);
-    let instructions_multilinear_packed = pack_extension(
-        &instructions_multilinear
-            .par_iter()
-            .map(|&pf| EF::from(pf))
-            .collect::<Vec<EF>>(),
-    );
-    bytecode.instructions_multilinear = instructions_multilinear;
-    bytecode.instructions_multilinear_packed = instructions_multilinear_packed;
+    let source = ProgramSource::Embedded {
+        entry: "main.py".to_string(),
+        dir: &EMBEDDED_ZK_DSL,
+    };
+    compile_program_with_flags(&source, CompilationFlags { replacements })
 }
 
 #[instrument(skip_all)]
-fn compile_from_source() -> Bytecode {
-    let mut log_size_guess = BYTECODE_GUESSED_LOG_SIZE;
+fn compile_main_program_self_referential() -> Bytecode {
+    let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -157,33 +99,7 @@ fn compile_from_source() -> Bytecode {
     }
 }
 
-fn compute_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
-    let bytecode_point_n_vars = inner_program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
-    let claim_data_size = ((bytecode_point_n_vars + 1) * DIMENSION).next_multiple_of(DIGEST_LEN);
-    let claim_data_size_padded = claim_data_size.next_multiple_of(DIGEST_LEN);
-    let n_all_tweaks_fe = (1 + V * (1 << W) + 1 + LOG_LIFETIME) * TWEAK_LEN_FE; // encoding + chain + leaf + merkle
-    // input_data layout: n_sigs(1) + slice_hash(8) + message(9) + merkle_chunks(8) + all_tweaks + bytecode_claim(padded) + bytecode_hash_domsep(8)
-    let input_data_size =
-        1 + DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + n_all_tweaks_fe + claim_data_size_padded + DIGEST_LEN;
-    let input_data_size_padded = input_data_size.next_multiple_of(DIGEST_LEN);
-    build_replacements(inner_program_log_size, bytecode_zero_eval, input_data_size_padded)
-}
-
-fn compile_main_program(inner_program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
-    let replacements = compute_replacements(inner_program_log_size, bytecode_zero_eval);
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("main.py")
-        .to_str()
-        .unwrap()
-        .to_string();
-    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
-}
-
-fn build_replacements(
-    inner_program_log_size: usize,
-    bytecode_zero_eval: F,
-    input_data_size_padded: usize,
-) -> BTreeMap<String, String> {
+fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
     let mut replacements = BTreeMap::new();
 
     let log_inner_bytecode = inner_program_log_size;
@@ -350,10 +266,6 @@ fn build_replacements(
         log_inner_bytecode.to_string(),
     );
     replacements.insert("COL_PC_PLACEHOLDER".to_string(), COL_PC.to_string());
-    replacements.insert(
-        "INPUT_DATA_SIZE_PADDED_PLACEHOLDER".to_string(),
-        input_data_size_padded.to_string(),
-    );
     let bytecode_point_n_vars = log_inner_bytecode + log2_ceil_usize(N_INSTRUCTION_COLUMNS);
     replacements.insert(
         "BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER".to_string(),
@@ -482,6 +394,18 @@ fn build_replacements(
         ),
     );
 
+    replacements.insert("TYPE_1_FLAG_PLACEHOLDER".to_string(), TYPE1_FLAG.to_string());
+    replacements.insert("TYPE_2_FLAG_PLACEHOLDER".to_string(), TYPE2_FLAG.to_string());
+    replacements.insert(
+        "MAX_XMSS_AGGREGATED_PLACEHOLDER".to_string(),
+        MAX_XMSS_AGGREGATED.to_string(),
+    );
+    replacements.insert(
+        "MAX_XMSS_DUPLICATES_PLACEHOLDER".to_string(),
+        MAX_XMSS_DUPLICATES.to_string(),
+    );
+    replacements.insert("MAX_RECURSIONS_PLACEHOLDER".to_string(), MAX_RECURSIONS.to_string());
+
     // Bytecode zero eval
     replacements.insert(
         "BYTECODE_ZERO_EVAL_PLACEHOLDER".to_string(),
@@ -494,11 +418,6 @@ fn build_replacements(
     );
 
     replacements
-}
-
-pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
-    let per_round = (3 * DIMENSION).next_multiple_of(DIGEST_LEN);
-    DIGEST_LEN + bytecode_point_n_vars * per_round
 }
 
 fn all_air_evals_in_zk_dsl() -> String {

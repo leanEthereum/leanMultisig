@@ -3,7 +3,7 @@
 use backend::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{EF, F, FileId, FunctionName, Hint, SourceLocation};
+use crate::{DIMENSION, EF, F, FileId, FunctionName, Hint, N_INSTRUCTION_COLUMNS, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
@@ -43,6 +43,14 @@ impl Bytecode {
 
     pub fn log_size(&self) -> usize {
         log2_ceil_usize(self.size())
+    }
+
+    pub fn cumulated_n_vars(&self) -> usize {
+        self.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS)
+    }
+
+    pub fn bytecode_claim_size(&self) -> usize {
+        (self.cumulated_n_vars() + 1) * DIMENSION
     }
 }
 

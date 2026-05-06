@@ -1,7 +1,13 @@
 use backend::*;
 
 pub use backend::ProofError;
-pub use rec_aggregation::{AggregatedXMSS, AggregationTopology, xmss_aggregate, xmss_verify_aggregation};
+pub use leansig_wrapper::{
+    MSG_LEN_FE as MESSAGE_LEN_FE, XmssPublicKey, XmssSignature, xmss_keygen_fast, xmss_sign_fast, xmss_verify,
+};
+pub use rec_aggregation::{
+    MAX_RECURSIONS, MAX_XMSS_AGGREGATED, MAX_XMSS_DUPLICATES, TypeOneInfo, TypeOneMultiSignature,
+    TypeTwoMultiSignature, aggregate_type_1, merge_many_type_1, split_type_2, verify_type_1, verify_type_2,
+};
 
 pub type F = KoalaBear;
 

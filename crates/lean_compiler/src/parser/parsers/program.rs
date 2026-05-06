@@ -56,18 +56,30 @@ impl Parse<Program> for ProgramParser {
                         ctx.import_root.clone()
                     };
                     let raw_path = Path::new(&base_dir).join(&relative_path);
-                    let filepath = raw_path
-                        .canonicalize()
-                        .map_err(|e| {
-                            SemanticError::new(format!(
-                                "Cannot resolve import '{}' (resolved to '{}'): {}",
-                                relative_path,
-                                raw_path.display(),
-                                e
+                    let filepath = if let Some(dir) = ctx.embedded_dir {
+                        let key = lexical_normalize(&raw_path);
+                        if dir.get_file(Path::new(&key)).is_none() {
+                            return Err(SemanticError::new(format!(
+                                "Cannot resolve embedded import '{}' (resolved to '{}')",
+                                relative_path, key
                             ))
-                        })?
-                        .to_string_lossy()
-                        .to_string();
+                            .into());
+                        }
+                        key
+                    } else {
+                        raw_path
+                            .canonicalize()
+                            .map_err(|e| {
+                                SemanticError::new(format!(
+                                    "Cannot resolve import '{}' (resolved to '{}'): {}",
+                                    relative_path,
+                                    raw_path.display(),
+                                    e
+                                ))
+                            })?
+                            .to_string_lossy()
+                            .to_string()
+                    };
 
                     // Check for circular imports
                     if ctx.import_stack.contains(&filepath) {
@@ -100,7 +112,15 @@ impl Parse<Program> for ProgramParser {
                         }
                         ctx.imported_filepaths.insert(filepath.clone());
                         ctx.import_stack.push(filepath.clone());
-                        ctx.current_source_code = ProgramSource::Filepath(filepath).get_content(&ctx.flags)?;
+                        let import_source = if let Some(dir) = ctx.embedded_dir {
+                            ProgramSource::Embedded {
+                                entry: filepath.clone(),
+                                dir,
+                            }
+                        } else {
+                            ProgramSource::Filepath(filepath.clone())
+                        };
+                        ctx.current_source_code = import_source.get_content(&ctx.flags)?;
                         let subprogram = parse_program_helper(ctx)?;
                         ctx.import_stack.pop();
                         functions.extend(subprogram.functions);
@@ -141,6 +161,29 @@ impl Parse<Program> for ProgramParser {
             source_code,
         })
     }
+}
+
+/// Lexically normalize a path for embedded-source lookups: collapse `.` and
+/// `..` components and join with `/` regardless of host OS, so the same key
+/// works on every platform.
+fn lexical_normalize(path: &Path) -> String {
+    use std::path::Component;
+    let mut parts: Vec<String> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(parts.last().map(String::as_str), Some("..") | None) {
+                    parts.push("..".to_string());
+                } else {
+                    parts.pop();
+                }
+            }
+            Component::Normal(s) => parts.push(s.to_string_lossy().into_owned()),
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    parts.join("/")
 }
 
 /// Parser for import statements.

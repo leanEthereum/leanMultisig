@@ -81,6 +81,7 @@ postcard = { version = "1.1.3", features = ["alloc"] }
 lz4_flex = "0.13.0"
 leansig = { git = "https://github.com/leanEthereum/leanSig", branch = "devnet4" }
 leansig_fast_keygen = { git = "https://github.com/TomWambsgans/leanSig", branch = "devnet4-fast-keygen" }
+include_dir = "0.7"
 
 [features]
 prox-gaps-conjecture = ["rec_aggregation/prox-gaps-conjecture"]

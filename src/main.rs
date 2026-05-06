@@ -1,5 +1,5 @@
 use clap::Parser;
-use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark, biggest_leaf};
+use rec_aggregation::benchmark::{AggregationTopology, biggest_leaf, run_aggregation_benchmark};
 
 #[cfg(not(feature = "standard-alloc"))]
 #[global_allocator]

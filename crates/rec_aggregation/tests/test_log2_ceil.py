@@ -1,5 +1,5 @@
 from snark_lib import *
-from ..utils import *
+from ..zkdsl_implem.utils import *
 
 
 def main():

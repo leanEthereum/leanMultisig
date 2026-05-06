@@ -16,6 +16,7 @@ utils.workspace = true
 rand.workspace = true
 leansig_wrapper.workspace = true
 tracing.workspace = true
+include_dir.workspace = true
 sub_protocols.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
@@ -26,9 +27,6 @@ lz4_flex.workspace = true
 serde.workspace = true
 sha3.workspace = true
 zk-alloc.workspace = true
-
-[build-dependencies]
-sha3.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", default-features = false, features = ["std"] }
