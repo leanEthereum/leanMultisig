@@ -67,15 +67,27 @@ fn test_type_2_aggregation() {
     setup_prover();
 
     let log_inv_rate = 2; // [1, 2, 3 or 4] (lower = faster but bigger proofs)
-    let slot: u32 = BENCHMARK_SLOT;
-    let message = message_for_benchmark();
+    let slot_a = BENCHMARK_SLOT;
+    let message_a = message_for_benchmark();
     let signatures = get_benchmark_signatures();
-
     let raws_a = signatures[0..3].to_vec();
-    let raws_b = signatures[3..5].to_vec();
 
-    let type1_a = aggregate_type_1(&[], raws_a, message, slot, log_inv_rate).unwrap();
-    let type1_b = aggregate_type_1(&[], raws_b, message, slot, log_inv_rate).unwrap();
+    let slot_b = BENCHMARK_SLOT + 1;
+    let mut rng_b: StdRng = StdRng::seed_from_u64(17);
+    let message_b: [_; 8] = std::array::from_fn(|_| rng_b.random());
+
+    assert!(message_b != message_a && slot_b != slot_a);
+
+    let raws_b: Vec<_> = (0..2)
+        .map(|_| {
+            let (sk, pk) = xmss_key_gen(rng_b.random(), slot_b, slot_b).unwrap();
+            let sig = xmss_sign(&mut rng_b, &sk, &message_b, slot_b).unwrap();
+            (pk, sig)
+        })
+        .collect();
+
+    let type1_a = aggregate_type_1(&[], raws_a, message_a, slot_a, log_inv_rate).unwrap();
+    let type1_b = aggregate_type_1(&[], raws_b, message_b, slot_b, log_inv_rate).unwrap();
 
     verify_type_1(&type1_a).unwrap();
     verify_type_1(&type1_b).unwrap();
