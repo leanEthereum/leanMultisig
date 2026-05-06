@@ -38,19 +38,27 @@ TWEAK_TABLE_SIZE_FE_PADDED = next_multiple_of(N_TWEAKS * TWEAK_SLOT_SIZE, DIGEST
 
 
 @inline
-def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
-    # signature layout: randomness | chain_tips | merkle_path
-    signature = Array(SIG_SIZE)
-    hint_witness("xmss_signature", signature)
-    randomness = signature
-    chain_starts = signature + RANDOMNESS_LEN
-    merkle_path = chain_starts + V * DIGEST_LEN
+def xmss_verify(pub_key, message, merkle_chunks):
+    # pub_key layout: merkle_root(DIGEST_LEN) | public_param(PUBLIC_PARAM_LEN)
+    merkle_root = pub_key
+    public_param = pub_key + DIGEST_LEN
 
-    # Tweak pointers (all pre-computed in public input)
-    encoding_tweak = all_tweaks
-    chain_tweaks = all_tweaks + CHAIN_TWEAKS_OFFSET
-    leaf_tweak = all_tweaks + LEAF_TWEAK_OFFSET
-    merkle_tweaks = all_tweaks + MERKLE_TWEAKS_OFFSET
+    # All tweaks live in the preamble memory at TWEAK_TABLE_ADDR (4-FE slots).
+    # Each non-encoding tweak occupies a TWEAK_SLOT_SIZE=4 slot, but only the
+    # first TWEAK_LEN=2 elements are read here (slot stride differs from LEN).
+    encoding_tweak = TWEAK_TABLE_ADDR
+    chain_tweaks_base = TWEAK_TABLE_ADDR + TWEAK_SLOT_SIZE
+    leaf_tweak = TWEAK_TABLE_ADDR + TWEAK_SLOT_SIZE * (1 + V * CHAIN_LENGTH)
+    merkle_tweaks_base = TWEAK_TABLE_ADDR + TWEAK_SLOT_SIZE * (1 + V * CHAIN_LENGTH + 1)
+
+    # WOTS signature: randomness | chain_tips
+    wots = Array(RANDOMNESS_LEN + V * DIGEST_LEN)
+    hint_witness("wots", wots)
+    randomness = wots
+    chain_starts = wots + RANDOMNESS_LEN
+    # Merkle path: LOG_LIFETIME * DIGEST_LEN provided as a separate hint.
+    merkle_path = Array(LOG_LIFETIME * DIGEST_LEN)
+    hint_witness("xmss_merkle_node", merkle_path)
 
     # 1) Encode: poseidon24_compress_0_9(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)
@@ -88,7 +96,7 @@ def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
         chain_sum_ptr = Array(1)
         match_range(
             enc_val_ptr[0], range(0, CHAIN_LENGTH),
-            lambda n: chain_hash(chain_start, n, chain_end, chain_sum_ptr, public_param, chain_tweaks, i)
+            lambda n: chain_hash(chain_start, n, chain_end, chain_sum_ptr, public_param, chain_tweaks_base, i)
         )
         target_sum += chain_sum_ptr[0]
 
@@ -98,7 +106,7 @@ def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
     wots_pk_hashed = wots_pk_hash_p24(wots_public_key, public_param, leaf_tweak)
 
     # 5) Merkle verify with Poseidon24 + pre-computed tweaks
-    xmss_merkle_verify_p24(wots_pk_hashed, merkle_path, merkle_chunks, merkle_root, public_param, merkle_tweaks)
+    xmss_merkle_verify_p24(wots_pk_hashed, merkle_path, merkle_chunks, merkle_root, public_param, merkle_tweaks_base)
 
     return
 
@@ -106,7 +114,8 @@ def xmss_verify(merkle_root, public_param, message, all_tweaks, merkle_chunks):
 @inline
 def make_chain_right(public_param, chain_tweaks, chain_index, step):
     right = Array(DIGEST_LEN)
-    tweak_idx = (chain_index * CHAIN_LENGTH + step) * TWEAK_LEN
+    # chain_tweaks lives in the 4-FE-stride padded tweak table.
+    tweak_idx = (chain_index * CHAIN_LENGTH + step) * TWEAK_SLOT_SIZE
     copy_5(public_param, right)
     right[5] = chain_tweaks[tweak_idx]
     right[6] = chain_tweaks[tweak_idx + 1]
@@ -228,7 +237,8 @@ def do_4_merkle_levels_p24(b, state_in, path_chunk, state_out, public_param, mer
 
 @inline
 def merkle_p24_one_level(is_left_bit, current, neighbour, output, public_param, merkle_tweaks, child_level):
-    tweak_ptr = merkle_tweaks + child_level * TWEAK_LEN
+    # merkle_tweaks lives in the 4-FE-stride padded tweak table.
+    tweak_ptr = merkle_tweaks + child_level * TWEAK_SLOT_SIZE
 
     input_buf = Array(24)
     copy_5(public_param, input_buf)
