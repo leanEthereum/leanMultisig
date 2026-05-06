@@ -27,7 +27,7 @@ Machine: M4 Max 48GB (CPU only)
 ### XMSS aggregation
 
 ```bash
-cargo run --release -- xmss --n-signatures 1500 --log-inv-rate 1
+cargo run --release -- xmss --n-signatures 1550 --log-inv-rate 1
 ```
 
 | WHIR rate | Proven Regime         | Proximity Gaps Conjecture |
