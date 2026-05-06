@@ -70,6 +70,7 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
     let replacements = build_replacements(program_log_size, bytecode_zero_eval);
 
     let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("zkdsl_implem")
         .join("main.py")
         .to_str()
         .unwrap()
