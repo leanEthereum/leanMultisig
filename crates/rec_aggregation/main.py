@@ -77,7 +77,7 @@ def main():
     is_split_buf = Array(1)
     hint_witness("is_split", is_split_buf)
     if is_split_buf[0] == 1:
-        # ============ type-1: Split ============
+        # ============ type-1: Split (extract a type-one from a type-two) ============
         type2_meta_hint = Array(2)
         hint_witness("type2_meta", type2_meta_hint)
         type2_n_components = type2_meta_hint[0]
@@ -124,7 +124,7 @@ def main():
     merkle_chunks_for_slot = data_buf + TYPE_1_MERKLE_CHUNKS_OFFSET
     tweaks_hash_expected = data_buf + TYPE_1_TWEAKS_HASH_OFFSET
 
-    # meta = [n_recursions, n_dup, pubkeys_len, n_raw_xmss]
+    # meta = [n_recursions, n_dup, n_raw_xmss]
     meta = Array(4)
     hint_witness("meta", meta)
     n_recursions = meta[0]
@@ -133,9 +133,9 @@ def main():
     n_dup = meta[1]
     assert n_dup < MAX_N_DUPS  # TODO increase
 
-    all_pubkeys = Array(meta[2])
+    all_pubkeys = Array((n_sigs + n_dup) * PUB_KEY_SIZE)
     hint_witness("pubkeys", all_pubkeys)
-    n_raw_xmss = meta[3]
+    n_raw_xmss = meta[2]
     raw_indices = Array(n_raw_xmss)
     hint_witness("raw_indices", raw_indices)
 

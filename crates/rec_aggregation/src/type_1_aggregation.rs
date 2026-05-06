@@ -340,7 +340,6 @@ pub fn aggregate_type_1(
         vec![vec![
             F::from_usize(n_recursions),
             F::from_usize(n_dup),
-            F::from_usize(pubkeys_blob.len()),
             F::from_usize(raw_count),
         ]],
     );
