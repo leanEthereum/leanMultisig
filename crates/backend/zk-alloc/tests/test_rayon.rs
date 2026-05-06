@@ -1,4 +1,6 @@
-//! Regression test for the bug prevented by `system_info::flush_rayon`.
+//! Regression test for arena/rayon corruption: rayon's `crossbeam_deque::Injector`
+//! blocks (~1.5 KB) used to land in the arena and outlive a phase. Now prevented
+//! by `MIN_ARENA_BYTES` size-routing in `ZkAllocator::alloc`.
 
 use rayon::prelude::*;
 
