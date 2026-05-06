@@ -33,56 +33,60 @@ pub(crate) const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV ne
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct Digest(pub [F; DIGEST_LEN]);
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeOneInfo {
     pub message: [F; MESSAGE_LEN_FE],
     pub slot: u32,
     pub pubkeys: Vec<XmssPublicKey>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AggregationProof {
-    pub execution_proof: ExecutionProof,
     pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct (should be recomputed when receiving a proof from an untrusted source)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeOneMultiSignature {
     pub info: TypeOneInfo,
-    pub proof: AggregationProof,
+    pub proof: ExecutionProof,
 }
 
-impl Serialize for AggregationProof {
+impl Serialize for TypeOneInfo {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        (&self.execution_proof, &self.bytecode_claim.point).serialize(s)
+        (&self.message, &self.slot, &self.pubkeys, &self.bytecode_claim.point).serialize(s)
     }
 }
 
-impl<'de> Deserialize<'de> for AggregationProof {
+impl<'de> Deserialize<'de> for TypeOneInfo {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let (execution_proof, bytecode_point) = <(ExecutionProof, MultilinearPoint<EF>)>::deserialize(d)?;
-        if bytecode_point.len() != get_aggregation_bytecode().total_n_vars() {
+        let (message, slot, pubkeys, bytecode_claim_point) =
+            <([F; MESSAGE_LEN_FE], u32, Vec<XmssPublicKey>, MultilinearPoint<EF>)>::deserialize(d)?;
+        if bytecode_claim_point.len() != get_aggregation_bytecode().total_n_vars() {
             return Err(serde::de::Error::custom("invalid bytecode point"));
         }
-        let bytecode_value = compute_bytecode_value_at(&bytecode_point);
+        let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);
         Ok(Self {
-            execution_proof,
-            bytecode_claim: Evaluation::new(bytecode_point, bytecode_value),
+            message,
+            slot,
+            pubkeys,
+            bytecode_claim: Evaluation::new(bytecode_claim_point, bytecode_value),
         })
     }
 }
 
-impl AggregationProof {
-    pub fn serialize(&self) -> Vec<u8> {
+impl TypeOneMultiSignature {
+    pub fn serialize_compressed(&self) -> Vec<u8> {
         let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
         lz4_flex::compress_prepend_size(&encoded)
     }
 
-    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+    pub fn deserialize_compressed(bytes: &[u8]) -> Option<Self> {
         let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
         postcard::from_bytes(&decompressed).ok()
     }
 
+    pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
+        self.info.bytecode_claim_flat()
+    }
+}
+
+impl TypeOneInfo {
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
         flatten_bytecode_claim(&self.bytecode_claim)
     }
@@ -193,9 +197,9 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
     if !sig.info.pubkeys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
-    let claim_output = sig.proof.bytecode_claim_flat();
+    let claim_output = sig.bytecode_claim_flat();
     let input_data = build_type1_input_data(&sig.info.pubkeys, &sig.info.message, sig.info.slot, &claim_output);
-    verify_inner(input_data, sig.proof.execution_proof.proof.clone())
+    verify_inner(input_data, sig.proof.proof.clone())
 }
 
 pub(crate) struct ReducedBytecodeClaims {
@@ -468,18 +472,16 @@ pub fn aggregate_type_1(
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
         hints,
     };
-    let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false)?;
+    let proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false)?;
 
     Ok(TypeOneMultiSignature {
         info: TypeOneInfo {
             message: *message,
             slot,
             pubkeys: global_pub_keys,
-        },
-        proof: AggregationProof {
-            execution_proof,
             bytecode_claim: reduced_claims.bytecode_claim,
         },
+        proof,
     })
 }
 

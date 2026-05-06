@@ -1,4 +1,4 @@
-use lean_multisig::{AggregationProof, aggregate_type_1, setup_prover, verify_type_1};
+use lean_multisig::{TypeOneMultiSignature, aggregate_type_1, setup_prover, verify_type_1};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rec_aggregation::benchmark::{AggregationTopology, run_aggregation_benchmark};
 use xmss::{
@@ -48,11 +48,11 @@ fn test_recursive_aggregation() {
     let type1_b = aggregate_type_1(&[], raws_b, message, slot, log_inv_rate).unwrap();
 
     let raws_c = signatures[5..6].to_vec();
-    let mut final_sig = aggregate_type_1(&[type1_a, type1_b], raws_c, message, slot, log_inv_rate).unwrap();
+    let final_sig = aggregate_type_1(&[type1_a, type1_b], raws_c, message, slot, log_inv_rate).unwrap();
 
-    let serialized_proof = final_sig.proof.serialize();
+    let serialized_proof = final_sig.serialize_compressed();
     println!("Serialized aggregated final: {} KiB", serialized_proof.len() / 1024);
-    final_sig.proof = AggregationProof::deserialize(&serialized_proof).unwrap();
+    let recovered = TypeOneMultiSignature::deserialize_compressed(&serialized_proof).unwrap();
 
-    verify_type_1(&final_sig).unwrap();
+    verify_type_1(&recovered).unwrap();
 }

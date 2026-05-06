@@ -340,8 +340,8 @@ fn build_aggregation(
     };
 
     let elapsed = time.elapsed();
-    let meta = result.proof.execution_proof.metadata.as_ref().unwrap();
-    let proof_kib = result.proof.execution_proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
+    let meta = result.proof.metadata.as_ref().unwrap();
+    let proof_kib = result.proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
     let is_leaf = topology.children.is_empty();
 
     if tracing {

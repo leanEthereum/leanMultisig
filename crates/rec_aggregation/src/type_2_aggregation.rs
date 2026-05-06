@@ -1,6 +1,7 @@
 use backend::*;
 use lean_prover::ProverError;
 use lean_prover::SNARK_DOMAIN_SEP;
+use lean_prover::prove_execution::ExecutionProof;
 use lean_prover::prove_execution::prove_execution;
 use lean_vm::*;
 use serde::{Deserialize, Serialize};
@@ -14,31 +15,67 @@ use crate::compilation::{
 use crate::type_1_aggregation::compute_bytecode_value_at;
 use crate::type_1_aggregation::flatten_bytecode_claim;
 use crate::type_1_aggregation::{
-    AggregationProof, InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
-    extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner, verify_type_1,
+    InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data, extract_merkle_hint_blobs,
+    reduce_bytecode_claims, verify_inner, verify_type_1,
 };
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
-/// slot) per component, attested to by a single recursive SNARK.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// slot) per component, attested to by a single recursive snark.
+#[derive(Debug, Clone)]
 pub struct TypeTwoMultiSignature {
     pub info: Vec<TypeOneInfo>,
-    pub component_bytecode_points: Vec<MultilinearPoint<EF>>,
-    pub proof: AggregationProof,
+    pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct  (should be recomputed when receiving a proof from an untrusted source)
+    pub proof: ExecutionProof,
+}
+
+impl Serialize for TypeTwoMultiSignature {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (&self.info, &self.bytecode_claim.point, &self.proof).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for TypeTwoMultiSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let (info, bytecode_claim_point, proof) =
+            <(Vec<TypeOneInfo>, MultilinearPoint<EF>, ExecutionProof)>::deserialize(d)?;
+        if bytecode_claim_point.len() != get_aggregation_bytecode().total_n_vars() {
+            return Err(serde::de::Error::custom("invalid bytecode point"));
+        }
+        let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);
+        Ok(TypeTwoMultiSignature {
+            info,
+            bytecode_claim: Evaluation::new(bytecode_claim_point, bytecode_value),
+            proof,
+        })
+    }
+}
+
+impl TypeTwoMultiSignature {
+    pub fn serialize_compressed(&self) -> Vec<u8> {
+        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
+        lz4_flex::compress_prepend_size(&encoded)
+    }
+
+    pub fn deserialize_compressed(bytes: &[u8]) -> Option<Self> {
+        let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
+        postcard::from_bytes(&decompressed).ok()
+    }
+
+    pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
+        flatten_bytecode_claim(&self.bytecode_claim)
+    }
 }
 
 /// Reconstruct the type-1 public-input data buffer from `info` and the
 /// component's saved `bytecode_point`.
-pub(crate) fn type1_input_data_from_parts(info: &TypeOneInfo, bytecode_point: &MultilinearPoint<EF>) -> Vec<F> {
-    let bytecode_value = compute_bytecode_value_at(bytecode_point);
-    let claim_output = flatten_bytecode_claim(&Evaluation::new(bytecode_point.clone(), bytecode_value));
-    build_type1_input_data(&info.pubkeys, &info.message, info.slot, &claim_output)
+pub(crate) fn type1_input_data_from_parts(info: &TypeOneInfo) -> Vec<F> {
+    build_type1_input_data(&info.pubkeys, &info.message, info.slot, &info.bytecode_claim_flat())
 }
 
 /// The 8-FE digest the type-2 buffer commits to per component (= the type-1
 /// public-input hash for that component).
-fn type1_component_digest(info: &TypeOneInfo, bytecode_point: &MultilinearPoint<EF>) -> [F; DIGEST_LEN] {
-    poseidon_compress_slice(&type1_input_data_from_parts(info, bytecode_point), true)
+fn type1_component_digest(info: &TypeOneInfo) -> [F; DIGEST_LEN] {
+    poseidon_compress_slice(&type1_input_data_from_parts(info), true)
 }
 
 /// Builds the type-2 outer public-input data buffer (live region only).
@@ -88,10 +125,6 @@ pub fn merge_many_type_1(
         .iter()
         .map(|sig| verify_type_1(sig).expect("component proof failed to verify"))
         .collect();
-    let (info_vec, component_bytecode_points): (Vec<TypeOneInfo>, Vec<MultilinearPoint<EF>>) = type_1_multi_signatures
-        .into_iter()
-        .map(|sig| (sig.info, sig.proof.bytecode_claim.point))
-        .unzip();
 
     let reduced_claims = reduce_bytecode_claims(&verified_children);
 
@@ -147,12 +180,9 @@ pub fn merge_many_type_1(
     let execution_proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false)?;
 
     Ok(TypeTwoMultiSignature {
-        info: info_vec,
-        component_bytecode_points,
-        proof: AggregationProof {
-            execution_proof,
-            bytecode_claim: reduced_claims.bytecode_claim
-        },
+        info: type_1_multi_signatures.into_iter().map(|sig| sig.info).collect(),
+        bytecode_claim: reduced_claims.bytecode_claim,
+        proof: execution_proof,
     })
 }
 
@@ -163,17 +193,9 @@ pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<InnerVerified, Proof
     if sig.info.is_empty() || sig.info.len() > MAX_RECURSIONS {
         return Err(ProofError::InvalidProof);
     }
-    if sig.info.len() != sig.component_bytecode_points.len() {
-        return Err(ProofError::InvalidProof);
-    }
-    let digests: Vec<[F; DIGEST_LEN]> = sig
-        .info
-        .iter()
-        .zip(&sig.component_bytecode_points)
-        .map(|(info, bp)| type1_component_digest(info, bp))
-        .collect();
-    let input_data = build_type2_input_data_skeleton(&digests, &sig.proof.bytecode_claim_flat());
-    verify_inner(input_data, sig.proof.execution_proof.proof.clone())
+    let digests: Vec<[F; DIGEST_LEN]> = sig.info.iter().map(|info| type1_component_digest(info)).collect();
+    let input_data = build_type2_input_data_skeleton(&digests, &sig.bytecode_claim_flat());
+    verify_inner(input_data, sig.proof.proof.clone())
 }
 
 /// Recover an independent type-1 multi-signature for the component at `index`
@@ -189,11 +211,6 @@ pub fn split_type_2(
         n_components <= MAX_RECURSIONS,
         "split_type_2: at most {MAX_RECURSIONS} components are supported"
     );
-    assert_eq!(
-        n_components,
-        type_2_multi_signature.component_bytecode_points.len(),
-        "type-2 info / component_bytecode_points length mismatch"
-    );
     let whir_config = lean_prover::default_whir_config(log_inv_rate);
 
     let bytecode = get_aggregation_bytecode();
@@ -203,19 +220,11 @@ pub fn split_type_2(
     // the natural bytecode evaluation that feeds the claim reduction.
     let outer_verified = verify_type_2(&type_2_multi_signature).expect("type-2 outer proof failed to verify");
 
-    let TypeTwoMultiSignature {
-        mut info,
-        component_bytecode_points,
-        ..
-    } = type_2_multi_signature;
+    let TypeTwoMultiSignature { mut info, .. } = type_2_multi_signature;
 
     // Recompute per-component type-1 layouts; the kept component's layout is
     // what the split SNARK takes as its outer data.
-    let mut component_data: Vec<Vec<F>> = info
-        .iter()
-        .zip(&component_bytecode_points)
-        .map(|(info, bp)| type1_input_data_from_parts(info, bp))
-        .collect();
+    let mut component_data: Vec<Vec<F>> = info.iter().map(|info| type1_input_data_from_parts(info)).collect();
 
     let reduced_claims = reduce_bytecode_claims(std::slice::from_ref(&outer_verified));
     let bytecode_value_hint_blob: Vec<F> = outer_verified
@@ -278,9 +287,6 @@ pub fn split_type_2(
 
     Ok(TypeOneMultiSignature {
         info: kept_info,
-        proof: AggregationProof {
-            execution_proof,
-            bytecode_claim: reduced_claims.bytecode_claim
-        },
+        proof: execution_proof,
     })
 }
