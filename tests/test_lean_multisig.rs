@@ -50,9 +50,9 @@ fn test_recursive_aggregation() {
     let raws_c = signatures[5..6].to_vec();
     let final_sig = aggregate_type_1(&[type1_a, type1_b], raws_c, message, slot, log_inv_rate).unwrap();
 
-    let serialized_proof = final_sig.serialize_compressed();
+    let serialized_proof = final_sig.compress();
     println!("Serialized aggregated final: {} KiB", serialized_proof.len() / 1024);
-    let recovered = TypeOneMultiSignature::deserialize_compressed(&serialized_proof).unwrap();
+    let recovered = TypeOneMultiSignature::decompress(&serialized_proof).unwrap();
 
     verify_type_1(&recovered).unwrap();
 }

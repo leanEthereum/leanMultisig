@@ -63,6 +63,9 @@ impl<'de> Deserialize<'de> for TypeOneInfo {
         if bytecode_claim_point.len() != get_aggregation_bytecode().total_n_vars() {
             return Err(serde::de::Error::custom("invalid bytecode point"));
         }
+        if !pubkeys.is_sorted() {
+            return Err(serde::de::Error::custom("unsorted pubkeys"));
+        }
         let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);
         Ok(Self {
             message,
@@ -74,12 +77,12 @@ impl<'de> Deserialize<'de> for TypeOneInfo {
 }
 
 impl TypeOneMultiSignature {
-    pub fn serialize_compressed(&self) -> Vec<u8> {
+    pub fn compress(&self) -> Vec<u8> {
         let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
         lz4_flex::compress_prepend_size(&encoded)
     }
 
-    pub fn deserialize_compressed(bytes: &[u8]) -> Option<Self> {
+    pub fn decompress(bytes: &[u8]) -> Option<Self> {
         let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
         postcard::from_bytes(&decompressed).ok()
     }
@@ -97,7 +100,7 @@ impl TypeOneInfo {
     pub(crate) fn build_input_data(&self) -> Vec<F> {
         let tweak_table = compute_tweak_table(self.slot);
         let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
-        build_input_data(
+        build_type1_input_data(
             self.pubkeys.len(),
             &hash_pubkeys(&self.pubkeys),
             &self.message,
@@ -154,9 +157,8 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
         .collect()
 }
 
-/// Builds the type-1 public-input data buffer.
 /// Layout: [prefix(8) | bytecode_claim_padded | bytecode_hash_domsep(8) | pubkeys_hash | message | merkle_chunks | tweaks_hash].
-pub(crate) fn build_input_data(
+pub(crate) fn build_type1_input_data(
     n_sigs: usize,
     pubkeys_hash: &[F; DIGEST_LEN],
     message: &[F; MESSAGE_LEN_FE],
@@ -252,7 +254,7 @@ pub fn aggregate_type_1(
 
     let reduced_claims = reduce_bytecode_claims(&verified_children);
 
-    let pub_input_data = build_input_data(
+    let pub_input_data = build_type1_input_data(
         n_sigs,
         &hash_pubkeys(&global_pub_keys),
         message,
@@ -266,9 +268,6 @@ pub fn aggregate_type_1(
     let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
 
-    // Raw XMSS data is split into two named hints — `wots` (randomness | chain_tips,
-    // one entry per signature) and `xmss_merkle_node` (one entry per 4-FE merkle node,
-    // flattened in the order `do_4_merkle_levels` consumes them at runtime).
     let wots_blobs: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
     let xmss_merkle_node_blobs: Vec<Vec<F>> = raw_xmss
         .iter()
@@ -349,7 +348,7 @@ pub fn aggregate_type_1(
     let fast_path = n_recursions == 1 && raw_count == 0 && dup_pub_keys.is_empty();
     let sub_indices_for_hints = if fast_path { Vec::new() } else { sub_indices_blobs };
     hints.insert("sub_indices".to_string(), sub_indices_for_hints);
-    // Standard type-1 (not a split). `split_type_2` is the only caller that sets this to 1.
+    // Standard type-1 (not a split).
     hints.insert("is_split".to_string(), vec![vec![F::ZERO]]);
     hints.insert("bytecode_value_hint".to_string(), bytecode_value_hint_blobs);
     hints.insert("inner_bytecode_claim".to_string(), inner_bytecode_claim_blobs);
