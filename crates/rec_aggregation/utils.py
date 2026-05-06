@@ -361,6 +361,13 @@ def set_to_5_zeros(a):
     return
 
 @inline
+def set_to_6_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    a[5] = 0
+    return
+
+@inline
 def copy_6(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     a[5] = b[5]
