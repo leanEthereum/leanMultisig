@@ -39,8 +39,9 @@ pub(crate) const TYPE1_FLAG: usize = 1;
 pub(crate) const TYPE2_FLAG: usize = 0;
 
 pub(crate) const BYTECODE_CLAIM_OFFSET: usize = DIGEST_LEN;
-/// Type-1's component data: pubkeys_hash | message | merkle_chunks | tweaks_hash.
-pub(crate) const COMPONENT_DATA_SIZE: usize = DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN;
+/// Type-1's component data: pubkeys_hash | message | merkle_chunks | tweaks_hash, padded to DIGEST_LEN.
+pub(crate) const COMPONENT_DATA_SIZE: usize =
+    (DIGEST_LEN + MSG_LEN_FE + N_MERKLE_CHUNKS_FOR_SLOT + DIGEST_LEN).next_multiple_of(DIGEST_LEN);
 
 pub(crate) fn bytecode_claim_size_padded(program_log_size: usize) -> usize {
     let bytecode_point_n_vars = program_log_size + log2_ceil_usize(N_INSTRUCTION_COLUMNS);

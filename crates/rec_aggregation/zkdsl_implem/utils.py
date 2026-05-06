@@ -439,6 +439,16 @@ def copy_32(a, b):
 
 
 @inline
+def copy_40(a, b):
+    copy_8(a, b)
+    copy_8(a + 8, b + 8)
+    copy_8(a + 16, b + 16)
+    copy_8(a + 24, b + 24)
+    copy_8(a + 32, b + 32)
+    return
+
+
+@inline
 def copy_many_ef(a, b, n):
     for i in unroll(0, n):
         dot_product_ee(a + i * DIM, ONE_EF_PTR, b + i * DIM)

@@ -56,9 +56,12 @@ def xmss_verify(pub_key, message, merkle_chunks):
     hint_witness("wots", wots)
     randomness = wots
     chain_starts = wots + RANDOMNESS_LEN
-    # Merkle path: LOG_LIFETIME * DIGEST_LEN provided as a separate hint.
+    # Merkle path: provided as LOG_LIFETIME separate `xmss_merkle_node` hints (one digest each).
     merkle_path = Array(LOG_LIFETIME * DIGEST_LEN)
-    hint_witness("xmss_merkle_node", merkle_path)
+    for k in unroll(0, LOG_LIFETIME):
+        node_buf = Array(DIGEST_LEN)
+        hint_witness("xmss_merkle_node", node_buf)
+        copy_8(node_buf, merkle_path + k * DIGEST_LEN)
 
     # 1) Encode: poseidon24_compress_0_9(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)

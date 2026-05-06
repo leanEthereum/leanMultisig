@@ -198,6 +198,8 @@ pub(crate) fn build_type1_input_data(
     data.extend_from_slice(message);
     data.extend(compute_merkle_chunks_for_slot(slot));
     data.extend_from_slice(tweaks_hash);
+    // Pad up to a multiple of DIGEST_LEN so slice_hash_with_iv consumes the whole buffer.
+    data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
     data
 }
 

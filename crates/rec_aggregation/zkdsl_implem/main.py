@@ -19,9 +19,10 @@ COMPONENT_DATA_OFFSET = BYTECODE_HASH_DOMSEP_OFFSET + DIGEST_LEN
 # Type-1 mode-specific data (fixed): pubkeys_hash | message | merkle_chunks | tweaks_hash.
 TYPE_1_PUBKEYS_HASH_OFFSET = COMPONENT_DATA_OFFSET
 TYPE_1_MSG_HASH_OFFSET = COMPONENT_DATA_OFFSET + DIGEST_LEN
-TYPE_1_MERKLE_CHUNKS_OFFSET = TYPE_1_MSG_HASH_OFFSET + DIGEST_LEN
+TYPE_1_MERKLE_CHUNKS_OFFSET = TYPE_1_MSG_HASH_OFFSET + MESSAGE_LEN
 TYPE_1_TWEAKS_HASH_OFFSET = TYPE_1_MERKLE_CHUNKS_OFFSET + N_MERKLE_CHUNKS
-TYPE_1_INPUT_DATA_SIZE_PADDED = TYPE_1_TWEAKS_HASH_OFFSET + DIGEST_LEN
+# Buffer is padded up to a multiple of DIGEST_LEN so slice_hash_with_iv consumes the whole thing.
+TYPE_1_INPUT_DATA_SIZE_PADDED = next_multiple_of(TYPE_1_TWEAKS_HASH_OFFSET + DIGEST_LEN, DIGEST_LEN)
 TYPE_1_INPUT_DATA_NUM_CHUNKS = TYPE_1_INPUT_DATA_SIZE_PADDED / DIGEST_LEN
 
 # Type-2 mode-specific data (variable): n_components × digest(8).
@@ -93,7 +94,7 @@ def main():
         kept_type1_buff = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
         hint_witness("kept_type1_buff", kept_type1_buff)
         copy_8(data_buf, kept_type1_buff) # type-1 flag | n_signatures | 0×6
-        copy_32(data_buf + COMPONENT_DATA_OFFSET, kept_type1_buff + COMPONENT_DATA_OFFSET )
+        copy_40(data_buf + COMPONENT_DATA_OFFSET, kept_type1_buff + COMPONENT_DATA_OFFSET )
         ensure_well_formed_input_data(kept_type1_buff, bytecode_hash_domsep, TYPE_1_FLAG)
         digest_kept = type2_digests + type2_kept_index * DIGEST_LEN
         slice_hash_with_iv(kept_type1_buff, TYPE_1_INPUT_DATA_NUM_CHUNKS, digest_kept)
@@ -147,7 +148,7 @@ def main():
         if n_raw_xmss == 0:
             type1_data_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
             copy_8(data_buf, type1_data_buf)  # prefix
-            copy_32(data_buf + COMPONENT_DATA_OFFSET, type1_data_buf + COMPONENT_DATA_OFFSET )
+            copy_40(data_buf + COMPONENT_DATA_OFFSET, type1_data_buf + COMPONENT_DATA_OFFSET )
             hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
             ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
             inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
@@ -159,8 +160,9 @@ def main():
             slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, pub_mem)
             return
 
-    # General path
-    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs, log2_ceil(MAX_N_SIGS))
+    # General path. Pubkeys are PUB_KEY_SIZE-FE long each (not necessarily a multiple of 8 in leansig),
+    # so we use the arbitrary-length slice_hash_with_iv_dynamic_unroll (pads remainder internally).
+    computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Buffer for partition verification
@@ -186,34 +188,38 @@ def main():
         sub_indices_arr = Array(n_sub)
         hint_witness("sub_indices", sub_indices_arr)
 
-        idx0 = sub_indices_arr[0]
-        assert idx0 < n_total
-        buffer[idx0] = counter
-        counter += 1
-        pk0 = all_pubkeys + idx0 * PUB_KEY_SIZE
-        running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16_compress(ZERO_VEC_PTR, pk0, running_hash)
-
-        for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
+        # Gather sub-pubkeys into a contiguous buffer so we can use the same
+        # arbitrary-length hash as the global pubkeys hash above (PUB_KEY_SIZE
+        # is not a multiple of DIGEST_LEN in leansig, so we cannot just chain
+        # poseidon16 per pubkey).
+        sub_pubkeys_buf = Array(n_sub * PUB_KEY_SIZE)
+        for j in dynamic_unroll(0, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices_arr[j]
             assert idx < n_total
             buffer[idx] = counter
             counter += 1
-            pk = all_pubkeys + idx * PUB_KEY_SIZE
-            new_hash = Array(DIGEST_LEN)
-            poseidon16_compress(running_hash, pk, new_hash)
-            running_hash = new_hash
+            src = all_pubkeys + idx * PUB_KEY_SIZE
+            dst = sub_pubkeys_buf + j * PUB_KEY_SIZE
+            for k in unroll(0, PUB_KEY_SIZE):
+                dst[k] = src[k]
+
+        sub_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(
+            sub_pubkeys_buf, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE
+        )
 
         type1_data_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
         type1_data_buf[0] = TYPE_1_FLAG
         type1_data_buf[1] = n_sub
         for k in unroll(2, DIGEST_LEN):
             type1_data_buf[k] = 0
-        
-        copy_8(running_hash, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET)
-        copy_8(message, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET + DIGEST_LEN)
-        copy_8(merkle_chunks_for_slot, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET + DIGEST_LEN + MESSAGE_LEN)
+
+        copy_8(sub_pubkeys_hash, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET)
+        copy_9(message, type1_data_buf + TYPE_1_MSG_HASH_OFFSET)
+        copy_8(merkle_chunks_for_slot, type1_data_buf + TYPE_1_MERKLE_CHUNKS_OFFSET)
         copy_8(tweaks_hash_expected, type1_data_buf + TYPE_1_TWEAKS_HASH_OFFSET)
+        # Zero-pad the trailing region up to TYPE_1_INPUT_DATA_SIZE_PADDED.
+        for k in unroll(TYPE_1_TWEAKS_HASH_OFFSET + DIGEST_LEN, TYPE_1_INPUT_DATA_SIZE_PADDED):
+            type1_data_buf[k] = 0
         hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
         ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
