@@ -60,8 +60,7 @@ def main():
             inner_type1_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
             hint_witness("component_layout", inner_type1_buf)
             ensure_well_formed_input_data(inner_type1_buf, bytecode_hash_domsep, TYPE_1_FLAG)
-            digest_recomputed = slice_hash_with_iv(inner_type1_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS)
-            copy_8(digest_recomputed, component_digest)
+            slice_hash_with_iv(inner_type1_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, component_digest)
 
             bytecode_claims[2 * c] = inner_type1_buf + BYTECODE_CLAIM_OFFSET
             bytecode_claims[2 * c + 1] = recursion(component_digest, bytecode_hash_domsep)
@@ -96,9 +95,8 @@ def main():
         copy_8(data_buf, kept_type1_buff) # type-1 flag | n_signatures | 0×6
         copy_32(data_buf + COMPONENT_DATA_OFFSET, kept_type1_buff + COMPONENT_DATA_OFFSET )
         ensure_well_formed_input_data(kept_type1_buff, bytecode_hash_domsep, TYPE_1_FLAG)
-        digest_kept = slice_hash_with_iv(kept_type1_buff, TYPE_1_INPUT_DATA_NUM_CHUNKS)
-
-        copy_8(digest_kept, type2_digests + type2_kept_index * DIGEST_LEN)
+        digest_kept = type2_digests + type2_kept_index * DIGEST_LEN
+        slice_hash_with_iv(kept_type1_buff, TYPE_1_INPUT_DATA_NUM_CHUNKS, digest_kept)
 
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
         slice_hash_with_iv_range(type2_data_buf, type2_num_chunks, inner_pub_mem)
@@ -106,8 +104,7 @@ def main():
         bytecode_claims[0] = type2_data_buf + BYTECODE_CLAIM_OFFSET
         bytecode_claims[1] = recursion(inner_pub_mem, bytecode_hash_domsep)
         reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output)
-        outer_hash = slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS)
-        copy_8(outer_hash, pub_mem)
+        slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, pub_mem)
         return
 
     # ============ Standard type-1: single (message, slot) aggregation ============
@@ -154,13 +151,12 @@ def main():
             hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
             ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
             inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
-            copy_8(slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
+            slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, inner_pub_mem)
             bytecode_claims = Array(2)
             bytecode_claims[0] = type1_data_buf + BYTECODE_CLAIM_OFFSET
             bytecode_claims[1] = recursion(inner_pub_mem, bytecode_hash_domsep)
             reduce_bytecode_claims(bytecode_claims, 2, bytecode_claim_output)
-            outer_hash = slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS)
-            copy_8(outer_hash, pub_mem)
+            slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, pub_mem)
             return
 
     # General path
@@ -221,7 +217,7 @@ def main():
         hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
         ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
-        copy_8(slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS), inner_pub_mem)
+        slice_hash_with_iv(type1_data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, inner_pub_mem)
 
         bytecode_claims[2 * rec_idx] = type1_data_buf + BYTECODE_CLAIM_OFFSET
         bytecode_claims[2 * rec_idx + 1] = recursion(inner_pub_mem, bytecode_hash_domsep)
@@ -237,8 +233,7 @@ def main():
     else:
         reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_output)
 
-    outer_hash = slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS)
-    copy_8(outer_hash, pub_mem)
+    slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, pub_mem)
     return
 
 
