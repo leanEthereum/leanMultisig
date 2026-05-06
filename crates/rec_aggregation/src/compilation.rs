@@ -6,7 +6,6 @@ use lean_prover::{
 };
 use lean_vm::*;
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
 use std::sync::OnceLock;
 use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
@@ -37,6 +36,8 @@ pub fn get_aggregation_bytecode() -> &'static Bytecode {
 pub fn init_aggregation_bytecode() {
     BYTECODE.get_or_init(compile_main_program_self_referential);
 }
+
+static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/zkdsl_implem");
 
 pub const MAX_RECURSIONS: usize = 16;
 pub const MAX_XMSS_AGGREGATED: usize = 1 << 15; // TODO increase (we would need a bigger minimal memory size, totally doable)
@@ -69,13 +70,11 @@ pub(crate) fn type1_input_data_size_padded(program_log_size: usize) -> usize {
 fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytecode {
     let replacements = build_replacements(program_log_size, bytecode_zero_eval);
 
-    let filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("zkdsl_implem")
-        .join("main.py")
-        .to_str()
-        .unwrap()
-        .to_string();
-    compile_program_with_flags(&ProgramSource::Filepath(filepath), CompilationFlags { replacements })
+    let source = ProgramSource::Embedded {
+        entry: "main.py".to_string(),
+        dir: &EMBEDDED_ZK_DSL,
+    };
+    compile_program_with_flags(&source, CompilationFlags { replacements })
 }
 
 #[instrument(skip_all)]
