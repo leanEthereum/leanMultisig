@@ -511,6 +511,7 @@ dependencies = [
  "pest_derive",
  "rand",
  "rec_aggregation",
+ "serde",
  "sub_protocols",
  "tracing",
  "utils",

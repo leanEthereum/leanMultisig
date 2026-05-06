@@ -1,4 +1,4 @@
-use lean_multisig::{ZkAllocator, begin_phase, end_phase, setup_prover, xmss_aggregate, xmss_verify_aggregation};
+use lean_multisig::{ZkAllocator, aggregate_type_1, begin_phase, end_phase, setup_prover, verify_type_1};
 use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
 
 #[global_allocator]
@@ -13,13 +13,13 @@ fn test_aggregation_with_zk_alloc() {
     let message = message_for_benchmark();
     let slot: u32 = BENCHMARK_SLOT;
     let signatures = get_benchmark_signatures();
-    let pub_keys_and_sigs = signatures[0..6].to_vec();
+    let raw_xmss = signatures[0..6].to_vec();
 
     begin_phase();
-    let (pub_keys, aggregated) = xmss_aggregate(&[], pub_keys_and_sigs, &message, slot, log_inv_rate).unwrap();
+    let aggregated = aggregate_type_1(&[], raw_xmss, message, slot, log_inv_rate).unwrap();
     end_phase();
     // IMPORTANT: clone to move the data out of the arena memory
-    let (pub_keys, aggregated) = (pub_keys.clone(), aggregated.clone());
+    let aggregated = aggregated.clone();
 
-    xmss_verify_aggregation(&pub_keys, &aggregated, &message, slot).unwrap();
+    verify_type_1(&aggregated).unwrap();
 }

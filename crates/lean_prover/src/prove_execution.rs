@@ -3,16 +3,18 @@ use std::collections::BTreeMap;
 use crate::*;
 use lean_vm::*;
 
+use serde::{Deserialize, Serialize};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
 use utils::{build_prover_state, from_end};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionProof {
     pub proof: Proof<F>,
     // benchmark / debug purpose
-    pub metadata: ExecutionMetadata,
+    #[serde(skip, default)]
+    pub metadata: Option<ExecutionMetadata>,
 }
 
 pub fn prove_execution(
@@ -265,6 +267,6 @@ pub fn prove_execution(
 
     Ok(ExecutionProof {
         proof: prover_state.into_proof(),
-        metadata,
+        metadata: Some(metadata),
     })
 }

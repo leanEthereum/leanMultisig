@@ -361,6 +361,13 @@ def set_to_5_zeros(a):
     return
 
 @inline
+def set_to_6_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    a[5] = 0
+    return
+
+@inline
 def copy_6(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     a[5] = b[5]
@@ -396,6 +403,15 @@ def copy_16(a, b):
     dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
     dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
     a[15] = b[15]
+    return
+
+@inline
+def copy_32(a, b):
+    chunks = div_floor(32, DIM)
+    for i in unroll(0, chunks):
+        copy_5(a + i * DIM, b + i * DIM)
+    if DIM * chunks != 32:
+        copy_5(a + (32 - DIM), b + (32 - DIM))
     return
 
 

@@ -32,6 +32,8 @@ pub const SNARK_DOMAIN_SEP: [F; 8] = F::new_array([
 ]);
 
 pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
+    assert!(0 < starting_log_inv_rate);
+    assert!(starting_log_inv_rate <= MAX_WHIR_LOG_INV_RATE);
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(WHIR_INITIAL_FOLDING_FACTOR, WHIR_SUBSEQUENT_FOLDING_FACTOR),
         soundness_type: if cfg!(feature = "prox-gaps-conjecture") {
