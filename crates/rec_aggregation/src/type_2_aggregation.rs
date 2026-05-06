@@ -193,7 +193,7 @@ pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<InnerVerified, Proof
     if sig.info.is_empty() || sig.info.len() > MAX_RECURSIONS {
         return Err(ProofError::InvalidProof);
     }
-    let digests: Vec<[F; DIGEST_LEN]> = sig.info.iter().map(|info| type1_component_digest(info)).collect();
+    let digests: Vec<[F; DIGEST_LEN]> = sig.info.iter().map(type1_component_digest).collect();
     let input_data = build_type2_input_data_skeleton(&digests, &sig.bytecode_claim_flat());
     verify_inner(input_data, sig.proof.proof.clone())
 }
@@ -224,7 +224,7 @@ pub fn split_type_2(
 
     // Recompute per-component type-1 layouts; the kept component's layout is
     // what the split SNARK takes as its outer data.
-    let mut component_data: Vec<Vec<F>> = info.iter().map(|info| type1_input_data_from_parts(info)).collect();
+    let mut component_data: Vec<Vec<F>> = info.iter().map(type1_input_data_from_parts).collect();
 
     let reduced_claims = reduce_bytecode_claims(std::slice::from_ref(&outer_verified));
     let bytecode_value_hint_blob: Vec<F> = outer_verified
@@ -237,7 +237,8 @@ pub fn split_type_2(
 
     // Outer (split) public input: type-1 layout for the kept component, with the SPLIT's
     // reduced claim (not the original component's claim).
-    let kept_info = info.swap_remove(index);
+    let mut kept_info = info.swap_remove(index);
+    kept_info.bytecode_claim = reduced_claims.bytecode_claim.clone();
     let pub_input_data = build_type1_input_data(
         &kept_info.pubkeys,
         &kept_info.message,

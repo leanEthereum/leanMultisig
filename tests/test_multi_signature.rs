@@ -35,14 +35,22 @@ fn test_type2_real_snark_merge() {
     let t = std::time::Instant::now();
     let split_b = split_type_2(type2.clone(), 1, log_inv_rate).unwrap();
     println!("split index 1: {:.2}s", t.elapsed().as_secs_f64());
-    assert_eq!(split_a.info, info_a);
-    assert_eq!(split_b.info, info_b);
+    // The split SNARK produces a fresh bytecode_claim, so only the user-facing
+    // (message, slot, pubkeys) parts of the info are preserved.
+    assert_eq!(split_a.info.message, info_a.message);
+    assert_eq!(split_a.info.slot, info_a.slot);
+    assert_eq!(split_a.info.pubkeys, info_a.pubkeys);
+    assert_eq!(split_b.info.message, info_b.message);
+    assert_eq!(split_b.info.slot, info_b.slot);
+    assert_eq!(split_b.info.pubkeys, info_b.pubkeys);
     verify_type_1(&split_a).expect("split index 0 failed verify_type_1");
     verify_type_1(&split_b).expect("split index 1 failed verify_type_1");
 
     // Sanity: a split for component 0 must NOT verify against component 1's info.
     let mut wrong = split_a;
-    wrong.info = info_b;
+    wrong.info.pubkeys = info_b.pubkeys;
+    wrong.info.message = info_b.message;
+    wrong.info.slot = info_b.slot;
     assert!(verify_type_1(&wrong).is_err());
 
     // Tamper detection: changing one component's claimed slot must make
