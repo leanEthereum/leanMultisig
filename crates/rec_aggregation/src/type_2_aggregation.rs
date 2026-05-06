@@ -20,8 +20,7 @@ use crate::compilation::{
 use crate::type_1_aggregation::{TypeOneInfo, TypeOneMultiSignature, extract_merkle_hint_blobs, verify_type_1};
 use crate::verify_inner;
 
-/// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
-/// slot) per component, attested by a single snark.
+/// A bundle of `n` type-1 multi-signatures with potentially distinct (message, slot) per component, attested by a single snark.
 #[derive(Debug, Clone)]
 pub struct TypeTwoMultiSignature {
     pub info: Vec<TypeOneInfo>,

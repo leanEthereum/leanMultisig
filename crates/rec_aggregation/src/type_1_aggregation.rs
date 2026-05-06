@@ -44,6 +44,7 @@ pub struct TypeOneInfo {
     pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct (should be recomputed when receiving a proof from an untrusted source)
 }
 
+// Aggregation of many signatures, all sharing the same (message, slot)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeOneMultiSignature {
     pub info: TypeOneInfo,
