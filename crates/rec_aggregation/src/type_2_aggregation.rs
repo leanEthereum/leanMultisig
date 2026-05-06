@@ -9,15 +9,18 @@ use std::collections::HashMap;
 use utils::poseidon_compress_slice;
 use utils::poseidon16_compress_pair;
 
+use crate::InnerVerified;
+use crate::bytecode_claims::compute_bytecode_value_at;
+use crate::bytecode_claims::flatten_bytecode_claim;
+use crate::bytecode_claims::reduce_bytecode_claims;
 use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, PREAMBLE_MEMORY_LEN, TYPE2_FLAG, get_aggregation_bytecode,
 };
-use crate::type_1_aggregation::compute_bytecode_value_at;
-use crate::type_1_aggregation::flatten_bytecode_claim;
 use crate::type_1_aggregation::{
-    InnerVerified, TypeOneInfo, TypeOneMultiSignature, extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner,
+   TypeOneInfo, TypeOneMultiSignature, extract_merkle_hint_blobs,
     verify_type_1,
 };
+use crate::verify_inner;
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
 /// slot) per component, attested to by a single recursive snark.

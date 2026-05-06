@@ -13,6 +13,7 @@ use tracing::instrument;
 use utils::Counter;
 use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W, XMSS_DIGEST_LEN};
 
+use crate::bytecode_claims::bytecode_reduction_sumcheck_proof_size;
 use crate::type_1_aggregation::TWEAK_TABLE_SIZE_FE_PADDED;
 
 // preamble memory layout: see `build_preamble_memory` in utils.py:
@@ -409,10 +410,6 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     replacements
 }
 
-pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
-    let per_round = (3 * DIMENSION).next_multiple_of(DIGEST_LEN);
-    DIGEST_LEN + bytecode_point_n_vars * per_round
-}
 
 fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();

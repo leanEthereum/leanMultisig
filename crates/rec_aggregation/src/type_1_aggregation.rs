@@ -2,10 +2,9 @@ use backend::*;
 use lean_prover::ProverError;
 use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::{ExecutionProof, prove_execution};
-use lean_prover::verify_execution::verify_execution;
 use lean_vm::*;
 use tracing::instrument;
-use utils::{build_prover_state, get_poseidon16, poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{poseidon_compress_slice, poseidon16_compress_pair};
 use xmss::CHAIN_LENGTH;
 use xmss::make_tweak;
 use xmss::{
@@ -16,11 +15,15 @@ use xmss::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::InnerVerified;
+use crate::bytecode_claims::compute_bytecode_value_at;
+use crate::bytecode_claims::flatten_bytecode_claim;
+use crate::bytecode_claims::reduce_bytecode_claims;
 use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, MAX_XMSS_AGGREGATED, MAX_XMSS_DUPLICATES, N_MERKLE_CHUNKS_FOR_SLOT,
-    PREAMBLE_MEMORY_LEN, TYPE1_FLAG, bytecode_reduction_sumcheck_proof_size, get_aggregation_bytecode,
-    type1_input_data_size_padded,
+    PREAMBLE_MEMORY_LEN, TYPE1_FLAG, get_aggregation_bytecode, type1_input_data_size_padded,
 };
+use crate::verify_inner;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + 1 wots_pk + LOG_LIFETIME merkle
 pub(crate) const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME;
@@ -186,120 +189,12 @@ fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
     data
 }
 
-#[allow(missing_debug_implementations)]
-pub struct InnerVerified {
-    pub input_data: Vec<F>,
-    pub input_data_hash: [F; DIGEST_LEN],
-    pub bytecode_evaluation: Evaluation<EF>,
-    pub raw_proof: RawProof<F>,
-}
-
-pub(crate) fn verify_inner(input_data: Vec<F>, proof: Proof<F>) -> Result<InnerVerified, ProofError> {
-    let input_data_hash = poseidon_compress_slice(&input_data, true);
-    let bytecode = get_aggregation_bytecode();
-    let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, proof)?;
-    Ok(InnerVerified {
-        input_data,
-        input_data_hash,
-        bytecode_evaluation: verif.bytecode_evaluation,
-        raw_proof,
-    })
-}
-
 // assumes `bytecode_value` in TypeOneMultiSignature::proof is correct (it should not be read / deserialized from an untrusted source)
 pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, ProofError> {
     if !sig.info.pubkeys.is_sorted() {
         return Err(ProofError::InvalidProof);
     }
     verify_inner(sig.info.build_input_data(), sig.proof.proof.clone())
-}
-
-pub(crate) struct ReducedBytecodeClaims {
-    pub final_claim: Evaluation<EF>,
-    pub sumcheck_transcript: Vec<F>,
-}
-
-impl ReducedBytecodeClaims {
-    pub fn final_claim_flat(&self) -> Vec<F> {
-        flatten_bytecode_claim(&self.final_claim)
-    }
-}
-
-pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytecodeClaims {
-    let bytecode = get_aggregation_bytecode();
-
-    if verified.is_empty() {
-        let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.total_n_vars()]);
-        let zero_value = compute_bytecode_value_at(&zero_point);
-        return ReducedBytecodeClaims {
-            final_claim: Evaluation::new(zero_point, zero_value),
-            sumcheck_transcript: vec![],
-        };
-    }
-
-    let mut claims = Vec::with_capacity(2 * verified.len());
-    for v in verified {
-        claims.push(extract_bytecode_claim_from_input_data(
-            &v.input_data[BYTECODE_CLAIM_OFFSET..],
-            bytecode.total_n_vars(),
-        ));
-        claims.push(v.bytecode_evaluation.clone());
-    }
-    let claims_hash = hash_bytecode_claims(&claims);
-
-    let mut reduction_prover = build_prover_state();
-    reduction_prover.add_base_scalars(&claims_hash);
-    let alpha: EF = reduction_prover.sample();
-
-    let n_claims = claims.len();
-    let alpha_powers: Vec<EF> = alpha.powers().take(n_claims).collect();
-
-    let weights_packed = claims
-        .par_iter()
-        .zip(&alpha_powers)
-        .map(|(eval, &alpha_i)| eval_eq_packed_scaled(&eval.point.0, alpha_i))
-        .reduce_with(|mut acc, eq_i| {
-            acc.par_iter_mut().zip(&eq_i).for_each(|(w, e)| *w += *e);
-            acc
-        })
-        .unwrap();
-
-    let claimed_sum: EF = dot_product(claims.iter().map(|c| c.value), alpha_powers.iter().copied());
-
-    let witness =
-        MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
-
-    let (reduced_point, final_evals, _) = sumcheck_prove::<EF, _, _>(
-        witness,
-        &ProductComputation {},
-        &vec![],
-        None,
-        &mut reduction_prover,
-        claimed_sum,
-        false,
-    );
-
-    let reduced_value = final_evals[0];
-    let bytecode_claim_output = flatten_bytecode_claim(&Evaluation::new(reduced_point.clone(), reduced_value));
-    assert_eq!(bytecode_claim_output.len(), bytecode.bytecode_claim_size());
-
-    let sumcheck_transcript = {
-        let mut vs = VerifierState::<EF, _>::new(reduction_prover.into_proof(), get_poseidon16().clone()).unwrap();
-        vs.next_base_scalars_vec(claims_hash.len()).unwrap();
-        let _: EF = vs.sample();
-        sumcheck_verify(&mut vs, bytecode.total_n_vars(), 2, claimed_sum, None).unwrap();
-        vs.into_raw_proof().transcript
-    };
-    assert_eq!(
-        sumcheck_transcript.len(),
-        bytecode_reduction_sumcheck_proof_size(bytecode.total_n_vars()),
-        "bytecode claim-reduction sumcheck transcript length disagrees with the formula",
-    );
-
-    ReducedBytecodeClaims {
-        final_claim: Evaluation::new(reduced_point, reduced_value),
-        sumcheck_transcript,
-    }
 }
 
 /// Aggregate raw XMSS signatures and previously aggregated multi-signatures.
@@ -496,22 +391,6 @@ pub fn aggregate_type_1(
     })
 }
 
-pub(crate) fn flatten_bytecode_claim(claim: &Evaluation<EF>) -> Vec<F> {
-    let mut ef_claim: Vec<EF> = claim.point.0.clone();
-    ef_claim.push(claim.value);
-    flatten_scalars_to_base::<F, EF>(&ef_claim)
-}
-
-pub(crate) fn compute_bytecode_value_at(point: &MultilinearPoint<EF>) -> EF {
-    let bytecode = get_aggregation_bytecode();
-    if point.iter().all(|x| x.is_zero()) {
-        // fast path for multi-signatures coming from 100% raw XMSS (no recursion):
-        EF::from(bytecode.instructions_multilinear[0])
-    } else {
-        bytecode.instructions_multilinear.evaluate(point)
-    }
-}
-
 /// return `([merkle_leafs], [merkle_paths])`
 pub(crate) fn extract_merkle_hint_blobs<'a>(
     raw_proofs: impl IntoIterator<Item = &'a RawProof<F>>,
@@ -525,29 +404,4 @@ pub(crate) fn extract_merkle_hint_blobs<'a>(
             (leaf, path)
         })
         .unzip()
-}
-
-pub(crate) fn extract_bytecode_claim_from_input_data(
-    public_input: &[F],
-    bytecode_point_n_vars: usize,
-) -> Evaluation<EF> {
-    let claim_size = (bytecode_point_n_vars + 1) * DIMENSION;
-    let packed = pack_scalars_to_extension(&public_input[..claim_size]);
-    let point = MultilinearPoint(packed[..bytecode_point_n_vars].to_vec());
-    let value = packed[bytecode_point_n_vars];
-    Evaluation::new(point, value)
-}
-
-pub(crate) fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN] {
-    let mut running_hash = [F::ZERO; DIGEST_LEN];
-    for eval in claims {
-        let mut ef_data: Vec<EF> = eval.point.0.clone();
-        ef_data.push(eval.value);
-        let mut data = flatten_scalars_to_base::<F, EF>(&ef_data);
-        data.resize(data.len().next_multiple_of(DIGEST_LEN), F::ZERO);
-
-        let claim_hash = poseidon_compress_slice(&data, false);
-        running_hash = poseidon16_compress_pair(&running_hash, &claim_hash);
-    }
-    running_hash
 }
