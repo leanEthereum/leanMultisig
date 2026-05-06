@@ -1,6 +1,6 @@
 # Type-1 / Type-2 public-input layout
 
-**Type-1 — single `(message, slot)` aggregation.** A Type-1 multi-signature attests that *every* public key in a given list signed the **same** `message` at the **same** `slot`. It is built recursively: a Type-1 proof can aggregate any mix of (a) raw XMSS signatures verified directly inside the snark, and (b) child Type-1 multi-signatures verified recursively.
+**Type-1 — single `(message, slot)` aggregation.** A Type-1 multi-signature attests that *every* public key in a given list signed the **same** `message` at the **same** `slot`. A Type-1 proof can aggregate any mix of (a) raw XMSS signatures verified directly inside the snark, and (b) child Type-1 multi-signatures verified recursively.
 
 **Type-2 — bundle of `n` independent Type-1 multi-signatures.** A Type-2 proof bundles `n` *unrelated* Type-1 multi-signatures into a single snark. Each component may have its own `(message, slot)` and its own pubkey set.
 
