@@ -43,23 +43,31 @@ pub struct TypeOneInfo {
 #[derive(Debug, Clone)]
 pub struct AggregationProof {
     pub execution_proof: ExecutionProof,
-    pub bytecode_point: MultilinearPoint<EF>,
-    pub bytecode_value: EF,
+    pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct (should be recomputed when receiving a proof from an untrusted source)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeOneMultiSignature {
+    pub info: TypeOneInfo,
+    pub proof: AggregationProof,
 }
 
 impl Serialize for AggregationProof {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        (&self.execution_proof, &self.bytecode_point).serialize(s)
+        (&self.execution_proof, &self.bytecode_claim.point).serialize(s)
     }
 }
 
 impl<'de> Deserialize<'de> for AggregationProof {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let (execution_proof, bytecode_point) = <(ExecutionProof, MultilinearPoint<EF>)>::deserialize(d)?;
+        if bytecode_point.len() != get_aggregation_bytecode().total_n_vars() {
+            return Err(serde::de::Error::custom("invalid bytecode point"));
+        }
+        let bytecode_value = compute_bytecode_value_at(&bytecode_point);
         Ok(Self {
-            bytecode_value: compute_bytecode_value_at(&bytecode_point),
             execution_proof,
-            bytecode_point,
+            bytecode_claim: Evaluation::new(bytecode_point, bytecode_value),
         })
     }
 }
@@ -76,14 +84,8 @@ impl AggregationProof {
     }
 
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
-        flatten_bytecode_claim(&self.bytecode_point, self.bytecode_value)
+        flatten_bytecode_claim(&self.bytecode_claim)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TypeOneMultiSignature {
-    pub info: TypeOneInfo,
-    pub proof: AggregationProof,
 }
 
 pub(crate) fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> Digest {
@@ -197,13 +199,13 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
 }
 
 pub(crate) struct ReducedBytecodeClaims {
-    pub bytecode_eval: Evaluation<EF>,
+    pub bytecode_claim: Evaluation<EF>,
     pub sumcheck_transcript: Vec<F>,
 }
 
 impl ReducedBytecodeClaims {
     pub fn bytecode_claim_flat(&self) -> Vec<F> {
-        flatten_bytecode_claim(&self.bytecode_eval.point, self.bytecode_eval.value)
+        flatten_bytecode_claim(&self.bytecode_claim)
     }
 }
 
@@ -214,7 +216,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
         let zero_point = MultilinearPoint(vec![EF::ZERO; bytecode.total_n_vars()]);
         let zero_value = compute_bytecode_value_at(&zero_point);
         return ReducedBytecodeClaims {
-            bytecode_eval: Evaluation::new(zero_point, zero_value),
+            bytecode_claim: Evaluation::new(zero_point, zero_value),
             sumcheck_transcript: vec![],
         };
     }
@@ -262,7 +264,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
     );
 
     let reduced_value = final_evals[0];
-    let bytecode_claim_output = flatten_bytecode_claim(&reduced_point, reduced_value);
+    let bytecode_claim_output = flatten_bytecode_claim(&Evaluation::new(reduced_point.clone(), reduced_value));
     assert_eq!(bytecode_claim_output.len(), bytecode.bytecode_claim_size());
 
     let sumcheck_transcript = {
@@ -279,7 +281,7 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
     );
 
     ReducedBytecodeClaims {
-        bytecode_eval: Evaluation::new(reduced_point, reduced_value),
+        bytecode_claim: Evaluation::new(reduced_point, reduced_value),
         sumcheck_transcript,
     }
 }
@@ -476,15 +478,14 @@ pub fn aggregate_type_1(
         },
         proof: AggregationProof {
             execution_proof,
-            bytecode_point: reduced_claims.bytecode_eval.point,
-            bytecode_value: reduced_claims.bytecode_eval.value,
+            bytecode_claim: reduced_claims.bytecode_claim,
         },
     })
 }
 
-pub(crate) fn flatten_bytecode_claim(point: &MultilinearPoint<EF>, value: EF) -> Vec<F> {
-    let mut ef_claim: Vec<EF> = point.0.clone();
-    ef_claim.push(value);
+pub(crate) fn flatten_bytecode_claim(claim: &Evaluation<EF>) -> Vec<F> {
+    let mut ef_claim: Vec<EF> = claim.point.0.clone();
+    ef_claim.push(claim.value);
     flatten_scalars_to_base::<F, EF>(&ef_claim)
 }
 
@@ -496,10 +497,6 @@ pub(crate) fn compute_bytecode_value_at(point: &MultilinearPoint<EF>) -> EF {
     } else {
         bytecode.instructions_multilinear.evaluate(point)
     }
-}
-
-pub(crate) fn bytecode_claim_output_from_point(point: &MultilinearPoint<EF>) -> Vec<F> {
-    flatten_bytecode_claim(point, compute_bytecode_value_at(point))
 }
 
 /// Builds the type-1 public-input data buffer from already-encoded parts.

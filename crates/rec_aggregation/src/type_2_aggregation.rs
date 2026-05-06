@@ -11,9 +11,11 @@ use utils::poseidon16_compress_pair;
 use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, PREAMBLE_MEMORY_LEN, TYPE2_FLAG, get_aggregation_bytecode,
 };
+use crate::type_1_aggregation::compute_bytecode_value_at;
+use crate::type_1_aggregation::flatten_bytecode_claim;
 use crate::type_1_aggregation::{
     AggregationProof, InnerVerified, TypeOneInfo, TypeOneMultiSignature, build_type1_input_data,
-    bytecode_claim_output_from_point, extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner, verify_type_1,
+    extract_merkle_hint_blobs, reduce_bytecode_claims, verify_inner, verify_type_1,
 };
 
 /// Type-2 multi-signature: A bundle of `n` type-1 multi-signatures with potentially distinct (message,
@@ -28,7 +30,8 @@ pub struct TypeTwoMultiSignature {
 /// Reconstruct the type-1 public-input data buffer from `info` and the
 /// component's saved `bytecode_point`.
 pub(crate) fn type1_input_data_from_parts(info: &TypeOneInfo, bytecode_point: &MultilinearPoint<EF>) -> Vec<F> {
-    let claim_output = bytecode_claim_output_from_point(bytecode_point);
+    let bytecode_value = compute_bytecode_value_at(bytecode_point);
+    let claim_output = flatten_bytecode_claim(&Evaluation::new(bytecode_point.clone(), bytecode_value));
     build_type1_input_data(&info.pubkeys, &info.message, info.slot, &claim_output)
 }
 
@@ -87,7 +90,7 @@ pub fn merge_many_type_1(
         .collect();
     let (info_vec, component_bytecode_points): (Vec<TypeOneInfo>, Vec<MultilinearPoint<EF>>) = type_1_multi_signatures
         .into_iter()
-        .map(|sig| (sig.info, sig.proof.bytecode_point))
+        .map(|sig| (sig.info, sig.proof.bytecode_claim.point))
         .unzip();
 
     let reduced_claims = reduce_bytecode_claims(&verified_children);
@@ -148,8 +151,7 @@ pub fn merge_many_type_1(
         component_bytecode_points,
         proof: AggregationProof {
             execution_proof,
-            bytecode_point: reduced_claims.bytecode_eval.point,
-            bytecode_value: reduced_claims.bytecode_eval.value,
+            bytecode_claim: reduced_claims.bytecode_claim
         },
     })
 }
@@ -278,8 +280,7 @@ pub fn split_type_2(
         info: kept_info,
         proof: AggregationProof {
             execution_proof,
-            bytecode_point: reduced_claims.bytecode_eval.point,
-            bytecode_value: reduced_claims.bytecode_eval.value,
+            bytecode_claim: reduced_claims.bytecode_claim
         },
     })
 }
