@@ -98,7 +98,7 @@ fn test_type_2_aggregation() {
     let split_a = split_type_2(type2.clone(), 0, log_inv_rate).unwrap();
     println!("split index 0: {:.2}s", time.elapsed().as_secs_f64());
     let time = Instant::now();
-    let split_b = split_type_2(type2.clone(), 1, log_inv_rate).unwrap();
+    let split_b = split_type_2(type2, 1, log_inv_rate).unwrap();
     println!("split index 1: {:.2}s", time.elapsed().as_secs_f64());
     assert_eq!(
         (split_a.info.message, &split_a.info.slot, &split_a.info.pubkeys),
