@@ -25,86 +25,42 @@ const MDS_CIRC_COL: [KoalaBear; 16] = KoalaBear::new_array([1, 3, 13, 22, 67, 2,
 // Forward twiddles for 16-point FFT: W_k = omega^k
 // =========================================================================
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W1: KoalaBear = KoalaBear::new(0x08dbd69c);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W2: KoalaBear = KoalaBear::new(0x6832fe4a);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W3: KoalaBear = KoalaBear::new(0x27ae21e2);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W4: KoalaBear = KoalaBear::new(0x7e010002);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W5: KoalaBear = KoalaBear::new(0x3a89a025);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W6: KoalaBear = KoalaBear::new(0x174e3650);
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 const W7: KoalaBear = KoalaBear::new(0x27dfce22);
 
 // =========================================================================
 // 16-point FFT / IFFT (radix-2, fully unrolled, in-place)
 // =========================================================================
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 #[inline(always)]
-fn bt<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize) {
+fn bt<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(v: &mut [R; 16], lo: usize, hi: usize) {
     let (a, b) = (v[lo], v[hi]);
     v[lo] = a + b;
     v[hi] = a - b;
 }
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 #[inline(always)]
-fn dit<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+fn dit<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let a = v[lo];
     let tb = v[hi] * t;
     v[lo] = a + tb;
     v[hi] = a - tb;
 }
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 #[inline(always)]
-fn neg_dif<R: Algebra<KoalaBear>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+fn neg_dif<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
     let (a, b) = (v[lo], v[hi]);
     v[lo] = a + b;
     v[hi] = (b - a) * t;
 }
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 #[inline(always)]
-fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
+fn dif_ifft_16_mut<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(f: &mut [R; 16]) {
     bt(f, 0, 8);
     neg_dif(f, 1, 9, W7);
     neg_dif(f, 2, 10, W6);
@@ -139,12 +95,8 @@ fn dif_ifft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
     bt(f, 14, 15);
 }
 
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2")
-))]
 #[inline(always)]
-fn dit_fft_16_mut<R: Algebra<KoalaBear>>(f: &mut [R; 16]) {
+fn dit_fft_16_mut<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(f: &mut [R; 16]) {
     bt(f, 0, 1);
     bt(f, 2, 3);
     bt(f, 4, 5);
@@ -543,6 +495,11 @@ struct Precomputed {
     /// Length = POSEIDON1_PARTIAL_ROUNDS - 1.
     sparse_round_constants: Vec<KoalaBear>,
 
+    // --- FFT MDS eigenvalues (unpacked, for AIR / generic types) ---
+    /// `lambda_over_16[i]` = (DIF_IFFT(MDS_CIRC_COL))[i] * 16^{-1}.
+    /// Used by `mds_fft_16` to compute the circulant MDS via FFT.
+    lambda_over_16: [KoalaBear; 16],
+
     // --- SIMD pre-packed constants (NEON / AVX2 / AVX512) ---
     #[cfg(any(
         all(target_arch = "aarch64", target_feature = "neon"),
@@ -634,6 +591,16 @@ fn precomputed() -> &'static Precomputed {
             .map(|w| core::array::from_fn(|i| if i == 0 { mds_0_0 } else { w[i - 1] }))
             .collect();
 
+        // --- FFT MDS eigenvalues (unpacked) ---
+        // C * x = DIT_FFT((lambda/16) ⊙ DIF_IFFT(x)) — same identity used in
+        // `permute_simd`, factored out for the AIR / generic mds_fft_16 path.
+        let lambda_over_16: [KoalaBear; 16] = {
+            let mut lambda_br = MDS_CIRC_COL;
+            dif_ifft_16_mut(&mut lambda_br);
+            let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
+            lambda_br.map(|l| l * inv16)
+        };
+
         // --- SIMD pre-packed constants (same layout for NEON / AVX2 / AVX512) ---
         #[cfg(any(
             all(target_arch = "aarch64", target_feature = "neon"),
@@ -675,10 +642,8 @@ fn precomputed() -> &'static Precomputed {
             let packed_fused_bias: [PackedKB; 16] = fused_bias.map(pack);
 
             // Pre-packed eigenvalues * INV16 (absorbs /16 into eigenvalues).
-            let mut lambda_br = MDS_CIRC_COL;
-            dif_ifft_16_mut(&mut lambda_br);
-            let inv16 = KoalaBear::new(1997537281); // 16^{-1} mod p
-            let packed_lambda_over_16: [PackedKB; 16] = core::array::from_fn(|i| pack(lambda_br[i] * inv16));
+            // Reuse the unpacked lambda computed above.
+            let packed_lambda_over_16: [PackedKB; 16] = lambda_over_16.map(pack);
 
             SimdPrecomputed {
                 packed_initial_rc,
@@ -699,6 +664,7 @@ fn precomputed() -> &'static Precomputed {
             sparse_first_row,
             sparse_v,
             sparse_round_constants: scalar_round_constants,
+            lambda_over_16,
             #[cfg(any(
                 all(target_arch = "aarch64", target_feature = "neon"),
                 all(target_arch = "x86_64", target_feature = "avx2")
@@ -706,6 +672,29 @@ fn precomputed() -> &'static Precomputed {
             simd,
         }
     })
+}
+
+/// Eigenvalues of the circulant MDS matrix, divided by 16 (the unnormalized
+/// FFT round-trip scaling). Used by [`mds_fft_16`].
+#[inline(always)]
+pub fn poseidon1_lambda_over_16() -> &'static [KoalaBear; 16] {
+    &precomputed().lambda_over_16
+}
+
+/// Circulant MDS multiply via 16-point FFT (50 mults vs 72 for Karatsuba).
+///
+/// Computes `state = C * state = DIT_FFT((lambda/16) o DIF_IFFT(state))`.
+/// Bitwise-identical to `mds_circ_16` but with fewer multiplications.
+/// Used by the AIR constraint folder where MDS is evaluated per row over
+/// (packed) field types.
+#[inline(always)]
+pub fn mds_fft_16<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(state: &mut [R; 16]) {
+    let lambda = poseidon1_lambda_over_16();
+    dif_ifft_16_mut(state);
+    for i in 0..16 {
+        state[i] = state[i] * lambda[i];
+    }
+    dit_fft_16_mut(state);
 }
 
 // =========================================================================
