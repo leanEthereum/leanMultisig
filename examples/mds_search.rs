@@ -29,7 +29,7 @@ use std::thread;
 use std::time::Instant;
 
 use goldilocks::Goldilocks;
-use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 // =====================================================================
 // Tunable parameters
@@ -66,6 +66,11 @@ const SMALL_VALUE_SPECS: &[(i8, u32)] = &[
 // =====================================================================
 
 const N: usize = 8;
+
+/// Number of attempts each thread accumulates locally before publishing to
+/// the shared atomic counter. Higher values cut atomic traffic but make
+/// progress display lag a bit more.
+const COUNTER_BATCH: u64 = 1024;
 
 type F = Goldilocks;
 
@@ -137,7 +142,7 @@ fn subsets_of_size(n: usize, k: usize) -> Vec<[u8; N]> {
 
 #[inline]
 fn is_singular(m: &[[F; N]; N], rows: &[u8], cols: &[u8], k: usize) -> bool {
-    // Hardcode small cases for speed.
+    // Hardcode small cases for speed (k=2 has 784 minors per matrix, k=3 has 3136).
     if k == 1 {
         return m[rows[0] as usize][cols[0] as usize] == ZERO;
     }
@@ -147,6 +152,25 @@ fn is_singular(m: &[[F; N]; N], rows: &[u8], cols: &[u8], k: usize) -> bool {
         let c = m[rows[1] as usize][cols[0] as usize];
         let d = m[rows[1] as usize][cols[1] as usize];
         return a * d - b * c == ZERO;
+    }
+    if k == 3 {
+        let r0 = rows[0] as usize;
+        let r1 = rows[1] as usize;
+        let r2 = rows[2] as usize;
+        let c0 = cols[0] as usize;
+        let c1 = cols[1] as usize;
+        let c2 = cols[2] as usize;
+        let m00 = m[r0][c0];
+        let m01 = m[r0][c1];
+        let m02 = m[r0][c2];
+        let m10 = m[r1][c0];
+        let m11 = m[r1][c1];
+        let m12 = m[r1][c2];
+        let m20 = m[r2][c0];
+        let m21 = m[r2][c1];
+        let m22 = m[r2][c2];
+        let det = m00 * (m11 * m22 - m12 * m21) - m01 * (m10 * m22 - m12 * m20) + m02 * (m10 * m21 - m11 * m20);
+        return det == ZERO;
     }
 
     let mut a = [[ZERO; N]; N];
@@ -215,24 +239,28 @@ fn is_mds(m: &[[F; N]; N], subsets: &[Vec<[u8; N]>]) -> bool {
 // buffer; only the first `a` slots are valid.
 // =====================================================================
 
-fn sample(rng: &mut StdRng, smalls: &[F], a: usize) -> ([[F; N]; N], [u8; A]) {
-    let mut chosen = [false; N * N];
+fn sample(rng: &mut SmallRng, smalls: &[F], a: usize) -> ([[F; N]; N], [u8; A]) {
+    // `chosen` packs all 64 positions into a u64 bitmask (no zero-init of [bool; 64]).
+    let mut chosen: u64 = 0;
     let mut big_pos = [0u8; A];
     let mut placed = 0;
     while placed < a {
-        let p = rng.random_range(0..(N * N));
-        if !chosen[p] {
-            chosen[p] = true;
+        // Uniform in 0..64 via the low 6 bits — always exact (N*N is a power of two).
+        let p = (rng.random::<u64>() & 63) as usize;
+        let bit = 1u64 << p;
+        if chosen & bit == 0 {
+            chosen |= bit;
             big_pos[placed] = p as u8;
             placed += 1;
         }
     }
 
+    let n_smalls = smalls.len() as u64;
     let mut m = [[ZERO; N]; N];
-    for p in 0..N * N {
-        let i = p / N;
-        let j = p % N;
-        if chosen[p] {
+    for pos in 0..N * N {
+        let i = pos / N;
+        let j = pos % N;
+        if chosen & (1u64 << pos) != 0 {
             // big: nonzero element of F_p (zero would fail the 1x1 check anyway)
             let mut v: F = rng.random();
             while v == ZERO {
@@ -240,8 +268,8 @@ fn sample(rng: &mut StdRng, smalls: &[F], a: usize) -> ([[F; N]; N], [u8; A]) {
             }
             m[i][j] = v;
         } else {
-            // small: pick uniformly from the active small-value set
-            m[i][j] = smalls[rng.random_range(0..smalls.len())];
+            // small: pick uniformly (negligible bias for n_smalls = 6)
+            m[i][j] = smalls[(rng.random::<u64>() % n_smalls) as usize];
         }
     }
     (m, big_pos)
@@ -324,10 +352,16 @@ fn main() {
         let all_smalls = all_smalls.clone();
         let all_smalls_specs = all_smalls_specs.clone();
         handles.push(thread::spawn(move || {
-            let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF_1234_5678 ^ tid as u64);
+            // Mix tid into a strong constant so per-thread streams diverge immediately.
+            let seed = 0xDEAD_BEEF_1234_5678u64.wrapping_add((tid as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            let mut rng = SmallRng::seed_from_u64(seed);
+            // Keep a thread-local counter; flush to the shared atomic in batches to
+            // avoid cache-line ping-pong on `counter` across all threads.
+            let mut local_n: u64 = 0;
             loop {
                 let a = current_a.load(Ordering::Relaxed);
                 if a == usize::MAX {
+                    counter.fetch_add(local_n, Ordering::Relaxed);
                     return;
                 }
                 let (m, big) = sample(&mut rng, &all_smalls, a);
@@ -344,20 +378,25 @@ fn main() {
                     let _ = current_a.compare_exchange(a, next, Ordering::Relaxed, Ordering::Relaxed);
                     drop(g);
                 }
-                let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                if tid == 0 && n.is_multiple_of(1024) {
-                    let dt = start.elapsed().as_secs_f64();
-                    let mut err = std::io::stderr().lock();
-                    let _ = write!(
-                        err,
-                        "\r[{:>7.1}s] a={} tried {:>11} ({:>6.2}M/s) hits {}    ",
-                        dt,
-                        current_a.load(Ordering::Relaxed),
-                        n,
-                        n as f64 / dt / 1e6,
-                        hits.load(Ordering::Relaxed),
-                    );
-                    let _ = err.flush();
+                local_n += 1;
+                if local_n == COUNTER_BATCH {
+                    let prev = counter.fetch_add(COUNTER_BATCH, Ordering::Relaxed);
+                    local_n = 0;
+                    if tid == 0 {
+                        let total = prev + COUNTER_BATCH;
+                        let dt = start.elapsed().as_secs_f64();
+                        let mut err = std::io::stderr().lock();
+                        let _ = write!(
+                            err,
+                            "\r[{:>7.1}s] a={} tried {:>11} ({:>6.2}M/s) hits {}    ",
+                            dt,
+                            current_a.load(Ordering::Relaxed),
+                            total,
+                            total as f64 / dt / 1e6,
+                            hits.load(Ordering::Relaxed),
+                        );
+                        let _ = err.flush();
+                    }
                 }
             }
         }));
