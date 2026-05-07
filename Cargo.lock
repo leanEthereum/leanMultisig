@@ -474,6 +474,7 @@ dependencies = [
  "backend",
  "clap",
  "lean_vm",
+ "mt-goldilocks",
  "rand",
  "rec_aggregation",
  "serde_json",

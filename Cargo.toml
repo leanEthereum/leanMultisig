@@ -97,6 +97,9 @@ backend.workspace = true
 serde_json.workspace = true
 system-info.workspace = true
 
+[dev-dependencies]
+goldilocks = { path = "crates/backend/goldilocks", package = "mt-goldilocks" }
+
 
 [profile.release]
 lto = "thin"
