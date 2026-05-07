@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use fiat_shamir::{ProverState, VerifierState};
-use field::{Field, TwoAdicField};
+use field::Field;
 use goldilocks::{CubicExtensionFieldGL, Goldilocks, default_goldilocks_poseidon1_8};
 use mt_whir::*;
 use poly::*;
@@ -145,7 +145,7 @@ fn display_whir_round_info() {
     let first_folding_factor = 7;
     for n_vars in 20..31 {
         for log_inv_rate in 1..5 {
-            if n_vars + log_inv_rate - first_folding_factor > F::TWO_ADICITY {
+            if n_vars + log_inv_rate - first_folding_factor > EFFECTIVE_TWO_ADICITY {
                 continue;
             }
             let params = WhirConfigBuilder {
