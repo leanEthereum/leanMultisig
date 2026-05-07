@@ -1,6 +1,10 @@
 use clap::Parser;
 use rec_aggregation::{AggregationTopology, benchmark::run_aggregation_benchmark, biggest_leaf};
 
+mod prove_poseidons;
+
+use crate::prove_poseidons::benchmark_prove_poseidon_8;
+
 #[cfg(not(feature = "standard-alloc"))]
 #[global_allocator]
 static ALLOC: zk_alloc::ZkAllocator = zk_alloc::ZkAllocator;
@@ -42,6 +46,13 @@ enum Cli {
             help = "Print BenchmarkReport as JSON on stdout (one line per run); suppresses live output"
         )]
         json: bool,
+    },
+    #[command(about = "Prove validity of Poseidon permutations (AIR-only benchmark)")]
+    Poseidon {
+        #[arg(long, help = "log2(number of Poseidons)", default_value = "20")]
+        log_n_perms: usize,
+        #[arg(long, help = "Enable tracing")]
+        tracing: bool,
     },
 }
 
@@ -102,6 +113,9 @@ fn main() {
                 overlap: 0,
             };
             run_with_warmup(&topology, tracing, json);
+        }
+        Cli::Poseidon { log_n_perms, tracing } => {
+            benchmark_prove_poseidon_8(log_n_perms, tracing);
         }
         Cli::FancyAggregation { json } => {
             let topology = AggregationTopology {

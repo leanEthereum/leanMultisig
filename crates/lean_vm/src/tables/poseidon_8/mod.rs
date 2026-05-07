@@ -9,8 +9,8 @@ pub use trace_gen::fill_trace_poseidon_8;
 
 use sparse::{PARTIAL_ROUNDS as SPARSE_PARTIAL_ROUNDS, get_partial_constants};
 
-pub(super) const WIDTH: usize = 8;
-pub(super) const DIGEST: usize = DIGEST_LEN; // 4
+pub const WIDTH: usize = 8;
+pub const DIGEST: usize = DIGEST_LEN; // 4
 pub const HALF_DIGEST_LEN: usize = DIGEST / 2; // 2
 
 // `PRECOMPILE_DATA` encoding: see `tables/mod.rs`.
@@ -119,7 +119,7 @@ fn sbox7(x: F) -> F {
     x4 * x2 * x
 }
 
-pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGEST]) {
+pub fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGEST]) {
     let c = get_partial_constants();
     let mut state = input;
     let mut aux = Vec::with_capacity(AUX_COLS_PER_ROW);
