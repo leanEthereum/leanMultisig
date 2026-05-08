@@ -13,6 +13,8 @@
 //! implements `InjectiveMonomial<7>`, mirroring the koala-bear crate's
 //! Poseidon1 surface.
 
+use std::sync::OnceLock;
+
 #[cfg(any(
     test,
     not(any(
@@ -515,6 +517,96 @@ pub const GOLDILOCKS_POSEIDON1_RC_8: [[Goldilocks; POSEIDON1_WIDTH]; POSEIDON1_N
 ]);
 
 // =========================================================================
+// Round-constant compression for partial rounds
+// =========================================================================
+//
+// In the original spec each partial round is
+//   state += rc[r]; state[0] = sbox(state[0]); state = MDS * state.
+// By linearity, the rc[r][1..7] components of every partial RC can be
+// commuted forward through the linear (MDS) layers and accumulated into
+// 1) a single per-round scalar `α_r` added to `state[0]` before its sbox,
+// 2) a residual vector `δ` absorbed into the first terminal-full-round RC.
+//
+// Per partial round this saves 7 of the 8 RC adds (≈146 fewer adds per
+// compression). Crucially the MDS layer is unchanged — we still call the
+// existing cheap shift-MDS (`mds_mul_scalar` / `mds_mul_simd`), so the small
+// `{-4,-2,1,2,4,8}` coefficients keep paying off.
+//
+// Recurrence (forward, starting from δ_{-1} = 0):
+//   α_r        = δ_{r-1}[0] + rc[r][0]
+//   e_r        = (0, δ_{r-1}[1] + rc[r][1], …, δ_{r-1}[7] + rc[r][7])
+//   δ_r        = MDS · e_r
+// The accumulated δ_{RP-1} is added to the original first terminal RC to
+// give `terminal_rc0_adjusted`. The optimization is mathematically
+// equivalent — the captured `test_known_answer` output is unchanged.
+
+fn mds_matrix() -> [[Goldilocks; 8]; 8] {
+    let mut m = [[Goldilocks::ZERO; 8]; 8];
+    for i in 0..8 {
+        for j in 0..8 {
+            m[i][j] = mds_coeff_as_goldilocks(MDS8_ROW[(j + 8 - i) % 8]);
+        }
+    }
+    m
+}
+
+fn mds_apply(m: &[[Goldilocks; 8]; 8], v: &[Goldilocks; 8]) -> [Goldilocks; 8] {
+    core::array::from_fn(|i| {
+        let mut s = Goldilocks::ZERO;
+        for j in 0..8 {
+            s += m[i][j] * v[j];
+        }
+        s
+    })
+}
+
+#[derive(Debug)]
+struct Precomputed {
+    /// Per-round scalar RC added to `state[0]` before its sbox. Length = RP.
+    alphas: [Goldilocks; POSEIDON1_PARTIAL_ROUNDS],
+    /// First terminal-full-round RC, with the RP-residual `δ_{RP-1}` baked in.
+    terminal_rc0_adjusted: [Goldilocks; 8],
+}
+
+fn precomputed() -> &'static Precomputed {
+    static PRECOMPUTED: OnceLock<Precomputed> = OnceLock::new();
+    PRECOMPUTED.get_or_init(|| {
+        let mds = mds_matrix();
+
+        let mut alphas = [Goldilocks::ZERO; POSEIDON1_PARTIAL_ROUNDS];
+        let mut delta = [Goldilocks::ZERO; 8];
+
+        for r in 0..POSEIDON1_PARTIAL_ROUNDS {
+            let rc = &GOLDILOCKS_POSEIDON1_RC_8[POSEIDON1_HALF_FULL_ROUNDS + r];
+            // α_r absorbs the [0]-component of the residual + this round's rc[r][0].
+            alphas[r] = delta[0] + rc[0];
+            // Form e_r = (0, δ[1..] + rc[1..]). The [0] slot is zero so the
+            // sbox commutes past it (sbox is identity on indices ≥ 1).
+            let mut e = [Goldilocks::ZERO; 8];
+            for i in 1..8 {
+                e[i] = delta[i] + rc[i];
+            }
+            // δ_r = MDS · e_r, ready for next iteration.
+            delta = mds_apply(&mds, &e);
+        }
+
+        // Absorb δ_{RP-1} into the first terminal-full-round RC so the
+        // optimized partial block transitions cleanly into the original
+        // terminal-round code.
+        let terminal_rc0 = &GOLDILOCKS_POSEIDON1_RC_8[POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS];
+        let mut terminal_rc0_adjusted = [Goldilocks::ZERO; 8];
+        for i in 0..8 {
+            terminal_rc0_adjusted[i] = terminal_rc0[i] + delta[i];
+        }
+
+        Precomputed {
+            alphas,
+            terminal_rc0_adjusted,
+        }
+    })
+}
+
+// =========================================================================
 // S-box helpers
 // =========================================================================
 
@@ -545,6 +637,9 @@ impl Poseidon1Goldilocks8 {
 
     #[inline]
     pub fn permute_mut(&self, state: &mut [Goldilocks; POSEIDON1_WIDTH]) {
+        let pre = precomputed();
+
+        // Initial full rounds.
         for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
             for (i, s) in state.iter_mut().enumerate() {
                 *s += rc[i];
@@ -555,25 +650,25 @@ impl Poseidon1Goldilocks8 {
             mds_mul_scalar(state);
         }
 
-        for rc in GOLDILOCKS_POSEIDON1_RC_8
-            .iter()
-            .skip(POSEIDON1_HALF_FULL_ROUNDS)
-            .take(POSEIDON1_PARTIAL_ROUNDS)
-        {
-            for (i, s) in state.iter_mut().enumerate() {
-                *s += rc[i];
-            }
+        // Partial rounds with compressed RCs: only state[0] gets a (precomputed)
+        // scalar RC each round; the other 7 components' contributions live in
+        // `terminal_rc0_adjusted` and are absorbed at the first terminal round.
+        for r in 0..POSEIDON1_PARTIAL_ROUNDS {
+            state[0] += pre.alphas[r];
             state[0] = sbox_full::<Goldilocks>(state[0]);
             mds_mul_scalar(state);
         }
 
-        for rc in GOLDILOCKS_POSEIDON1_RC_8
+        // Terminal full rounds; first round uses the residual-adjusted RC.
+        for (k, rc) in GOLDILOCKS_POSEIDON1_RC_8
             .iter()
             .take(POSEIDON1_N_ROUNDS)
             .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+            .enumerate()
         {
+            let rc_eff = if k == 0 { &pre.terminal_rc0_adjusted } else { rc };
             for (i, s) in state.iter_mut().enumerate() {
-                *s += rc[i];
+                *s += rc_eff[i];
             }
             for s in state.iter_mut() {
                 *s = sbox_full::<Goldilocks>(*s);
@@ -694,6 +789,7 @@ impl Poseidon1Goldilocks8 {
             #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
             use crate::x86_64_avx512::packing::mds_mul_simd;
 
+            let pre = precomputed();
             let initial = *state;
 
             // Initial full rounds.
@@ -707,27 +803,23 @@ impl Poseidon1Goldilocks8 {
                 mds_mul_simd(state);
             }
 
-            // Partial rounds.
-            for rc in GOLDILOCKS_POSEIDON1_RC_8
-                .iter()
-                .skip(POSEIDON1_HALF_FULL_ROUNDS)
-                .take(POSEIDON1_PARTIAL_ROUNDS)
-            {
-                for (i, s) in state.iter_mut().enumerate() {
-                    *s += P::from(rc[i]);
-                }
+            // Partial rounds with compressed RCs.
+            for r in 0..POSEIDON1_PARTIAL_ROUNDS {
+                state[0] += P::from(pre.alphas[r]);
                 state[0] = sbox_full::<P>(state[0]);
                 mds_mul_simd(state);
             }
 
-            // Terminal full rounds.
-            for rc in GOLDILOCKS_POSEIDON1_RC_8
+            // Terminal full rounds; first round uses the residual-adjusted RC.
+            for (k, rc) in GOLDILOCKS_POSEIDON1_RC_8
                 .iter()
                 .take(POSEIDON1_N_ROUNDS)
                 .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+                .enumerate()
             {
+                let rc_eff = if k == 0 { &pre.terminal_rc0_adjusted } else { rc };
                 for (i, s) in state.iter_mut().enumerate() {
-                    *s += P::from(rc[i]);
+                    *s += P::from(rc_eff[i]);
                 }
                 for s in state.iter_mut() {
                     *s = sbox_full::<P>(*s);
@@ -775,18 +867,13 @@ impl Poseidon1Goldilocks8 {
                 }
             }
 
-            // Partial rounds.
-            for rc in GOLDILOCKS_POSEIDON1_RC_8
-                .iter()
-                .skip(POSEIDON1_HALF_FULL_ROUNDS)
-                .take(POSEIDON1_PARTIAL_ROUNDS)
-            {
+            let pre = precomputed();
+
+            // Partial rounds with compressed RCs (per lane).
+            for r in 0..POSEIDON1_PARTIAL_ROUNDS {
+                let alpha = pre.alphas[r];
                 for lane in lanes.iter_mut() {
-                    for (i, s) in lane.iter_mut().enumerate() {
-                        *s += rc[i];
-                    }
-                }
-                for lane in lanes.iter_mut() {
+                    lane[0] += alpha;
                     lane[0] = sbox_full::<Goldilocks>(lane[0]);
                 }
                 for lane in lanes.iter_mut() {
@@ -794,15 +881,17 @@ impl Poseidon1Goldilocks8 {
                 }
             }
 
-            // Terminal full rounds.
-            for rc in GOLDILOCKS_POSEIDON1_RC_8
+            // Terminal full rounds; first round uses residual-adjusted RC.
+            for (k, rc) in GOLDILOCKS_POSEIDON1_RC_8
                 .iter()
                 .take(POSEIDON1_N_ROUNDS)
                 .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
+                .enumerate()
             {
+                let rc_eff = if k == 0 { &pre.terminal_rc0_adjusted } else { rc };
                 for lane in lanes.iter_mut() {
                     for (i, s) in lane.iter_mut().enumerate() {
-                        *s += rc[i];
+                        *s += rc_eff[i];
                     }
                 }
                 for lane in lanes.iter_mut() {
