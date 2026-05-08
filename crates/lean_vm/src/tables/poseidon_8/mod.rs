@@ -104,9 +104,9 @@ const AUX_COLS_PER_ROW: usize = num_cols_poseidon_8() - POSEIDON_8_COL_ROUND_STA
 fn mds_vec_mul(state: &[F; WIDTH]) -> [F; WIDTH] {
     let mut out = [F::ZERO; WIDTH];
     for i in 0..WIDTH {
-        let mut acc = state[0] * F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+        let mut acc = state[0] * F::from_i64(MDS8_ROW[(WIDTH - i) % WIDTH]);
         for j in 1..WIDTH {
-            acc += state[j] * F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+            acc += state[j] * F::from_i64(MDS8_ROW[(j + WIDTH - i) % WIDTH]);
         }
         out[i] = acc;
     }
@@ -479,9 +479,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             });
             let post = full_posts[round];
             for i in 0..WIDTH {
-                let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+                let mut acc = sbox_out[0] * AB::F::from_i64(MDS8_ROW[(WIDTH - i) % WIDTH]);
                 for (j, sj) in sbox_out.iter().enumerate().skip(1) {
-                    let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    let coeff = AB::F::from_i64(MDS8_ROW[(j + WIDTH - i) % WIDTH]);
                     acc += *sj * coeff;
                 }
                 builder.assert_zero(post[i] - acc);
@@ -543,9 +543,9 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
             });
             let post = full_posts[POSEIDON1_HALF_FULL_ROUNDS + round];
             for i in 0..WIDTH {
-                let mut acc = sbox_out[0] * AB::F::from_u64(MDS8_ROW[(WIDTH - i) % WIDTH] as u64);
+                let mut acc = sbox_out[0] * AB::F::from_i64(MDS8_ROW[(WIDTH - i) % WIDTH]);
                 for (j, sj) in sbox_out.iter().enumerate().skip(1) {
-                    let coeff = AB::F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+                    let coeff = AB::F::from_i64(MDS8_ROW[(j + WIDTH - i) % WIDTH]);
                     acc += *sj * coeff;
                 }
                 builder.assert_zero(post[i] - acc);

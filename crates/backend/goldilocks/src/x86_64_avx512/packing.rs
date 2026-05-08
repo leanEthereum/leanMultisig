@@ -313,58 +313,182 @@ fn square(x: __m512i) -> __m512i {
 //
 // Computes the width-8 circulant MDS matrix-vector product entirely in
 // `__m512i` registers, with delayed reduction. Each output is
-// `sum_j MDS_ROW[(j-i) mod 8] * state[j]`. Coefficients are in
-// {1, 3, 4, 7, 8, 9} (max 9), so per-term products fit in u68 and sums of
-// 8 terms fit comfortably in u71.
+// `sum_j MDS_ROW[(j-i) mod 8] * state[j]`. The MDS coefficients are signed
+// powers of two in {-4, -2, 1, 2, 4, 8}, so each `c * x` is implemented as a
+// `vpsllq` (1-cycle latency) followed by a `vpaddq`/`vpsubq` — strictly
+// faster than the 32x32 `vpmuludq` (5-cycle latency) used by the original
+// dense-coefficient path.
 //
-// We multiply via two 32x32 `_mm512_mul_epu32` calls (low half and high
-// half of state), which exploits that the constants fit in 4 bits (so the
-// "high 32 bits" operand of mul_epu32 is zero by construction). Sums of
-// the low and high halves are accumulated separately into u64s, then we
-// assemble the (hi, lo) u128 pair and call `reduce128`.
+// We split each state element into its low/high 32-bit halves and accumulate
+// `c * lo` and `c * hi` separately into `sum_ll` and `sum_hl`. The two
+// accumulators are pre-biased so positive contributions add and negative
+// ones subtract without underflowing the unsigned u64 lanes; the biases also
+// encode an exact `8 * P` offset, so the composed u128 stays non-negative
+// AND the modular result is unchanged.
 
 use crate::poseidon1::{MDS8_ROW, POSEIDON1_WIDTH};
+
+// BIAS_LL + BIAS_HL << 32 = 8 * P. With sum_signed in [-6*(2^64-1), 17*(2^64-1)],
+// the composed u128 = 8*P + sum_signed >= 2*P > 0. Each bias also exceeds the
+// largest negative partial-sum (6 * (2^32 - 1) ≈ 2^34.6) so no lane ever
+// underflows during accumulation regardless of iteration order.
+const MDS_BIAS_LL: i64 = 0x0000_0007_0000_0008;
+const MDS_BIAS_HL: i64 = 0x0000_0007_FFFF_FFF1;
+
+/// `acc + (x << SHIFT)` as 64-bit lanes, with `SHIFT == 0` collapsing to a
+/// plain add (no useless shift instruction).
+#[inline(always)]
+unsafe fn add_shl<const SHIFT: u32>(acc: __m512i, x: __m512i) -> __m512i {
+    unsafe {
+        if SHIFT == 0 {
+            _mm512_add_epi64(acc, x)
+        } else {
+            _mm512_add_epi64(acc, _mm512_slli_epi64::<SHIFT>(x))
+        }
+    }
+}
+
+/// `acc - (x << SHIFT)`.
+#[inline(always)]
+unsafe fn sub_shl<const SHIFT: u32>(acc: __m512i, x: __m512i) -> __m512i {
+    unsafe {
+        if SHIFT == 0 {
+            _mm512_sub_epi64(acc, x)
+        } else {
+            _mm512_sub_epi64(acc, _mm512_slli_epi64::<SHIFT>(x))
+        }
+    }
+}
+
+/// Apply one MDS row coefficient `c ∈ {-4,-2,1,2,4,8}` for column `j`. The
+/// const generic `C` lets each call site specialize: `c * x` collapses to a
+/// shift (and sign-flipped accumulation for negative `c`).
+#[inline(always)]
+unsafe fn accum_term<const C: i64>(sum_ll: &mut __m512i, sum_hl: &mut __m512i, s_lo: __m512i, s_hi: __m512i) {
+    unsafe {
+        match C {
+            1 => {
+                *sum_ll = add_shl::<0>(*sum_ll, s_lo);
+                *sum_hl = add_shl::<0>(*sum_hl, s_hi);
+            }
+            2 => {
+                *sum_ll = add_shl::<1>(*sum_ll, s_lo);
+                *sum_hl = add_shl::<1>(*sum_hl, s_hi);
+            }
+            4 => {
+                *sum_ll = add_shl::<2>(*sum_ll, s_lo);
+                *sum_hl = add_shl::<2>(*sum_hl, s_hi);
+            }
+            8 => {
+                *sum_ll = add_shl::<3>(*sum_ll, s_lo);
+                *sum_hl = add_shl::<3>(*sum_hl, s_hi);
+            }
+            -2 => {
+                *sum_ll = sub_shl::<1>(*sum_ll, s_lo);
+                *sum_hl = sub_shl::<1>(*sum_hl, s_hi);
+            }
+            -4 => {
+                *sum_ll = sub_shl::<2>(*sum_ll, s_lo);
+                *sum_hl = sub_shl::<2>(*sum_hl, s_hi);
+            }
+            _ => panic!("unsupported MDS coefficient"),
+        }
+    }
+}
+
+/// Compose `(sum_hl << 32) + sum_ll` into a u128 `(hi, lo)` pair, then reduce
+/// modulo `P`.
+#[inline(always)]
+unsafe fn finalize_row(sum_ll: __m512i, sum_hl: __m512i) -> __m512i {
+    unsafe {
+        let sum_hl_shifted = _mm512_slli_epi64::<32>(sum_hl);
+        let lo = _mm512_add_epi64(sum_ll, sum_hl_shifted);
+        let carry_mask = _mm512_cmplt_epu64_mask(lo, sum_hl_shifted);
+        let hi_no_carry = _mm512_srli_epi64::<32>(sum_hl);
+        let hi = _mm512_mask_add_epi64(hi_no_carry, carry_mask, hi_no_carry, _mm512_set1_epi64(1));
+        reduce128((hi, lo))
+    }
+}
+
+/// Accumulate one full row `[c0..c7]` (a circular shift of `MDS8_ROW`) and
+/// reduce. Each `accum_term::<Ck>` is monomorphised so the entire row reduces
+/// to a straight-line sequence of shift / add / sub instructions.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn mds_row<
+    const C0: i64,
+    const C1: i64,
+    const C2: i64,
+    const C3: i64,
+    const C4: i64,
+    const C5: i64,
+    const C6: i64,
+    const C7: i64,
+>(
+    s: &[__m512i; 8],
+    s_hi: &[__m512i; 8],
+    bias_ll: __m512i,
+    bias_hl: __m512i,
+) -> __m512i {
+    unsafe {
+        let mut sum_ll = bias_ll;
+        let mut sum_hl = bias_hl;
+        accum_term::<C0>(&mut sum_ll, &mut sum_hl, s[0], s_hi[0]);
+        accum_term::<C1>(&mut sum_ll, &mut sum_hl, s[1], s_hi[1]);
+        accum_term::<C2>(&mut sum_ll, &mut sum_hl, s[2], s_hi[2]);
+        accum_term::<C3>(&mut sum_ll, &mut sum_hl, s[3], s_hi[3]);
+        accum_term::<C4>(&mut sum_ll, &mut sum_hl, s[4], s_hi[4]);
+        accum_term::<C5>(&mut sum_ll, &mut sum_hl, s[5], s_hi[5]);
+        accum_term::<C6>(&mut sum_ll, &mut sum_hl, s[6], s_hi[6]);
+        accum_term::<C7>(&mut sum_ll, &mut sum_hl, s[7], s_hi[7]);
+        finalize_row(sum_ll, sum_hl)
+    }
+}
 
 /// SIMD MDS multiplication for the width-8 circulant Poseidon1 matrix.
 #[inline]
 pub(crate) fn mds_mul_simd(state: &mut [PackedGoldilocksAVX512; POSEIDON1_WIDTH]) {
+    // Sanity: the row decomposition below assumes the canonical
+    // [2, -4, -2, 8, 1, 1, 4, 1] coefficient set.
+    const _: () = assert!(MDS8_ROW[0] == 2);
+    const _: () = assert!(MDS8_ROW[1] == -4);
+    const _: () = assert!(MDS8_ROW[2] == -2);
+    const _: () = assert!(MDS8_ROW[3] == 8);
+    const _: () = assert!(MDS8_ROW[4] == 1);
+    const _: () = assert!(MDS8_ROW[5] == 1);
+    const _: () = assert!(MDS8_ROW[6] == 4);
+    const _: () = assert!(MDS8_ROW[7] == 1);
+
     unsafe {
-        let s: [__m512i; 8] = core::array::from_fn(|i| state[i].to_vector());
-        // Precompute the high 32 bits of every state slot once.
-        let s_hi: [__m512i; 8] = core::array::from_fn(|i| _mm512_srli_epi64::<32>(s[i]));
+        let raw: [__m512i; 8] = core::array::from_fn(|i| state[i].to_vector());
+        // Pre-split each 64-bit lane into its low and high 32-bit halves,
+        // both occupying the low 32 bits of their respective lanes.
+        // `s_lo[j] << k` then correctly produces `c * (state[j] & 2^32-1)`
+        // without contamination from the upper 32 bits of state.
+        let s_lo: [__m512i; 8] = core::array::from_fn(|i| _mm512_and_si512(raw[i], EPSILON));
+        let s_hi: [__m512i; 8] = core::array::from_fn(|i| _mm512_srli_epi64::<32>(raw[i]));
 
-        // For each output i, accumulate the dot product. With the inner loop
-        // bound by `8` and `MDS8_ROW` const, LLVM can fully unroll and fold
-        // the coefficient lookups.
-        let mut out: [__m512i; 8] = [_mm512_setzero_si512(); 8];
+        let bias_ll = _mm512_set1_epi64(MDS_BIAS_LL);
+        let bias_hl = _mm512_set1_epi64(MDS_BIAS_HL);
 
-        for i in 0..8 {
-            let mut sum_ll = _mm512_setzero_si512();
-            let mut sum_hl = _mm512_setzero_si512();
-            for j in 0..8 {
-                // Row i is `MDS8_ROW` rotated right by i, i.e. coefficient for
-                // `state[j]` in output `i` is `MDS8_ROW[(j + 8 - i) % 8]`.
-                let c = MDS8_ROW[(j + 8 - i) % 8];
-                let c_vec = _mm512_set1_epi64(c);
-                sum_ll = _mm512_add_epi64(sum_ll, _mm512_mul_epu32(s[j], c_vec));
-                sum_hl = _mm512_add_epi64(sum_hl, _mm512_mul_epu32(s_hi[j], c_vec));
-            }
+        // Row i = MDS_ROW rotated right by i.
+        let out0 = mds_row::<2, -4, -2, 8, 1, 1, 4, 1>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out1 = mds_row::<1, 2, -4, -2, 8, 1, 1, 4>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out2 = mds_row::<4, 1, 2, -4, -2, 8, 1, 1>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out3 = mds_row::<1, 4, 1, 2, -4, -2, 8, 1>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out4 = mds_row::<1, 1, 4, 1, 2, -4, -2, 8>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out5 = mds_row::<8, 1, 1, 4, 1, 2, -4, -2>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out6 = mds_row::<-2, 8, 1, 1, 4, 1, 2, -4>(&s_lo, &s_hi, bias_ll, bias_hl);
+        let out7 = mds_row::<-4, -2, 8, 1, 1, 4, 1, 2>(&s_lo, &s_hi, bias_ll, bias_hl);
 
-            // Total value = sum_ll + (sum_hl << 32). Compose into (hi, lo) u128.
-            // sum_ll < 2^39, sum_hl < 2^39, so sum_hl >> 32 < 2^7.
-            let sum_hl_shifted = _mm512_slli_epi64::<32>(sum_hl);
-            let lo = _mm512_add_epi64(sum_ll, sum_hl_shifted);
-            // Detect unsigned overflow: lo < sum_hl_shifted iff the add wrapped.
-            let carry_mask = _mm512_cmplt_epu64_mask(lo, sum_hl_shifted);
-            let hi_no_carry = _mm512_srli_epi64::<32>(sum_hl);
-            let hi = _mm512_mask_add_epi64(hi_no_carry, carry_mask, hi_no_carry, _mm512_set1_epi64(1));
-
-            out[i] = reduce128((hi, lo));
-        }
-
-        for i in 0..8 {
-            state[i] = PackedGoldilocksAVX512::from_vector(out[i]);
-        }
+        state[0] = PackedGoldilocksAVX512::from_vector(out0);
+        state[1] = PackedGoldilocksAVX512::from_vector(out1);
+        state[2] = PackedGoldilocksAVX512::from_vector(out2);
+        state[3] = PackedGoldilocksAVX512::from_vector(out3);
+        state[4] = PackedGoldilocksAVX512::from_vector(out4);
+        state[5] = PackedGoldilocksAVX512::from_vector(out5);
+        state[6] = PackedGoldilocksAVX512::from_vector(out6);
+        state[7] = PackedGoldilocksAVX512::from_vector(out7);
     }
 }
 

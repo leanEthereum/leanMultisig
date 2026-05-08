@@ -56,7 +56,7 @@ pub(super) fn mds_dense() -> [[F; WIDTH]; WIDTH] {
     let mut m = [[F::ZERO; WIDTH]; WIDTH];
     for i in 0..WIDTH {
         for j in 0..WIDTH {
-            m[i][j] = F::from_u64(MDS8_ROW[(j + WIDTH - i) % WIDTH] as u64);
+            m[i][j] = F::from_i64(MDS8_ROW[(j + WIDTH - i) % WIDTH]);
         }
     }
     m

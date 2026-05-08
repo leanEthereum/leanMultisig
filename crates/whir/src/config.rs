@@ -5,7 +5,7 @@ use poly::*;
 
 // (Goldilocks two adicity is 32) We use a smaller one to avoid having to deal with PoW grinding at folding in WHIR
 // TODO we likely want a bit more than 24, so we should reintroduce PoW grinding for folding in the future
-// But hopefully we will have better proximity gaps formulas by then 
+// But hopefully we will have better proximity gaps formulas by then
 pub const EFFECTIVE_TWO_ADICITY: usize = 24;
 
 /// Defines the folding factor for polynomial commitments.

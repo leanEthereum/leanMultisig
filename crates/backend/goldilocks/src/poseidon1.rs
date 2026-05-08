@@ -6,9 +6,8 @@
 //! - S-box `x^7` (smallest `d` with `gcd(d, p - 1) = 1` for Goldilocks)
 //! - `R_F = 8` full rounds (4 initial + 4 terminal)
 //! - `R_P = 22` partial rounds in the middle
-//! - External MDS is the circulant matrix with first row `[7, 1, 3, 8, 8, 3, 4, 9]`
-//!   (Plonky2/upstream-Plonky3 "small MDS" — same matrix the upstream
-//!   `MdsMatrixGoldilocks` uses at width 8).
+//! - External MDS is the circulant matrix with first row `[2, -4, -2, 8, 1, 1, 4, 1]`
+//!   (small signed coefficients — multiplications strength-reduce to shifts and adds).
 //!
 //! The permutation is generic over any algebra `R` over `Goldilocks` that also
 //! implements `InjectiveMonomial<7>`, mirroring the koala-bear crate's
@@ -38,24 +37,37 @@ pub const POSEIDON1_N_ROUNDS: usize = 2 * POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1
 // MDS matrix (circulant, width 8)
 // =========================================================================
 //
-// First row of the circulant MDS matrix. `MDS8_COL[i] = r_{(N - i) mod N}` is
-// the first column — more convenient for a row-major apply of a circulant
-// since `row_i = cyclic_shift(col, i)`, i.e. `M[i][j] = COL[(j - i + N) mod N]`
-// (equivalently `ROW[(j - i) mod N]`).
-pub const MDS8_ROW: [i64; 8] = [7, 1, 3, 8, 8, 3, 4, 9];
+// First row of the circulant MDS matrix. Coefficients are small signed
+// integers in `{-4, -2, 1, 2, 4, 8}` so each `c * s` strength-reduces to a
+// shift (and a negation for `c < 0`) instead of a full multiply.
+// `M[i][j] = MDS8_ROW[(j - i) mod 8]`.
+pub const MDS8_ROW: [i64; 8] = [2, -4, -2, 8, 1, 1, 4, 1];
+
+/// Convert a signed MDS coefficient to a `Goldilocks` element.
+#[inline(always)]
+const fn mds_coeff_as_goldilocks(c: i64) -> Goldilocks {
+    if c >= 0 {
+        Goldilocks::new(c as u64)
+    } else {
+        // -c fits in u64 since |c| <= 8.
+        Goldilocks::new(crate::P.wrapping_sub((-c) as u64))
+    }
+}
 
 /// Apply the width-8 circulant MDS matrix in place, generic over `R`.
 ///
-/// The matrix has tiny integer entries (max 9), so even without any delayed
-/// reduction a plain algebra-over-Goldilocks multiply is fine.
+/// The matrix has tiny integer entries (`|c| <= 8`), so even without any
+/// delayed reduction a plain algebra-over-Goldilocks multiply is fine.
 #[inline]
 fn mds_mul_generic<R: Algebra<Goldilocks>>(state: &mut [R; 8]) {
     // Precompute the constants as Goldilocks once — `From<Goldilocks>` for `R`
     // gives us `R` conversions.
     let coeffs: [Goldilocks; 8] = {
         let mut arr = [Goldilocks::ZERO; 8];
-        for i in 0..8 {
-            arr[i] = Goldilocks::new(MDS8_ROW[i] as u64);
+        let mut i = 0;
+        while i < 8 {
+            arr[i] = mds_coeff_as_goldilocks(MDS8_ROW[i]);
+            i += 1;
         }
         arr
     };
@@ -74,42 +86,48 @@ fn mds_mul_generic<R: Algebra<Goldilocks>>(state: &mut [R; 8]) {
 /// Specialized fast MDS for the concrete `Goldilocks` scalar.
 ///
 /// Each output is a dot product `sum_j MDS_ROW[(j-i) mod 8] * state[j]` with
-/// MDS coefficients in `{1, 3, 4, 7, 8, 9}` (all fit in 4 bits). With the
-/// constants spelled out explicitly LLVM strength-reduces `c * s` to shifts
-/// and adds (e.g. `8*s = s<<3`, `7*s = (s<<3)-s`), eliminating the variable
-/// multiplications entirely. We accumulate into `u128` (8·9·2^64 ≈ 2^71 fits
-/// comfortably) and reduce once per output via `reduce128`. The explicit
-/// `1 *` factors keep the circulant structure readable column-by-column.
+/// signed MDS coefficients in `{-4, -2, 1, 2, 4, 8}`. With the constants
+/// spelled out explicitly LLVM strength-reduces `c * s` to shifts (and
+/// negations for `c < 0`), eliminating the variable multiplications entirely.
+/// We accumulate into `i128` (signed sum bounded by `|c|·8·2^64 < 2^68`) and
+/// add a fixed multiple of `P` to keep the value non-negative before passing
+/// it to `reduce128` (which takes `u128`). The added multiple of `P` does not
+/// change the result modulo `P`.
 #[inline(always)]
 #[allow(clippy::identity_op)]
 fn mds_mul_scalar(state: &mut [Goldilocks; 8]) {
-    let s0 = state[0].value as u128;
-    let s1 = state[1].value as u128;
-    let s2 = state[2].value as u128;
-    let s3 = state[3].value as u128;
-    let s4 = state[4].value as u128;
-    let s5 = state[5].value as u128;
-    let s6 = state[6].value as u128;
-    let s7 = state[7].value as u128;
+    let s0 = state[0].value as i128;
+    let s1 = state[1].value as i128;
+    let s2 = state[2].value as i128;
+    let s3 = state[3].value as i128;
+    let s4 = state[4].value as i128;
+    let s5 = state[5].value as i128;
+    let s6 = state[6].value as i128;
+    let s7 = state[7].value as i128;
 
-    // MDS_ROW = [7, 1, 3, 8, 8, 3, 4, 9]; row i is MDS_ROW rotated right by i.
-    let acc0 = 7 * s0 + 1 * s1 + 3 * s2 + 8 * s3 + 8 * s4 + 3 * s5 + 4 * s6 + 9 * s7;
-    let acc1 = 9 * s0 + 7 * s1 + 1 * s2 + 3 * s3 + 8 * s4 + 8 * s5 + 3 * s6 + 4 * s7;
-    let acc2 = 4 * s0 + 9 * s1 + 7 * s2 + 1 * s3 + 3 * s4 + 8 * s5 + 8 * s6 + 3 * s7;
-    let acc3 = 3 * s0 + 4 * s1 + 9 * s2 + 7 * s3 + 1 * s4 + 3 * s5 + 8 * s6 + 8 * s7;
-    let acc4 = 8 * s0 + 3 * s1 + 4 * s2 + 9 * s3 + 7 * s4 + 1 * s5 + 3 * s6 + 8 * s7;
-    let acc5 = 8 * s0 + 8 * s1 + 3 * s2 + 4 * s3 + 9 * s4 + 7 * s5 + 1 * s6 + 3 * s7;
-    let acc6 = 3 * s0 + 8 * s1 + 8 * s2 + 3 * s3 + 4 * s4 + 9 * s5 + 7 * s6 + 1 * s7;
-    let acc7 = 1 * s0 + 3 * s1 + 8 * s2 + 8 * s3 + 3 * s4 + 4 * s5 + 9 * s6 + 7 * s7;
+    // OFFSET keeps the signed sum non-negative without changing the value
+    // mod P. Each row has |negative_part| <= 6 * (2^64 - 1) < 7 * P, so
+    // OFFSET = 8 * P is comfortably large enough.
+    const OFFSET: i128 = 8 * (crate::P as i128);
 
-    state[0] = crate::goldilocks::reduce128(acc0);
-    state[1] = crate::goldilocks::reduce128(acc1);
-    state[2] = crate::goldilocks::reduce128(acc2);
-    state[3] = crate::goldilocks::reduce128(acc3);
-    state[4] = crate::goldilocks::reduce128(acc4);
-    state[5] = crate::goldilocks::reduce128(acc5);
-    state[6] = crate::goldilocks::reduce128(acc6);
-    state[7] = crate::goldilocks::reduce128(acc7);
+    // MDS_ROW = [2, -4, -2, 8, 1, 1, 4, 1]; row i is MDS_ROW rotated right by i.
+    let acc0 = OFFSET + 2 * s0 - 4 * s1 - 2 * s2 + 8 * s3 + 1 * s4 + 1 * s5 + 4 * s6 + 1 * s7;
+    let acc1 = OFFSET + 1 * s0 + 2 * s1 - 4 * s2 - 2 * s3 + 8 * s4 + 1 * s5 + 1 * s6 + 4 * s7;
+    let acc2 = OFFSET + 4 * s0 + 1 * s1 + 2 * s2 - 4 * s3 - 2 * s4 + 8 * s5 + 1 * s6 + 1 * s7;
+    let acc3 = OFFSET + 1 * s0 + 4 * s1 + 1 * s2 + 2 * s3 - 4 * s4 - 2 * s5 + 8 * s6 + 1 * s7;
+    let acc4 = OFFSET + 1 * s0 + 1 * s1 + 4 * s2 + 1 * s3 + 2 * s4 - 4 * s5 - 2 * s6 + 8 * s7;
+    let acc5 = OFFSET + 8 * s0 + 1 * s1 + 1 * s2 + 4 * s3 + 1 * s4 + 2 * s5 - 4 * s6 - 2 * s7;
+    let acc6 = OFFSET - 2 * s0 + 8 * s1 + 1 * s2 + 1 * s3 + 4 * s4 + 1 * s5 + 2 * s6 - 4 * s7;
+    let acc7 = OFFSET - 4 * s0 - 2 * s1 + 8 * s2 + 1 * s3 + 1 * s4 + 4 * s5 + 1 * s6 + 2 * s7;
+
+    state[0] = crate::goldilocks::reduce128(acc0 as u128);
+    state[1] = crate::goldilocks::reduce128(acc1 as u128);
+    state[2] = crate::goldilocks::reduce128(acc2 as u128);
+    state[3] = crate::goldilocks::reduce128(acc3 as u128);
+    state[4] = crate::goldilocks::reduce128(acc4 as u128);
+    state[5] = crate::goldilocks::reduce128(acc5 as u128);
+    state[6] = crate::goldilocks::reduce128(acc6 as u128);
+    state[7] = crate::goldilocks::reduce128(acc7 as u128);
 }
 
 // =========================================================================
@@ -879,26 +897,26 @@ mod tests {
         }
     }
 
-    /// Plonky3-compatibility known-answer vector.
-    ///
-    /// Reference: `plonky3/goldilocks/src/poseidon1.rs::tests::test_poseidon_goldilocks_width_8`
-    /// — input `[0..8)`, expected output hardcoded from upstream.
+    /// Known-answer regression test for the width-8 permutation under the
+    /// custom signed-coefficient MDS `[2, -4, -2, 8, 1, 1, 4, 1]`. Output was
+    /// captured from the scalar reference implementation; re-running the
+    /// permutation must reproduce it bit-for-bit.
     #[test]
-    fn test_plonky3_compatibility() {
+    fn test_known_answer() {
         use field::PrimeField64;
 
         let p = default_goldilocks_poseidon1_8();
         let mut input: [Goldilocks; 8] = [0, 1, 2, 3, 4, 5, 6, 7].map(Goldilocks::new);
         p.permute_mut(&mut input);
         let expected: [u64; 8] = [
-            2431226948502761687,
-            9427563026145807618,
-            6827549936272051660,
-            16907684411084503785,
-            10131745626715172913,
-            17448305483431576765,
-            9066501914269485014,
-            12095238468458521303,
+            5090027972440212889,
+            12553003895628898413,
+            7769768437951802543,
+            14813905934291611803,
+            10867342912969274000,
+            1190867883229247335,
+            10567061940441997012,
+            13814457048189538411,
         ];
         let got: [u64; 8] = input.map(|x| x.as_canonical_u64());
         assert_eq!(got, expected);
