@@ -130,6 +130,7 @@ pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F], n_blobs: usize) ->
     let blob_size_fe = 1 << LOG_M;
     let total_data_kib = (n_blobs * blob_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
     let throughput_kib_per_s = total_data_kib / proving_time.as_secs_f64();
+    println!("Bytecode size:    {}", meta.bytecode_size);
     println!("Cycles:           {}", meta.cycles);
     println!("Poseidon16 calls: {}", meta.n_poseidons);
     println!("ExtensionOp calls:{}", meta.n_extension_ops);
