@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use backend::{PrimeCharacteristicRing, Proof, TwoAdicField};
+use std::time::Instant;
+
+use backend::{Field, PrimeCharacteristicRing, Proof, TwoAdicField};
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
     default_whir_config,
@@ -17,10 +19,12 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 const STARTING_LOG_INV_RATE: usize = 1;
 
 pub const LOG_M: usize = 9;
+pub const N_BLOBS: usize = 32;
 
 pub fn compile_lean_da_bytecode() -> Bytecode {
     let mut replacements = BTreeMap::new();
     replacements.insert("LOG_M_PLACEHOLDER".to_string(), LOG_M.to_string());
+    replacements.insert("N_BLOBS_PLACEHOLDER".to_string(), N_BLOBS.to_string());
     let source = ProgramSource::Embedded {
         entry: "lean_da.py".to_string(),
         dir: &EMBEDDED_ZK_DSL,
@@ -70,12 +74,16 @@ fn rs_encode(message: &[F]) -> Vec<F> {
 
 fn build_witness() -> ExecutionWitness {
     let m = 1 << LOG_M;
+    let two_m = 2 * m;
     let mut rng = StdRng::seed_from_u64(0);
-    let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
-    let codeword = rs_encode(&message);
+    let mut codewords = Vec::with_capacity(N_BLOBS * two_m);
+    for _ in 0..N_BLOBS {
+        let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
+        codewords.extend(rs_encode(&message));
+    }
 
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
-    hints.insert("codeword".to_string(), vec![codeword]);
+    hints.insert("codewords".to_string(), vec![codewords]);
     ExecutionWitness {
         preamble_memory_len: 0,
         hints,
@@ -84,14 +92,27 @@ fn build_witness() -> ExecutionWitness {
 
 pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof {
     let witness = build_witness();
-    prove_execution(
+    let t0 = Instant::now();
+    let proof = prove_execution(
         bytecode,
         public_input,
         &witness,
         &default_whir_config(STARTING_LOG_INV_RATE),
         false,
     )
-    .unwrap()
+    .unwrap();
+    let proving_time = t0.elapsed();
+
+    let meta = proof.metadata.as_ref().expect("metadata missing");
+    let proof_size_fe = proof.proof.proof_size_fe();
+    let proof_kib = (proof_size_fe * F::bits()) as f64 / (8.0 * 1024.0);
+    println!("Cycles:           {}", meta.cycles);
+    println!("Poseidon16 calls: {}", meta.n_poseidons);
+    println!("ExtensionOp calls:{}", meta.n_extension_ops);
+    println!("Proving time:     {:.3} s", proving_time.as_secs_f64());
+    println!("Proof size:       {:.2} KiB", proof_kib);
+
+    proof
 }
 
 pub fn verify_lean_da(bytecode: &Bytecode, public_input: &[F], proof: Proof<F>) {

@@ -17,13 +17,37 @@ LEAF_NUM_CHUNKS = div_floor(LEAF_LEN, DIGEST_LEN)  # = 32; chunks of 8 FE absorb
 LOG_NUM_LEAVES = LOG_M + 1 - LOG_LEAF_LEN  # log2(2*M / LEAF_LEN)
 NUM_LEAVES = 2 ** LOG_NUM_LEAVES
 
+N_BLOBS = N_BLOBS_PLACEHOLDER  # number of codewords committed at once
+
 
 
 def main():
-    codeword = Array(2 * M)
-    hint_witness("codeword", codeword)
+    zero_vec_ptr = Array(DIGEST_LEN)
+    for i in range(0, DIGEST_LEN):
+        zero_vec_ptr[i] = 0
 
-    root = merkle_root(codeword)
+    codewords = Array(N_BLOBS * 2 * M)
+    hint_witness("codewords", codewords)
+
+    roots = Array(N_BLOBS)
+    for i in unroll(0, N_BLOBS):
+        roots[i] = merkle_root(codewords + i * 2 * M)
+    
+    # hash the merkle roots:
+    state: Mut = zero_vec_ptr
+    for i in unroll(0, N_BLOBS):
+        new_state = Array(DIGEST_LEN)
+        poseidon16_compress(state, roots + i * DIGEST_LEN, new_state)
+        state = new_state
+    
+    # r is interpreted a random extension field element (<=> 5 base field elements)
+    r = state # fiat-shamir: randomness is obtained by hashing all the previous merkle roots
+
+    parity_slice = rs_parity_coeffs(r)
+
+    for i in unroll(0, N_BLOBS):
+        dot_product_be(codewords + i * 2 * M, parity_slice, zero_vec_ptr, 2 * M)
+
     return
 
 
@@ -36,7 +60,7 @@ def main():
 # c_j = (-1)^j * (alpha_j^m - 1) / (alpha_j - 1)
 #     = ((rm - 1) if j even else (rm + 1)) / (alpha_j - 1)
 # with rm = r^m. All denominators are batch-inverted via Montgomery's trick.
-def random_slice_fast(r):
+def rs_parity_coeffs(r):
     arr = Array(2 * M * DIM)
 
     # rm = r^m via LOG_M repeated squarings of r.
@@ -107,12 +131,9 @@ def random_slice_fast(r):
 
     return arr
 
-
-# Hash a single LEAF_LEN-FE leaf down to a DIGEST_LEN digest using an IV-free
-# sponge: state[0] = compress(chunk[0], chunk[1]), then state[j] = compress(state[j-1], chunk[j+1]).
-# Mirrors `slice_hash` in rec_aggregation.
 @inline
 def hash_leaf(leaf, dest):
+    # fixed length: no IV needed
     states = Array((LEAF_NUM_CHUNKS - 2) * DIGEST_LEN)
     poseidon16_compress(leaf, leaf + DIGEST_LEN, states)
     for j in unroll(1, LEAF_NUM_CHUNKS - 2):
@@ -129,17 +150,11 @@ def hash_leaf(leaf, dest):
     return
 
 
-# Merkle-hash the codeword (2*M field elements) into a single DIGEST_LEN digest.
-# Each leaf is LEAF_LEN FE wide and is first sponge-hashed to a digest.
-# Then we build the tree layer by layer: every layer halves the previous one,
-# until a single-digest root remains.
 def merkle_root(codeword):
-    # Layer 0: hash each leaf to a digest.
     leaves = Array(NUM_LEAVES * DIGEST_LEN)
     for i in unroll(0, NUM_LEAVES):
         hash_leaf(codeword + i * LEAF_LEN, leaves + i * DIGEST_LEN)
 
-    # Layers 1..LOG_NUM_LEAVES: each compresses pairs of digests from the previous layer.
     layer: Mut = leaves
     for k in unroll(1, LOG_NUM_LEAVES + 1):
         layer_size = 2 ** (LOG_NUM_LEAVES - k)
