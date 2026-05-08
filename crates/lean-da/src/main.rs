@@ -1,10 +1,8 @@
-#![cfg_attr(not(test), allow(unused_crate_dependencies))]
-
 use std::collections::{BTreeMap, HashMap};
-
 use std::time::Instant;
 
-use backend::{Field, PrimeCharacteristicRing, Proof, TwoAdicField};
+use backend::{PrimeCharacteristicRing, Proof, TwoAdicField};
+use clap::Parser;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
     default_whir_config,
@@ -18,8 +16,27 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 9;
-pub const N_BLOBS: usize = 32;
+pub const LOG_M: usize = 12; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
+pub const N_BLOBS: usize = 8;
+
+#[derive(Parser)]
+#[command(about = "Reed-Solomon DA: hash N_BLOBS codewords, run a random parity check, then prove + verify")]
+struct Cli {
+    #[arg(long, help = "Enable tracing")]
+    tracing: bool,
+}
+
+fn main() {
+    let cli = Cli::parse();
+    if cli.tracing {
+        utils::init_tracing();
+    }
+
+    let bytecode = compile_lean_da_bytecode();
+    let public_input: Vec<F> = vec![];
+    let proof = prove_lean_da(&bytecode, &public_input);
+    verify_lean_da(&bytecode, &public_input, proof.proof);
+}
 
 pub fn compile_lean_da_bytecode() -> Bytecode {
     let mut replacements = BTreeMap::new();
@@ -91,6 +108,8 @@ fn build_witness() -> ExecutionWitness {
 }
 
 pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof {
+    const F_BITS: usize = 31;
+
     let witness = build_witness();
     let t0 = Instant::now();
     let proof = prove_execution(
@@ -105,12 +124,22 @@ pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof 
 
     let meta = proof.metadata.as_ref().expect("metadata missing");
     let proof_size_fe = proof.proof.proof_size_fe();
-    let proof_kib = (proof_size_fe * F::bits()) as f64 / (8.0 * 1024.0);
+    let proof_kib = (proof_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
+    let blob_size_fe = 1 << LOG_M;
+    let total_data_kib = (N_BLOBS * blob_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
+    let throughput_kib_per_s = total_data_kib / proving_time.as_secs_f64();
     println!("Cycles:           {}", meta.cycles);
     println!("Poseidon16 calls: {}", meta.n_poseidons);
     println!("ExtensionOp calls:{}", meta.n_extension_ops);
     println!("Proving time:     {:.3} s", proving_time.as_secs_f64());
     println!("Proof size:       {:.2} KiB", proof_kib);
+    println!(
+        "Throughput:       {:.2} KiB/s ({} blobs * {} FE / {:.3} s)",
+        throughput_kib_per_s,
+        N_BLOBS,
+        blob_size_fe,
+        proving_time.as_secs_f64()
+    );
 
     proof
 }
@@ -125,6 +154,7 @@ mod tests {
 
     #[test]
     fn test_compile_prove_verify() {
+        // cargo test --release --package lean-da -- tests::test_compile_prove_verify --nocapture
         let bytecode = compile_lean_da_bytecode();
         let public_input: Vec<F> = vec![];
         let proof = prove_lean_da(&bytecode, &public_input);

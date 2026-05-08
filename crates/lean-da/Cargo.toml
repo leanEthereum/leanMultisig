@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 backend.workspace = true
+clap.workspace = true
 include_dir.workspace = true
 lean_compiler.workspace = true
 lean_prover.workspace = true
