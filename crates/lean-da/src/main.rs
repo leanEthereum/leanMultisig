@@ -16,7 +16,7 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 15; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
+pub const LOG_M: usize = 12; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
 pub const DEFAULT_N_BLOBS: usize = 8;
 
 #[derive(Parser)]
@@ -41,6 +41,7 @@ fn main() {
 }
 
 pub fn compile_lean_da_bytecode(n_blobs: usize) -> Bytecode {
+    let time = Instant::now();
     let mut replacements = BTreeMap::new();
     replacements.insert("LOG_M_PLACEHOLDER".to_string(), LOG_M.to_string());
     replacements.insert("N_BLOBS_PLACEHOLDER".to_string(), n_blobs.to_string());
@@ -48,7 +49,9 @@ pub fn compile_lean_da_bytecode(n_blobs: usize) -> Bytecode {
         entry: "lean_da.py".to_string(),
         dir: &EMBEDDED_ZK_DSL,
     };
-    compile_program_with_flags(&source, CompilationFlags { replacements })
+    let res = compile_program_with_flags(&source, CompilationFlags { replacements });
+    println!("Compilation time: {:.3} s", time.elapsed().as_secs_f64());
+    res
 }
 
 fn ntt(a: &mut [F]) {
