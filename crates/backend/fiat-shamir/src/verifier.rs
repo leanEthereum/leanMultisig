@@ -72,7 +72,20 @@ where
         // SAFETY: We've confirmed PF<EF> == KoalaBear
         let paths: PrunedMerklePaths<KoalaBear, KoalaBear> = unsafe { std::mem::transmute(paths) };
         let perm = default_koalabear_poseidon1_16();
-        let hash_fn = |data: &[KoalaBear]| symetric::hash_slice::<_, _, 16, 8, DIGEST_LEN_FE>(&perm, data);
+        let hash_fn = |data: &[KoalaBear]| {
+            // Pad data up to the smallest sponge-aligned length so that
+            // (padded - WIDTH) is a multiple of RATE. The prover's
+            // build_merkle_tree_koalabear pads identically before hashing.
+            const W: usize = 16;
+            const R: usize = 12;
+            let mut padded_len = data.len().max(W);
+            while !(padded_len - W).is_multiple_of(R) {
+                padded_len += 1;
+            }
+            let mut buf: Vec<KoalaBear> = data.to_vec();
+            buf.resize(padded_len, KoalaBear::default());
+            symetric::hash_slice::<_, _, 16, 12, DIGEST_LEN_FE>(&perm, &buf)
+        };
         let combine_fn = |left: &[KoalaBear; DIGEST_LEN_FE], right: &[KoalaBear; DIGEST_LEN_FE]| {
             symetric::compress(&perm, [*left, *right])
         };

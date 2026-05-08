@@ -54,14 +54,99 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
     return
 
 
-@inline
 def slice_hash_rtl(data, num_chunks):
-    states = Array((num_chunks - 1) * DIGEST_LEN)
+    """RATE=12 sponge over data of length num_chunks * 8 base elements.
+    Pads internally so that the absorbed length is 16 + 12*k (sponge-aligned),
+    matching the native prover's padded_full_base_width helper.
 
-    poseidon16_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
-    for j in unroll(1, num_chunks - 1):
-        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
-    return states + (num_chunks - 2) * DIGEST_LEN
+    `num_chunks` is `Const`, so all arithmetic and the if-branches below
+    resolve at compile time.
+
+    Algorithm (mirrors Rust hash_rtl_iter for RATE=12, WIDTH=16):
+      state = padded_data[L-16..L]  # initial state from last 16 elements
+      compress(state)
+      for chunk_idx descending from k-1 to 0:
+          state[0..4] persists (capacity)
+          state[4..16] = padded_data[chunk_idx*12..(chunk_idx+1)*12]
+          compress(state)
+      return state[0..8]
+    """
+    if num_chunks == 1:
+        # data_len = 8 ; pad to 16 ; one permute.
+        buf = Array(16)
+        for i in unroll(0, 8):
+            buf[i] = data[i]
+        for i in unroll(8, 16):
+            buf[i] = 0
+        result = Array(DIGEST_LEN)
+        poseidon16_compress(buf, buf + DIGEST_LEN, result)
+        return result
+    if num_chunks == 4:
+        return slice_hash_rtl_rate12(data, 32, 40, 2)
+    if num_chunks == 5:
+        return slice_hash_rtl_rate12(data, 40, 40, 2)
+    if num_chunks == 8:
+        return slice_hash_rtl_rate12(data, 64, 64, 4)
+    if num_chunks == 10:
+        return slice_hash_rtl_rate12(data, 80, 88, 6)
+    if num_chunks == 16:
+        return slice_hash_rtl_rate12(data, 128, 136, 10)
+    if num_chunks == 20:
+        return slice_hash_rtl_rate12(data, 160, 160, 12)
+    print(num_chunks)
+    assert False, "slice_hash_rtl called with unsupported num_chunks"
+
+
+def slice_hash_rtl_rate12(data, data_len: Const, padded_len: Const, n_chunks_12: Const):
+    """Internal helper for RATE=12 sponge with explicit padding params.
+    Pre: padded_len = 16 + n_chunks_12 * 12 ; padded_len >= data_len.
+    """
+    if padded_len == data_len:
+        # No padding needed; absorb directly from data.
+        return slice_hash_rtl_rate12_no_pad(data, padded_len, n_chunks_12)
+    # Build a local padded buffer once, then absorb from it.
+    padded_data = Array(padded_len)
+    for i in unroll(0, data_len):
+        padded_data[i] = data[i]
+    for i in unroll(data_len, padded_len):
+        padded_data[i] = 0
+    return slice_hash_rtl_rate12_no_pad(padded_data, padded_len, n_chunks_12)
+
+
+def slice_hash_rtl_rate12_no_pad(padded_data, padded_len: Const, n_chunks_12: Const):
+    # states[k*8..(k+1)*8] is the 8-element output of round k's compress.
+    states = Array((n_chunks_12 + 1) * DIGEST_LEN)
+
+    # Round 0: initial state from last 16 elements of padded_data.
+    poseidon16_compress(
+        padded_data + padded_len - 16,
+        padded_data + padded_len - 8,
+        states,
+    )
+
+    # Subsequent rounds: absorb 12-element chunks RTL.
+    for j in unroll(0, n_chunks_12):
+        chunk_idx = n_chunks_12 - 1 - j
+
+        # Build left input (8 elements): [capacity_4 || chunk[0..4]].
+        buf = Array(DIGEST_LEN)
+        buf[0] = states[j * DIGEST_LEN + 0]
+        buf[1] = states[j * DIGEST_LEN + 1]
+        buf[2] = states[j * DIGEST_LEN + 2]
+        buf[3] = states[j * DIGEST_LEN + 3]
+        buf[4] = padded_data[chunk_idx * 12 + 0]
+        buf[5] = padded_data[chunk_idx * 12 + 1]
+        buf[6] = padded_data[chunk_idx * 12 + 2]
+        buf[7] = padded_data[chunk_idx * 12 + 3]
+
+        # Right input: chunk[4..12]. Output -> states[(j+1)*8..(j+2)*8].
+        poseidon16_compress(
+            buf,
+            padded_data + chunk_idx * 12 + 4,
+            states + (j + 1) * DIGEST_LEN,
+        )
+
+    return states + n_chunks_12 * DIGEST_LEN
 
 
 @inline
