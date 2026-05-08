@@ -16,12 +16,14 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 12; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
-pub const N_BLOBS: usize = 8;
+pub const LOG_M: usize = 15; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
+pub const DEFAULT_N_BLOBS: usize = 8;
 
 #[derive(Parser)]
 #[command(about = "Reed-Solomon DA: hash N_BLOBS codewords, run a random parity check, then prove + verify")]
 struct Cli {
+    #[arg(long, help = "Number of blobs to commit", default_value_t = DEFAULT_N_BLOBS)]
+    n_blobs: usize,
     #[arg(long, help = "Enable tracing")]
     tracing: bool,
 }
@@ -32,16 +34,16 @@ fn main() {
         utils::init_tracing();
     }
 
-    let bytecode = compile_lean_da_bytecode();
+    let bytecode = compile_lean_da_bytecode(cli.n_blobs);
     let public_input: Vec<F> = vec![];
-    let proof = prove_lean_da(&bytecode, &public_input);
+    let proof = prove_lean_da(&bytecode, &public_input, cli.n_blobs);
     verify_lean_da(&bytecode, &public_input, proof.proof);
 }
 
-pub fn compile_lean_da_bytecode() -> Bytecode {
+pub fn compile_lean_da_bytecode(n_blobs: usize) -> Bytecode {
     let mut replacements = BTreeMap::new();
     replacements.insert("LOG_M_PLACEHOLDER".to_string(), LOG_M.to_string());
-    replacements.insert("N_BLOBS_PLACEHOLDER".to_string(), N_BLOBS.to_string());
+    replacements.insert("N_BLOBS_PLACEHOLDER".to_string(), n_blobs.to_string());
     let source = ProgramSource::Embedded {
         entry: "lean_da.py".to_string(),
         dir: &EMBEDDED_ZK_DSL,
@@ -89,12 +91,12 @@ fn rs_encode(message: &[F]) -> Vec<F> {
     codeword
 }
 
-fn build_witness() -> ExecutionWitness {
+fn build_witness(n_blobs: usize) -> ExecutionWitness {
     let m = 1 << LOG_M;
     let two_m = 2 * m;
     let mut rng = StdRng::seed_from_u64(0);
-    let mut codewords = Vec::with_capacity(N_BLOBS * two_m);
-    for _ in 0..N_BLOBS {
+    let mut codewords = Vec::with_capacity(n_blobs * two_m);
+    for _ in 0..n_blobs {
         let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
         codewords.extend(rs_encode(&message));
     }
@@ -107,10 +109,10 @@ fn build_witness() -> ExecutionWitness {
     }
 }
 
-pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof {
+pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F], n_blobs: usize) -> ExecutionProof {
     const F_BITS: usize = 31;
 
-    let witness = build_witness();
+    let witness = build_witness(n_blobs);
     let t0 = Instant::now();
     let proof = prove_execution(
         bytecode,
@@ -126,7 +128,7 @@ pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof 
     let proof_size_fe = proof.proof.proof_size_fe();
     let proof_kib = (proof_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
     let blob_size_fe = 1 << LOG_M;
-    let total_data_kib = (N_BLOBS * blob_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
+    let total_data_kib = (n_blobs * blob_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
     let throughput_kib_per_s = total_data_kib / proving_time.as_secs_f64();
     println!("Cycles:           {}", meta.cycles);
     println!("Poseidon16 calls: {}", meta.n_poseidons);
@@ -136,7 +138,7 @@ pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F]) -> ExecutionProof 
     println!(
         "Throughput:       {:.2} KiB/s ({} blobs * {} FE / {:.3} s)",
         throughput_kib_per_s,
-        N_BLOBS,
+        n_blobs,
         blob_size_fe,
         proving_time.as_secs_f64()
     );
@@ -155,9 +157,9 @@ mod tests {
     #[test]
     fn test_compile_prove_verify() {
         // cargo test --release --package lean-da -- tests::test_compile_prove_verify --nocapture
-        let bytecode = compile_lean_da_bytecode();
+        let bytecode = compile_lean_da_bytecode(DEFAULT_N_BLOBS);
         let public_input: Vec<F> = vec![];
-        let proof = prove_lean_da(&bytecode, &public_input);
+        let proof = prove_lean_da(&bytecode, &public_input, DEFAULT_N_BLOBS);
         verify_lean_da(&bytecode, &public_input, proof.proof);
     }
 
