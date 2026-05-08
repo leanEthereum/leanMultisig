@@ -96,7 +96,7 @@ fn build_merkle_tree_koalabear(
         0
     };
     let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-        let scalar_state = symetric::precompute_zero_suffix_state::<KoalaBear, _, SPONGE_WIDTH, SPONGE_RATE, DIGEST_ELEMS>(
+        let scalar_state = symetric::mmo_precompute_zero_suffix_state::<KoalaBear, _, SPONGE_WIDTH, SPONGE_RATE, DIGEST_ELEMS>(
             &perm,
             n_zero_suffix_rate_chunks,
         );
@@ -212,12 +212,13 @@ impl<F: Clone + Copy + Default + Send + Sync, M: Matrix<F>, const DIGEST_ELEMS: 
         effective_base_width: usize,
     ) -> Self
     where
-        P: PackedValue<Value = F> + Default,
+        F: field::PrimeCharacteristicRing,
+        P: PackedValue<Value = F> + Default + field::PrimeCharacteristicRing,
         Perm: Compression<[F; WIDTH]> + Compression<[P; WIDTH]>,
     {
         let n_zero_suffix_rate_chunks = (full_leaf_base_width - effective_base_width) / RATE;
         let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-            let scalar_state = symetric::precompute_zero_suffix_state::<F, Perm, WIDTH, RATE, DIGEST_ELEMS>(
+            let scalar_state = symetric::mmo_precompute_zero_suffix_state::<F, Perm, WIDTH, RATE, DIGEST_ELEMS>(
                 perm,
                 n_zero_suffix_rate_chunks,
             );
@@ -260,7 +261,7 @@ fn first_digest_layer<P, Perm, M, const DIGEST_ELEMS: usize, const WIDTH: usize,
     full_width: usize,
 ) -> Vec<[P::Value; DIGEST_ELEMS]>
 where
-    P: PackedValue + Default,
+    P: PackedValue + Default + field::PrimeCharacteristicRing,
     P::Value: Default + Copy,
     Perm: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
     M: Matrix<P::Value>,
@@ -280,7 +281,7 @@ where
             let first_row = i * width;
             let rtl_iter = matrix.vertically_packed_row_rtl::<P>(first_row, matrix_width, n_trailing_zeros);
             let packed_digest: [P; DIGEST_ELEMS] =
-                symetric::hash_rtl_iter::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(perm, rtl_iter);
+                symetric::mmo_hash_rtl_iter::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(perm, rtl_iter);
             for (dst, src) in digests_chunk.iter_mut().zip(unpack_array(packed_digest)) {
                 *dst = src;
             }
@@ -297,7 +298,7 @@ fn first_digest_layer_with_initial_state<P, Perm, M, const DIGEST_ELEMS: usize, 
     effective_base_width: usize,
 ) -> Vec<[P::Value; DIGEST_ELEMS]>
 where
-    P: PackedValue + Default,
+    P: PackedValue + Default + field::PrimeCharacteristicRing,
     P::Value: Default + Copy,
     Perm: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
     M: Matrix<P::Value>,
@@ -316,7 +317,7 @@ where
             let first_row = i * width;
             let rtl_iter = matrix.vertically_packed_row_rtl::<P>(first_row, effective_base_width, n_pad);
             let packed_digest: [P; DIGEST_ELEMS] =
-                symetric::hash_rtl_iter_with_initial_state::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(
+                symetric::mmo_hash_rtl_iter_with_initial_state::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(
                     perm,
                     rtl_iter,
                     packed_initial_state,

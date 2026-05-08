@@ -24,6 +24,14 @@ pub fn poseidon16_compress(input: [KoalaBear; 16]) -> [KoalaBear; 8] {
     get_poseidon16().compress(input)[0..8].try_into().unwrap()
 }
 
+/// Like `poseidon16_compress` but exposes the FULL 16-element output (with
+/// input feedforward = MMO compression). Used by the `poseidon16_permute`
+/// precompile to support MMO sponge leaf hashing.
+#[inline(always)]
+pub fn poseidon16_permute_full(input: [KoalaBear; 16]) -> [KoalaBear; 16] {
+    get_poseidon16().compress(input)
+}
+
 pub fn poseidon16_compress_pair(left: &[KoalaBear; 8], right: &[KoalaBear; 8]) -> [KoalaBear; 8] {
     let mut input = [KoalaBear::default(); 16];
     input[..8].copy_from_slice(left);

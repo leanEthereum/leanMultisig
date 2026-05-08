@@ -84,7 +84,7 @@ where
             }
             let mut buf: Vec<KoalaBear> = data.to_vec();
             buf.resize(padded_len, KoalaBear::default());
-            symetric::hash_slice::<_, _, 16, 12, DIGEST_LEN_FE>(&perm, &buf)
+            symetric::mmo_hash_slice::<_, _, 16, 12, DIGEST_LEN_FE>(&perm, &buf)
         };
         let combine_fn = |left: &[KoalaBear; DIGEST_LEN_FE], right: &[KoalaBear; DIGEST_LEN_FE]| {
             symetric::compress(&perm, [*left, *right])

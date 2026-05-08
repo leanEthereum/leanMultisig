@@ -130,6 +130,25 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             });
     }
 
+    // For non-full-output rows, zero outputs_high (AIR constrains them to zero) and point
+    // index_input_res_high at the zero-vec region so the high-half memory lookup is a no-op
+    // (m[zero_vec_ptr + i] = 0 = outputs_high[i]).
+    {
+        // Snapshot flag column (immutable copy) before taking mutable references to the trace.
+        let full_output_flags: Vec<F> =
+            poseidon_trace.columns[POSEIDON_16_COL_FLAG_FULL_OUTPUT].clone();
+        let zero_ptr = F::from_usize(padding_zero_vec_ptr);
+        let n_rows = full_output_flags.len();
+        for row_idx in 0..n_rows {
+            if full_output_flags[row_idx] != F::ONE {
+                poseidon_trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES_HIGH][row_idx] = zero_ptr;
+                for j in 0..DIGEST_LEN {
+                    poseidon_trace.columns[POSEIDON_16_COL_OUTPUTS_HIGH_START + j][row_idx] = F::ZERO;
+                }
+            }
+        }
+    }
+
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
 

@@ -50,6 +50,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
             let precompile_data = match &precompile.data {
                 PrecompileCompTimeArgs::Poseidon16 {
                     half_output,
+                    full_output,
                     hardcoded_offset_left,
                 } => {
                     let flag_left = hardcoded_offset_left.is_some() as usize;
@@ -58,6 +59,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                         + POSEIDON_HALF_OUTPUT_SHIFT * (*half_output as usize)
                         + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * flag_left
                         + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val
+                        + POSEIDON_FULL_OUTPUT_SHIFT * (*full_output as usize)
                 }
                 PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                     assert!(*size >= 1, "invalid extension_op size={size}");

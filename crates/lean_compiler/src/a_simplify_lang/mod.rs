@@ -7,7 +7,8 @@ use crate::{
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME,
+    POSEIDON16_PERMUTE_NAME, PrecompileArgs,
     PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
@@ -2259,7 +2260,7 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile (4 variants)
+                        // Special handling for poseidon16 precompile (5 variants)
                         if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
@@ -2268,6 +2269,7 @@ fn simplify_lines(
                             }
                             let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                 .contains(&function_name.as_str());
+                            let full_output = function_name.as_str() == POSEIDON16_PERMUTE_NAME;
                             let is_hardcoded_left =
                                 [POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                     .contains(&function_name.as_str());
@@ -2302,6 +2304,7 @@ fn simplify_lines(
                                 res: simplified_args[2].clone(),
                                 data: PrecompileCompTimeArgs::Poseidon16 {
                                     half_output,
+                                    full_output,
                                     hardcoded_offset_left,
                                 },
                             }));

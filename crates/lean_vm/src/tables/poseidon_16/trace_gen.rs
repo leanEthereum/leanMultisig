@@ -104,6 +104,7 @@ pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &
         &mut state,
         &inputs,
         &mut perm.outputs,
+        &mut perm.outputs_high,
         &poseidon1_final_constants()[2 * n_ending_full_rounds],
         &poseidon1_final_constants()[2 * n_ending_full_rounds + 1],
     );
@@ -138,6 +139,7 @@ fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
     state: &mut [F; WIDTH],
     inputs: &[F; WIDTH],
     outputs: &mut [&mut F; WIDTH / 2],
+    outputs_high: &mut [&mut F; WIDTH / 2],
     round_constants_1: &[KoalaBear; WIDTH],
     round_constants_2: &[KoalaBear; WIDTH],
 ) {
@@ -153,8 +155,20 @@ fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
     }
     mds_circ_16(state);
 
-    // Add inputs to outputs (compression)
-    for ((output, state_i), &input_i) in outputs.iter_mut().zip(state).zip(inputs) {
-        **output = *state_i + input_i;
+    // Add inputs to outputs (compression / MMO feedforward).
+    // First half of state goes into `outputs`; second half into `outputs_high`.
+    // Note: the AIR forces outputs_high to zero when flag_full_output = 0; the
+    // lean_prover post-processing pass overwrites these columns to zero for
+    // non-full-output rows. For full-output rows the values written here are
+    // exactly what the AIR + lookup expect (state[i+8] + inputs[i+8]).
+    for (idx, (output, &input_i)) in outputs.iter_mut().zip(inputs.iter().take(WIDTH / 2)).enumerate() {
+        **output = state[idx] + input_i;
+    }
+    for (idx, (output_high, &input_i)) in outputs_high
+        .iter_mut()
+        .zip(inputs.iter().skip(WIDTH / 2))
+        .enumerate()
+    {
+        **output_high = state[idx + WIDTH / 2] + input_i;
     }
 }

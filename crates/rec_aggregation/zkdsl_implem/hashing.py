@@ -114,39 +114,41 @@ def slice_hash_rtl_rate12(data, data_len: Const, padded_len: Const, n_chunks_12:
 
 
 def slice_hash_rtl_rate12_no_pad(padded_data, padded_len: Const, n_chunks_12: Const):
-    # states[k*8..(k+1)*8] is the 8-element output of round k's compress.
-    states = Array((n_chunks_12 + 1) * DIGEST_LEN)
+    """MMO sponge: ADD message into rate, full-state feedforward.
 
-    # Round 0: initial state from last 16 elements of padded_data.
-    poseidon16_compress(
+    The chaining variable is the FULL 16-element state across rounds, giving
+    output_bits/2 = 124-bit collision security regardless of capacity.
+    The output is the first 8 elements of the final 16-element state.
+
+    states[k*16..(k+1)*16] holds the full 16-element state after round k.
+    """
+    states = Array((n_chunks_12 + 1) * 16)
+
+    # Round 0: states[0..16] = padded_data[len-16..len] + perm(padded_data[len-16..len])
+    # (zero IV implicit; first absorb feeds the last 16 elements of input as the initial state).
+    poseidon16_permute(
         padded_data + padded_len - 16,
         padded_data + padded_len - 8,
         states,
     )
 
-    # Subsequent rounds: absorb 12-element chunks RTL.
+    # Subsequent rounds: absorb 12-element chunks RTL using MMO compression.
+    #   pre[0..4]   = states[j*16..j*16+4]            (capacity unchanged)
+    #   pre[4..16]  = states[j*16+4..j*16+16] + chunk (rate gets ADDED with chunk)
+    #   states[(j+1)*16..(j+2)*16] = pre + perm(pre)  (full-state feedforward)
     for j in unroll(0, n_chunks_12):
         chunk_idx = n_chunks_12 - 1 - j
 
-        # Build left input (8 elements): [capacity_4 || chunk[0..4]].
-        buf = Array(DIGEST_LEN)
-        buf[0] = states[j * DIGEST_LEN + 0]
-        buf[1] = states[j * DIGEST_LEN + 1]
-        buf[2] = states[j * DIGEST_LEN + 2]
-        buf[3] = states[j * DIGEST_LEN + 3]
-        buf[4] = padded_data[chunk_idx * 12 + 0]
-        buf[5] = padded_data[chunk_idx * 12 + 1]
-        buf[6] = padded_data[chunk_idx * 12 + 2]
-        buf[7] = padded_data[chunk_idx * 12 + 3]
+        pre = Array(16)
+        for k in unroll(0, 4):
+            pre[k] = states[j * 16 + k]
+        for k in unroll(0, 12):
+            pre[4 + k] = states[j * 16 + 4 + k] + padded_data[chunk_idx * 12 + k]
 
-        # Right input: chunk[4..12]. Output -> states[(j+1)*8..(j+2)*8].
-        poseidon16_compress(
-            buf,
-            padded_data + chunk_idx * 12 + 4,
-            states + (j + 1) * DIGEST_LEN,
-        )
+        poseidon16_permute(pre, pre + 8, states + (j + 1) * 16)
 
-    return states + n_chunks_12 * DIGEST_LEN
+    # Output the first 8 elements of the final state.
+    return states + n_chunks_12 * 16
 
 
 @inline

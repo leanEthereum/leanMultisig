@@ -65,6 +65,9 @@ pub struct PrecompileArgs<V, S> {
 pub enum PrecompileCompTimeArgs<S> {
     Poseidon16 {
         half_output: bool,
+        /// Permute mode: write all 16 elements of perm(input)+input to memory at `res`.
+        /// Mutually exclusive with `half_output`. Used by the MMO sponge leaf hash.
+        full_output: bool,
         //   hardcoded_offset_left = None:              left_input = m[arg_a..arg_a+8]
         //   hardcoded_offset_left = Some(offset_left): left_input = m[offset_left..offset_left+4] | m[arg_a..arg_a+4] (arg_a is the first runtime parameter)
         hardcoded_offset_left: Option<S>,
@@ -87,9 +90,11 @@ impl<S> PrecompileCompTimeArgs<S> {
         match self {
             Self::Poseidon16 {
                 half_output,
+                full_output,
                 hardcoded_offset_left: hardcoded_left_4,
             } => PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
+                full_output,
                 hardcoded_offset_left: hardcoded_left_4.map(&mut f),
             },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
@@ -252,12 +257,16 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
         match data {
             PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
+                full_output,
                 hardcoded_offset_left: hardcoded_left_4,
-            } => match (*half_output, hardcoded_left_4) {
-                (false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
-                (true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
-                (false, Some(off)) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, hardcoded_left_4={off})"),
-                (true, Some(off)) => write!(
+            } => match (*full_output, *half_output, hardcoded_left_4) {
+                (true, _, _) => write!(f, "poseidon16_permute({arg_0}, {arg_1}, {res})"),
+                (false, false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
+                (false, true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
+                (false, false, Some(off)) => {
+                    write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, hardcoded_left_4={off})")
+                }
+                (false, true, Some(off)) => write!(
                     f,
                     "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
                 ),
