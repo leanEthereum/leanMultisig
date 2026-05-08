@@ -12,4 +12,5 @@ include_dir.workspace = true
 lean_compiler.workspace = true
 lean_prover.workspace = true
 lean_vm.workspace = true
+rand.workspace = true
 utils.workspace = true

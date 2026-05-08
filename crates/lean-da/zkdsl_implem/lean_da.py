@@ -3,7 +3,7 @@ from snark_lib import *
 TWO_ADDICITY = 24
 ROOT_24 = 1791270792  # root of unity of order 2^24
 
-LOG_M = 6
+LOG_M = LOG_M_PLACEHOLDER
 
 W = ROOT_24**(2**(TWO_ADDICITY - LOG_M - 1))  # root of unity of order 2*(M + 1)
 
@@ -13,6 +13,9 @@ DIM = 5
 
 
 def main():
+    codeword = Array(2 * M)
+    hint_witness("codeword", codeword)
+
     r = Array(DIM)
     r[0] = 11
     r[1] = 22
