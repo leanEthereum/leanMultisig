@@ -194,7 +194,7 @@ def main():
             counter += 1
             src = all_pubkeys + idx * PUB_KEY_SIZE
             dst = sub_pubkeys_buf + j * PUB_KEY_SIZE
-            copy_9(dst, src)
+            copy_13(src, dst)
 
         sub_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(
             sub_pubkeys_buf, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE

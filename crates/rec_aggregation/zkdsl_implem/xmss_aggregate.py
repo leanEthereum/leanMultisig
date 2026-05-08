@@ -51,17 +51,12 @@ def xmss_verify(pub_key, message, merkle_chunks):
     leaf_tweak = TWEAK_TABLE_ADDR + TWEAK_SLOT_SIZE * (1 + V * CHAIN_LENGTH)
     merkle_tweaks_base = TWEAK_TABLE_ADDR + TWEAK_SLOT_SIZE * (1 + V * CHAIN_LENGTH + 1)
 
-    # WOTS signature: randomness | chain_tips
-    wots = Array(RANDOMNESS_LEN + V * DIGEST_LEN)
-    hint_witness("wots", wots)
-    randomness = wots
-    chain_starts = wots + RANDOMNESS_LEN
-    # Merkle path: provided as LOG_LIFETIME separate `xmss_merkle_node` hints (one digest each).
-    merkle_path = Array(LOG_LIFETIME * DIGEST_LEN)
-    for k in unroll(0, LOG_LIFETIME):
-        node_buf = Array(DIGEST_LEN)
-        hint_witness("xmss_merkle_node", node_buf)
-        copy_8(node_buf, merkle_path + k * DIGEST_LEN)
+    # XMSS signature: randomness | chain_tips | merkle_path
+    signature = Array(SIG_SIZE)
+    hint_witness("xmss_signature", signature)
+    randomness = signature
+    chain_starts = signature + RANDOMNESS_LEN
+    merkle_path = chain_starts + V * DIGEST_LEN
 
     # 1) Encode: poseidon24_compress_0_9(message(9) || pp(5) || slot(2) || randomness(7)  || 0)
     enc_rate = Array(15)

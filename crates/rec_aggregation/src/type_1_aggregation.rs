@@ -4,7 +4,7 @@ use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::{ExecutionProof, prove_execution};
 use lean_vm::*;
 use leansig_wrapper::{
-    BASE, HASH_LEN_FE, LOG_LIFETIME, MSG_LEN_FE as MESSAGE_LEN_FE, PARAMETER_LEN, RAND_LEN_FE, V, XmssPublicKey,
+    BASE, HASH_LEN_FE, LOG_LIFETIME, MSG_LEN_FE as MESSAGE_LEN_FE, PARAMETER_LEN, SIG_SIZE_FE, V, XmssPublicKey,
     XmssSignature, chain_tweak, merkle_tweak, pubkey_merkle_root, pubkey_public_parameter, xmmss_revealed_chain_tips,
     xmss_merkle_path, xmss_randomness,
 };
@@ -26,7 +26,6 @@ use crate::verify_inner;
 
 const CHAIN_LENGTH: usize = BASE;
 const PUB_KEY_FLAT_SIZE: usize = HASH_LEN_FE + PARAMETER_LEN;
-const WOTS_SIG_SIZE_FE: usize = RAND_LEN_FE + V * HASH_LEN_FE;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + 1 wots_pk + LOG_LIFETIME merkle
 pub(crate) const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME;
@@ -203,7 +202,7 @@ pub(crate) fn build_type1_input_data(
     data
 }
 
-fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
+fn encode_xmss_signature(sig: &XmssSignature) -> Vec<F> {
     let mut data = vec![];
     data.extend_from_slice(xmss_randomness(sig));
     data.extend(
@@ -211,7 +210,8 @@ fn encode_wots_signature(sig: &XmssSignature) -> Vec<F> {
             .iter()
             .flat_map(|digest| digest.iter().copied()),
     );
-    assert_eq!(data.len(), WOTS_SIG_SIZE_FE);
+    data.extend(xmss_merkle_path(sig).iter().flat_map(|digest| digest.iter().copied()));
+    assert_eq!(data.len(), SIG_SIZE_FE);
     data
 }
 
@@ -292,11 +292,7 @@ pub fn aggregate_type_1(
     let mut claimed: HashSet<XmssPublicKey> = HashSet::new();
     let mut dup_pub_keys: Vec<XmssPublicKey> = Vec::new();
 
-    let wots_blobs: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_wots_signature(sig)).collect();
-    let xmss_merkle_node_blobs: Vec<Vec<F>> = raw_xmss
-        .iter()
-        .flat_map(|(_, sig)| xmss_merkle_path(sig).iter().map(|d| d.to_vec()))
-        .collect();
+    let xmss_signature_blobs: Vec<Vec<F>> = raw_xmss.iter().map(|(_, sig)| encode_xmss_signature(sig)).collect();
 
     let raw_indices: Vec<F> = raw_xmss
         .iter()
@@ -383,8 +379,7 @@ pub fn aggregate_type_1(
             .collect(),
     );
     hints.insert("proof_transcript".to_string(), proof_transcript_blobs);
-    hints.insert("wots".to_string(), wots_blobs);
-    hints.insert("xmss_merkle_node".to_string(), xmss_merkle_node_blobs);
+    hints.insert("xmss_signature".to_string(), xmss_signature_blobs);
     hints.insert("merkle_leaf".to_string(), merkle_leaf_blobs);
     hints.insert("merkle_path".to_string(), merkle_path_blobs);
     hints.insert("aggregate_sizes".to_string(), vec![aggregate_sizes]);
