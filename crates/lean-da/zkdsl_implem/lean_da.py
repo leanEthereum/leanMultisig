@@ -10,36 +10,33 @@ W = ROOT_24**(2**(TWO_ADDICITY - LOG_M - 1))  # root of unity of order 2*(M + 1)
 M = 2**LOG_M
 DIM = 5
 
+DIGEST_LEN = 8
+LOG_LEAF_LEN = 8  # leaf size = 2^LOG_LEAF_LEN = 256 field elements
+LEAF_LEN = 2 ** LOG_LEAF_LEN
+LEAF_NUM_CHUNKS = div_floor(LEAF_LEN, DIGEST_LEN)  # = 32; chunks of 8 FE absorbed by the sponge
+LOG_NUM_LEAVES = LOG_M + 1 - LOG_LEAF_LEN  # log2(2*M / LEAF_LEN)
+NUM_LEAVES = 2 ** LOG_NUM_LEAVES
+
 
 
 def main():
     codeword = Array(2 * M)
     hint_witness("codeword", codeword)
 
-    r = Array(DIM)
-    r[0] = 11
-    r[1] = 22
-    r[2] = 565
-    r[3] = 12
-    r[4] = 989898
-
-    arr1 = random_slice_fast(r)
-    arr2 = random_slice_slow(r)
-    for j in unroll(0, 2 * M):
-        for d in unroll(0, DIM):
-            assert arr1[j * DIM + d] == arr2[j * DIM + d]
+    root = merkle_root(codeword)
     return
+
 
 # Computes c_j(r) for j = 0, 1, ..., 2m-1
 # $$
 # c_j(r) \;=\; \sum_{k=m}^{2m-1} r^{k-m} \cdot \omega^{-jk},
 # \qquad j = 0, 1, \ldots, 2m-1.
 # $$
+# Closed form: alpha_j = r * w^{-j}, alpha_j^m = r^m * (-1)^j.
+# c_j = (-1)^j * (alpha_j^m - 1) / (alpha_j - 1)
+#     = ((rm - 1) if j even else (rm + 1)) / (alpha_j - 1)
+# with rm = r^m. All denominators are batch-inverted via Montgomery's trick.
 def random_slice_fast(r):
-    # Closed form: alpha_j = r * w^{-j}, alpha_j^m = r^m * (-1)^j.
-    # c_j = (-1)^j * (alpha_j^m - 1) / (alpha_j - 1)
-    #     = ((rm - 1) if j even else (rm + 1)) / (alpha_j - 1)
-    # with rm = r^m. All denominators are batch-inverted via Montgomery's trick.
     arr = Array(2 * M * DIM)
 
     # rm = r^m via LOG_M repeated squarings of r.
@@ -110,35 +107,49 @@ def random_slice_fast(r):
 
     return arr
 
-# same as above, but naive O(m^2) implementation
-def random_slice_slow(r):
-    # arr[j] = sum_{i=0}^{m-1} r^i * w^{-j(i+m)}
-    arr = Array(2 * M * DIM)
 
-    # r_powers[i] = r^i for i in [0, M)
-    r_powers = Array(M * DIM)
-    r_powers[0] = 1
-    for d in unroll(1, DIM):
-        r_powers[d] = 0
-    for i in unroll(1, M):
-        dot_product_ee(r_powers + (i - 1) * DIM, r, r_powers + i * DIM)
+# Hash a single LEAF_LEN-FE leaf down to a DIGEST_LEN digest using an IV-free
+# sponge: state[0] = compress(chunk[0], chunk[1]), then state[j] = compress(state[j-1], chunk[j+1]).
+# Mirrors `slice_hash` in rec_aggregation.
+@inline
+def hash_leaf(leaf, dest):
+    states = Array((LEAF_NUM_CHUNKS - 2) * DIGEST_LEN)
+    poseidon16_compress(leaf, leaf + DIGEST_LEN, states)
+    for j in unroll(1, LEAF_NUM_CHUNKS - 2):
+        poseidon16_compress(
+            states + (j - 1) * DIGEST_LEN,
+            leaf + (j + 1) * DIGEST_LEN,
+            states + j * DIGEST_LEN,
+        )
+    poseidon16_compress(
+        states + (LEAF_NUM_CHUNKS - 3) * DIGEST_LEN,
+        leaf + (LEAF_NUM_CHUNKS - 1) * DIGEST_LEN,
+        dest,
+    )
+    return
 
-    for j in unroll(0, 2 * M):
-        # terms[i] = w^{-j(i+m)} * r^i, fully unrolled as scalar*EF muls.
-        terms = Array(M * DIM)
-        for i in unroll(0, M):
-            coef = W ** ((2 * M - (j * (i + M)) % (2 * M)) % (2 * M))
-            for d in unroll(0, DIM):
-                terms[i * DIM + d] = coef * r_powers[i * DIM + d]
 
-        # partials[i] = terms[0] + ... + terms[i] via length-1 add_ee.
-        partials = Array(M * DIM)
-        for d in unroll(0, DIM):
-            partials[d] = terms[d]
-        for i in unroll(1, M):
-            add_ee(partials + (i - 1) * DIM, terms + i * DIM, partials + i * DIM)
+# Merkle-hash the codeword (2*M field elements) into a single DIGEST_LEN digest.
+# Each leaf is LEAF_LEN FE wide and is first sponge-hashed to a digest.
+# Then we build the tree layer by layer: every layer halves the previous one,
+# until a single-digest root remains.
+def merkle_root(codeword):
+    # Layer 0: hash each leaf to a digest.
+    leaves = Array(NUM_LEAVES * DIGEST_LEN)
+    for i in unroll(0, NUM_LEAVES):
+        hash_leaf(codeword + i * LEAF_LEN, leaves + i * DIGEST_LEN)
 
-        for d in unroll(0, DIM):
-            arr[j * DIM + d] = partials[(M - 1) * DIM + d]
+    # Layers 1..LOG_NUM_LEAVES: each compresses pairs of digests from the previous layer.
+    layer: Mut = leaves
+    for k in unroll(1, LOG_NUM_LEAVES + 1):
+        layer_size = 2 ** (LOG_NUM_LEAVES - k)
+        new_layer = Array(layer_size * DIGEST_LEN)
+        for i in unroll(0, layer_size):
+            poseidon16_compress(
+                layer + (2 * i) * DIGEST_LEN,
+                layer + (2 * i + 1) * DIGEST_LEN,
+                new_layer + i * DIGEST_LEN,
+            )
+        layer = new_layer
 
-    return arr
+    return layer

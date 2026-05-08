@@ -16,7 +16,7 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 6;
+pub const LOG_M: usize = 9;
 
 pub fn compile_lean_da_bytecode() -> Bytecode {
     let mut replacements = BTreeMap::new();
@@ -28,15 +28,11 @@ pub fn compile_lean_da_bytecode() -> Bytecode {
     compile_program_with_flags(&source, CompilationFlags { replacements })
 }
 
-/// In-place radix-2 Cooley-Tukey NTT.
-/// On input `a` of length `n = 2^k`, computes `A[j] = sum_i a[i] * w_n^{i*j}`
-/// where `w_n` is the canonical 2^k-th root of unity.
 fn ntt(a: &mut [F]) {
     let n = a.len();
     assert!(n.is_power_of_two());
     let log_n = n.trailing_zeros() as usize;
 
-    // Bit-reverse permutation.
     let shift = usize::BITS as usize - log_n;
     for i in 0..n {
         let j = i.reverse_bits() >> shift;
@@ -45,7 +41,6 @@ fn ntt(a: &mut [F]) {
         }
     }
 
-    // Butterfly layers.
     let mut size = 2;
     while size <= n {
         let half = size / 2;
@@ -64,9 +59,6 @@ fn ntt(a: &mut [F]) {
     }
 }
 
-/// Encode a length-`m` message into a length-`2m` Reed-Solomon codeword (rate 1/2):
-/// the message coefficients define a degree-<m polynomial, evaluated at the 2m-th
-/// roots of unity via a single length-2m NTT (the message is zero-padded to 2m).
 fn rs_encode(message: &[F]) -> Vec<F> {
     let m = message.len();
     assert!(m.is_power_of_two());
