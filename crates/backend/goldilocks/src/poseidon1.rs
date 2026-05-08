@@ -83,51 +83,121 @@ fn mds_mul_generic<R: Algebra<Goldilocks>>(state: &mut [R; 8]) {
     }
 }
 
+// BIAS_LL + (BIAS_HL << 32) = 8 * P. Each accumulator is biased so that the
+// negative contributions never underflow u64. Each bias also exceeds the
+// largest negative partial-sum (6 * (2^32 - 1) ≈ 2^34.6), so neither lane
+// underflows during accumulation regardless of order.
+const MDS_BIAS_LL: u64 = 0x0000_0007_0000_0008;
+const MDS_BIAS_HL: u64 = 0x0000_0007_FFFF_FFF1;
+
+/// Apply one MDS row coefficient `c ∈ {-4,-2,1,2,4,8}` for column `j`. The
+/// const generic `C` lets each call site specialize: `c * s` collapses to a
+/// shift (and a sign flip for negative `c`).
+#[inline(always)]
+fn mds_accum_term<const C: i64>(ll: &mut u64, hl: &mut u64, s_lo: u64, s_hi: u64) {
+    match C {
+        1 => {
+            *ll = ll.wrapping_add(s_lo);
+            *hl = hl.wrapping_add(s_hi);
+        }
+        2 => {
+            *ll = ll.wrapping_add(s_lo << 1);
+            *hl = hl.wrapping_add(s_hi << 1);
+        }
+        4 => {
+            *ll = ll.wrapping_add(s_lo << 2);
+            *hl = hl.wrapping_add(s_hi << 2);
+        }
+        8 => {
+            *ll = ll.wrapping_add(s_lo << 3);
+            *hl = hl.wrapping_add(s_hi << 3);
+        }
+        -2 => {
+            *ll = ll.wrapping_sub(s_lo << 1);
+            *hl = hl.wrapping_sub(s_hi << 1);
+        }
+        -4 => {
+            *ll = ll.wrapping_sub(s_lo << 2);
+            *hl = hl.wrapping_sub(s_hi << 2);
+        }
+        _ => panic!("unsupported MDS coefficient"),
+    }
+}
+
+/// Accumulate one full row `[c0..c7]` (a circular shift of `MDS8_ROW`),
+/// compose into a `u128` and reduce. Each `mds_accum_term::<Ck>` is
+/// monomorphised so the row reduces to a straight-line sequence of
+/// shift / add / sub instructions — no runtime branches, no `i128` carries.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn mds_row_scalar<
+    const C0: i64,
+    const C1: i64,
+    const C2: i64,
+    const C3: i64,
+    const C4: i64,
+    const C5: i64,
+    const C6: i64,
+    const C7: i64,
+>(
+    s_lo: &[u64; 8],
+    s_hi: &[u64; 8],
+) -> Goldilocks {
+    let mut ll: u64 = MDS_BIAS_LL;
+    let mut hl: u64 = MDS_BIAS_HL;
+    mds_accum_term::<C0>(&mut ll, &mut hl, s_lo[0], s_hi[0]);
+    mds_accum_term::<C1>(&mut ll, &mut hl, s_lo[1], s_hi[1]);
+    mds_accum_term::<C2>(&mut ll, &mut hl, s_lo[2], s_hi[2]);
+    mds_accum_term::<C3>(&mut ll, &mut hl, s_lo[3], s_hi[3]);
+    mds_accum_term::<C4>(&mut ll, &mut hl, s_lo[4], s_hi[4]);
+    mds_accum_term::<C5>(&mut ll, &mut hl, s_lo[5], s_hi[5]);
+    mds_accum_term::<C6>(&mut ll, &mut hl, s_lo[6], s_hi[6]);
+    mds_accum_term::<C7>(&mut ll, &mut hl, s_lo[7], s_hi[7]);
+
+    // Compose `(hl << 32) + ll` into a u128 (hi, lo) pair.
+    let hl_shifted = hl << 32;
+    let (lo, carry) = ll.overflowing_add(hl_shifted);
+    let hi = (hl >> 32).wrapping_add(carry as u64);
+    crate::goldilocks::reduce128(((hi as u128) << 64) | (lo as u128))
+}
+
 /// Specialized fast MDS for the concrete `Goldilocks` scalar.
 ///
 /// Each output is a dot product `sum_j MDS_ROW[(j-i) mod 8] * state[j]` with
-/// signed MDS coefficients in `{-4, -2, 1, 2, 4, 8}`. With the constants
-/// spelled out explicitly LLVM strength-reduces `c * s` to shifts (and
-/// negations for `c < 0`), eliminating the variable multiplications entirely.
-/// We accumulate into `i128` (signed sum bounded by `|c|·8·2^64 < 2^68`) and
-/// add a fixed multiple of `P` to keep the value non-negative before passing
-/// it to `reduce128` (which takes `u128`). The added multiple of `P` does not
-/// change the result modulo `P`.
+/// signed MDS coefficients in `{-4, -2, 1, 2, 4, 8}`. We split each state
+/// element into low/high 32-bit halves and accumulate `c * s_lo` / `c * s_hi`
+/// separately into u64 lanes (no `i128` carry chains). Each `c * s_*` is a
+/// `shl` (and a sign flip for negative `c`); 8 such terms per output stay in
+/// u36 even with the bias, then a single compose+`reduce128` produces the
+/// final element. Mirrors the AVX2/AVX512 packed paths' bias scheme.
 #[inline(always)]
-#[allow(clippy::identity_op)]
 fn mds_mul_scalar(state: &mut [Goldilocks; 8]) {
-    let s0 = state[0].value as i128;
-    let s1 = state[1].value as i128;
-    let s2 = state[2].value as i128;
-    let s3 = state[3].value as i128;
-    let s4 = state[4].value as i128;
-    let s5 = state[5].value as i128;
-    let s6 = state[6].value as i128;
-    let s7 = state[7].value as i128;
+    // Sanity: the row decomposition below assumes the canonical
+    // [2, -4, -2, 8, 1, 1, 4, 1] coefficient set.
+    const _: () = assert!(MDS8_ROW[0] == 2);
+    const _: () = assert!(MDS8_ROW[1] == -4);
+    const _: () = assert!(MDS8_ROW[2] == -2);
+    const _: () = assert!(MDS8_ROW[3] == 8);
+    const _: () = assert!(MDS8_ROW[4] == 1);
+    const _: () = assert!(MDS8_ROW[5] == 1);
+    const _: () = assert!(MDS8_ROW[6] == 4);
+    const _: () = assert!(MDS8_ROW[7] == 1);
 
-    // OFFSET keeps the signed sum non-negative without changing the value
-    // mod P. Each row has |negative_part| <= 6 * (2^64 - 1) < 7 * P, so
-    // OFFSET = 8 * P is comfortably large enough.
-    const OFFSET: i128 = 8 * (crate::P as i128);
+    // Pre-split each lane into low/high 32-bit halves. Both halves are u32,
+    // so `c * s_*` (with `|c| <= 8`) fits in u35 and an 8-term row sum stays
+    // in u38, comfortably within u64 even after biasing.
+    let s_lo: [u64; 8] = core::array::from_fn(|i| state[i].value & 0xFFFF_FFFF);
+    let s_hi: [u64; 8] = core::array::from_fn(|i| state[i].value >> 32);
 
-    // MDS_ROW = [2, -4, -2, 8, 1, 1, 4, 1]; row i is MDS_ROW rotated right by i.
-    let acc0 = OFFSET + 2 * s0 - 4 * s1 - 2 * s2 + 8 * s3 + 1 * s4 + 1 * s5 + 4 * s6 + 1 * s7;
-    let acc1 = OFFSET + 1 * s0 + 2 * s1 - 4 * s2 - 2 * s3 + 8 * s4 + 1 * s5 + 1 * s6 + 4 * s7;
-    let acc2 = OFFSET + 4 * s0 + 1 * s1 + 2 * s2 - 4 * s3 - 2 * s4 + 8 * s5 + 1 * s6 + 1 * s7;
-    let acc3 = OFFSET + 1 * s0 + 4 * s1 + 1 * s2 + 2 * s3 - 4 * s4 - 2 * s5 + 8 * s6 + 1 * s7;
-    let acc4 = OFFSET + 1 * s0 + 1 * s1 + 4 * s2 + 1 * s3 + 2 * s4 - 4 * s5 - 2 * s6 + 8 * s7;
-    let acc5 = OFFSET + 8 * s0 + 1 * s1 + 1 * s2 + 4 * s3 + 1 * s4 + 2 * s5 - 4 * s6 - 2 * s7;
-    let acc6 = OFFSET - 2 * s0 + 8 * s1 + 1 * s2 + 1 * s3 + 4 * s4 + 1 * s5 + 2 * s6 - 4 * s7;
-    let acc7 = OFFSET - 4 * s0 - 2 * s1 + 8 * s2 + 1 * s3 + 1 * s4 + 4 * s5 + 1 * s6 + 2 * s7;
-
-    state[0] = crate::goldilocks::reduce128(acc0 as u128);
-    state[1] = crate::goldilocks::reduce128(acc1 as u128);
-    state[2] = crate::goldilocks::reduce128(acc2 as u128);
-    state[3] = crate::goldilocks::reduce128(acc3 as u128);
-    state[4] = crate::goldilocks::reduce128(acc4 as u128);
-    state[5] = crate::goldilocks::reduce128(acc5 as u128);
-    state[6] = crate::goldilocks::reduce128(acc6 as u128);
-    state[7] = crate::goldilocks::reduce128(acc7 as u128);
+    // Row i = MDS_ROW rotated right by i.
+    state[0] = mds_row_scalar::<2, -4, -2, 8, 1, 1, 4, 1>(&s_lo, &s_hi);
+    state[1] = mds_row_scalar::<1, 2, -4, -2, 8, 1, 1, 4>(&s_lo, &s_hi);
+    state[2] = mds_row_scalar::<4, 1, 2, -4, -2, 8, 1, 1>(&s_lo, &s_hi);
+    state[3] = mds_row_scalar::<1, 4, 1, 2, -4, -2, 8, 1>(&s_lo, &s_hi);
+    state[4] = mds_row_scalar::<1, 1, 4, 1, 2, -4, -2, 8>(&s_lo, &s_hi);
+    state[5] = mds_row_scalar::<8, 1, 1, 4, 1, 2, -4, -2>(&s_lo, &s_hi);
+    state[6] = mds_row_scalar::<-2, 8, 1, 1, 4, 1, 2, -4>(&s_lo, &s_hi);
+    state[7] = mds_row_scalar::<-4, -2, 8, 1, 1, 4, 1, 2>(&s_lo, &s_hi);
 }
 
 // =========================================================================
@@ -604,9 +674,12 @@ impl Poseidon1Goldilocks8 {
     ///
     /// On other architectures (e.g. aarch64+NEON, scalar fallback), we
     /// deinterleave to per-lane scalar arrays and run the rounds in lockstep
-    /// across all W lanes. The MDS coefficients are tiny (max 9), so the
-    /// scalar `mds_mul_scalar` (u128 accumulator + single `reduce128` per
-    /// output) is far cheaper than the packed type's fully-reducing `Mul`.
+    /// across all W lanes. The scalar `mds_mul_scalar` (u64 lo/hi-32 split +
+    /// single `reduce128` per output) is far cheaper than the packed type's
+    /// fully-reducing `Mul`. A NEON-vectorized `mds_mul_simd` was tried and
+    /// regressed on Apple Silicon: keeping state in `uint64x2_t` would force
+    /// per-element NEON↔GPR shuffles around the (faster scalar) RC adds and
+    /// sboxes, eating the MDS win.
     #[inline]
     fn compress_in_place_simd(&self, state: &mut [<Goldilocks as Field>::Packing; POSEIDON1_WIDTH]) {
         #[cfg(any(
