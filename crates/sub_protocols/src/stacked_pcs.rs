@@ -13,21 +13,15 @@ use utils::ansi::Colorize;
 Stacking of various (multilinear) polynomials into a single -big- (multilinear) polynomial, which is committed via WHIR.
 [------------------------------ Memory ------------------------------]
 [------------------------ Memory Accumulator ------------------------]
-[------ Bytecode Accumulator -----]                             (padded to bas as least as large as the execution table)
-[-------- Execution Col 0 --------]
-[-------- Execution Col 1 --------]
+[-------- Bytecode Accumulator -------]                             (padded to be at least as large as the largest table)
+[-------- Largest table Col 0 --------]
+[-------- Largest table Col 1 --------]
 ...
-[-------- Execution Col 19 -------]
-[Dot-Product Col 0]
-[Dot-Product Col 1]
+[-- Next table Col 0 --]
+[-- Next table Col 1 --]
 ...
-[Dot-Product Col n]
-[Poseidon-16 Col 0]
-[Poseidon-16 Col 1]
-...
-[Poseidon-16 Col m]
 
-(The order between Dot-Product and Poseidon-16 varies based on which table has more rows, but they are always after the execution table)
+(Tables are stacked in decreasing height order; columns within a table are contiguous.)
 */
 
 #[derive(Debug)]
@@ -107,8 +101,12 @@ pub fn stack_polynomials_and_commit(
     let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_heights_sorted = sort_tables_by_height(&tables_heights);
     assert!(log2_strict_usize(memory.len()) >= tables_heights[&Table::execution()]); // memory must be at least as large as the number of cycles (TODO add some padding when this is not the case)
-    assert!(tables_heights[&Table::execution()] >= tables_heights_sorted[0].1); // execution table must be the largest table (TODO add some padding when this is not the case)
-
+    if tables_heights[&Table::execution()] < tables_heights_sorted[0].1 {
+        tracing::warn!(
+            "Execution table < {} table (OK for generic leanVM proof, but recursion program will reject (for now), and padding should be added)",
+            tables_heights_sorted[0].0.name()
+        );
+    }
     let stacked_n_vars = compute_stacked_n_vars(
         log2_strict_usize(memory.len()),
         log2_strict_usize(bytecode_acc.len()),
@@ -163,7 +161,7 @@ pub fn stacked_pcs_parse_commitment(
     tables_heights: &BTreeMap<Table, VarCount>,
 ) -> Result<ParsedCommitment<F, EF>, ProofError> {
     if log_memory < tables_heights[&Table::execution()]
-        || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
+    //   || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
     {
         // memory must be at least as large as the number of cycles
         // execution table must be the largest table
