@@ -21,7 +21,6 @@ TYPE_1_PUBKEYS_HASH_OFFSET = COMPONENT_DATA_OFFSET
 TYPE_1_MSG_HASH_OFFSET = COMPONENT_DATA_OFFSET + DIGEST_LEN
 TYPE_1_MERKLE_CHUNKS_OFFSET = TYPE_1_MSG_HASH_OFFSET + MESSAGE_LEN
 TYPE_1_TWEAKS_HASH_OFFSET = TYPE_1_MERKLE_CHUNKS_OFFSET + N_MERKLE_CHUNKS
-# Buffer is padded up to a multiple of DIGEST_LEN so slice_hash_with_iv consumes the whole thing.
 TYPE_1_INPUT_DATA_SIZE_PADDED = next_multiple_of(TYPE_1_TWEAKS_HASH_OFFSET + DIGEST_LEN, DIGEST_LEN)
 TYPE_1_INPUT_DATA_NUM_CHUNKS = TYPE_1_INPUT_DATA_SIZE_PADDED / DIGEST_LEN
 
@@ -160,8 +159,7 @@ def main():
             slice_hash_with_iv(data_buf, TYPE_1_INPUT_DATA_NUM_CHUNKS, pub_mem)
             return
 
-    # General path. Pubkeys are PUB_KEY_SIZE-FE long each (not necessarily a multiple of 8 in leansig),
-    # so we use the arbitrary-length slice_hash_with_iv_dynamic_unroll (pads remainder internally).
+    # General path
     computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE)
     copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
 
@@ -188,10 +186,6 @@ def main():
         sub_indices_arr = Array(n_sub)
         hint_witness("sub_indices", sub_indices_arr)
 
-        # Gather sub-pubkeys into a contiguous buffer so we can use the same
-        # arbitrary-length hash as the global pubkeys hash above (PUB_KEY_SIZE
-        # is not a multiple of DIGEST_LEN in leansig, so we cannot just chain
-        # poseidon16 per pubkey).
         sub_pubkeys_buf = Array(n_sub * PUB_KEY_SIZE)
         for j in dynamic_unroll(0, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices_arr[j]
@@ -200,8 +194,7 @@ def main():
             counter += 1
             src = all_pubkeys + idx * PUB_KEY_SIZE
             dst = sub_pubkeys_buf + j * PUB_KEY_SIZE
-            for k in unroll(0, PUB_KEY_SIZE):
-                dst[k] = src[k]
+            copy_9(dst, src)
 
         sub_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(
             sub_pubkeys_buf, n_sub * PUB_KEY_SIZE, MAX_LOG_MEMORY_SIZE
