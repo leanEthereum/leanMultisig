@@ -31,6 +31,7 @@ struct Cli {
 }
 
 fn main() {
+    // cargo run --release -p lean-da -- --n-blobs 28
     let cli = Cli::parse();
     if cli.tracing {
         utils::init_tracing();
