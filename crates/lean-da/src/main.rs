@@ -3,7 +3,7 @@ mod cache;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
-use backend::{PrimeCharacteristicRing, Proof, TwoAdicField};
+use backend::{Algebra, BasedVectorSpace, PrimeCharacteristicRing, Proof, TwoAdicField};
 use clap::Parser;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
@@ -11,14 +11,14 @@ use lean_prover::{
     prove_execution::{ExecutionProof, prove_execution},
     verify_execution::verify_execution,
 };
-use lean_vm::{Bytecode, ExecutionWitness, F};
+use lean_vm::{Bytecode, EF, ExecutionWitness, F};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/zkdsl_implem");
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 15; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
+pub const LOG_M: usize = 13; // Blob ≈ 155 KiB = 2^13 extension field elements (= 2^13 * 5 base field elements)
 pub const DEFAULT_N_BLOBS: usize = 8;
 
 #[derive(Parser)]
@@ -31,7 +31,7 @@ struct Cli {
 }
 
 fn main() {
-    // cargo run --release -p lean-da -- --n-blobs 28
+    // cargo run --release -p lean-da -- --n-blobs 34
     let cli = Cli::parse();
     if cli.tracing {
         utils::init_tracing();
@@ -73,7 +73,7 @@ pub fn compile_lean_da_bytecode(n_blobs: usize) -> Bytecode {
     bytecode
 }
 
-fn ntt(a: &mut [F]) {
+fn ntt<A: Algebra<F> + Copy>(a: &mut [A]) {
     let n = a.len();
     assert!(n.is_power_of_two());
     let log_n = n.trailing_zeros() as usize;
@@ -104,10 +104,10 @@ fn ntt(a: &mut [F]) {
     }
 }
 
-fn rs_encode(message: &[F]) -> Vec<F> {
+fn rs_encode<A: Algebra<F> + Copy>(message: &[A]) -> Vec<A> {
     let m = message.len();
     assert!(m.is_power_of_two());
-    let mut codeword = vec![F::ZERO; 2 * m];
+    let mut codeword = vec![A::ZERO; 2 * m];
     codeword[..m].copy_from_slice(message);
     ntt(&mut codeword);
     codeword
@@ -115,14 +115,22 @@ fn rs_encode(message: &[F]) -> Vec<F> {
 
 fn build_witness(n_blobs: usize) -> ExecutionWitness {
     let m = 1 << LOG_M;
-    let two_m = 2 * m;
+    let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
     let mut rng = StdRng::seed_from_u64(0);
-    let mut codewords = Vec::with_capacity(n_blobs * two_m);
+    let mut codewords: Vec<F> = Vec::with_capacity(n_blobs * 2 * m * dim);
     for _ in 0..n_blobs {
-        let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
+        let message: Vec<EF> = (0..m).map(|_| rng.random()).collect();
         let codeword = rs_encode(&message);
-        codewords.extend((0..m).map(|j| codeword[2 * j]));
-        codewords.extend((0..m).map(|j| codeword[2 * j + 1]));
+        for j in 0..m {
+            codewords.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
+                &codeword[2 * j],
+            ));
+        }
+        for j in 0..m {
+            codewords.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
+                &codeword[2 * j + 1],
+            ));
+        }
     }
 
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
@@ -151,7 +159,8 @@ pub fn prove_lean_da(bytecode: &Bytecode, public_input: &[F], n_blobs: usize) ->
     let meta = proof.metadata.as_ref().expect("metadata missing");
     let proof_size_fe = proof.proof.proof_size_fe();
     let proof_kib = (proof_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
-    let blob_size_fe = 1 << LOG_M;
+    // Each blob is 2^LOG_M extension elements, i.e. 2^LOG_M * DIM base field elements.
+    let blob_size_fe = (1 << LOG_M) * <EF as BasedVectorSpace<F>>::DIMENSION;
     let total_data_kib = (n_blobs * blob_size_fe * F_BITS) as f64 / (8.0 * 1024.0);
     let throughput_kib_per_s = total_data_kib / proving_time.as_secs_f64();
     println!("Bytecode size:    {}", meta.bytecode_size);
@@ -192,13 +201,13 @@ mod tests {
     fn test_rs_encode_matches_naive() {
         let mut rng = StdRng::seed_from_u64(7);
         let m: usize = 1 << LOG_M;
-        let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
+        let message: Vec<EF> = (0..m).map(|_| rng.random()).collect();
         let two_m = 2 * m;
         let w = F::two_adic_generator(two_m.trailing_zeros() as usize);
-        let naive: Vec<F> = (0..two_m)
+        let naive: Vec<EF> = (0..two_m)
             .map(|j| {
                 let wj = w.exp_u64(j as u64);
-                message.iter().rev().fold(F::ZERO, |acc, &c| acc * wj + c)
+                message.iter().rev().fold(EF::ZERO, |acc, &c| acc * wj + c)
             })
             .collect();
         assert_eq!(rs_encode(&message), naive);

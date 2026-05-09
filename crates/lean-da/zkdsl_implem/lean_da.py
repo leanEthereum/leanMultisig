@@ -2,27 +2,30 @@ from snark_lib import *
 from barycentric import *
 
 DIGEST_LEN = 8
-LOG_LEAF_LEN = 8  # leaf size = 2^LOG_LEAF_LEN = 256 field elements
-LEAF_LEN = 2 ** LOG_LEAF_LEN
-LEAF_NUM_CHUNKS = div_floor(LEAF_LEN, DIGEST_LEN)  # = 32; chunks of 8 FE absorbed by the sponge
-LOG_NUM_LEAVES = LOG_M + 1 - LOG_LEAF_LEN  # log2(2*M / LEAF_LEN)
+LOG_LEAF_LEN_EXT = 4  # leaf size = 2^LOG_LEAF_LEN_EXT = 16 extension elements (= 64 base FE)
+LEAF_LEN_EXT = 2 ** LOG_LEAF_LEN_EXT
+LEAF_LEN = LEAF_LEN_EXT * DIM  # base field elements per leaf
+LEAF_NUM_CHUNKS = LEAF_LEN / DIGEST_LEN  # chunks of 8 FE absorbed by the sponge
+LOG_NUM_LEAVES = LOG_M + 1 - LOG_LEAF_LEN_EXT  # log2((2*M) / LEAF_LEN_EXT)
 NUM_LEAVES = 2 ** LOG_NUM_LEAVES
 
 N_BLOBS = N_BLOBS_PLACEHOLDER  # number of codewords committed at once
 
 
-
 def main():
+    debug_assert(LEAF_LEN % DIGEST_LEN == 0)
+
     zero_vec_ptr = Array(DIGEST_LEN)
     for i in unroll(0, DIGEST_LEN):
         zero_vec_ptr[i] = 0
 
-    codewords = Array(N_BLOBS * 2 * M)
+    # Each blob is 2*M extension field elements (= 2*M*DIM base field elements).
+    codewords = Array(N_BLOBS * 2 * M * DIM)
     hint_witness("codewords", codewords)
 
     roots = Array(N_BLOBS)
     for i in unroll(0, N_BLOBS):
-        roots[i] = merkle_root(codewords + i * 2 * M)
+        roots[i] = merkle_root(codewords + i * 2 * M * DIM)
 
     # hash the merkle roots:
     state: Mut = zero_vec_ptr
@@ -38,8 +41,8 @@ def main():
 
     for i in unroll(0, N_BLOBS):
         eval_check = Array(DIM)
-        dot_product_be(codewords + i * 2 * M,     slice_L, eval_check, M)
-        dot_product_be(codewords + i * 2 * M + M, slice_R, eval_check, M)
+        dot_product_ee(codewords + i * 2 * M * DIM,             slice_L, eval_check, M)
+        dot_product_ee(codewords + i * 2 * M * DIM + M * DIM,   slice_R, eval_check, M)
 
     return
 
