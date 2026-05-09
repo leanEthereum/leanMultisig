@@ -19,19 +19,16 @@ def main():
     for i in unroll(0, DIGEST_LEN):
         zero_vec_ptr[i] = 0
 
-    # Each blob is 2*M extension field elements (= 2*M*DIM base field elements).
-    codewords = Array(N_BLOBS * 2 * M * DIM)
-    hint_witness("codewords", codewords)
-
-    roots = Array(N_BLOBS)
+    codewords = Array(N_BLOBS)  # one pointer per blob
+    roots = Array(N_BLOBS)      # one pointer per merkle root digest
     for i in unroll(0, N_BLOBS):
-        roots[i] = merkle_root(codewords + i * 2 * M * DIM)
+        codewords[i], roots[i] = merkle_root()
 
     # hash the merkle roots:
     state: Mut = zero_vec_ptr
     for i in unroll(0, N_BLOBS):
         new_state = Array(DIGEST_LEN)
-        poseidon16_compress(state, roots + i * DIGEST_LEN, new_state)
+        poseidon16_compress(state, roots[i], new_state)
         state = new_state
 
     # r is interpreted a random extension field element (<=> 5 base field elements)
@@ -41,8 +38,8 @@ def main():
 
     for i in unroll(0, N_BLOBS):
         eval_check = Array(DIM)
-        dot_product_ee(codewords + i * 2 * M * DIM,             slice_L, eval_check, M)
-        dot_product_ee(codewords + i * 2 * M * DIM + M * DIM,   slice_R, eval_check, M)
+        dot_product_ee(codewords[i],             slice_L, eval_check, M)
+        dot_product_ee(codewords[i] + M * DIM,   slice_R, eval_check, M)
 
     return
 
@@ -66,7 +63,10 @@ def hash_leaf(leaf, dest):
     return
 
 
-def merkle_root(codeword):
+def merkle_root():
+    codeword = Array(2 * M * DIM)
+    hint_witness("codeword", codeword)
+
     leaves = Array(NUM_LEAVES * DIGEST_LEN)
     for i in unroll(0, NUM_LEAVES):
         hash_leaf(codeword + i * LEAF_LEN, leaves + i * DIGEST_LEN)
@@ -83,4 +83,4 @@ def merkle_root(codeword):
             )
         layer = new_layer
 
-    return layer
+    return codeword, layer

@@ -31,7 +31,7 @@ struct Cli {
 }
 
 fn main() {
-    // cargo run --release -p lean-da -- --n-blobs 34
+    // cargo run --release -p lean-da -- --n-blobs 48
     let cli = Cli::parse();
     if cli.tracing {
         utils::init_tracing();
@@ -117,24 +117,26 @@ fn build_witness(n_blobs: usize) -> ExecutionWitness {
     let m = 1 << LOG_M;
     let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
     let mut rng = StdRng::seed_from_u64(0);
-    let mut codewords: Vec<F> = Vec::with_capacity(n_blobs * 2 * m * dim);
+    let mut codeword_blobs: Vec<Vec<F>> = Vec::with_capacity(n_blobs);
     for _ in 0..n_blobs {
         let message: Vec<EF> = (0..m).map(|_| rng.random()).collect();
-        let codeword = rs_encode(&message);
+        let codeword_ef = rs_encode(&message);
+        let mut codeword_f: Vec<F> = Vec::with_capacity(2 * m * dim);
         for j in 0..m {
-            codewords.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
-                &codeword[2 * j],
+            codeword_f.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
+                &codeword_ef[2 * j],
             ));
         }
         for j in 0..m {
-            codewords.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
-                &codeword[2 * j + 1],
+            codeword_f.extend_from_slice(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(
+                &codeword_ef[2 * j + 1],
             ));
         }
+        codeword_blobs.push(codeword_f);
     }
 
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
-    hints.insert("codewords".to_string(), vec![codewords]);
+    hints.insert("codeword".to_string(), codeword_blobs);
     ExecutionWitness {
         preamble_memory_len: 0,
         hints,
