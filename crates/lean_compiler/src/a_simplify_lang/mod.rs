@@ -580,6 +580,13 @@ fn compile_time_transform_in_program(
     Ok(())
 }
 
+/// Push a list of lines onto the work stack so that they are popped in order.
+fn push_to_work_stack(stack: &mut Vec<Line>, expansion: Vec<Line>) {
+    for l in expansion.into_iter().rev() {
+        stack.push(l);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compile_time_transform_in_lines(
     lines: &mut Vec<Line>,
@@ -594,21 +601,26 @@ fn compile_time_transform_in_lines(
     let mut vector_len_tracker = VectorLenTracker::default();
     let mut const_var_exprs: BTreeMap<Var, F> = parent_const_var_exprs.clone(); // used to simplify expressions containing variables with known constant values
 
-    let mut i = 0;
-    while i < lines.len() {
-        let line = &mut lines[i];
+    // Use a stack-based work list rather than in-place splicing. With many large unrolls
+    // the latter is O(N^2) (each splice shifts the suffix). Here every expansion just
+    // pushes onto the stack, so the total work is O(total number of expanded lines).
+    let original = std::mem::take(lines);
+    let mut output: Vec<Line> = Vec::with_capacity(original.len());
+    let mut stack: Vec<Line> = original.into_iter().rev().collect();
+    let empty_const_var_exprs: BTreeMap<Var, F> = BTreeMap::new();
 
+    while let Some(mut line) = stack.pop() {
         // Handle match_range expansion FIRST, before any expression transformations
         // This is necessary because lambda bodies contain bound variables that don't exist in scope
         if let Line::Statement {
             targets,
             value,
             location,
-        } = line
+        } = &line
             && let Some(expanded) =
                 try_expand_match_range(value, targets, *location, const_arrays, &vector_len_tracker)?
         {
-            lines.splice(i..=i, expanded);
+            push_to_work_stack(&mut stack, expanded);
             continue;
         }
 
@@ -620,17 +632,17 @@ fn compile_time_transform_in_lines(
         // Extract nested calls to functions requiring preprocessing (inlined or const-arg)
         // e.g., `x = a + inlined_func(b)` -> `tmp = inlined_func(b); x = a + tmp`
         if let Some(new_lines) =
-            extract_preprocessed_calls(line, inlined_functions, existing_functions, inline_counter)?
+            extract_preprocessed_calls(&mut line, inlined_functions, existing_functions, inline_counter)?
         {
-            lines.splice(i..=i, new_lines);
+            push_to_work_stack(&mut stack, new_lines);
             continue;
         }
 
-        match line {
+        match &mut line {
             Line::Statement { targets, value, .. } => {
                 if let Some(inlined) = try_inline_call(value, targets, inlined_functions, const_arrays, inline_counter)
                 {
-                    lines.splice(i..=i, inlined);
+                    push_to_work_stack(&mut stack, inlined);
                     continue;
                 }
                 // Handle direct const-arg function calls: specialize them (e.g., double(1) -> double_a=1())
@@ -748,8 +760,12 @@ fn compile_time_transform_in_lines(
                 ..
             } => {
                 if let Some(constant_condition) = condition.try_eval(|expr| expr.as_scalar()) {
-                    let chosen_branch = if constant_condition { then_branch } else { else_branch }.clone();
-                    lines.splice(i..=i, chosen_branch);
+                    let chosen_branch = if constant_condition {
+                        std::mem::take(then_branch)
+                    } else {
+                        std::mem::take(else_branch)
+                    };
+                    push_to_work_stack(&mut stack, chosen_branch);
                     continue;
                 }
             }
@@ -779,16 +795,9 @@ fn compile_time_transform_in_lines(
                         "line {location}: dynamic_unroll n_bits must be >= 1, got {n_bits_val}"
                     ));
                 }
-                let expanded = expand_dynamic_unroll(
-                    &iterator.clone(),
-                    &end.clone(),
-                    n_bits_val,
-                    start_val,
-                    &body.clone(),
-                    *location,
-                    unroll_counter,
-                );
-                lines.splice(i..=i, expanded);
+                let expanded =
+                    expand_dynamic_unroll(iterator, end, n_bits_val, start_val, body, *location, unroll_counter);
+                push_to_work_stack(&mut stack, expanded);
                 continue;
             }
             Line::ForLoop {
@@ -799,7 +808,7 @@ fn compile_time_transform_in_lines(
                 loop_kind: LoopKind::Unroll,
                 location,
             } => {
-                let (Some(start), Some(end)) = (start.as_scalar(), end.as_scalar()) else {
+                let (Some(start_v), Some(end_v)) = (start.as_scalar(), end.as_scalar()) else {
                     return Err(format!(
                         "line {}: Cannot unroll loop with non-constant bounds",
                         location
@@ -807,23 +816,26 @@ fn compile_time_transform_in_lines(
                 };
                 let unroll_index = unroll_counter.get_next();
                 let (internal_vars, _) = find_variable_usage(body, const_arrays);
-                let iterator = iterator.clone();
-                let body = body.clone();
-                let mut unrolled = Vec::new();
-                for j in start.to_usize()..end.to_usize() {
+                let iterator = std::mem::take(iterator);
+                let body = std::mem::take(body);
+                let start_idx = start_v.to_usize();
+                let end_idx = end_v.to_usize();
+                let n_iters = end_idx.saturating_sub(start_idx);
+                let mut unrolled = Vec::with_capacity(n_iters * body.len());
+                for j in start_idx..end_idx {
                     let mut body_copy = body.clone();
                     replace_vars_for_unroll(&mut body_copy, &iterator, unroll_index, j, &internal_vars);
                     unrolled.extend(body_copy);
                 }
-                lines.splice(i..=i, unrolled);
+                push_to_work_stack(&mut stack, unrolled);
                 continue;
             }
             _ => {}
         }
 
         // Propagate const vars into blocks which stay inline
-        let parent = if matches!(
-            lines[i],
+        let parent: &BTreeMap<Var, F> = if matches!(
+            line,
             Line::IfCondition { .. }
                 | Line::Match { .. }
                 | Line::ForLoop {
@@ -833,9 +845,9 @@ fn compile_time_transform_in_lines(
         ) {
             &const_var_exprs
         } else {
-            &BTreeMap::new()
+            &empty_const_var_exprs
         };
-        for block in lines[i].nested_blocks_mut() {
+        for block in line.nested_blocks_mut() {
             compile_time_transform_in_lines(
                 block,
                 const_arrays,
@@ -848,8 +860,10 @@ fn compile_time_transform_in_lines(
             )?;
         }
 
-        i += 1;
+        output.push(line);
     }
+
+    *lines = output;
     Ok(())
 }
 

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::ops::Bound;
 
 use backend::PrimeCharacteristicRing;
 
@@ -140,29 +141,66 @@ struct Fusions {
     declarations_to_drop: BTreeSet<Var>,
 }
 
-/// Search `lines[i+1..]` for an unclaimed `AssertEq` where `v` is one side.
-/// Returns `(j, other_side)` if found.
-fn find_fusable_assert<'a>(
-    lines: &'a [SimpleLine],
-    i: usize,
-    v: &Var,
-    fusions: &Fusions,
-) -> Option<(usize, &'a SimpleExpr)> {
-    for (j, line) in lines.iter().enumerate().skip(i + 1) {
-        if fusions.replacements.contains_key(&j) {
-            // An AssertEq can be claimed only once
-            continue;
+/// Index of `AssertEq` line positions keyed by each variable that appears as a side.
+/// Lookups are O(log N) and a "claim" removes the entry from both vars' sets so it
+/// can never be picked twice — making fusion passes O(N log N) overall.
+#[derive(Default)]
+struct AssertIndex {
+    by_var: BTreeMap<Var, BTreeSet<usize>>,
+}
+
+impl AssertIndex {
+    fn build(lines: &[SimpleLine]) -> Self {
+        let mut by_var: BTreeMap<Var, BTreeSet<usize>> = BTreeMap::new();
+        for (j, line) in lines.iter().enumerate() {
+            let SimpleLine::AssertEq { left, right, .. } = line else {
+                continue;
+            };
+            if let Some(v) = left.as_var() {
+                by_var.entry(v.clone()).or_default().insert(j);
+            }
+            if let Some(v) = right.as_var() {
+                by_var.entry(v.clone()).or_default().insert(j);
+            }
         }
-        let SimpleLine::AssertEq { left, right, .. } = line else {
-            continue;
-        };
-        match (left.as_var(), right.as_var()) {
-            (Some(n), _) if n == v => return Some((j, right)),
-            (_, Some(n)) if n == v => return Some((j, left)),
-            _ => continue,
-        }
+        Self { by_var }
     }
-    None
+
+    /// Find the first unclaimed AssertEq line at index > i where `v` appears as a side,
+    /// claim it (removing j from both vars' sets), and return (j, other_side).
+    fn pop_first_after<'a>(&mut self, lines: &'a [SimpleLine], i: usize, v: &Var) -> Option<(usize, &'a SimpleExpr)> {
+        let j = self
+            .by_var
+            .get(v)?
+            .range((Bound::Excluded(i), Bound::Unbounded))
+            .next()
+            .copied()?;
+
+        let SimpleLine::AssertEq { left, right, .. } = &lines[j] else {
+            unreachable!()
+        };
+        let lv = left.as_var().cloned();
+        let rv = right.as_var().cloned();
+
+        if let Some(lv) = lv.as_ref()
+            && let Some(set) = self.by_var.get_mut(lv)
+        {
+            set.remove(&j);
+        }
+        if let Some(rv) = rv.as_ref()
+            && lv.as_ref() != Some(rv)
+            && let Some(set) = self.by_var.get_mut(rv)
+        {
+            set.remove(&j);
+        }
+
+        let other = match (left.as_var(), right.as_var()) {
+            (Some(n), _) if n == v => right,
+            (_, Some(n)) if n == v => left,
+            _ => unreachable!(),
+        };
+        Some((j, other))
+    }
 }
 
 fn is_one_time_var(v: &Var, refs: &BTreeMap<Var, VarRefs>) -> bool {
@@ -196,6 +234,7 @@ fn fuse_raw_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) 
         }
     }
 
+    let mut assert_index = AssertIndex::build(lines);
     let mut fusions = Fusions::default();
     for i in 0..lines.len() {
         let SimpleLine::RawAccess { res, index, shift } = &lines[i] else {
@@ -205,17 +244,16 @@ fn fuse_raw_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs>) 
         if !is_one_time_var(v, refs) {
             continue;
         }
-        if let Some((j, other)) = find_fusable_assert(lines, i, v, &fusions) {
+        let v_clone = v.clone();
+        if let Some((j, other)) = assert_index.pop_first_after(lines, i, &v_clone) {
+            let new_line = SimpleLine::RawAccess {
+                res: other.clone(),
+                index: index.clone(),
+                shift: shift.clone(),
+            };
             fusions.lines_to_drop.insert(i);
-            fusions.declarations_to_drop.insert(v.clone());
-            fusions.replacements.insert(
-                j,
-                SimpleLine::RawAccess {
-                    res: other.clone(),
-                    index: index.clone(),
-                    shift: shift.clone(),
-                },
-            );
+            fusions.declarations_to_drop.insert(v_clone);
+            fusions.replacements.insert(j, new_line);
         }
     }
     apply_fusions(lines, fusions);
@@ -228,6 +266,7 @@ fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs
         }
     }
 
+    let mut assert_index = AssertIndex::build(lines);
     let mut fusions = Fusions::default();
     for i in 0..lines.len() {
         let SimpleLine::Assignment { var, op, arg0, arg1 } = &lines[i] else {
@@ -237,18 +276,20 @@ fn fuse_assign_asserts(lines: &mut Vec<SimpleLine>, refs: &BTreeMap<Var, VarRefs
         if !is_one_time_var(v, refs) {
             continue;
         }
-        if let Some((j, other)) = find_fusable_assert(lines, i, v, &fusions) {
+        let v_clone = v.clone();
+        let op = *op;
+        let arg0 = arg0.clone();
+        let arg1 = arg1.clone();
+        if let Some((j, other)) = assert_index.pop_first_after(lines, i, &v_clone) {
+            let new_line = SimpleLine::Assignment {
+                var: other.clone(),
+                op,
+                arg0,
+                arg1,
+            };
             fusions.lines_to_drop.insert(i);
-            fusions.declarations_to_drop.insert(v.clone());
-            fusions.replacements.insert(
-                j,
-                SimpleLine::Assignment {
-                    var: other.clone(),
-                    op: *op,
-                    arg0: arg0.clone(),
-                    arg1: arg1.clone(),
-                },
-            );
+            fusions.declarations_to_drop.insert(v_clone);
+            fusions.replacements.insert(j, new_line);
         }
     }
     apply_fusions(lines, fusions);
