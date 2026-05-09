@@ -98,14 +98,14 @@ pub fn merkle_verify<F, Comp, const DIGEST_ELEMS: usize, const WIDTH: usize, con
     opening_proof: &[[F; DIGEST_ELEMS]],
 ) -> bool
 where
-    F: Default + Copy + PartialEq,
+    F: field::PrimeCharacteristicRing + PartialEq,
     Comp: Compression<[F; WIDTH]>,
 {
     if opening_proof.len() != log_height {
         return false;
     }
 
-    let mut root = crate::hash_slice::<_, _, WIDTH, RATE, DIGEST_ELEMS>(comp, opened_values);
+    let mut root = crate::mmo_hash_slice::<_, _, WIDTH, RATE, DIGEST_ELEMS>(comp, opened_values);
 
     for &sibling in opening_proof.iter() {
         let (left, right) = if index & 1 == 0 {

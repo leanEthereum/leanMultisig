@@ -8,6 +8,7 @@ use field::BasedVectorSpace;
 use field::ExtensionField;
 use field::Field;
 use field::PackedValue;
+use field::PrimeCharacteristicRing;
 use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
 use poly::*;
 
@@ -55,6 +56,23 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     }
 }
 
+// Sponge rate for Merkle leaf hashing. WIDTH=16 (Poseidon1KoalaBear16) gives
+// capacity = WIDTH - RATE = 4 with RATE=12. See iter 29 WIP analysis for the
+// security tradeoff.
+const SPONGE_RATE: usize = 12;
+const SPONGE_WIDTH: usize = 16;
+
+/// Pad up so that (padded - WIDTH) is divisible by RATE. Used only for sponge
+/// alignment; the protocol-visible leaf width stays unpadded.
+#[inline]
+fn padded_full_base_width(full_base_width: usize) -> usize {
+    let mut padded = full_base_width.max(SPONGE_WIDTH);
+    while !(padded - SPONGE_WIDTH).is_multiple_of(SPONGE_RATE) {
+        padded += 1;
+    }
+    padded
+}
+
 #[instrument(name = "build merkle tree", skip_all)]
 fn build_merkle_tree_koalabear(
     leaf: DenseMatrix<KoalaBear>,
@@ -62,24 +80,45 @@ fn build_merkle_tree_koalabear(
     effective_base_width: usize,
 ) -> RoundMerkleTree<KoalaBear> {
     let perm = default_koalabear_poseidon1_16();
-    let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 8;
+    // Internal padding for sponge alignment. NOT exposed to the protocol layer.
+    let padded_full_width = padded_full_base_width(full_base_width);
+    // n_zero_suffix_rate_chunks = number of "zero RATE-chunks" the precompute
+    // must cover so that the remaining iter (effective + n_pad elements,
+    // where n_pad rounds effective up to a multiple of RATE) takes the sponge
+    // exactly to padded_full_width. precompute(n) does n-1 compresses,
+    // absorbing 16 zeros initially + (n-2)*RATE more = WIDTH + (n-2)*RATE.
+    // Total: WIDTH + (n-2)*RATE + (effective + n_pad) = padded.
+    // Solving: n = 2 + (padded - WIDTH - effective - n_pad) / RATE.
+    let n_pad = (SPONGE_RATE - effective_base_width % SPONGE_RATE) % SPONGE_RATE;
+    let n_zero_suffix_rate_chunks = if padded_full_width >= SPONGE_WIDTH + effective_base_width + n_pad {
+        2 + (padded_full_width - SPONGE_WIDTH - effective_base_width - n_pad) / SPONGE_RATE
+    } else {
+        0
+    };
     let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-        let scalar_state = symetric::precompute_zero_suffix_state::<KoalaBear, _, 16, 8, DIGEST_ELEMS>(
-            &perm,
-            n_zero_suffix_rate_chunks,
-        );
-        let packed_state: [PFPacking<KoalaBear>; 16] =
+        let scalar_state =
+            symetric::mmo_precompute_zero_suffix_state::<KoalaBear, _, SPONGE_WIDTH, SPONGE_RATE, DIGEST_ELEMS>(
+                &perm,
+                n_zero_suffix_rate_chunks,
+            );
+        let packed_state: [PFPacking<KoalaBear>; SPONGE_WIDTH] =
             std::array::from_fn(|i| PFPacking::<KoalaBear>::from_fn(|_| scalar_state[i]));
-        first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(
+        first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, SPONGE_WIDTH, SPONGE_RATE>(
             &perm,
             &leaf,
             &packed_state,
             effective_base_width,
         )
     } else {
-        first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(&perm, &leaf, full_base_width)
+        first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, SPONGE_WIDTH, SPONGE_RATE>(
+            &perm,
+            &leaf,
+            padded_full_width,
+        )
     };
-    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer);
+    let tree =
+        symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, SPONGE_WIDTH>(&perm, first_layer);
+    // Expose UNPADDED width to the protocol; padding is purely a sponge detail.
     WhirMerkleTree {
         leaf,
         tree,
@@ -125,8 +164,11 @@ pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
         let merkle_root = unsafe { std::mem::transmute_copy::<_, [KoalaBear; DIGEST_ELEMS]>(&merkle_root) };
         let data = unsafe { std::mem::transmute::<_, Vec<QuinticExtensionFieldKB>>(data) };
         let proof = unsafe { std::mem::transmute::<_, &Vec<[KoalaBear; DIGEST_ELEMS]>>(proof) };
-        let base_data = QuinticExtensionFieldKB::flatten_to_base(data);
-        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 16, 8>(
+        let mut base_data = QuinticExtensionFieldKB::flatten_to_base(data);
+        // Pad to the sponge-aligned width (matches the prover's internal padding).
+        let padded = padded_full_base_width(base_data.len());
+        base_data.resize(padded, KoalaBear::ZERO);
+        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, SPONGE_WIDTH, SPONGE_RATE>(
             &perm,
             &merkle_root,
             log_max_height,
@@ -138,8 +180,10 @@ pub(crate) fn merkle_verify<F: Field, EF: ExtensionField<F>>(
         let merkle_root = unsafe { std::mem::transmute_copy::<_, [KoalaBear; DIGEST_ELEMS]>(&merkle_root) };
         let data = unsafe { std::mem::transmute::<_, Vec<KoalaBear>>(data) };
         let proof = unsafe { std::mem::transmute::<_, &Vec<[KoalaBear; DIGEST_ELEMS]>>(proof) };
-        let base_data = KoalaBear::flatten_to_base(data);
-        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, 16, 8>(
+        let mut base_data = KoalaBear::flatten_to_base(data);
+        let padded = padded_full_base_width(base_data.len());
+        base_data.resize(padded, KoalaBear::ZERO);
+        symetric::merkle::merkle_verify::<_, _, DIGEST_ELEMS, SPONGE_WIDTH, SPONGE_RATE>(
             &perm,
             &merkle_root,
             log_max_height,
@@ -170,12 +214,13 @@ impl<F: Clone + Copy + Default + Send + Sync, M: Matrix<F>, const DIGEST_ELEMS: 
         effective_base_width: usize,
     ) -> Self
     where
-        P: PackedValue<Value = F> + Default,
+        F: field::PrimeCharacteristicRing,
+        P: PackedValue<Value = F> + Default + field::PrimeCharacteristicRing,
         Perm: Compression<[F; WIDTH]> + Compression<[P; WIDTH]>,
     {
         let n_zero_suffix_rate_chunks = (full_leaf_base_width - effective_base_width) / RATE;
         let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-            let scalar_state = symetric::precompute_zero_suffix_state::<F, Perm, WIDTH, RATE, DIGEST_ELEMS>(
+            let scalar_state = symetric::mmo_precompute_zero_suffix_state::<F, Perm, WIDTH, RATE, DIGEST_ELEMS>(
                 perm,
                 n_zero_suffix_rate_chunks,
             );
@@ -218,7 +263,7 @@ fn first_digest_layer<P, Perm, M, const DIGEST_ELEMS: usize, const WIDTH: usize,
     full_width: usize,
 ) -> Vec<[P::Value; DIGEST_ELEMS]>
 where
-    P: PackedValue + Default,
+    P: PackedValue + Default + field::PrimeCharacteristicRing,
     P::Value: Default + Copy,
     Perm: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
     M: Matrix<P::Value>,
@@ -238,7 +283,7 @@ where
             let first_row = i * width;
             let rtl_iter = matrix.vertically_packed_row_rtl::<P>(first_row, matrix_width, n_trailing_zeros);
             let packed_digest: [P; DIGEST_ELEMS] =
-                symetric::hash_rtl_iter::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(perm, rtl_iter);
+                symetric::mmo_hash_rtl_iter::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(perm, rtl_iter);
             for (dst, src) in digests_chunk.iter_mut().zip(unpack_array(packed_digest)) {
                 *dst = src;
             }
@@ -255,7 +300,7 @@ fn first_digest_layer_with_initial_state<P, Perm, M, const DIGEST_ELEMS: usize, 
     effective_base_width: usize,
 ) -> Vec<[P::Value; DIGEST_ELEMS]>
 where
-    P: PackedValue + Default,
+    P: PackedValue + Default + field::PrimeCharacteristicRing,
     P::Value: Default + Copy,
     Perm: Compression<[P::Value; WIDTH]> + Compression<[P; WIDTH]>,
     M: Matrix<P::Value>,
@@ -274,7 +319,7 @@ where
             let first_row = i * width;
             let rtl_iter = matrix.vertically_packed_row_rtl::<P>(first_row, effective_base_width, n_pad);
             let packed_digest: [P; DIGEST_ELEMS] =
-                symetric::hash_rtl_iter_with_initial_state::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(
+                symetric::mmo_hash_rtl_iter_with_initial_state::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(
                     perm,
                     rtl_iter,
                     packed_initial_state,

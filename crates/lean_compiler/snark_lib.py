@@ -89,6 +89,20 @@ def poseidon16_compress_half_hardcoded_left(left, right, output, offset):
     _ = left, right, output, offset
 
 
+def poseidon16_permute(left, right, output):
+    """Apply Poseidon-16 with input feedforward (MMO compression) and write all
+    16 output elements to memory[output..output+16].
+
+    output[0..8]   = perm(left || right)[0..8]   + left
+    output[8..16]  = perm(left || right)[8..16]  + right
+
+    Used for MMO sponge leaf hashing — the FULL 16-element state must be
+    chained between rounds to achieve `output_bits/2 = 124`-bit collision
+    security. Allocate Array(16) (NOT Array(8)) for the result.
+    """
+    _ = left, right, output
+
+
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 

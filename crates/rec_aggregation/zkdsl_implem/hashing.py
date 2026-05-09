@@ -54,14 +54,101 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
     return
 
 
-@inline
 def slice_hash_rtl(data, num_chunks):
-    states = Array((num_chunks - 1) * DIGEST_LEN)
+    """RATE=12 sponge over data of length num_chunks * 8 base elements.
+    Pads internally so that the absorbed length is 16 + 12*k (sponge-aligned),
+    matching the native prover's padded_full_base_width helper.
 
-    poseidon16_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
-    for j in unroll(1, num_chunks - 1):
-        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (num_chunks - 2 - j) * DIGEST_LEN, states + j * DIGEST_LEN)
-    return states + (num_chunks - 2) * DIGEST_LEN
+    `num_chunks` is `Const`, so all arithmetic and the if-branches below
+    resolve at compile time.
+
+    Algorithm (mirrors Rust hash_rtl_iter for RATE=12, WIDTH=16):
+      state = padded_data[L-16..L]  # initial state from last 16 elements
+      compress(state)
+      for chunk_idx descending from k-1 to 0:
+          state[0..4] persists (capacity)
+          state[4..16] = padded_data[chunk_idx*12..(chunk_idx+1)*12]
+          compress(state)
+      return state[0..8]
+    """
+    if num_chunks == 1:
+        # data_len = 8 ; pad to 16 ; one permute.
+        buf = Array(16)
+        for i in unroll(0, 8):
+            buf[i] = data[i]
+        for i in unroll(8, 16):
+            buf[i] = 0
+        result = Array(DIGEST_LEN)
+        poseidon16_compress(buf, buf + DIGEST_LEN, result)
+        return result
+    if num_chunks == 4:
+        return slice_hash_rtl_rate12(data, 32, 40, 2)
+    if num_chunks == 5:
+        return slice_hash_rtl_rate12(data, 40, 40, 2)
+    if num_chunks == 8:
+        return slice_hash_rtl_rate12(data, 64, 64, 4)
+    if num_chunks == 10:
+        return slice_hash_rtl_rate12(data, 80, 88, 6)
+    if num_chunks == 16:
+        return slice_hash_rtl_rate12(data, 128, 136, 10)
+    if num_chunks == 20:
+        return slice_hash_rtl_rate12(data, 160, 160, 12)
+    print(num_chunks)
+    assert False, "slice_hash_rtl called with unsupported num_chunks"
+
+
+def slice_hash_rtl_rate12(data, data_len: Const, padded_len: Const, n_chunks_12: Const):
+    """Internal helper for RATE=12 sponge with explicit padding params.
+    Pre: padded_len = 16 + n_chunks_12 * 12 ; padded_len >= data_len.
+    """
+    if padded_len == data_len:
+        # No padding needed; absorb directly from data.
+        return slice_hash_rtl_rate12_no_pad(data, padded_len, n_chunks_12)
+    # Build a local padded buffer once, then absorb from it.
+    padded_data = Array(padded_len)
+    for i in unroll(0, data_len):
+        padded_data[i] = data[i]
+    for i in unroll(data_len, padded_len):
+        padded_data[i] = 0
+    return slice_hash_rtl_rate12_no_pad(padded_data, padded_len, n_chunks_12)
+
+
+def slice_hash_rtl_rate12_no_pad(padded_data, padded_len: Const, n_chunks_12: Const):
+    """MMO sponge: ADD message into rate, full-state feedforward.
+
+    The chaining variable is the FULL 16-element state across rounds, giving
+    output_bits/2 = 124-bit collision security regardless of capacity.
+    The output is the first 8 elements of the final 16-element state.
+
+    states[k*16..(k+1)*16] holds the full 16-element state after round k.
+    """
+    states = Array((n_chunks_12 + 1) * 16)
+
+    # Round 0: states[0..16] = padded_data[len-16..len] + perm(padded_data[len-16..len])
+    # (zero IV implicit; first absorb feeds the last 16 elements of input as the initial state).
+    poseidon16_permute(
+        padded_data + padded_len - 16,
+        padded_data + padded_len - 8,
+        states,
+    )
+
+    # Subsequent rounds: absorb 12-element chunks RTL using MMO compression.
+    #   pre[0..4]   = states[j*16..j*16+4]            (capacity unchanged)
+    #   pre[4..16]  = states[j*16+4..j*16+16] + chunk (rate gets ADDED with chunk)
+    #   states[(j+1)*16..(j+2)*16] = pre + perm(pre)  (full-state feedforward)
+    for j in unroll(0, n_chunks_12):
+        chunk_idx = n_chunks_12 - 1 - j
+
+        pre = Array(16)
+        for k in unroll(0, 4):
+            pre[k] = states[j * 16 + k]
+        for k in unroll(0, 12):
+            pre[4 + k] = states[j * 16 + 4 + k] + padded_data[chunk_idx * 12 + k]
+
+        poseidon16_permute(pre, pre + 8, states + (j + 1) * 16)
+
+    # Output the first 8 elements of the final state.
+    return states + n_chunks_12 * 16
 
 
 @inline
