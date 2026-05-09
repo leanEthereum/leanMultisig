@@ -59,7 +59,12 @@ def main():
 # Closed form: alpha_j = r * w^{-j}, alpha_j^m = r^m * (-1)^j.
 # c_j = (-1)^j * (alpha_j^m - 1) / (alpha_j - 1)
 #     = ((rm - 1) if j even else (rm + 1)) / (alpha_j - 1)
-# with rm = r^m. All denominators are batch-inverted via Montgomery's trick.
+# with rm = r^m.
+#
+# Each c_j is recovered via a single constraint dens_j * c_j = u_j (length-1
+# dot_product_ee), which the prover satisfies by hinting c_j = u_j / dens_j.
+# This avoids Montgomery's batch inversion entirely (the prover does the actual
+# inversions outside the circuit, the VM just checks one ext-mul per coefficient).
 def rs_parity_coeffs(r):
     arr = Array(2 * M * DIM)
 
@@ -71,51 +76,7 @@ def rs_parity_coeffs(r):
         dot_product_ee(r_pow_log + (k - 1) * DIM, r_pow_log + (k - 1) * DIM, r_pow_log + k * DIM)
     rm = r_pow_log + LOG_M * DIM
 
-    # alphas[j] = r * w^{-j} (scalar*EF, so element-wise base muls).
-    # dens[j]   = alpha_j - 1.
-    alphas = Array(2 * M * DIM)
-    dens = Array(2 * M * DIM)
-    for d in unroll(0, DIM):
-        alphas[d] = r[d]
-    dens[0] = r[0] - 1
-    for d in unroll(1, DIM):
-        dens[d] = r[d]
-    for j in unroll(1, 2 * M):
-        coef = W ** ((2 * M - j) % (2 * M))
-        for d in unroll(0, DIM):
-            alphas[j * DIM + d] = coef * r[d]
-        dens[j * DIM] = alphas[j * DIM] - 1
-        for d in unroll(1, DIM):
-            dens[j * DIM + d] = alphas[j * DIM + d]
-
-    # Forward pass: forward[j] = den[0] * den[1] * ... * den[j].
-    forward = Array(2 * M * DIM)
-    for d in unroll(0, DIM):
-        forward[d] = dens[d]
-    for j in unroll(1, 2 * M):
-        dot_product_ee(forward + (j - 1) * DIM, dens + j * DIM, forward + j * DIM)
-
-    # qs[2M-1] is the only true inversion: forward[2M-1] * qs[2M-1] = 1.
-    one_ef = Array(DIM)
-    one_ef[0] = 1
-    for d in unroll(1, DIM):
-        one_ef[d] = 0
-
-    qs = Array(2 * M * DIM)
-    dot_product_ee(forward + (2 * M - 1) * DIM, qs + (2 * M - 1) * DIM, one_ef)
-
-    # Backward pass:
-    #   invs[idx] = qs[idx] * forward[idx-1]   (= 1 / dens[idx])
-    #   qs[idx-1] = qs[idx] * dens[idx]        (= 1 / forward[idx-1])
-    invs = Array(2 * M * DIM)
-    for k in unroll(0, 2 * M - 1):
-        idx = 2 * M - 1 - k  # idx walks from 2M-1 down to 1
-        dot_product_ee(qs + idx * DIM, forward + (idx - 1) * DIM, invs + idx * DIM)
-        dot_product_ee(qs + idx * DIM, dens + idx * DIM, qs + (idx - 1) * DIM)
-    for d in unroll(0, DIM):
-        invs[d] = qs[d]
-
-    # Numerators after sign collapse: only two distinct values.
+    # Numerators after sign collapse: u_j = (rm - 1) if j even else (rm + 1).
     rm_minus_1 = Array(DIM)
     rm_minus_1[0] = rm[0] - 1
     for d in unroll(1, DIM):
@@ -125,9 +86,32 @@ def rs_parity_coeffs(r):
     for d in unroll(1, DIM):
         rm_plus_1[d] = rm[d]
 
+    # Precompute coefs[j] = w^{-j} as a base-field constant array.
+    coefs = Array(2 * M)
+    for j in unroll(0, 2 * M):
+        coefs[j] = W ** ((2 * M - j) % (2 * M))
+
+    # neg_one_ef = (-1) as an extension element.
+    neg_one_ef = Array(DIM)
+    neg_one_ef[0] = 0 - 1
+    for d in unroll(1, DIM):
+        neg_one_ef[d] = 0
+
+    # alphas[j] = coef_j * r via a single length-1 base*ext precompile call.
+    alphas = Array(2 * M * DIM)
+    for j in unroll(0, 2 * M):
+        dot_product_be(coefs + j, r, alphas + j * DIM)
+
+    # dens[j] = alphas[j] - 1 via a single length-1 ext+ext precompile call.
+    dens = Array(2 * M * DIM)
+    for j in unroll(0, 2 * M):
+        add_ee(alphas + j * DIM, neg_one_ef, dens + j * DIM)
+
+    # arr[j] = u_j / dens[j] = c_j, satisfied via constraint dens[j] * arr[j] = u_j.
+    # The prover hints arr[j]; the VM solves the unknown operand for length-1 Mul.
     for j in unroll(0, M):
-        dot_product_ee(rm_minus_1, invs + (2 * j) * DIM, arr + (2 * j) * DIM)
-        dot_product_ee(rm_plus_1, invs + (2 * j + 1) * DIM, arr + (2 * j + 1) * DIM)
+        dot_product_ee(dens + (2 * j) * DIM, arr + (2 * j) * DIM, rm_minus_1)
+        dot_product_ee(dens + (2 * j + 1) * DIM, arr + (2 * j + 1) * DIM, rm_plus_1)
 
     return arr
 
