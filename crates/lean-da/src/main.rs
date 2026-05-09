@@ -120,7 +120,9 @@ fn build_witness(n_blobs: usize) -> ExecutionWitness {
     let mut codewords = Vec::with_capacity(n_blobs * two_m);
     for _ in 0..n_blobs {
         let message: Vec<F> = (0..m).map(|_| rng.random()).collect();
-        codewords.extend(rs_encode(&message));
+        let codeword = rs_encode(&message);
+        codewords.extend((0..m).map(|j| codeword[2 * j]));
+        codewords.extend((0..m).map(|j| codeword[2 * j + 1]));
     }
 
     let mut hints: HashMap<String, Vec<Vec<F>>> = HashMap::new();
