@@ -5,7 +5,7 @@ ROOT_24 = 1791270792  # root of unity of order 2^24
 
 LOG_M = LOG_M_PLACEHOLDER
 
-W = ROOT_24**(2**(TWO_ADDICITY - LOG_M - 1))  # root of unity of order 2*(M + 1)
+W = ROOT_24**(2**(TWO_ADDICITY - LOG_M - 1))  # root of unity of order 2*M
 
 M = 2**LOG_M
 DIM = 5
