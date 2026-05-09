@@ -61,6 +61,8 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
 pub enum ProverError {
     TooBigTable(TooBigTableError),
     Runner(RunnerError),
+    UnknownMessage,
+    MultipleMessages,
 }
 
 impl From<TooBigTableError> for ProverError {
@@ -80,6 +82,8 @@ impl Display for ProverError {
         match self {
             Self::TooBigTable(e) => write!(f, "{}", e),
             Self::Runner(e) => write!(f, "{}", e),
+            Self::UnknownMessage => write!(f, "Unknown message, not part of the type2"),
+            Self::MultipleMessages => write!(f, "Multiple common messages in the type2"),
         }
     }
 }

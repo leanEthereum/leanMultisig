@@ -175,6 +175,20 @@ pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<InnerVerified, Proof
     verify_inner(input_data, sig.proof.proof.clone())
 }
 
+pub fn split_type_2_by_msg(
+    type_2: TypeTwoMultiSignature,
+    msg: [F; DIGEST_LEN],
+    log_inv_rate: usize,
+) -> Result<TypeOneMultiSignature, ProverError> {
+    let Some(index) = type_2.info.iter().position(|info| info.message == msg) else {
+        return Err(ProverError::UnknownMessage);
+    };
+    if type_2.info.iter().filter(|info| info.message == msg).count() > 1 {
+        return Err(ProverError::MultipleMessages);
+    }
+    split_type_2(type_2, index, log_inv_rate)
+}
+
 /// Recover an independent type-1 multi-signature for the component at `index`
 /// from a type-2 multi-signature.
 pub fn split_type_2(
