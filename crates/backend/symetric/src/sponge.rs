@@ -142,6 +142,7 @@ where
 /// MMO-mode (feedforward) variant of `hash_slice`. Same input format and
 /// alignment requirements; collision security is bounded by the digest size
 /// rather than the capacity.
+#[inline]
 pub fn mmo_hash_slice<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, data: &[T]) -> [T; OUT]
 where
     T: PrimeCharacteristicRing,
@@ -170,6 +171,7 @@ where
 
 /// MMO-mode variant of `precompute_zero_suffix_state`. Same number of perm
 /// calls as the standard variant (n_zero_chunks - 1 total).
+#[inline]
 pub fn mmo_precompute_zero_suffix_state<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(
     comp: &Comp,
     n_zero_chunks: usize,

@@ -1038,6 +1038,7 @@ impl Poseidon1KoalaBear16 {
 impl<R: Algebra<KoalaBear> + InjectiveMonomial<3> + Send + Sync + 'static> Permutation<[R; 16]>
     for Poseidon1KoalaBear16
 {
+    #[inline]
     fn permute_mut(&self, input: &mut [R; 16]) {
         // On targets with a SIMD fast path, dispatch to it when R is the arch-specific packed type.
         #[cfg(any(
