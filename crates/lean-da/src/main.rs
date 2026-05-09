@@ -16,7 +16,7 @@ static EMBEDDED_ZK_DSL: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO
 
 const STARTING_LOG_INV_RATE: usize = 1;
 
-pub const LOG_M: usize = 12; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
+pub const LOG_M: usize = 15; // Blob of 128 KiB = 2^17 bytes ≈ 2^15 field elements
 pub const DEFAULT_N_BLOBS: usize = 8;
 
 #[derive(Parser)]
