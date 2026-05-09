@@ -1,3 +1,5 @@
+mod cache;
+
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
@@ -41,17 +43,33 @@ fn main() {
 }
 
 pub fn compile_lean_da_bytecode(n_blobs: usize) -> Bytecode {
-    let time = Instant::now();
     let mut replacements = BTreeMap::new();
     replacements.insert("LOG_M_PLACEHOLDER".to_string(), LOG_M.to_string());
     replacements.insert("N_BLOBS_PLACEHOLDER".to_string(), n_blobs.to_string());
+
+    if let Some((bytecode, _)) = cache::try_load(&EMBEDDED_ZK_DSL, &replacements) {
+        println!("(Compilation cache hit)");
+        return bytecode;
+    }
+
+    let time = Instant::now();
     let source = ProgramSource::Embedded {
         entry: "lean_da.py".to_string(),
         dir: &EMBEDDED_ZK_DSL,
     };
-    let res = compile_program_with_flags(&source, CompilationFlags { replacements });
+    let bytecode = compile_program_with_flags(
+        &source,
+        CompilationFlags {
+            replacements: replacements.clone(),
+        },
+    );
     println!("Compilation time: {:.3} s", time.elapsed().as_secs_f64());
-    res
+
+    if let Err(e) = cache::try_store(&EMBEDDED_ZK_DSL, &replacements, &bytecode) {
+        eprintln!("Warning: failed to write bytecode cache: {e}");
+    }
+
+    bytecode
 }
 
 fn ntt(a: &mut [F]) {

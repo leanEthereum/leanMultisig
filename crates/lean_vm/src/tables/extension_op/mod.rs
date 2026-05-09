@@ -1,5 +1,6 @@
 use crate::{execution::memory::MemoryAccess, tables::extension_op::exec::exec_multi_row, *};
 use backend::*;
+use serde::{Deserialize, Serialize};
 
 mod air;
 use air::*;
@@ -13,7 +14,7 @@ pub(crate) const EXT_OP_FLAG_MUL: usize = 16;
 pub(crate) const EXT_OP_FLAG_POLY_EQ: usize = 32;
 pub const EXT_OP_LEN_MULTIPLIER: usize = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ExtensionOp {
     Add,
     Mul,
@@ -39,7 +40,7 @@ impl ExtensionOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ExtensionOpMode {
     pub op: ExtensionOp,
     pub is_be: bool,

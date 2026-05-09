@@ -2,10 +2,11 @@ use crate::core::F;
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
 use backend::*;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 /// Represents a value that can be either a constant or memory location
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MemOrConstant {
     /// Direct constant value
     Constant(F),

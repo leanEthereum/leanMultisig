@@ -3,10 +3,11 @@ use crate::core::F;
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
 use backend::*;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 /// Memory, frame pointer, or constant operand
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MemOrFpOrConstant {
     /// memory[fp + offset]
     MemoryAfterFp { offset: usize },
