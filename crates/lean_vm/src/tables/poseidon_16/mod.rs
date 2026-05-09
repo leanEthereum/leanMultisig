@@ -252,7 +252,10 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         else {
             unreachable!("Poseidon16 table called with non-Poseidon16 args");
         };
-        debug_assert!(!(half_output && full_output), "half_output and full_output are mutually exclusive");
+        debug_assert!(
+            !(half_output && full_output),
+            "half_output and full_output are mutually exclusive"
+        );
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg_a_usize = arg_a.to_usize();
@@ -394,8 +397,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         // is free to set index_input_res_high to any zero-page address; the lookup will check
         // outputs_high (= 0) against m[that_address+i] which is zero by construction.
         builder.assert_zero(
-            cols.flag_full_output
-                * (cols.index_input_res_high - cols.index_res - AB::F::from_usize(DIGEST_LEN)),
+            cols.flag_full_output * (cols.index_input_res_high - cols.index_res - AB::F::from_usize(DIGEST_LEN)),
         );
 
         builder.assert_zero(cols.flag_hardcoded_left * (cols.offset_hardcoded_left - cols.effective_index_left_first));
@@ -533,6 +535,7 @@ fn eval_2_full_rounds_16<AB: AirBuilder>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn eval_last_2_full_rounds_16<AB: AirBuilder>(
     initial_state: &[AB::IF; WIDTH],
     state: &mut [AB::IF; WIDTH],

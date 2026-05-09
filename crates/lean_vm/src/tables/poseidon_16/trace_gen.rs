@@ -164,11 +164,7 @@ fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
     for (idx, (output, &input_i)) in outputs.iter_mut().zip(inputs.iter().take(WIDTH / 2)).enumerate() {
         **output = state[idx] + input_i;
     }
-    for (idx, (output_high, &input_i)) in outputs_high
-        .iter_mut()
-        .zip(inputs.iter().skip(WIDTH / 2))
-        .enumerate()
-    {
+    for (idx, (output_high, &input_i)) in outputs_high.iter_mut().zip(inputs.iter().skip(WIDTH / 2)).enumerate() {
         **output_high = state[idx + WIDTH / 2] + input_i;
     }
 }

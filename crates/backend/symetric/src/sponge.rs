@@ -143,7 +143,10 @@ where
 /// alignment requirements; collision security is bounded by the digest size
 /// rather than the capacity.
 #[inline]
-pub fn mmo_hash_slice<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(comp: &Comp, data: &[T]) -> [T; OUT]
+pub fn mmo_hash_slice<T, Comp, const WIDTH: usize, const RATE: usize, const OUT: usize>(
+    comp: &Comp,
+    data: &[T],
+) -> [T; OUT]
 where
     T: PrimeCharacteristicRing,
     Comp: Compression<[T; WIDTH]>,
@@ -260,38 +263,47 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
     use field::PrimeCharacteristicRing;
+    use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
 
     /// Verify hash_slice(D) == hash_rtl_iter(D.iter().rev()) for arbitrary D with valid length.
     #[test]
     fn hash_slice_matches_rtl_iter_rate12() {
         let perm = default_koalabear_poseidon1_16();
         // 100 = 16 + 12*7, compatible with WIDTH=16, RATE=12
-        let data: Vec<KoalaBear> = (0..100u32).map(|i| KoalaBear::from_u32(i)).collect();
+        let data: Vec<KoalaBear> = (0..100u32).map(KoalaBear::from_u32).collect();
         let h_slice = hash_slice::<KoalaBear, _, 16, 12, 8>(&perm, &data);
         let h_rtl = hash_rtl_iter::<KoalaBear, _, _, 16, 12, 8>(&perm, data.iter().rev().copied());
-        assert_eq!(h_slice, h_rtl, "hash_slice and hash_rtl_iter must agree on equivalent inputs");
+        assert_eq!(
+            h_slice, h_rtl,
+            "hash_slice and hash_rtl_iter must agree on equivalent inputs"
+        );
     }
 
     /// Same as above but for the existing RATE=8 case.
     #[test]
     fn hash_slice_matches_rtl_iter_rate8() {
         let perm = default_koalabear_poseidon1_16();
-        let data: Vec<KoalaBear> = (0..64u32).map(|i| KoalaBear::from_u32(i)).collect();
+        let data: Vec<KoalaBear> = (0..64u32).map(KoalaBear::from_u32).collect();
         let h_slice = hash_slice::<KoalaBear, _, 16, 8, 8>(&perm, &data);
         let h_rtl = hash_rtl_iter::<KoalaBear, _, _, 16, 8, 8>(&perm, data.iter().rev().copied());
-        assert_eq!(h_slice, h_rtl, "hash_slice and hash_rtl_iter must agree on equivalent inputs (RATE=8)");
+        assert_eq!(
+            h_slice, h_rtl,
+            "hash_slice and hash_rtl_iter must agree on equivalent inputs (RATE=8)"
+        );
     }
 
     /// MMO-mode counterpart of hash_slice_matches_rtl_iter_rate12.
     #[test]
     fn mmo_hash_slice_matches_rtl_iter_rate12() {
         let perm = default_koalabear_poseidon1_16();
-        let data: Vec<KoalaBear> = (0..100u32).map(|i| KoalaBear::from_u32(i)).collect();
+        let data: Vec<KoalaBear> = (0..100u32).map(KoalaBear::from_u32).collect();
         let h_slice = mmo_hash_slice::<KoalaBear, _, 16, 12, 8>(&perm, &data);
         let h_rtl = mmo_hash_rtl_iter::<KoalaBear, _, _, 16, 12, 8>(&perm, data.iter().rev().copied());
-        assert_eq!(h_slice, h_rtl, "mmo_hash_slice and mmo_hash_rtl_iter must agree on equivalent inputs");
+        assert_eq!(
+            h_slice, h_rtl,
+            "mmo_hash_slice and mmo_hash_rtl_iter must agree on equivalent inputs"
+        );
     }
 
     /// MMO-mode is structurally distinct from oSponge — verify they produce
@@ -300,10 +312,13 @@ mod tests {
     #[test]
     fn mmo_differs_from_standard_sponge() {
         let perm = default_koalabear_poseidon1_16();
-        let data: Vec<KoalaBear> = (0..28u32).map(|i| KoalaBear::from_u32(i)).collect(); // 16 + 12, two-block input
+        let data: Vec<KoalaBear> = (0..28u32).map(KoalaBear::from_u32).collect(); // 16 + 12, two-block input
         let h_std = hash_slice::<KoalaBear, _, 16, 12, 8>(&perm, &data);
         let h_mmo = mmo_hash_slice::<KoalaBear, _, 16, 12, 8>(&perm, &data);
-        assert_ne!(h_std, h_mmo, "MMO must differ from standard sponge for multi-block inputs");
+        assert_ne!(
+            h_std, h_mmo,
+            "MMO must differ from standard sponge for multi-block inputs"
+        );
     }
 
     /// Verify the MMO precompute is consistent with directly hashing zeros.
@@ -311,8 +326,7 @@ mod tests {
     fn mmo_precompute_zero_suffix_matches_full_zero_hash() {
         let perm = default_koalabear_poseidon1_16();
         let n_zero_chunks: usize = 4; // WIDTH absorb + 3 RATE absorbs of zero
-        let zeros: Vec<KoalaBear> =
-            std::iter::repeat_n(KoalaBear::ZERO, 16 + 12 * (n_zero_chunks - 1)).collect();
+        let zeros: Vec<KoalaBear> = std::iter::repeat_n(KoalaBear::ZERO, 16 + 12 * (n_zero_chunks - 1)).collect();
         let direct = mmo_hash_slice::<KoalaBear, _, 16, 12, 8>(&perm, &zeros);
         let pre = mmo_precompute_zero_suffix_state::<KoalaBear, _, 16, 12, 8>(&perm, n_zero_chunks);
         // The precompute does (n_zero_chunks - 1) MMO compressions; mmo_hash_slice

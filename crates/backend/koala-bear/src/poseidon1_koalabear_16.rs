@@ -53,7 +53,12 @@ fn dit<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(v: &mut [R; 16],
 }
 
 #[inline(always)]
-fn neg_dif<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(v: &mut [R; 16], lo: usize, hi: usize, t: KoalaBear) {
+fn neg_dif<R: PrimeCharacteristicRing + Mul<KoalaBear, Output = R>>(
+    v: &mut [R; 16],
+    lo: usize,
+    hi: usize,
+    t: KoalaBear,
+) {
     let (a, b) = (v[lo], v[hi]);
     v[lo] = a + b;
     v[hi] = (b - a) * t;

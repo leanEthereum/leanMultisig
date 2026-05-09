@@ -96,10 +96,11 @@ fn build_merkle_tree_koalabear(
         0
     };
     let first_layer = if n_zero_suffix_rate_chunks >= 2 {
-        let scalar_state = symetric::mmo_precompute_zero_suffix_state::<KoalaBear, _, SPONGE_WIDTH, SPONGE_RATE, DIGEST_ELEMS>(
-            &perm,
-            n_zero_suffix_rate_chunks,
-        );
+        let scalar_state =
+            symetric::mmo_precompute_zero_suffix_state::<KoalaBear, _, SPONGE_WIDTH, SPONGE_RATE, DIGEST_ELEMS>(
+                &perm,
+                n_zero_suffix_rate_chunks,
+            );
         let packed_state: [PFPacking<KoalaBear>; SPONGE_WIDTH] =
             std::array::from_fn(|i| PFPacking::<KoalaBear>::from_fn(|_| scalar_state[i]));
         first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, SPONGE_WIDTH, SPONGE_RATE>(
@@ -115,7 +116,8 @@ fn build_merkle_tree_koalabear(
             padded_full_width,
         )
     };
-    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, SPONGE_WIDTH>(&perm, first_layer);
+    let tree =
+        symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, SPONGE_WIDTH>(&perm, first_layer);
     // Expose UNPADDED width to the protocol; padding is purely a sponge detail.
     WhirMerkleTree {
         leaf,
