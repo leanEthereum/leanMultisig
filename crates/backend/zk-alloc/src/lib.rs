@@ -109,9 +109,16 @@ pub fn init() {
 
 /// Activates the arena and resets every thread's slab. All allocations until the next
 /// `end_phase()` go to the arena; the previous phase's data is overwritten in place.
+///
+/// Panics if a phase is already active: phases must not nest (a nested call would
+/// recycle the slab and overwrite the outer phase's still-live allocations).
 pub fn begin_phase() {
+    let prev_active = ARENA_ACTIVE.swap(true, Ordering::Release);
+    assert!(
+        !prev_active,
+        "begin_phase() called while another phase is already active — phases must not nest"
+    );
     GENERATION.fetch_add(1, Ordering::Release);
-    ARENA_ACTIVE.store(true, Ordering::Release);
 }
 
 /// Deactivates the arena. New allocations go to the system allocator; existing arena
@@ -212,7 +219,7 @@ unsafe impl GlobalAlloc for ZkAllocator {
         let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
         let new_ptr = unsafe { self.alloc(new_layout) };
         if !new_ptr.is_null() {
-            unsafe { std::ptr::copy_nonoverlapping(ptr, new_ptr, layout.size()) };
+            unsafe { std::ptr::copy(ptr, new_ptr, layout.size()) };
             unsafe { self.dealloc(ptr, layout) };
         }
         new_ptr
