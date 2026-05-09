@@ -23,7 +23,7 @@ N_BLOBS = N_BLOBS_PLACEHOLDER  # number of codewords committed at once
 
 def main():
     zero_vec_ptr = Array(DIGEST_LEN)
-    for i in range(0, DIGEST_LEN):
+    for i in unroll(0, DIGEST_LEN):
         zero_vec_ptr[i] = 0
 
     codewords = Array(N_BLOBS * 2 * M)
@@ -86,21 +86,22 @@ def rs_parity_coeffs(r):
     for d in unroll(1, DIM):
         rm_plus_1[d] = rm[d]
 
-    # Precompute coefs[j] = w^{-j} as a base-field constant array.
-    coefs = Array(2 * M)
-    for j in unroll(0, 2 * M):
-        coefs[j] = W ** ((2 * M - j) % (2 * M))
-
     # neg_one_ef = (-1) as an extension element.
     neg_one_ef = Array(DIM)
     neg_one_ef[0] = 0 - 1
     for d in unroll(1, DIM):
         neg_one_ef[d] = 0
 
-    # alphas[j] = coef_j * r via a single length-1 base*ext precompile call.
+    # alphas[j] = r * w^{-j} via a multiplicative recurrence:
+    #   alphas[0] = r,  alphas[j] = alphas[j-1] * w_inv  (single length-1 base*ext call).
+    # This avoids 2*M compile-time-constant writes for the per-j w^{-j} coefficients.
+    w_inv_ptr = Array(1)
+    w_inv_ptr[0] = W ** (2 * M - 1)  # w^{-1} since w has order 2*M
     alphas = Array(2 * M * DIM)
-    for j in unroll(0, 2 * M):
-        dot_product_be(coefs + j, r, alphas + j * DIM)
+    for d in unroll(0, DIM):
+        alphas[d] = r[d]
+    for j in unroll(1, 2 * M):
+        dot_product_be(w_inv_ptr, alphas + (j - 1) * DIM, alphas + j * DIM)
 
     # dens[j] = alphas[j] - 1 via a single length-1 ext+ext precompile call.
     dens = Array(2 * M * DIM)
