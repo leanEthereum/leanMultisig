@@ -50,12 +50,49 @@ fn count_nodes(topology: &AggregationTopology) -> usize {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeStats {
     pub time_secs: f64,
+    /// 95% confidence interval half-width on `time_secs`. Zero when only one sample was taken.
+    #[serde(default)]
+    pub time_ci_secs: f64,
+    /// Number of measured samples used to compute `time_secs` / `time_ci_secs`.
+    #[serde(default = "default_samples")]
+    pub samples: usize,
     pub proof_kib: usize,
     pub cycles: usize,
     pub memory: usize,
     pub poseidons: usize,
     pub dots: usize,
     pub n_xmss: Option<usize>,
+}
+
+fn default_samples() -> usize {
+    1
+}
+
+/// 95% two-sided Student's t critical value. Falls back to 1.96 for df > 30.
+fn t_critical_95(df: usize) -> f64 {
+    const T_TABLE: &[f64] = &[
+        12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131,
+        2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042,
+    ];
+    if df == 0 {
+        f64::INFINITY
+    } else if df <= T_TABLE.len() {
+        T_TABLE[df - 1]
+    } else {
+        1.96
+    }
+}
+
+/// Returns (mean, 95% CI half-width). Half-width is 0 when n < 2.
+fn mean_and_ci(samples: &[f64]) -> (f64, f64) {
+    let n = samples.len();
+    let mean = samples.iter().sum::<f64>() / n as f64;
+    if n < 2 {
+        return (mean, 0.0);
+    }
+    let variance = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let std_err = variance.sqrt() / (n as f64).sqrt();
+    (mean, t_critical_95(n - 1) * std_err)
 }
 
 /// `path` is the topology-relative path from the root (`[]` = root)
@@ -125,15 +162,30 @@ impl LiveTree {
             None => desc.to_string(),
             Some(st) => {
                 // Both branches produce exactly 20 visible characters.
+                let has_ci = st.samples > 1 && st.time_ci_secs > 0.0;
                 let time_col_text = match st.n_xmss {
                     Some(n) => {
                         let throughput = n as f64 / st.time_secs;
-                        // "1200 XMSS/s - 0.781s" = 20 chars (3-digit throughput
-                        // pads to 4 chars: " 766 XMSS/s - 0.781s")
-                        format!("{:>4.0} XMSS/s - {:>5.3}s", throughput, st.time_secs)
+                        if has_ci {
+                            // Delta-method CI on throughput: σ_T ≈ (n / t²) · σ_t.
+                            let throughput_ci = (n as f64 / st.time_secs.powi(2)) * st.time_ci_secs;
+                            // e.g. "1985 ± 23 XMSS/s" right-aligned to 20 chars.
+                            format!("{:>20}", format!("{:.0} ± {:.0} XMSS/s", throughput, throughput_ci))
+                        } else {
+                            // "1200 XMSS/s - 0.781s" = 20 chars (3-digit throughput
+                            // pads to 4 chars: " 766 XMSS/s - 0.781s")
+                            format!("{:>4.0} XMSS/s - {:>5.3}s", throughput, st.time_secs)
+                        }
                     }
-                    // "              1.815s" = 20 chars (right-aligned)
-                    None => format!("{:>20}", format!("{:.3}s", st.time_secs)),
+                    None => {
+                        if has_ci {
+                            // e.g. "1.815s ± 0.025s" right-aligned to 20 chars.
+                            format!("{:>20}", format!("{:.3}s ± {:.3}s", st.time_secs, st.time_ci_secs))
+                        } else {
+                            // "              1.815s" = 20 chars (right-aligned)
+                            format!("{:>20}", format!("{:.3}s", st.time_secs))
+                        }
+                    }
                 };
                 let time_col = format!("{}{}{}{}", s::ORG, s::B, time_col_text, s::R);
                 format!(
@@ -282,6 +334,7 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     tracing: bool,
     is_root: bool,
+    repeat: usize,
 ) -> TypeOneMultiSignature {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
@@ -304,6 +357,7 @@ fn build_aggregation(
             &signatures[child_start..child_start + child_count],
             tracing,
             false,
+            repeat,
         );
         path.pop();
         children.push(child_sig);
@@ -314,32 +368,68 @@ fn build_aggregation(
         }
     }
 
-    let time = Instant::now();
-
     if tracing && is_root {
         utils::init_tracing();
     }
 
-    #[cfg(not(feature = "standard-alloc"))]
-    zk_alloc::begin_phase();
+    // Prove this node `repeat` times, recording each elapsed time. The proof
+    // itself is deterministic given the same inputs, so we keep only the last
+    // result to forward to the parent.
+    let repeat = repeat.max(1);
+    let mut times = Vec::with_capacity(repeat);
+    let mut last_result: Option<TypeOneMultiSignature> = None;
+    let own_display_index = display_index + count_nodes(topology) - 1;
+    for _ in 0..repeat {
+        #[cfg(not(feature = "standard-alloc"))]
+        zk_alloc::begin_phase();
 
-    let result = aggregate_type_1(
-        &children,
-        raw_xmss,
-        message_for_benchmark(),
-        BENCHMARK_SLOT,
-        topology.log_inv_rate,
-    )
-    .unwrap();
+        let time = Instant::now();
+        let result = aggregate_type_1(
+            &children,
+            raw_xmss.clone(),
+            message_for_benchmark(),
+            BENCHMARK_SLOT,
+            topology.log_inv_rate,
+        )
+        .unwrap();
+        let elapsed = time.elapsed();
 
-    // Clone the outputs out of the arena before the next phase resets its slabs.
-    #[cfg(not(feature = "standard-alloc"))]
-    let result = {
-        zk_alloc::end_phase();
-        result.clone()
-    };
+        // Clone the outputs out of the arena before the next phase resets its slabs.
+        #[cfg(not(feature = "standard-alloc"))]
+        let result = {
+            zk_alloc::end_phase();
+            result.clone()
+        };
 
-    let elapsed = time.elapsed();
+        times.push(elapsed.as_secs_f64());
+        last_result = Some(result);
+
+        // Live-update the row so the user sees the running mean as samples accrue.
+        if !tracing && repeat > 1 {
+            let meta = last_result.as_ref().unwrap().proof.metadata.as_ref().unwrap();
+            let proof_kib = last_result.as_ref().unwrap().proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
+            let (mean, ci) = mean_and_ci(&times);
+            let interim = NodeStats {
+                time_secs: mean,
+                time_ci_secs: ci,
+                samples: times.len(),
+                proof_kib,
+                cycles: meta.cycles,
+                memory: meta.memory,
+                poseidons: meta.n_poseidons,
+                dots: meta.n_extension_ops,
+                n_xmss: if topology.children.is_empty() {
+                    Some(topology.raw_xmss)
+                } else {
+                    None
+                },
+            };
+            live_tree.update_node(own_display_index, &interim);
+        }
+    }
+
+    let result = last_result.unwrap();
+    let (mean_time, time_ci) = mean_and_ci(&times);
     let meta = result.proof.metadata.as_ref().unwrap();
     let proof_kib = result.proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
     let is_leaf = topology.children.is_empty();
@@ -348,17 +438,26 @@ fn build_aggregation(
         println!("{}", meta.display());
         if is_leaf {
             println!(
-                "{} XMSS/s",
-                (topology.raw_xmss as f64 / elapsed.as_secs_f64()).round() as usize
+                "{} XMSS/s (avg over {} run{})",
+                (topology.raw_xmss as f64 / mean_time).round() as usize,
+                repeat,
+                if repeat == 1 { "" } else { "s" }
             );
         } else {
-            println!("{:.3}s the final aggregation step", elapsed.as_secs_f64());
+            println!(
+                "{:.3}s the final aggregation step (avg over {} run{})",
+                mean_time,
+                repeat,
+                if repeat == 1 { "" } else { "s" }
+            );
         }
         println!("Proof size: {} KiB", proof_kib);
     }
 
     let stats = NodeStats {
-        time_secs: elapsed.as_secs_f64(),
+        time_secs: mean_time,
+        time_ci_secs: time_ci,
+        samples: repeat,
         proof_kib,
         cycles: meta.cycles,
         memory: meta.memory,
@@ -367,7 +466,6 @@ fn build_aggregation(
         n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
     };
     if !tracing {
-        let own_display_index = display_index + count_nodes(topology) - 1;
         live_tree.update_node(own_display_index, &stats);
     }
     nodes.push(NodeReport {
@@ -378,7 +476,12 @@ fn build_aggregation(
     result
 }
 
-pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, silent: bool) -> BenchmarkReport {
+pub fn run_aggregation_benchmark(
+    topology: &AggregationTopology,
+    tracing: bool,
+    silent: bool,
+    repeat: usize,
+) -> BenchmarkReport {
     // Tell macOS this is a user-initiated, latency-critical computation and
     // should not be throttled / App-Napped.
     #[cfg(target_os = "macos")]
@@ -423,6 +526,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, 
         &signatures,
         tracing,
         true,
+        repeat,
     );
 
     verify_type_1(&aggregated).expect("root type-1 proof failed to verify");
@@ -484,7 +588,7 @@ fn test_aggregation_throughput_per_num_xmss() {
             log_inv_rate,
             overlap: 0,
         };
-        let time = run_aggregation_benchmark(&topology, false, true).total_time_secs();
+        let time = run_aggregation_benchmark(&topology, false, true, 1).total_time_secs();
         num_xmss_and_time.push((num_xmss, time));
         println!(
             "{} XMSS -> {} XMSS/s",
