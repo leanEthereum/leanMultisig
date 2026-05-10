@@ -96,9 +96,4 @@ where
             }
         }
     }
-
-    #[inline]
-    fn eval_virtual_column(&mut self, x: Self::EF) {
-        self.assert_zero_ef(x);
-    }
 }
