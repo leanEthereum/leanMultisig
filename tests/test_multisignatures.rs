@@ -4,7 +4,7 @@ use lean_multisig::{
     TypeOneMultiSignature, TypeTwoMultiSignature, aggregate_type_1, merge_many_type_1, setup_prover, split_type_2,
     verify_type_1, verify_type_2,
 };
-use leansig_wrapper::{xmss_encode_message, xmss_keygen_fast, xmss_sign_fast, xmss_verify};
+use leansig_wrapper::{xmss_keygen_fast, xmss_sign_fast, xmss_verify};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rec_aggregation::benchmark::{AggregationTopology, run_aggregation_benchmark};
 use rec_aggregation::signatures_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
@@ -72,15 +72,14 @@ fn test_type_2_aggregation() {
 
     let slot_b = BENCHMARK_SLOT + 1;
     let mut rng_b: StdRng = StdRng::seed_from_u64(17);
-    let message_b_bytes: [u8; leansig_wrapper::MESSAGE_LENGTH] = std::array::from_fn(|_| rng_b.random());
-    let message_b = xmss_encode_message(&message_b_bytes);
+    let message_b: [u8; leansig_wrapper::MESSAGE_LENGTH] = std::array::from_fn(|_| rng_b.random());
 
     assert!(message_b != message_a && slot_b != slot_a);
 
     let raws_b: Vec<_> = (0..2)
         .map(|_| {
             let (sk, pk) = xmss_keygen_fast(&mut rng_b, slot_b, 1);
-            let sig = xmss_sign_fast(&sk, &message_b_bytes, slot_b).unwrap();
+            let sig = xmss_sign_fast(&sk, &message_b, slot_b).unwrap();
             (pk, sig)
         })
         .collect();

@@ -4,9 +4,9 @@ use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::{ExecutionProof, prove_execution};
 use lean_vm::*;
 use leansig_wrapper::{
-    BASE, HASH_LEN_FE, LOG_LIFETIME, MSG_LEN_FE as MESSAGE_LEN_FE, PARAMETER_LEN, SIG_SIZE_FE, V, XmssPublicKey,
+    BASE, HASH_LEN_FE, LOG_LIFETIME, MESSAGE_LENGTH, MSG_LEN_FE, PARAMETER_LEN, SIG_SIZE_FE, V, XmssPublicKey,
     XmssSignature, chain_tweak, merkle_tweak, pubkey_merkle_root, pubkey_public_parameter, xmmss_revealed_chain_tips,
-    xmss_merkle_path, xmss_randomness,
+    xmss_encode_message, xmss_merkle_path, xmss_randomness,
 };
 use tracing::instrument;
 use utils::{poseidon_compress_slice, poseidon16_compress_pair};
@@ -40,7 +40,7 @@ pub(crate) struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeOneInfo {
-    pub message: [F; MESSAGE_LEN_FE],
+    pub message: [u8; MESSAGE_LENGTH],
     pub slot: u32,
     pub pubkeys: Vec<XmssPublicKey>,
     pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct (should be recomputed when receiving a proof from an untrusted source)
@@ -62,7 +62,7 @@ impl Serialize for TypeOneInfo {
 impl<'de> Deserialize<'de> for TypeOneInfo {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let (message, slot, pubkeys, bytecode_claim_point) =
-            <([F; MESSAGE_LEN_FE], u32, Vec<XmssPublicKey>, MultilinearPoint<EF>)>::deserialize(d)?;
+            <([u8; MESSAGE_LENGTH], u32, Vec<XmssPublicKey>, MultilinearPoint<EF>)>::deserialize(d)?;
         if bytecode_claim_point.len() != get_aggregation_bytecode().cumulated_n_vars() {
             return Err(serde::de::Error::custom("invalid bytecode point"));
         }
@@ -106,7 +106,7 @@ impl TypeOneInfo {
         build_type1_input_data(
             self.pubkeys.len(),
             &hash_pubkeys(&self.pubkeys),
-            &self.message,
+            &xmss_encode_message(&self.message),
             self.slot,
             &tweaks_hash,
             &self.bytecode_claim_flat(),
@@ -178,7 +178,7 @@ fn compute_merkle_chunks_for_slot(slot: u32) -> Vec<F> {
 pub(crate) fn build_type1_input_data(
     n_sigs: usize,
     pubkeys_hash: &[F; DIGEST_LEN],
-    message: &[F; MESSAGE_LEN_FE],
+    message: &[F; MSG_LEN_FE],
     slot: u32,
     tweaks_hash: &[F; DIGEST_LEN],
     bytecode_claim_flat: &[F],
@@ -229,7 +229,7 @@ pub fn verify_type_1(sig: &TypeOneMultiSignature) -> Result<InnerVerified, Proof
 pub fn aggregate_type_1(
     children: &[TypeOneMultiSignature],
     mut raw_xmss: Vec<(XmssPublicKey, XmssSignature)>,
-    message: [F; MESSAGE_LEN_FE],
+    message: [u8; MESSAGE_LENGTH],
     slot: u32,
     log_inv_rate: usize,
 ) -> Result<TypeOneMultiSignature, ProverError> {
@@ -281,7 +281,7 @@ pub fn aggregate_type_1(
     let pub_input_data = build_type1_input_data(
         n_sigs,
         &hash_pubkeys(&global_pub_keys),
-        message,
+        &xmss_encode_message(message),
         slot,
         &tweaks_hash,
         &reduced_claims.final_claim_flat(),

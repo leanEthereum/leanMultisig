@@ -1,5 +1,4 @@
 use backend::*;
-use lean_vm::F;
 #[cfg(test)]
 use leansig_wrapper::xmss_verify;
 use leansig_wrapper::{MESSAGE_LENGTH, XmssPublicKey, XmssSignature, xmss_keygen_fast, xmss_sign_fast};
@@ -13,8 +12,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-pub fn message_for_benchmark() -> [F; leansig_wrapper::MSG_LEN_FE] {
-    leansig_wrapper::xmss_encode_message(&BENCHMARK_MESSAGE)
+pub fn message_for_benchmark() -> [u8; MESSAGE_LENGTH] {
+    BENCHMARK_MESSAGE
 }
 
 static SIGNERS_CACHE: OnceLock<Vec<(XmssPublicKey, XmssSignature)>> = OnceLock::new();

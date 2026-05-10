@@ -5,7 +5,7 @@ use lean_prover::default_whir_config;
 use lean_prover::prove_execution::ExecutionProof;
 use lean_prover::prove_execution::prove_execution;
 use lean_vm::*;
-use leansig_wrapper::MSG_LEN_FE;
+use leansig_wrapper::MESSAGE_LENGTH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utils::poseidon_compress_slice;
@@ -178,7 +178,7 @@ pub fn verify_type_2(sig: &TypeTwoMultiSignature) -> Result<InnerVerified, Proof
 
 pub fn split_type_2_by_msg(
     type_2: TypeTwoMultiSignature,
-    msg: [F; MSG_LEN_FE],
+    msg: [u8; MESSAGE_LENGTH],
     log_inv_rate: usize,
 ) -> Result<TypeOneMultiSignature, ProverError> {
     let Some(index) = type_2.info.iter().position(|info| info.message == msg) else {

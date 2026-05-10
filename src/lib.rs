@@ -2,7 +2,7 @@ use backend::*;
 
 pub use backend::ProofError;
 pub use leansig_wrapper::{
-    MSG_LEN_FE as MESSAGE_LEN_FE, XmssPublicKey, XmssSignature, xmss_keygen_fast, xmss_sign_fast, xmss_verify,
+    MESSAGE_LENGTH, XmssPublicKey, XmssSignature, xmss_keygen_fast, xmss_sign_fast, xmss_verify,
 };
 pub use rec_aggregation::{
     MAX_RECURSIONS, MAX_XMSS_AGGREGATED, MAX_XMSS_DUPLICATES, TypeOneInfo, TypeOneMultiSignature,
