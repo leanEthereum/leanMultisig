@@ -70,7 +70,70 @@ mod imp {
     }
 }
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+mod imp {
+    use std::ptr;
+
+    const SYS_MMAP: usize = 222;
+    const SYS_MADVISE: usize = 233;
+
+    const PROT_READ: usize = 1;
+    const PROT_WRITE: usize = 2;
+    const MAP_PRIVATE: usize = 0x02;
+    const MAP_ANONYMOUS: usize = 0x20;
+    const MAP_NORESERVE: usize = 0x4000;
+
+    pub const MADV_NOHUGEPAGE: usize = 15;
+
+    #[inline]
+    unsafe fn syscall6(nr: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize) -> isize {
+        let ret: isize;
+        unsafe {
+            std::arch::asm!(
+                "svc 0",
+                in("x8") nr,
+                inlateout("x0") a1 as isize => ret,
+                in("x1") a2,
+                in("x2") a3,
+                in("x3") a4,
+                in("x4") a5,
+                in("x5") a6,
+                options(nostack),
+            );
+        }
+        ret
+    }
+
+    #[inline]
+    unsafe fn syscall3(nr: usize, a1: usize, a2: usize, a3: usize) -> isize {
+        let ret: isize;
+        unsafe {
+            std::arch::asm!(
+                "svc 0",
+                in("x8") nr,
+                inlateout("x0") a1 as isize => ret,
+                in("x1") a2,
+                in("x2") a3,
+                options(nostack),
+            );
+        }
+        ret
+    }
+
+    #[inline]
+    pub unsafe fn mmap_anonymous(size: usize) -> *mut u8 {
+        let flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+        let ret = unsafe { syscall6(SYS_MMAP, 0, size, PROT_READ | PROT_WRITE, flags, usize::MAX, 0) };
+        if ret < 0 { ptr::null_mut() } else { ret as *mut u8 }
+    }
+
+    #[inline]
+    pub unsafe fn madvise(ptr: *mut u8, size: usize, advice: usize) {
+        unsafe { syscall3(SYS_MADVISE, ptr as usize, size, advice) };
+    }
+}
+
+#[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod imp {
     use std::ptr;
 
@@ -79,8 +142,8 @@ mod imp {
     #[inline]
     pub unsafe fn mmap_anonymous(size: usize) -> *mut u8 {
         // MAP_NORESERVE is Linux-only. macOS lazily backs anonymous mappings
-        // with physical memory by default, so the large virtual reservation we
-        // make is fine without NORESERVE.
+        // with physical memory by default, so the large virtual reservation
+        // is fine without NORESERVE.
         let prot = libc::PROT_READ | libc::PROT_WRITE;
         let flags = libc::MAP_PRIVATE | libc::MAP_ANON;
         let ret = unsafe { libc::mmap(ptr::null_mut(), size, prot, flags, -1, 0) };
