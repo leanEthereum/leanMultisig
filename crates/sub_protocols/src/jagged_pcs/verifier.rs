@@ -2,7 +2,7 @@ use backend::*;
 use lean_vm::{EF, F};
 
 use super::branching::BranchingProgram;
-use super::config::{JaggedConfig, usize_to_point};
+use super::config::{JaggedConfig, usize_to_bits, usize_to_point};
 use super::prover::JaggedClaim;
 
 /// Output of the verifier-side "parse commitment" step. Holds the parsed
@@ -111,8 +111,16 @@ pub fn jagged_verify(
     // 1. Sample batching alphas (must mirror the prover exactly).
     let alphas: Vec<EF> = (0..claims.len()).map(|_| verifier_state.sample()).collect();
 
-    // 2. Combined claim value.
-    let v_combined: EF = alphas.iter().zip(claims).map(|(&a, c)| a * c.value).sum();
+    // 2. Combined claim value, with the padding correction applied per claim
+    // so the underlying jagged sumcheck is about the data-only column `D`.
+    let v_combined: EF = alphas
+        .iter()
+        .zip(claims)
+        .map(|(&a, c)| {
+            let h = config.sub_tables[c.sub_table_id].height;
+            a * (c.value - c.padding_adjustment(h))
+        })
+        .sum();
 
     // 3. Verify the product sumcheck (degree 2, m rounds).
     let sumcheck = sumcheck_verify(verifier_state, m, 2, v_combined, None)?;
@@ -129,10 +137,34 @@ pub fn jagged_verify(
         .map(|bits| bits.iter().map(|&b| EF::from(b)).collect())
         .collect();
 
+    // For next-claims we need the bit vector of `t_prev + 2^{c_y}`. Cache one
+    // shifted vector per (sub_table_id, log_width) actually used.
+    let mut shifted_t_prev_cache: std::collections::BTreeMap<usize, Vec<EF>> = Default::default();
+
     let mut f_at_istar = EF::ZERO;
     for (claim, &alpha) in claims.iter().zip(&alphas) {
         let st = config.sub_tables[claim.sub_table_id];
         let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
+
+        // Pick t_prev: shifted by 2^{c_y} for next-claims, plain for regular.
+        let t_prev_bits: &[EF] = if claim.is_next {
+            shifted_t_prev_cache.entry(claim.sub_table_id).or_insert_with(|| {
+                let original = config.cumulative_areas[claim.sub_table_id];
+                let shifted = original + (1usize << st.log_width);
+                // Sanity: shifted must remain within [0, t_next] so the BP
+                // semantics ("i = t_prev + ..." with i < t_next) are
+                // consistent. shifted == t_next means the row range is
+                // empty, which corresponds to a height-1 column (where a
+                // next-claim is vacuously zero); the prover skips
+                // materialization in that case.
+                debug_assert!(shifted <= config.cumulative_areas[claim.sub_table_id + 1]);
+                usize_to_bits(shifted, m).into_iter().map(EF::from).collect()
+            });
+            shifted_t_prev_cache.get(&claim.sub_table_id).unwrap()
+        } else {
+            &cumulative_area_bits_ef[claim.sub_table_id]
+        };
+
         let bp = BranchingProgram {
             z_row: &claim.z_row,
             z_col: &z_col_point,
@@ -140,10 +172,7 @@ pub fn jagged_verify(
             log_width: st.log_width,
             log_dense_size: m,
         };
-        let bp_eval = bp.eval(
-            &cumulative_area_bits_ef[claim.sub_table_id],
-            &cumulative_area_bits_ef[claim.sub_table_id + 1],
-        );
+        let bp_eval = bp.eval(t_prev_bits, &cumulative_area_bits_ef[claim.sub_table_id + 1]);
         f_at_istar += alpha * bp_eval;
     }
 

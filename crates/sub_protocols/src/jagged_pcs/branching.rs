@@ -146,10 +146,29 @@ impl<'a, F: ExtensionField<PF<F>> + 'static> BranchingProgram<'a, F> {
     /// Evaluate `g_u(z_row, z_col, z_index, t_prev, t_next)` where `t_prev`
     /// and `t_next` are the column prefix sums encoded as length-m bit
     /// vectors over `F` (each entry must be 0 or 1).
+    ///
+    /// `z_row` may be longer than `m - log_width` (the number of LSB
+    /// positions the BP actually reads from it). In that case the trailing
+    /// MSB positions of `z_row` are unread by the BP, but they DO appear in
+    /// the F materialization: row indices `< 2^{m - log_width}` have those
+    /// high bits = 0, contributing a `(1 - z_row[i])` factor for each
+    /// unread MSB. We multiply by that correction here so the BP eval
+    /// matches the prover's F materialization. (Same trick as SP1's
+    /// `z_row_correction`.)
     pub fn eval(&self, t_prev: &[F], t_next: &[F]) -> F {
         assert_eq!(t_prev.len(), self.log_dense_size);
         assert_eq!(t_next.len(), self.log_dense_size);
         assert_eq!(self.z_index.len(), self.log_dense_size);
+        assert!(self.z_col.len() <= self.log_width);
+
+        // z_row's MSBs that the BP doesn't read: indices [0, n_unread).
+        // The BP reads z_row at LSB positions [0, m - log_width) (mapped
+        // through `row_bit`), so it touches z_row indices [n_unread, len).
+        let n_unread = self
+            .z_row
+            .len()
+            .saturating_sub(self.log_dense_size.saturating_sub(self.log_width));
+        let z_row_correction: F = self.z_row[..n_unread].iter().map(|&x| F::ONE - x).product();
 
         let states = all_states();
 
@@ -196,7 +215,7 @@ impl<'a, F: ExtensionField<PF<F>> + 'static> BranchingProgram<'a, F> {
             state_results = new_state_results;
         }
 
-        state_results[BpState::INITIAL.idx()]
+        state_results[BpState::INITIAL.idx()] * z_row_correction
     }
 }
 

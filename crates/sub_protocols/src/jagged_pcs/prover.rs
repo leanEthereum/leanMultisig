@@ -17,14 +17,52 @@ pub struct JaggedPcsWitness {
 /// One per-column evaluation claim that the prover wants to attest.
 ///
 /// `sub_table_id` and `col_in_sub_table` together identify which column of
-/// the sparse jagged polynomial is being claimed, while `z_row` is the
-/// row-evaluation point and `value` is the claimed evaluation.
+/// the sparse jagged polynomial is being claimed; `z_row` is the row
+/// evaluation point and `value` is the claim's right-hand side.
+///
+/// `value` is the claim about the **padded** column `P` -- i.e. the column
+/// extended with `padding_value` for every row in `[h_y, 2^{|z_row|})`.
+/// Jagged itself only commits the data-only column `D` (zeros past `h_y`),
+/// so it internally subtracts the padding contribution
+///   `padding_value * mle_of_zeros_then_ones(h_y, z_row)`
+/// (or `mle_of_zeros_then_ones(h_y - 1, z_row)` when `is_next`) before the
+/// sumcheck. For columns whose padding is zero, set `padding_value = F::ZERO`
+/// and the correction is a no-op.
+///
+/// When `is_next` is true, `value` is the evaluation of the next-MLE
+/// `r -> P[succ(r)]` (with the wrap-on-last-row convention).
 #[derive(Debug, Clone)]
 pub struct JaggedClaim {
     pub sub_table_id: usize,
     pub col_in_sub_table: usize,
     pub z_row: MultilinearPoint<EF>,
     pub value: EF,
+    pub is_next: bool,
+    pub padding_value: F,
+}
+
+impl JaggedClaim {
+    /// Number of zeros (`h_y` for regular, `h_y - 1` for next) in the
+    /// `mle_of_zeros_then_ones` indicator that captures the padding rows
+    /// for this claim.
+    pub(crate) fn padding_n_zeros(&self, sub_table_height: usize) -> usize {
+        if self.is_next {
+            sub_table_height.saturating_sub(1)
+        } else {
+            sub_table_height
+        }
+    }
+
+    /// Adjustment to subtract from `value` so that the underlying jagged
+    /// claim is about the data-only column `D` rather than the padded `P`.
+    pub(crate) fn padding_adjustment(&self, sub_table_height: usize) -> EF {
+        if self.padding_value.is_zero() {
+            return EF::ZERO;
+        }
+        let n_zeros = self.padding_n_zeros(sub_table_height);
+        let indicator = mle_of_zeros_then_ones::<EF>(n_zeros, &self.z_row);
+        EF::from(self.padding_value) * indicator
+    }
 }
 
 /// Commit to the jagged polynomial defined by `columns`.
@@ -109,8 +147,16 @@ pub fn jagged_open(
     // 2. Sample batching alphas.
     let alphas: Vec<EF> = (0..claims.len()).map(|_| prover_state.sample()).collect();
 
-    // 3. Combined claim value.
-    let v_combined: EF = alphas.iter().zip(claims).map(|(&a, claim)| a * claim.value).sum();
+    // 3. Combined claim value, adjusted to be about the data-only column `D`
+    // rather than the padded `P` (see [`JaggedClaim::padding_adjustment`]).
+    let v_combined: EF = alphas
+        .iter()
+        .zip(claims)
+        .map(|(&a, claim)| {
+            let h = config.sub_tables[claim.sub_table_id].height;
+            a * (claim.value - claim.padding_adjustment(h))
+        })
+        .sum();
 
     // 4. Materialize F(i) over the cube of size 2^m. Only valid cells in
     // each sub-table get a non-zero contribution.
@@ -138,8 +184,17 @@ pub fn jagged_open(
     whir.prove(prover_state, vec![stmt], whir_witness, &dense.by_ref());
 }
 
-/// Compute the cube-evaluation table of F(i) =
-/// `sum_j alpha_j * eq(z_row_j, row(i)) * eq(z_col_j, col(i)) * 1[i in sub_table y_j]`.
+/// Compute the cube-evaluation table of `F(i) = sum_j alpha_j * f_hat_j(i)`.
+///
+/// For a regular claim `j` against column `(y_j, c_j)` at row-point `z_row_j`:
+///   `f_hat_j(i)` (on cube) = `eq(z_row_j, row(i)) * eq(z_col_j, col(i)) * 1[i in y_j]`
+///
+/// For a next-claim, the column's data-only next-MLE `D_next(z_row)` equals
+///   `sum_{r in [1, h-1]} eq(z_row, r-1) * column[r]`,
+/// so the contribution to `F` is the same outer product as a regular claim,
+/// but written one row down (rows `[1, h-1]` indexed by `r-1 in [0, h-2]`).
+/// We implement this by shifting the destination offset by one row width
+/// and reducing the row count by one.
 fn materialize_f(config: &JaggedConfig, claims: &[JaggedClaim], alphas: &[EF]) -> Vec<EF> {
     let mut f = EF::zero_vec(config.dense_size());
     for (claim, &alpha) in claims.iter().zip(alphas) {
@@ -149,8 +204,21 @@ fn materialize_f(config: &JaggedConfig, claims: &[JaggedClaim], alphas: &[EF]) -
         let z_row_eq = eval_eq::<EF>(&claim.z_row);
         let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
         let z_col_eq = eval_eq::<EF>(&z_col_point);
-        // Outer product: f[base + r*width + c] += alpha * z_row_eq[r] * z_col_eq[c]
-        f[base..base + st.area()]
+
+        // For a next-claim against a column of height h, only rows [1, h-1]
+        // contribute (b=0 has no preimage under succ; b=2^n-1 wraps to a
+        // padded row, which is zero in the data-only column).
+        let (effective_base, effective_rows) = if claim.is_next {
+            if st.height < 2 {
+                continue;
+            }
+            (base + width, st.height - 1)
+        } else {
+            (base, st.height)
+        };
+
+        // Outer product: f[effective_base + r*width + c] += alpha * z_row_eq[r] * z_col_eq[c]
+        f[effective_base..effective_base + effective_rows * width]
             .par_chunks_mut(width)
             .enumerate()
             .for_each(|(r, chunk)| {
