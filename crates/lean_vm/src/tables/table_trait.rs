@@ -158,4 +158,20 @@ pub trait TableT: Air {
         }
         cols
     }
+
+    /// Columns whose evaluations at the GKR claim point are absorbed into the AIR
+    /// sumcheck via virtual constraints (one alpha-power slot per column, right after
+    /// the bus virtual column). The order returned is the order in which the AIR
+    /// emits them in `eval()`, and must match the iteration order of
+    /// `GenericLogupStatements::columns_values[table]` (a `BTreeMap` => sorted by
+    /// `ColIndex`).
+    fn logup_claim_columns(&self) -> Vec<ColIndex> {
+        let mut cols: Vec<ColIndex> = Vec::new();
+        for lookup in self.lookups() {
+            cols.push(lookup.index);
+            cols.extend(lookup.values);
+        }
+        cols.sort();
+        cols
+    }
 }

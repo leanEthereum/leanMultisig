@@ -63,6 +63,9 @@ impl TableT for Table {
     fn lookups(&self) -> Vec<LookupIntoMemory> {
         delegate_to_inner!(self, lookups)
     }
+    fn logup_claim_columns(&self) -> Vec<ColIndex> {
+        delegate_to_inner!(self, logup_claim_columns)
+    }
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
     }

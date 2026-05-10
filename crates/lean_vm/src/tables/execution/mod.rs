@@ -42,6 +42,21 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
         ]
     }
 
+    fn logup_claim_columns(&self) -> Vec<ColIndex> {
+        // Memory lookup columns + PC + instruction columns (used in the bytecode lookup).
+        let mut cols: Vec<ColIndex> = Vec::with_capacity(1 + 6 + N_INSTRUCTION_COLUMNS);
+        cols.push(COL_PC);
+        for lookup in self.lookups() {
+            cols.push(lookup.index);
+            cols.extend(lookup.values);
+        }
+        for i in 0..N_INSTRUCTION_COLUMNS {
+            cols.push(N_RUNTIME_COLUMNS + i);
+        }
+        cols.sort();
+        cols
+    }
+
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
         let mut data = Vec::with_capacity(4);

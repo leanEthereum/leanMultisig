@@ -135,17 +135,11 @@ pub fn prove_execution(
         &traces,
     );
     let gkr_point = &logup_statements.gkr_point;
+    // The per-table column evaluations at gkr_suffix are no longer their own WHIR
+    // statements — they are absorbed into the AIR sumcheck as virtual constraints.
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
-        let log_n_rows = traces[&table].log_n_rows;
-        committed_statements.insert(
-            table,
-            vec![(
-                MultilinearPoint(from_end(gkr_point, log_n_rows).to_vec()),
-                logup_statements.columns_values[&table].clone(),
-                BTreeMap::new(),
-            )],
-        );
+        committed_statements.insert(table, Vec::new());
     }
 
     let bus_beta = prover_state.sample();
@@ -184,6 +178,18 @@ pub fn prove_execution(
             }
             + bus_beta * (bus_denominator_value - logup_c);
 
+        // The AIR's eval() emits one virtual column per logup-claimed column right
+        // after the bus virtual column (which uses alpha_powers[0]); these virtual
+        // columns shift the target sum by `sum_j alpha_powers[1+j] * v_col_j`.
+        let logup_cols = table.logup_claim_columns();
+        let table_columns_values = &logup_statements.columns_values[table];
+        let logup_extra_sum: EF = logup_cols
+            .iter()
+            .enumerate()
+            .map(|(j, col)| air_alpha_powers[1 + j] * table_columns_values[col])
+            .sum();
+        let initial_table_sum = bus_final_value + logup_extra_sum;
+
         let eq_suffix = from_end(gkr_point, *log_n_rows).to_vec();
 
         let extra_data = ExtraDataForBuses::new(logup_alphas_eq_poly.clone(), bus_beta, air_alpha_powers.clone());
@@ -196,7 +202,8 @@ pub fn prove_execution(
 
         macro_rules! make_session {
             ($t:expr) => {{
-                let session = AirSumcheckSession::new(packed, eq_suffix, bus_final_value, *$t, extra_data, non_padded);
+                let session =
+                    AirSumcheckSession::new(packed, eq_suffix, initial_table_sum, *$t, extra_data, non_padded);
                 Box::new(session) as Box<dyn OuterSumcheckSession<EF> + '_>
             }};
         }

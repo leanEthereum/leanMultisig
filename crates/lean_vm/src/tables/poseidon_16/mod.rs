@@ -290,7 +290,10 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         vec![]
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 80
+        // 80 assert_zero + (BUS ? 1 bus virtual + 28 logup-claim virtual columns : 0)
+        // Logup columns: 4 lookup indices + 24 lookup values
+        // (4 + 4 + 8 + 8 inputs/outputs).
+        BUS as usize * 29 + 80
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
@@ -321,6 +324,12 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 cols.flag_active,
                 &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
             ));
+            // Logup-claim virtual columns. Order: sorted by ColIndex (matches
+            // BTreeMap iteration of columns_values[table]).
+            for col in self.logup_claim_columns() {
+                let val = builder.up()[col];
+                builder.assert_zero(val);
+            }
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag_active));
             builder.declare_values(&[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res]);
