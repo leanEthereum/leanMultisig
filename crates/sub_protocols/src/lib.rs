@@ -10,5 +10,7 @@ pub use stacked_pcs::*;
 mod quotient_gkr;
 pub use quotient_gkr::*;
 
+pub mod jagged_pcs;
+
 pub(crate) const MIN_VARS_FOR_PACKING: usize = 8;
 pub const N_VARS_TO_SEND_GKR_COEFFS: usize = 5;
