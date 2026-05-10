@@ -73,20 +73,16 @@ pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytec
 
     let claimed_sum: EF = dot_product(claims.iter().map(|c| c.value), alpha_powers.iter().copied());
 
-    let witness =
-        MleGroupOwned::ExtensionPacked(vec![bytecode.instructions_multilinear_packed.clone(), weights_packed]);
-
-    let (reduced_point, final_evals, _) = sumcheck_prove::<EF, _, _>(
-        witness,
-        &ProductComputation {},
-        &vec![],
-        None,
+    let (reduced_point, _, bytecode_folded, _) = run_product_sumcheck(
+        &MleRef::BasePacked(FPacking::<F>::pack_slice(&bytecode.instructions_multilinear)),
+        &MleRef::ExtensionPacked(&weights_packed),
         &mut reduction_prover,
         claimed_sum,
-        false,
+        bytecode.cumulated_n_vars(),
+        0,
     );
 
-    let reduced_value = final_evals[0];
+    let reduced_value = bytecode_folded.as_constant();
     let bytecode_claim_output = flatten_bytecode_claim(&Evaluation::new(reduced_point.clone(), reduced_value));
     assert_eq!(bytecode_claim_output.len(), bytecode.bytecode_claim_size());
 
