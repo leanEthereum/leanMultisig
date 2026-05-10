@@ -1,5 +1,5 @@
 use crate::{
-    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses,
+    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses, TableT,
     eval_virtual_bus_column,
     tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile},
 };
@@ -48,7 +48,9 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         6
     }
     fn n_constraints(&self) -> usize {
-        33
+        // 33 assert_zero + 1 bus virtual + 18 logup-claim virtual columns
+        // (3 lookup indices + 15 lookup values).
+        52
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![
@@ -114,6 +116,12 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
                 activation_flag,
                 &[aux, idx_a, idx_b, idx_r],
             ));
+            // Logup-claim virtual columns. Order: sorted by ColIndex (matches
+            // BTreeMap iteration of columns_values[table]).
+            for col in self.logup_claim_columns() {
+                let val = builder.up()[col];
+                builder.assert_zero(val);
+            }
         } else {
             builder.declare_values(&[activation_flag]);
             builder.declare_values(&[aux, idx_a, idx_b, idx_r]);

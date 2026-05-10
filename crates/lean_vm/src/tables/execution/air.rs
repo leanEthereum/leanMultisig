@@ -1,4 +1,4 @@
-use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
+use crate::{EF, ExecutionTable, ExtraDataForBuses, TableT, eval_virtual_bus_column};
 use backend::*;
 
 pub const N_RUNTIME_COLUMNS: usize = 8;
@@ -49,7 +49,9 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         vec![COL_PC, COL_FP]
     }
     fn n_constraints(&self) -> usize {
-        13
+        // 12 assert_zero + 1 bus virtual column + 19 logup-claim virtual columns
+        // (1 PC + 6 memory lookup + 12 instruction).
+        32
     }
 
     #[inline]
@@ -98,6 +100,16 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
                 is_precompile,
                 &[precompile_data, nu_a, nu_b, nu_c],
             ));
+            // Absorb the per-table logup column claims at gkr_suffix into the AIR
+            // zerocheck via virtual constraints. The AIR sumcheck's eq factor is
+            // eq(x, gkr_suffix), so `assert_zero(up[col])` contributes
+            // `alpha^k * sum_x eq(x, gkr_suffix) * col(x) = alpha^k * v_col`.
+            // The order MUST match `columns_values[table]`'s sorted-by-ColIndex
+            // iteration.
+            for col in self.logup_claim_columns() {
+                let val = builder.up()[col];
+                builder.assert_zero(val);
+            }
         } else {
             builder.declare_values(&[is_precompile]);
             builder.declare_values(&[precompile_data, nu_a, nu_b, nu_c]);

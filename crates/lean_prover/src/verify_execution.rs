@@ -84,17 +84,11 @@ pub fn verify_execution(
         &table_n_vars,
     )?;
     let gkr_point = &logup_statements.gkr_point;
+    // Per-table column evaluations at gkr_suffix are absorbed into the AIR sumcheck
+    // as virtual constraints, not separate WHIR statements.
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
-        let log_n = table_n_vars[&table];
-        committed_statements.insert(
-            table,
-            vec![(
-                MultilinearPoint(from_end(gkr_point, log_n).to_vec()),
-                logup_statements.columns_values[&table].clone(),
-                BTreeMap::new(),
-            )],
-        );
+        committed_statements.insert(table, Vec::new());
     }
 
     let bus_beta = verifier_state.sample();
@@ -123,7 +117,18 @@ pub fn verify_execution(
             }
             + bus_beta * (bus_denominator_value - logup_c);
 
-        initial_sum += eta_power * bus_final_value;
+        // Logup-column virtual constraints contribute alpha_powers[1+j] * v_col_j
+        // to the per-table AIR sumcheck target.
+        let logup_cols = table.logup_claim_columns();
+        let table_columns_values = &logup_statements.columns_values[table];
+        let logup_extra_sum: EF = logup_cols
+            .iter()
+            .enumerate()
+            .map(|(j, col)| air_alpha_powers[1 + j] * table_columns_values[col])
+            .sum();
+        let initial_table_sum = bus_final_value + logup_extra_sum;
+
+        initial_sum += eta_power * initial_table_sum;
 
         verify_data.push(TableVerifyData {
             table: *table,
