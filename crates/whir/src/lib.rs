@@ -2,6 +2,7 @@
 
 mod commit;
 pub use commit::*;
+use field::ExtensionField;
 use poly::*;
 
 mod open;
@@ -27,6 +28,12 @@ pub(crate) use utils::*;
 mod matrix;
 pub(crate) use matrix::*;
 
+/// Closure signature for [`RawWeights::PackedFill`]: called once with
+/// `(combined_weights, gamma_pow)`, must perform
+/// `combined_weights[i] += gamma_pow * weight_at_packing(i)` for every
+/// packed entry it wants to contribute.
+pub type PackedFillFn<EF> = Box<dyn FnOnce(&mut [EFPacking<EF>], EF) + Send>;
+
 /// A pre-built dense weight polynomial together with its claimed
 /// inner-product value against the committed polynomial. Used by
 /// [`WhirConfig::prove_with_extras`] / [`WhirConfig::verify_with_extras`] to
@@ -34,15 +41,34 @@ pub(crate) use matrix::*;
 /// directly into WHIR's initial sumcheck, instead of running a separate
 /// dedicated sumcheck first.
 ///
-/// On the prover side, `cube_weights` must contain the full cube
-/// evaluations (length `2^num_variables`). The verifier-side counterpart is
-/// the `extras_claimed_sums: Vec<EF>` argument to
-/// [`WhirConfig::verify_with_extras`] plus a closure that computes the
-/// weight polynomial's evaluation at WHIR's final folding point.
-#[derive(Clone, Debug)]
-pub struct RawWeights<EF> {
-    pub cube_weights: Vec<EF>,
-    pub claimed_sum: EF,
+/// Two forms are supported:
+/// - [`RawWeights::Cube`] -- the caller materializes the cube evaluations
+///   of length `2^num_variables` and `combine_statement` packs them into
+///   the packed `combined_weights` buffer with the gamma power applied.
+/// - [`RawWeights::PackedFill`] -- the caller supplies a closure that is
+///   invoked once with the already-allocated packed `combined_weights`
+///   buffer and the appropriate `gamma_pow`; the closure adds its
+///   `gamma_pow`-scaled contribution directly. This lets a caller skip
+///   materializing an intermediate `Vec<EF>` (and the subsequent
+///   pack-and-add pass) when it can write the contribution in packed
+///   form directly.
+pub enum RawWeights<EF: ExtensionField<PF<EF>>> {
+    Cube {
+        cube_weights: Vec<EF>,
+        claimed_sum: EF,
+    },
+    PackedFill {
+        fill: PackedFillFn<EF>,
+        claimed_sum: EF,
+    },
+}
+
+impl<EF: ExtensionField<PF<EF>>> RawWeights<EF> {
+    pub fn claimed_sum(&self) -> EF {
+        match self {
+            Self::Cube { claimed_sum, .. } | Self::PackedFill { claimed_sum, .. } => *claimed_sum,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

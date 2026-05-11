@@ -68,11 +68,13 @@ where
         assert!(self.validate_witness(&witness, polynomial));
         self.validate_statement(&statement);
         for extra in &extras {
-            assert_eq!(
-                extra.cube_weights.len(),
-                1 << self.num_variables,
-                "RawWeights cube length must equal 2^num_variables"
-            );
+            if let RawWeights::Cube { cube_weights, .. } = extra {
+                assert_eq!(
+                    cube_weights.len(),
+                    1 << self.num_variables,
+                    "RawWeights::Cube length must equal 2^num_variables"
+                );
+            }
         }
 
         let mut round_state =
@@ -442,7 +444,7 @@ where
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
         statement: &[SparseStatement<EF>],
-        extras: &[RawWeights<EF>],
+        extras: Vec<RawWeights<EF>>,
         combination_randomness: EF,
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
@@ -522,7 +524,7 @@ where
         let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds(
             polynomial,
             &statement,
-            &extras,
+            extras,
             combination_randomness_gen,
             prover_state,
             prover.folding_factor.at_round(0),
@@ -549,7 +551,7 @@ where
 #[instrument(skip_all, fields(num_constraints = statements.len(), n_extras = extras.len(), n_vars = statements[0].total_num_variables))]
 fn combine_statement<EF>(
     statements: &[SparseStatement<EF>],
-    extras: &[RawWeights<EF>],
+    extras: Vec<RawWeights<EF>>,
     gamma: EF,
 ) -> (Vec<EFPacking<EF>>, EF)
 where
@@ -557,7 +559,11 @@ where
 {
     let num_variables = statements[0].total_num_variables;
     assert!(statements.iter().all(|e| e.total_num_variables == num_variables));
-    assert!(extras.iter().all(|e| e.cube_weights.len() == 1 << num_variables));
+    for extra in &extras {
+        if let RawWeights::Cube { cube_weights, .. } = extra {
+            assert_eq!(cube_weights.len(), 1 << num_variables);
+        }
+    }
 
     let mut combined_weights = EFPacking::<EF>::zero_vec(1 << (num_variables - packing_log_width::<EF>()));
 
@@ -617,24 +623,39 @@ where
         }
     }
 
-    // Append each extra raw-weight polynomial to combined_weights with its
+    // Append each extra raw-weight statement to combined_weights with its
     // own gamma power, mirroring the verifier-side gamma advance in
     // `combine_constraints`. Each extra consumes exactly one gamma power.
-    //
-    // We pack each SIMD lane on the fly directly into the accumulator
-    // rather than calling `pack_extension(&cube_weights)`, which would
-    // allocate a full-size `Vec<EFPacking<EF>>` (= same memory as
-    // `combined_weights` itself, multiple GB at `n_vars = 29`) and slow
-    // the prover noticeably from cache pressure + the extra pass.
     let width = packing_width::<EF>();
     for extra in extras {
-        combined_weights
-            .par_iter_mut()
-            .zip(extra.cube_weights.par_chunks_exact(width))
-            .for_each(|(out, chunk)| {
-                *out += EFPacking::<EF>::from_ext_slice(chunk) * gamma_pow;
-            });
-        combined_sum += extra.claimed_sum * gamma_pow;
+        match extra {
+            RawWeights::Cube {
+                cube_weights,
+                claimed_sum,
+            } => {
+                // Pack each SIMD lane on the fly directly into the
+                // accumulator rather than calling
+                // `pack_extension(&cube_weights)`, which would allocate a
+                // full-size `Vec<EFPacking<EF>>` (= same memory as
+                // `combined_weights` itself, multiple GB at large
+                // `n_vars`) and slow the prover noticeably from cache
+                // pressure + the extra pass.
+                combined_weights
+                    .par_iter_mut()
+                    .zip(cube_weights.par_chunks_exact(width))
+                    .for_each(|(out, chunk)| {
+                        *out += EFPacking::<EF>::from_ext_slice(chunk) * gamma_pow;
+                    });
+                combined_sum += claimed_sum * gamma_pow;
+            }
+            RawWeights::PackedFill { fill, claimed_sum } => {
+                // The caller writes its `gamma_pow`-scaled contribution
+                // directly into the packed buffer, skipping the
+                // materialize-then-pack round-trip.
+                fill(&mut combined_weights, gamma_pow);
+                combined_sum += claimed_sum * gamma_pow;
+            }
+        }
         gamma_pow *= gamma;
     }
 

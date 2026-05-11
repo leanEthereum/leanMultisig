@@ -164,8 +164,19 @@ pub fn jagged_open(
         .sum();
 
     // 4. Materialize F(i) over the cube of size 2^m. Only valid cells in
-    // each sub-table get a non-zero contribution. Fused (regular, next)
-    // pairs share the eq(z_row, .) computation.
+    // each sub-table get a non-zero contribution.
+    //
+    // Note: we previously tried writing F directly into WHIR's packed
+    // `combined_weights` via a `RawWeights::PackedFill` callback to skip
+    // the intermediate `Vec<EF>` and the second pack-and-add pass. On
+    // xmss-1550 that path was ~1.5% slower than the unpacked
+    // materialization below -- the per-batch setup of pre-packed column
+    // alphas + the lane-wise read-modify-add on `EFPacking` accumulators
+    // outweigh the saved memory bandwidth. The unpacked materialization
+    // already amortises the eq computation across all column claims
+    // sharing a `z_row`, and the stride-write inner loop hits cache
+    // lines efficiently. Keep this until/unless a future change makes
+    // the packed write win meaningfully.
     let f_evals = info_span!("Materialize F(i)").in_scope(|| materialize_f(&config, claims, &alphas));
 
     // 5. Hand (F, v_combined) to WHIR as a raw weighted statement. WHIR's
@@ -175,7 +186,7 @@ pub fn jagged_open(
     whir.prove_with_extras(
         prover_state,
         vec![],
-        vec![RawWeights {
+        vec![RawWeights::Cube {
             cube_weights: f_evals,
             claimed_sum: v_combined,
         }],
@@ -200,21 +211,19 @@ pub fn jagged_open(
 /// For a next-claim, the column's data-only next-MLE `D_next(z_row)` equals
 ///   `sum_{r in [1, h-1]} eq(z_row, r-1) * column[r]`,
 /// so the contribution to `F` is the same column write but shifted one row
-/// down (`r in [0, h-2]` mapping to cube row `r + 1`). We implement this
-/// by bumping the destination row offset by one row width and reducing
-/// the row count by one.
+/// down. We implement this by bumping the destination row offset by one
+/// row width and reducing the row count by one.
+///
+/// Consecutive claims sharing `(sub_table_id, is_next, z_row)` are batched
+/// so the `eval_eq(z_row)` cost is paid once per batch and per row we walk
+/// the K batched column claims, depositing `alpha_j * z_row_eq[r]` into
+/// the appropriate slot of the row chunk. `build_jagged_claims` emits all
+/// column claims for one AIR sumcheck point as a contiguous run, so each
+/// batch typically covers all `#cols_in_sub_table` columns for a single
+/// (table, point, up/down).
 fn materialize_f(config: &JaggedConfig, claims: &[JaggedClaim], alphas: &[EF]) -> Vec<EF> {
     let mut f = EF::zero_vec(config.dense_size());
 
-    // Batch consecutive claims that share `(sub_table_id, is_next, z_row)`.
-    // `build_jagged_claims` emits all column claims for one AIR sumcheck
-    // point as a contiguous run, so each batch typically covers all
-    // `#cols_in_sub_table` columns for a single (table, point, up/down).
-    // Within a batch we run ONE pass over the sub-table's row range,
-    // depositing every batched column's `alpha_j * z_row_eq[r]` into its
-    // own slot of the row chunk. This (a) shares the eq computation across
-    // the batch and (b) keeps memory writes contiguous within each row
-    // instead of doing K stride passes (one per column).
     let mut i = 0;
     while i < claims.len() {
         let head = &claims[i];
@@ -245,13 +254,22 @@ fn materialize_f(config: &JaggedConfig, claims: &[JaggedClaim], alphas: &[EF]) -
         let batch = &claims[i..j];
         let batch_alphas = &alphas[i..j];
 
+        // Parallelise over coarse `chunk_rows`-row tiles to keep rayon
+        // task overhead low. For tiny widths (e.g. width=1 for memory),
+        // a naive `par_chunks_mut(width)` would create one task per cell
+        // and is dominated by scheduling overhead.
+        let chunk_rows = (PARALLEL_THRESHOLD / width).max(1);
+        let chunk_cells = chunk_rows * width;
         f[effective_base..effective_base + effective_rows * width]
-            .par_chunks_mut(width)
+            .par_chunks_mut(chunk_cells)
             .enumerate()
-            .for_each(|(r, chunk)| {
-                let row_val = z_row_eq[r];
-                for (claim, &alpha) in batch.iter().zip(batch_alphas) {
-                    chunk[claim.col_in_sub_table] += alpha * row_val;
+            .for_each(|(tile_idx, tile)| {
+                let r_start = tile_idx * chunk_rows;
+                for (r_local, row) in tile.chunks_mut(width).enumerate() {
+                    let row_val = z_row_eq[r_start + r_local];
+                    for (claim, &alpha) in batch.iter().zip(batch_alphas) {
+                        row[claim.col_in_sub_table] += alpha * row_val;
+                    }
                 }
             });
 
