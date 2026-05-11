@@ -325,46 +325,101 @@ fn square(x: __m512i) -> __m512i {
 
 use crate::poseidon1::{MDS8_ROW, POSEIDON1_WIDTH};
 
-/// SIMD MDS multiplication for the width-8 circulant Poseidon1 matrix.
-#[inline]
-pub(crate) fn mds_mul_simd(state: &mut [PackedGoldilocksAVX512; POSEIDON1_WIDTH]) {
+/// Add a known-canonical `Goldilocks` scalar to a packed state, skipping the
+/// `canonicalize` that the generic `Add` applies to its right-hand side.
+///
+/// # Safety contract
+/// The caller must guarantee that `c.value < P`. Otherwise `x + c` may exceed
+/// `2^64 + P` and the wrap-detection in `add_no_double_overflow_64_64` will
+/// produce a wrong result. Round constants pulled from
+/// `GOLDILOCKS_POSEIDON1_RC_8` satisfy this trivially.
+#[inline(always)]
+pub(crate) fn add_canonical_scalar(x: PackedGoldilocksAVX512, c: Goldilocks) -> PackedGoldilocksAVX512 {
     unsafe {
-        let s: [__m512i; 8] = core::array::from_fn(|i| state[i].to_vector());
+        let c_vec = PackedGoldilocksAVX512::from(c).to_vector();
+        PackedGoldilocksAVX512::from_vector(add_no_double_overflow_64_64(x.to_vector(), c_vec))
+    }
+}
+
+/// Compute the `I`-th output of the width-8 circulant MDS matrix-vector product.
+///
+/// `I` is a const generic so that each instantiation is a distinct function
+/// from LLVM's perspective — otherwise LLVM rolls all 8 output computations
+/// back into a loop, serializing them and bouncing state through stack memory.
+#[inline(always)]
+unsafe fn mds_output<const I: usize>(s: &[__m512i; 8], s_hi: &[__m512i; 8]) -> __m512i {
+    unsafe {
+        let mut sum_ll = _mm512_setzero_si512();
+        let mut sum_hl = _mm512_setzero_si512();
+        // Row I of the circulant matrix is `MDS8_ROW` rotated right by I.
+        // The j loop is fully unrolled by LLVM since both bounds and indices
+        // are compile-time constants.
+        let mut j = 0;
+        while j < 8 {
+            let c = MDS8_ROW[(j + 8 - I) % 8];
+            let c_vec = _mm512_set1_epi64(c);
+            sum_ll = _mm512_add_epi64(sum_ll, _mm512_mul_epu32(s[j], c_vec));
+            sum_hl = _mm512_add_epi64(sum_hl, _mm512_mul_epu32(s_hi[j], c_vec));
+            j += 1;
+        }
+
+        // Total = sum_ll + (sum_hl << 32). Compose into (hi, lo) u128.
+        // sum_ll < 2^39, sum_hl < 2^39, so sum_hl >> 32 < 2^7.
+        let sum_hl_shifted = _mm512_slli_epi64::<32>(sum_hl);
+        let lo = _mm512_add_epi64(sum_ll, sum_hl_shifted);
+        // Detect unsigned overflow: lo < sum_hl_shifted iff the add wrapped.
+        let carry_mask = _mm512_cmplt_epu64_mask(lo, sum_hl_shifted);
+        let hi_no_carry = _mm512_srli_epi64::<32>(sum_hl);
+        let hi = _mm512_mask_add_epi64(hi_no_carry, carry_mask, hi_no_carry, _mm512_set1_epi64(1));
+
+        reduce128((hi, lo))
+    }
+}
+
+/// SIMD MDS multiplication for the width-8 circulant Poseidon1 matrix.
+///
+/// Takes/returns by value so the caller can keep state in named SSA scalars
+/// (zmm registers) rather than indexing through a `&mut [P; 8]` (which forces
+/// the array through the stack). Each of the 8 outputs is computed by a
+/// distinct const-generic instantiation of `mds_output`, preventing LLVM
+/// from re-rolling them.
+#[inline(always)]
+pub(crate) fn mds_mul_simd(
+    state: [PackedGoldilocksAVX512; POSEIDON1_WIDTH],
+) -> [PackedGoldilocksAVX512; POSEIDON1_WIDTH] {
+    unsafe {
+        let s: [__m512i; 8] = [
+            state[0].to_vector(),
+            state[1].to_vector(),
+            state[2].to_vector(),
+            state[3].to_vector(),
+            state[4].to_vector(),
+            state[5].to_vector(),
+            state[6].to_vector(),
+            state[7].to_vector(),
+        ];
         // Precompute the high 32 bits of every state slot once.
-        let s_hi: [__m512i; 8] = core::array::from_fn(|i| _mm512_srli_epi64::<32>(s[i]));
+        let s_hi: [__m512i; 8] = [
+            _mm512_srli_epi64::<32>(s[0]),
+            _mm512_srli_epi64::<32>(s[1]),
+            _mm512_srli_epi64::<32>(s[2]),
+            _mm512_srli_epi64::<32>(s[3]),
+            _mm512_srli_epi64::<32>(s[4]),
+            _mm512_srli_epi64::<32>(s[5]),
+            _mm512_srli_epi64::<32>(s[6]),
+            _mm512_srli_epi64::<32>(s[7]),
+        ];
 
-        // For each output i, accumulate the dot product. With the inner loop
-        // bound by `8` and `MDS8_ROW` const, LLVM can fully unroll and fold
-        // the coefficient lookups.
-        let mut out: [__m512i; 8] = [_mm512_setzero_si512(); 8];
-
-        for i in 0..8 {
-            let mut sum_ll = _mm512_setzero_si512();
-            let mut sum_hl = _mm512_setzero_si512();
-            for j in 0..8 {
-                // Row i is `MDS8_ROW` rotated right by i, i.e. coefficient for
-                // `state[j]` in output `i` is `MDS8_ROW[(j + 8 - i) % 8]`.
-                let c = MDS8_ROW[(j + 8 - i) % 8];
-                let c_vec = _mm512_set1_epi64(c);
-                sum_ll = _mm512_add_epi64(sum_ll, _mm512_mul_epu32(s[j], c_vec));
-                sum_hl = _mm512_add_epi64(sum_hl, _mm512_mul_epu32(s_hi[j], c_vec));
-            }
-
-            // Total value = sum_ll + (sum_hl << 32). Compose into (hi, lo) u128.
-            // sum_ll < 2^39, sum_hl < 2^39, so sum_hl >> 32 < 2^7.
-            let sum_hl_shifted = _mm512_slli_epi64::<32>(sum_hl);
-            let lo = _mm512_add_epi64(sum_ll, sum_hl_shifted);
-            // Detect unsigned overflow: lo < sum_hl_shifted iff the add wrapped.
-            let carry_mask = _mm512_cmplt_epu64_mask(lo, sum_hl_shifted);
-            let hi_no_carry = _mm512_srli_epi64::<32>(sum_hl);
-            let hi = _mm512_mask_add_epi64(hi_no_carry, carry_mask, hi_no_carry, _mm512_set1_epi64(1));
-
-            out[i] = reduce128((hi, lo));
-        }
-
-        for i in 0..8 {
-            state[i] = PackedGoldilocksAVX512::from_vector(out[i]);
-        }
+        [
+            PackedGoldilocksAVX512::from_vector(mds_output::<0>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<1>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<2>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<3>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<4>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<5>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<6>(&s, &s_hi)),
+            PackedGoldilocksAVX512::from_vector(mds_output::<7>(&s, &s_hi)),
+        ]
     }
 }
 

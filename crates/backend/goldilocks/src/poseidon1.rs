@@ -543,7 +543,7 @@ impl Poseidon1Goldilocks8 {
     /// to the SIMD-parallel path. When `R == Goldilocks`, uses the scalar fast
     /// path (avoids the symbolic-friendly but slow `permute_generic`).
     /// Otherwise falls back to the generic algebra path.
-    #[inline]
+    #[inline(always)]
     pub fn compress_in_place<R>(&self, state: &mut [R; POSEIDON1_WIDTH])
     where
         R: Algebra<Goldilocks> + InjectiveMonomial<7> + Copy + 'static,
@@ -589,7 +589,7 @@ impl Poseidon1Goldilocks8 {
     /// across all W lanes. The MDS coefficients are tiny (max 9), so the
     /// scalar `mds_mul_scalar` (u128 accumulator + single `reduce128` per
     /// output) is far cheaper than the packed type's fully-reducing `Mul`.
-    #[inline]
+    #[inline(always)]
     fn compress_in_place_simd(&self, state: &mut [<Goldilocks as Field>::Packing; POSEIDON1_WIDTH]) {
         #[cfg(any(
             all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")),
@@ -599,21 +599,42 @@ impl Poseidon1Goldilocks8 {
             type P = <Goldilocks as Field>::Packing;
 
             #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
-            use crate::x86_64_avx2::packing::mds_mul_simd;
+            use crate::x86_64_avx2::packing::{add_canonical_scalar, mds_mul_simd};
             #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-            use crate::x86_64_avx512::packing::mds_mul_simd;
+            use crate::x86_64_avx512::packing::{add_canonical_scalar, mds_mul_simd};
 
+            // 8 named SSA scalars rather than an array — otherwise LLVM
+            // re-rolls the (identical-shape) per-slot sboxes back into a loop,
+            // serializing them through a memory-resident state. Naming each
+            // slot keeps each sbox a distinct value, enabling ILP across the
+            // 8 slots and keeping everything in zmm/ymm registers across all
+            // 30 rounds.
+            //
+            // `add_canonical_scalar` skips the `canonicalize` that the generic
+            // packed `Add` applies to its RHS — round constants are canonical
+            // by construction (all `< P`).
             let initial = *state;
+            let [mut s0, mut s1, mut s2, mut s3, mut s4, mut s5, mut s6, mut s7] = initial;
 
             // Initial full rounds.
             for rc in GOLDILOCKS_POSEIDON1_RC_8.iter().take(POSEIDON1_HALF_FULL_ROUNDS) {
-                for (i, s) in state.iter_mut().enumerate() {
-                    *s += P::from(rc[i]);
-                }
-                for s in state.iter_mut() {
-                    *s = sbox_full::<P>(*s);
-                }
-                mds_mul_simd(state);
+                s0 = add_canonical_scalar(s0, rc[0]);
+                s1 = add_canonical_scalar(s1, rc[1]);
+                s2 = add_canonical_scalar(s2, rc[2]);
+                s3 = add_canonical_scalar(s3, rc[3]);
+                s4 = add_canonical_scalar(s4, rc[4]);
+                s5 = add_canonical_scalar(s5, rc[5]);
+                s6 = add_canonical_scalar(s6, rc[6]);
+                s7 = add_canonical_scalar(s7, rc[7]);
+                s0 = sbox_full::<P>(s0);
+                s1 = sbox_full::<P>(s1);
+                s2 = sbox_full::<P>(s2);
+                s3 = sbox_full::<P>(s3);
+                s4 = sbox_full::<P>(s4);
+                s5 = sbox_full::<P>(s5);
+                s6 = sbox_full::<P>(s6);
+                s7 = sbox_full::<P>(s7);
+                [s0, s1, s2, s3, s4, s5, s6, s7] = mds_mul_simd([s0, s1, s2, s3, s4, s5, s6, s7]);
             }
 
             // Partial rounds.
@@ -622,11 +643,16 @@ impl Poseidon1Goldilocks8 {
                 .skip(POSEIDON1_HALF_FULL_ROUNDS)
                 .take(POSEIDON1_PARTIAL_ROUNDS)
             {
-                for (i, s) in state.iter_mut().enumerate() {
-                    *s += P::from(rc[i]);
-                }
-                state[0] = sbox_full::<P>(state[0]);
-                mds_mul_simd(state);
+                s0 = add_canonical_scalar(s0, rc[0]);
+                s1 = add_canonical_scalar(s1, rc[1]);
+                s2 = add_canonical_scalar(s2, rc[2]);
+                s3 = add_canonical_scalar(s3, rc[3]);
+                s4 = add_canonical_scalar(s4, rc[4]);
+                s5 = add_canonical_scalar(s5, rc[5]);
+                s6 = add_canonical_scalar(s6, rc[6]);
+                s7 = add_canonical_scalar(s7, rc[7]);
+                s0 = sbox_full::<P>(s0);
+                [s0, s1, s2, s3, s4, s5, s6, s7] = mds_mul_simd([s0, s1, s2, s3, s4, s5, s6, s7]);
             }
 
             // Terminal full rounds.
@@ -635,19 +661,34 @@ impl Poseidon1Goldilocks8 {
                 .take(POSEIDON1_N_ROUNDS)
                 .skip(POSEIDON1_HALF_FULL_ROUNDS + POSEIDON1_PARTIAL_ROUNDS)
             {
-                for (i, s) in state.iter_mut().enumerate() {
-                    *s += P::from(rc[i]);
-                }
-                for s in state.iter_mut() {
-                    *s = sbox_full::<P>(*s);
-                }
-                mds_mul_simd(state);
+                s0 = add_canonical_scalar(s0, rc[0]);
+                s1 = add_canonical_scalar(s1, rc[1]);
+                s2 = add_canonical_scalar(s2, rc[2]);
+                s3 = add_canonical_scalar(s3, rc[3]);
+                s4 = add_canonical_scalar(s4, rc[4]);
+                s5 = add_canonical_scalar(s5, rc[5]);
+                s6 = add_canonical_scalar(s6, rc[6]);
+                s7 = add_canonical_scalar(s7, rc[7]);
+                s0 = sbox_full::<P>(s0);
+                s1 = sbox_full::<P>(s1);
+                s2 = sbox_full::<P>(s2);
+                s3 = sbox_full::<P>(s3);
+                s4 = sbox_full::<P>(s4);
+                s5 = sbox_full::<P>(s5);
+                s6 = sbox_full::<P>(s6);
+                s7 = sbox_full::<P>(s7);
+                [s0, s1, s2, s3, s4, s5, s6, s7] = mds_mul_simd([s0, s1, s2, s3, s4, s5, s6, s7]);
             }
 
             // Compression-mode add-back of the original input.
-            for (s, init) in state.iter_mut().zip(initial) {
-                *s += init;
-            }
+            state[0] = s0 + initial[0];
+            state[1] = s1 + initial[1];
+            state[2] = s2 + initial[2];
+            state[3] = s3 + initial[3];
+            state[4] = s4 + initial[4];
+            state[5] = s5 + initial[5];
+            state[6] = s6 + initial[6];
+            state[7] = s7 + initial[7];
         }
 
         #[cfg(not(any(
@@ -794,9 +835,13 @@ mod tests {
         }
 
         #[cfg(all(target_arch = "x86_64", target_feature = "avx2", not(target_feature = "avx512f")))]
-        crate::x86_64_avx2::packing::mds_mul_simd(&mut packed);
+        {
+            packed = crate::x86_64_avx2::packing::mds_mul_simd(packed);
+        }
         #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-        crate::x86_64_avx512::packing::mds_mul_simd(&mut packed);
+        {
+            packed = crate::x86_64_avx512::packing::mds_mul_simd(packed);
+        }
 
         for i in 0..8 {
             for k in 0..width {
