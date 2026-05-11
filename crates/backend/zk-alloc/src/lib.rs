@@ -38,7 +38,17 @@ const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 /// HashMap entries (sub-KB), rayon-core job stack frames (sub-KB).
 ///
 /// TODO is there a cleaner way?
-const MIN_ARENA_BYTES: usize = 4096;
+///
+/// Lowered from 4096 to 256 on M2 once THP-backed arena landed (iter 8): allocs
+/// in the arena now hit a 32 MiB hugepage TLB entry whereas System allocs land
+/// on 16 KiB base pages. Pushing the 256..4095 size band into the arena buys
+/// the hugepage TLB benefit for more allocations. Phase-crossing safety: the
+/// named ~1.5 KB Injector blocks still bypass via System (still in the
+/// [0, 256) carve-out? No — Injector blocks are ~1.5 KB > 256). Risk: any
+/// phase-crossing allocation in [256, 1500) is now in the arena and gets
+/// recycled. Sticky-System realloc still protects grown Vecs that started in
+/// System. Correctness gate enforces.
+const MIN_ARENA_BYTES: usize = 256;
 
 #[derive(Debug)]
 pub struct ZkAllocator;
