@@ -3,7 +3,7 @@
 use ::utils::log2_strict_usize;
 use fiat_shamir::{FSProver, MerklePath, ProofResult};
 use field::PrimeCharacteristicRing;
-use field::{ExtensionField, Field, TwoAdicField};
+use field::{ExtensionField, Field, PackedFieldExtension, TwoAdicField};
 use poly::*;
 use rayon::prelude::*;
 use sumcheck::{ProductComputation, run_product_sumcheck, sumcheck_prove_many_rounds};
@@ -620,11 +620,20 @@ where
     // Append each extra raw-weight polynomial to combined_weights with its
     // own gamma power, mirroring the verifier-side gamma advance in
     // `combine_constraints`. Each extra consumes exactly one gamma power.
+    //
+    // We pack each SIMD lane on the fly directly into the accumulator
+    // rather than calling `pack_extension(&cube_weights)`, which would
+    // allocate a full-size `Vec<EFPacking<EF>>` (= same memory as
+    // `combined_weights` itself, multiple GB at `n_vars = 29`) and slow
+    // the prover noticeably from cache pressure + the extra pass.
+    let width = packing_width::<EF>();
     for extra in extras {
-        let packed = pack_extension::<EF>(&extra.cube_weights);
-        combined_weights.par_iter_mut().zip(&packed).for_each(|(out, &w)| {
-            *out += w * gamma_pow;
-        });
+        combined_weights
+            .par_iter_mut()
+            .zip(extra.cube_weights.par_chunks_exact(width))
+            .for_each(|(out, chunk)| {
+                *out += EFPacking::<EF>::from_ext_slice(chunk) * gamma_pow;
+            });
         combined_sum += extra.claimed_sum * gamma_pow;
         gamma_pow *= gamma;
     }
