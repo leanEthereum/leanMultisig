@@ -9,6 +9,10 @@ pub struct ExecutionTrace {
     pub public_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
     pub metadata: ExecutionMetadata,
+    /// Memory address used as the "all-zeros vector" pointer for padding rows
+    /// of every AIR table. The verifier needs this to reconstruct each
+    /// table's padding values.
+    pub padding_zero_vec_ptr: usize,
 }
 
 pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResult) -> ExecutionTrace {
@@ -150,6 +154,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         public_memory_size: execution_result.public_memory_size,
         memory: memory_padded,
         metadata: execution_result.metadata,
+        padding_zero_vec_ptr,
     }
 }
 

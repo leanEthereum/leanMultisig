@@ -42,9 +42,6 @@ pub struct JaggedConfig {
 impl JaggedConfig {
     pub fn new(sub_tables: Vec<SubTable>) -> Self {
         assert!(!sub_tables.is_empty(), "JaggedConfig needs at least one sub-table");
-        for st in &sub_tables {
-            assert!(st.height > 0, "sub-table height must be positive");
-        }
 
         let log_n_sub_tables = log2_ceil_usize(sub_tables.len().max(1));
         let log_max_rows = log2_ceil_usize(sub_tables.iter().map(|st| st.height).max().unwrap().max(1));

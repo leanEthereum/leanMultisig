@@ -23,11 +23,13 @@ mod branching;
 mod config;
 mod prover;
 mod verifier;
+mod zkvm;
 
 pub use branching::*;
 pub use config::*;
 pub use prover::*;
 pub use verifier::*;
+pub use zkvm::*;
 
 #[cfg(test)]
 mod tests;

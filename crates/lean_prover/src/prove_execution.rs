@@ -4,6 +4,9 @@ use crate::*;
 use lean_vm::*;
 
 use serde::{Deserialize, Serialize};
+use sub_protocols::jagged_pcs::{
+    JaggedClaim, ZkvmJaggedLayout, jagged_commit, jagged_open, pad_point_high, table_padding_values,
+};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
@@ -32,18 +35,22 @@ pub fn prove_execution(
         public_memory_size,
         mut memory, // padded with zeros to next power of two
         metadata,
+        padding_zero_vec_ptr,
     } = info_span!("Witness generation").in_scope(|| -> Result<_, ProverError> {
         let execution_result = info_span!("Executing bytecode")
             .in_scope(|| try_execute_bytecode(bytecode, public_input, witness, vm_profiler))?;
         Ok(info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result)))
     })?;
 
-    // Memory must be at least MIN_LOG_MEMORY_SIZE and at least bytecode size
-    // (required by the stacked polynomial ordering)
+    // Memory must be at least MIN_LOG_MEMORY_SIZE and at least bytecode size.
     let min_memory_size = (1 << MIN_LOG_MEMORY_SIZE).max(1 << bytecode.log_size());
     if memory.len() < min_memory_size {
         memory.resize(min_memory_size, F::ZERO);
     }
+    let null_hash_ptr = padding_zero_vec_ptr + 16;
+    let log_memory = log2_strict_usize(memory.len());
+    let log_bytecode = bytecode.log_size();
+
     let mut prover_state = build_prover_state();
     prover_state.observe_scalars(public_input);
     prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
@@ -51,10 +58,12 @@ pub fn prove_execution(
         &[
             vec![
                 whir_config.starting_log_inv_rate,
-                log2_strict_usize(memory.len()),
+                log_memory,
                 public_input.len(),
+                padding_zero_vec_ptr,
             ],
             traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
+            traces.values().map(|t| t.non_padded_n_rows).collect::<Vec<_>>(),
         ]
         .concat()
         .into_iter()
@@ -109,15 +118,25 @@ pub fn prove_execution(
         }
     });
 
-    // 1st Commitment
-    let stacked_pcs_witness = stack_polynomials_and_commit(
-        &mut prover_state,
-        whir_config,
-        &memory,
-        &memory_acc,
-        &bytecode_acc,
-        &traces,
-    );
+    // Build the jagged layout from non-padded heights.
+    let non_padded_per_table: BTreeMap<Table, usize> = traces
+        .iter()
+        .map(|(table, trace)| (*table, trace.non_padded_n_rows))
+        .collect();
+    let layout = ZkvmJaggedLayout::new(log_memory, log_bytecode, &non_padded_per_table);
+
+    // Pre-compute per-table padding values (one per AIR column).
+    let padding_values_per_table: BTreeMap<Table, Vec<F>> = ALL_TABLES
+        .iter()
+        .map(|&table| (table, table_padding_values(table, padding_zero_vec_ptr, null_hash_ptr)))
+        .collect();
+
+    // Assemble the column-data slice that `jagged_commit` consumes.
+    let columns_for_commit: Vec<Vec<&[F]>> =
+        build_columns_for_commit(&layout, &memory, &memory_acc, &bytecode_acc, &traces);
+
+    // 1st Commitment (jagged).
+    let jagged_witness = jagged_commit(&layout.config, &columns_for_commit, &mut prover_state, whir_config);
 
     // logup (GKR)
     let logup_c = prover_state.sample();
@@ -178,9 +197,6 @@ pub fn prove_execution(
             }
             + bus_beta * (bus_denominator_value - logup_c);
 
-        // The AIR's eval() emits one virtual column per logup-claimed column right
-        // after the bus virtual column (which uses alpha_powers[0]); these virtual
-        // columns shift the target sum by `sum_j alpha_powers[1+j] * v_col_j`.
         let logup_cols = table.logup_claim_columns();
         let table_columns_values = &logup_statements.columns_values[table];
         let logup_extra_sum: EF = logup_cols
@@ -229,45 +245,20 @@ pub fn prove_execution(
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
-    let previous_statements = vec![
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            logup_statements.memory_and_acc_point,
-            vec![
-                SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_memory_acc),
-            ],
-        ),
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            public_memory_random_point,
-            vec![SparseValue::new(0, public_memory_eval)],
-        ),
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            logup_statements.bytecode_and_acc_point,
-            vec![SparseValue::new(
-                (2 * memory.len()) >> bytecode.log_size(),
-                logup_statements.value_bytecode_acc,
-            )],
-        ),
-    ];
-
-    let global_statements_base = stacked_pcs_global_statements(
-        stacked_pcs_witness.stacked_n_vars,
-        log2_strict_usize(memory.len()),
-        bytecode.log_size(),
-        previous_statements,
-        &tables_log_heights,
+    // Translate every claim about the committed polynomial into a JaggedClaim.
+    let claims = build_jagged_claims(
+        &layout,
+        log_memory,
+        log_bytecode,
+        &logup_statements,
+        &public_memory_random_point,
+        public_memory_eval,
         &committed_statements,
+        &tables_log_heights,
+        &padding_values_per_table,
     );
 
-    WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove(
-        &mut prover_state,
-        global_statements_base,
-        stacked_pcs_witness.inner_witness,
-        &stacked_pcs_witness.global_polynomial.by_ref(),
-    );
+    jagged_open(jagged_witness, &claims, &mut prover_state, whir_config);
 
     tracing::info!("total pow_grinding time: {} ms", pow_grinding_time().as_millis());
     reset_pow_grinding_time();
@@ -276,4 +267,139 @@ pub fn prove_execution(
         proof: prover_state.into_proof(),
         metadata: Some(metadata),
     })
+}
+
+/// Build the per-sub-table column-data slice required by [`jagged_commit`].
+fn build_columns_for_commit<'a>(
+    layout: &ZkvmJaggedLayout,
+    memory: &'a [F],
+    memory_acc: &'a [F],
+    bytecode_acc: &'a [F],
+    traces: &'a BTreeMap<Table, TableTrace>,
+) -> Vec<Vec<&'a [F]>> {
+    let mut columns: Vec<Vec<&'a [F]>> = Vec::with_capacity(layout.config.n_sub_tables());
+    columns.push(vec![memory]);
+    columns.push(vec![memory_acc]);
+    columns.push(vec![bytecode_acc]);
+    for &table in &ALL_TABLES {
+        let n_cols = table.n_columns();
+        let h = traces[&table].non_padded_n_rows;
+        let widths = sub_protocols::jagged_pcs::decompose_table_widths(n_cols);
+        let mut col_offset = 0;
+        for w in widths {
+            let cols: Vec<&[F]> = (col_offset..col_offset + w)
+                .map(|c| &traces[&table].columns[c][..h])
+                .collect();
+            columns.push(cols);
+            col_offset += w;
+        }
+    }
+    columns
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_jagged_claims(
+    layout: &ZkvmJaggedLayout,
+    log_memory: usize,
+    log_bytecode: usize,
+    logup_statements: &GenericLogupStatements,
+    public_memory_random_point: &MultilinearPoint<EF>,
+    public_memory_eval: EF,
+    committed_statements: &CommittedStatements,
+    tables_log_heights: &BTreeMap<Table, VarCount>,
+    padding_values_per_table: &BTreeMap<Table, Vec<F>>,
+) -> Vec<JaggedClaim> {
+    let mut claims = Vec::new();
+
+    // Memory + memory_acc at the shared logup point.
+    claims.push(JaggedClaim {
+        sub_table_id: layout.memory_st,
+        col_in_sub_table: 0,
+        z_row: logup_statements.memory_and_acc_point.clone(),
+        value: logup_statements.value_memory,
+        is_next: false,
+        padding_value: F::ZERO,
+    });
+    claims.push(JaggedClaim {
+        sub_table_id: layout.memory_acc_st,
+        col_in_sub_table: 0,
+        z_row: logup_statements.memory_and_acc_point.clone(),
+        value: logup_statements.value_memory_acc,
+        is_next: false,
+        padding_value: F::ZERO,
+    });
+
+    // Public memory: claim about memory's MLE at a point of length
+    // log2(public_memory_size). Lift to length log_memory by prepending zeros
+    // (the public input lives in the first 2^len cells of memory).
+    let pm_z_row = pad_point_high(public_memory_random_point, log_memory);
+    claims.push(JaggedClaim {
+        sub_table_id: layout.memory_st,
+        col_in_sub_table: 0,
+        z_row: pm_z_row,
+        value: public_memory_eval,
+        is_next: false,
+        padding_value: F::ZERO,
+    });
+
+    // Bytecode_acc.
+    claims.push(JaggedClaim {
+        sub_table_id: layout.bytecode_acc_st,
+        col_in_sub_table: 0,
+        z_row: logup_statements.bytecode_and_acc_point.clone(),
+        value: logup_statements.value_bytecode_acc,
+        is_next: false,
+        padding_value: F::ZERO,
+    });
+
+    // PC start: PC[0] = STARTING_PC. With z_row = (0, ..., 0) of length
+    // log_n_rows[execution], this is a claim about the data-only column at
+    // row 0 (since the indicator factor is 0 at this point, padding doesn't
+    // contribute regardless of padding_value).
+    let _ = log_bytecode;
+    let exec_log = tables_log_heights[&Table::execution()];
+    let pc_loc = layout.locate(Table::execution(), COL_PC);
+    let pc_pad = padding_values_per_table[&Table::execution()][COL_PC];
+    claims.push(JaggedClaim {
+        sub_table_id: pc_loc.sub_table_id,
+        col_in_sub_table: pc_loc.col_in_sub_table,
+        z_row: MultilinearPoint(vec![EF::ZERO; exec_log]),
+        value: EF::from_usize(STARTING_PC),
+        is_next: false,
+        padding_value: pc_pad,
+    });
+    // PC end (PC[2^log - 1] = ENDING_PC) is automatically enforced by the
+    // padding_value = ENDING_PC (the structural padding-row value); no extra
+    // claim required.
+
+    // Per-table per-column AIR sumcheck claims.
+    for &table in &ALL_TABLES {
+        let pad = &padding_values_per_table[&table];
+        for (point, eq_values, next_values) in &committed_statements[&table] {
+            for (&col_index, &value) in eq_values {
+                let loc = layout.locate(table, col_index);
+                claims.push(JaggedClaim {
+                    sub_table_id: loc.sub_table_id,
+                    col_in_sub_table: loc.col_in_sub_table,
+                    z_row: point.clone(),
+                    value,
+                    is_next: false,
+                    padding_value: pad[col_index],
+                });
+            }
+            for (&col_index, &value) in next_values {
+                let loc = layout.locate(table, col_index);
+                claims.push(JaggedClaim {
+                    sub_table_id: loc.sub_table_id,
+                    col_in_sub_table: loc.col_in_sub_table,
+                    z_row: point.clone(),
+                    value,
+                    is_next: true,
+                    padding_value: pad[col_index],
+                });
+            }
+        }
+    }
+
+    claims
 }
