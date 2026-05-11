@@ -116,11 +116,10 @@ fn ensure_region() -> usize {
             std::process::abort();
         }
 
-        let aligned_base = if THP_SIZE > 0 {
-            (raw as usize).next_multiple_of(THP_SIZE)
-        } else {
-            raw as usize
-        };
+        #[cfg(target_arch = "aarch64")]
+        let aligned_base = (raw as usize).next_multiple_of(THP_SIZE);
+        #[cfg(not(target_arch = "aarch64"))]
+        let aligned_base = raw as usize;
 
         // On aarch64, ask khugepaged to use THP for the slab region. On x86_64
         // preserve the historical NOHUGEPAGE hint (2 MiB THP can fragment slab
