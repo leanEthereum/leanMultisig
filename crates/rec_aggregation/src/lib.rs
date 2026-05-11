@@ -13,7 +13,9 @@ pub use compilation::{
 };
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::{DIGEST_LEN, EF, F};
-pub use type_1_aggregation::{TypeOneInfo, TypeOneMultiSignature, aggregate_type_1, verify_type_1};
+pub use type_1_aggregation::{
+    TypeOneInfo, TypeOneInfoWithoutPubkeys, TypeOneMultiSignature, aggregate_type_1, verify_type_1,
+};
 pub use type_2_aggregation::{TypeTwoMultiSignature, merge_many_type_1, split_type_2, verify_type_2};
 use utils::poseidon_compress_slice;
 
@@ -35,4 +37,16 @@ pub(crate) fn verify_inner(input_data: Vec<F>, proof: Proof<F>) -> Result<InnerV
         bytecode_evaluation: verif.bytecode_evaluation,
         raw_proof,
     })
+}
+
+/// postcard-encode then lz4-compress. Inverse of `lz4_postcard_decode`.
+pub(crate) fn lz4_postcard_encode<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let encoded = postcard::to_allocvec(value).expect("postcard serialization failed");
+    lz4_flex::compress_prepend_size(&encoded)
+}
+
+/// Inverse of `lz4_postcard_encode`. Returns `None` on either lz4 or postcard failure.
+pub(crate) fn lz4_postcard_decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
+    let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
+    postcard::from_bytes(&decompressed).ok()
 }

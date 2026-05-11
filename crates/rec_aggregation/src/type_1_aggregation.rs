@@ -15,14 +15,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::InnerVerified;
-use crate::bytecode_claims::compute_bytecode_value_at;
+use crate::bytecode_claims::evaluation_for_bytecode_point;
 use crate::bytecode_claims::flatten_bytecode_claim;
 use crate::bytecode_claims::reduce_bytecode_claims;
 use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, MAX_XMSS_AGGREGATED, MAX_XMSS_DUPLICATES, N_MERKLE_CHUNKS_FOR_SLOT,
     PREAMBLE_MEMORY_LEN, TYPE1_FLAG, get_aggregation_bytecode, type1_input_data_size_padded,
 };
-use crate::verify_inner;
+use crate::{lz4_postcard_decode, lz4_postcard_encode, verify_inner};
 
 const CHAIN_LENGTH: usize = BASE;
 const PUB_KEY_FLAT_SIZE: usize = HASH_LEN_FE + PARAMETER_LEN;
@@ -40,10 +40,8 @@ pub(crate) struct Digest(pub [F; DIGEST_LEN]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeOneInfo {
-    pub message: [u8; MESSAGE_LENGTH],
-    pub slot: u32,
+    pub without_pubkeys: TypeOneInfoWithoutPubkeys,
     pub pubkeys: Vec<XmssPublicKey>,
-    pub bytecode_claim: Evaluation<EF>, // value is trusted to be correct (should be recomputed when receiving a proof from an untrusted source)
 }
 
 // Aggregation of many signatures, all sharing the same (message, slot)
@@ -55,39 +53,40 @@ pub struct TypeOneMultiSignature {
 
 impl Serialize for TypeOneInfo {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        (&self.message, &self.slot, &self.pubkeys, &self.bytecode_claim.point).serialize(s)
+        (&self.without_pubkeys, &self.pubkeys).serialize(s)
     }
 }
 
 impl<'de> Deserialize<'de> for TypeOneInfo {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let (message, slot, pubkeys, bytecode_claim_point) =
-            <([u8; MESSAGE_LENGTH], u32, Vec<XmssPublicKey>, MultilinearPoint<EF>)>::deserialize(d)?;
-        if bytecode_claim_point.len() != get_aggregation_bytecode().cumulated_n_vars() {
-            return Err(serde::de::Error::custom("invalid bytecode point"));
-        }
+        let (without_pubkeys, pubkeys) = <(TypeOneInfoWithoutPubkeys, Vec<XmssPublicKey>)>::deserialize(d)?;
         if !pubkeys.is_sorted() {
             return Err(serde::de::Error::custom("unsorted pubkeys"));
         }
-        let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);
         Ok(Self {
-            message,
-            slot,
+            without_pubkeys,
             pubkeys,
-            bytecode_claim: Evaluation::new(bytecode_claim_point, bytecode_value),
         })
     }
 }
 
 impl TypeOneMultiSignature {
     pub fn compress(&self) -> Vec<u8> {
-        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
-        lz4_flex::compress_prepend_size(&encoded)
+        lz4_postcard_encode(self)
     }
 
     pub fn decompress(bytes: &[u8]) -> Option<Self> {
-        let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
-        postcard::from_bytes(&decompressed).ok()
+        lz4_postcard_decode(bytes)
+    }
+
+    pub fn compress_without_pubkeys(&self) -> Vec<u8> {
+        lz4_postcard_encode(&(&self.info.without_pubkeys, &self.proof))
+    }
+
+    pub fn decompress_without_pubkeys(bytes: &[u8], pubkeys: Vec<XmssPublicKey>) -> Option<Self> {
+        let (without_pubkeys, proof) = lz4_postcard_decode::<(TypeOneInfoWithoutPubkeys, ExecutionProof)>(bytes)?;
+        let info = without_pubkeys.with_pubkeys(pubkeys)?;
+        Some(Self { info, proof })
     }
 
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
@@ -95,19 +94,66 @@ impl TypeOneMultiSignature {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeOneInfoWithoutPubkeys {
+    pub message: [u8; MESSAGE_LENGTH],
+    pub slot: u32,
+    pub bytecode_claim: Evaluation<EF>,
+}
+
+impl Serialize for TypeOneInfoWithoutPubkeys {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (&self.message, &self.slot, &self.bytecode_claim.point).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for TypeOneInfoWithoutPubkeys {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let (message, slot, bytecode_claim_point) =
+            <([u8; MESSAGE_LENGTH], u32, MultilinearPoint<EF>)>::deserialize(d)?;
+        let bytecode_claim = evaluation_for_bytecode_point(bytecode_claim_point)
+            .ok_or_else(|| serde::de::Error::custom("invalid bytecode point"))?;
+        Ok(Self {
+            message,
+            slot,
+            bytecode_claim,
+        })
+    }
+}
+
+impl TypeOneInfoWithoutPubkeys {
+    pub(crate) fn with_pubkeys(self, pubkeys: Vec<XmssPublicKey>) -> Option<TypeOneInfo> {
+        if !pubkeys.is_sorted() {
+            return None;
+        }
+        Some(TypeOneInfo {
+            without_pubkeys: self,
+            pubkeys,
+        })
+    }
+}
+
 impl TypeOneInfo {
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
-        flatten_bytecode_claim(&self.bytecode_claim)
+        flatten_bytecode_claim(&self.without_pubkeys.bytecode_claim)
+    }
+
+    pub fn compress_without_pubkeys(&self) -> Vec<u8> {
+        lz4_postcard_encode(&self.without_pubkeys)
+    }
+
+    pub fn decompress_without_pubkeys(bytes: &[u8], pubkeys: Vec<XmssPublicKey>) -> Option<Self> {
+        lz4_postcard_decode::<TypeOneInfoWithoutPubkeys>(bytes)?.with_pubkeys(pubkeys)
     }
 
     pub(crate) fn build_input_data(&self) -> Vec<F> {
-        let tweak_table = compute_tweak_table(self.slot);
+        let tweak_table = compute_tweak_table(self.without_pubkeys.slot);
         let tweaks_hash = poseidon_compress_slice(&tweak_table, TWEAKS_HASHING_USE_IV);
         build_type1_input_data(
             self.pubkeys.len(),
             &hash_pubkeys(&self.pubkeys),
-            &xmss_encode_message(&self.message),
-            self.slot,
+            &xmss_encode_message(&self.without_pubkeys.message),
+            self.without_pubkeys.slot,
             &tweaks_hash,
             &self.bytecode_claim_flat(),
             &get_aggregation_bytecode().hash,
@@ -236,11 +282,11 @@ pub fn aggregate_type_1(
     assert!(children.len() <= MAX_RECURSIONS);
     for child in children {
         assert_eq!(
-            child.info.message, message,
+            child.info.without_pubkeys.message, message,
             "all children of a type-1 aggregation must share the same message"
         );
         assert_eq!(
-            child.info.slot, slot,
+            child.info.without_pubkeys.slot, slot,
             "all children of a type-1 aggregation must share the same slot"
         );
     }
@@ -399,10 +445,12 @@ pub fn aggregate_type_1(
 
     Ok(TypeOneMultiSignature {
         info: TypeOneInfo {
-            message: *message,
-            slot,
+            without_pubkeys: TypeOneInfoWithoutPubkeys {
+                message: *message,
+                slot,
+                bytecode_claim: reduced_claims.final_claim,
+            },
             pubkeys: global_pub_keys,
-            bytecode_claim: reduced_claims.final_claim,
         },
         proof,
     })

@@ -32,6 +32,14 @@ pub(crate) fn compute_bytecode_value_at(point: &MultilinearPoint<EF>) -> EF {
     }
 }
 
+pub(crate) fn evaluation_for_bytecode_point(point: MultilinearPoint<EF>) -> Option<Evaluation<EF>> {
+    if point.len() != get_aggregation_bytecode().cumulated_n_vars() {
+        return None;
+    }
+    let value = compute_bytecode_value_at(&point);
+    Some(Evaluation::new(point, value))
+}
+
 pub(crate) fn reduce_bytecode_claims(verified: &[InnerVerified]) -> ReducedBytecodeClaims {
     let bytecode = get_aggregation_bytecode();
 

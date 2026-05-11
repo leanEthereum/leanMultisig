@@ -5,21 +5,23 @@ use lean_prover::default_whir_config;
 use lean_prover::prove_execution::ExecutionProof;
 use lean_prover::prove_execution::prove_execution;
 use lean_vm::*;
-use leansig_wrapper::MESSAGE_LENGTH;
+use leansig_wrapper::{MESSAGE_LENGTH, XmssPublicKey};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utils::poseidon_compress_slice;
 use utils::poseidon16_compress_pair;
 
 use crate::InnerVerified;
-use crate::bytecode_claims::compute_bytecode_value_at;
+use crate::bytecode_claims::evaluation_for_bytecode_point;
 use crate::bytecode_claims::flatten_bytecode_claim;
 use crate::bytecode_claims::reduce_bytecode_claims;
 use crate::compilation::{
     BYTECODE_CLAIM_OFFSET, MAX_RECURSIONS, PREAMBLE_MEMORY_LEN, TYPE2_FLAG, get_aggregation_bytecode,
 };
-use crate::type_1_aggregation::{TypeOneInfo, TypeOneMultiSignature, extract_merkle_hint_blobs, verify_type_1};
-use crate::verify_inner;
+use crate::type_1_aggregation::{
+    TypeOneInfo, TypeOneInfoWithoutPubkeys, TypeOneMultiSignature, extract_merkle_hint_blobs, verify_type_1,
+};
+use crate::{lz4_postcard_decode, lz4_postcard_encode, verify_inner};
 
 /// A bundle of `n` type-1 multi-signatures with potentially distinct (message, slot) per component, attested by a single snark.
 #[derive(Debug, Clone)]
@@ -39,13 +41,11 @@ impl<'de> Deserialize<'de> for TypeTwoMultiSignature {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let (info, bytecode_claim_point, proof) =
             <(Vec<TypeOneInfo>, MultilinearPoint<EF>, ExecutionProof)>::deserialize(d)?;
-        if bytecode_claim_point.len() != get_aggregation_bytecode().cumulated_n_vars() {
-            return Err(serde::de::Error::custom("invalid bytecode point"));
-        }
-        let bytecode_value = compute_bytecode_value_at(&bytecode_claim_point);
+        let bytecode_claim = evaluation_for_bytecode_point(bytecode_claim_point)
+            .ok_or_else(|| serde::de::Error::custom("invalid bytecode point"))?;
         Ok(TypeTwoMultiSignature {
             info,
-            bytecode_claim: Evaluation::new(bytecode_claim_point, bytecode_value),
+            bytecode_claim,
             proof,
         })
     }
@@ -53,13 +53,35 @@ impl<'de> Deserialize<'de> for TypeTwoMultiSignature {
 
 impl TypeTwoMultiSignature {
     pub fn compress(&self) -> Vec<u8> {
-        let encoded = postcard::to_allocvec(self).expect("postcard serialization failed");
-        lz4_flex::compress_prepend_size(&encoded)
+        lz4_postcard_encode(self)
     }
 
     pub fn decompress(bytes: &[u8]) -> Option<Self> {
-        let decompressed = lz4_flex::decompress_size_prepended(bytes).ok()?;
-        postcard::from_bytes(&decompressed).ok()
+        lz4_postcard_decode(bytes)
+    }
+
+    pub fn compress_without_pubkeys(&self) -> Vec<u8> {
+        let infos: Vec<&TypeOneInfoWithoutPubkeys> = self.info.iter().map(|i| &i.without_pubkeys).collect();
+        lz4_postcard_encode(&(infos, &self.bytecode_claim.point, &self.proof))
+    }
+
+    pub fn decompress_without_pubkeys(bytes: &[u8], pubkeys_per_info: Vec<Vec<XmssPublicKey>>) -> Option<Self> {
+        let (infos_without, bytecode_claim_point, proof) =
+            lz4_postcard_decode::<(Vec<TypeOneInfoWithoutPubkeys>, MultilinearPoint<EF>, ExecutionProof)>(bytes)?;
+        if infos_without.len() != pubkeys_per_info.len() {
+            return None;
+        }
+        let bytecode_claim = evaluation_for_bytecode_point(bytecode_claim_point)?;
+        let info: Vec<TypeOneInfo> = infos_without
+            .into_iter()
+            .zip(pubkeys_per_info)
+            .map(|(without, pks)| without.with_pubkeys(pks))
+            .collect::<Option<_>>()?;
+        Some(Self {
+            info,
+            bytecode_claim,
+            proof,
+        })
     }
 
     pub(crate) fn bytecode_claim_flat(&self) -> Vec<F> {
@@ -181,10 +203,16 @@ pub fn split_type_2_by_msg(
     msg: [u8; MESSAGE_LENGTH],
     log_inv_rate: usize,
 ) -> Result<TypeOneMultiSignature, ProverError> {
-    let Some(index) = type_2.info.iter().position(|info| info.message == msg) else {
+    let Some(index) = type_2.info.iter().position(|info| info.without_pubkeys.message == msg) else {
         return Err(ProverError::UnknownMessage);
     };
-    if type_2.info.iter().filter(|info| info.message == msg).count() > 1 {
+    if type_2
+        .info
+        .iter()
+        .filter(|info| info.without_pubkeys.message == msg)
+        .count()
+        > 1
+    {
         return Err(ProverError::MultipleMessages);
     }
     split_type_2(type_2, index, log_inv_rate)
@@ -212,7 +240,7 @@ pub fn split_type_2(
     let bytecode_value_hint_blob = flatten_scalars_to_base(&[outer_verified.bytecode_evaluation.value]);
 
     let mut outer_type_1 = type_2.info[index].clone();
-    outer_type_1.bytecode_claim = reduced_claims.final_claim.clone();
+    outer_type_1.without_pubkeys.bytecode_claim = reduced_claims.final_claim.clone();
     let ourer_input_data = outer_type_1.build_input_data();
     let outer_digest = poseidon_compress_slice(&ourer_input_data, true);
 

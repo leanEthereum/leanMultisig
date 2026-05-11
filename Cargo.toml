@@ -101,6 +101,9 @@ backend.workspace = true
 serde_json.workspace = true
 system-info.workspace = true
 
+[dev-dependencies]
+serde.workspace = true
+
 
 [profile.release]
 lto = "thin"

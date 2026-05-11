@@ -1261,6 +1261,7 @@ dependencies = [
  "leansig_wrapper",
  "rand 0.10.0",
  "rec_aggregation",
+ "serde",
  "serde_json",
  "sub_protocols",
  "system-info",
