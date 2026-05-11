@@ -1,7 +1,7 @@
 // Tests for arena bounds checking in symbolic expression handling.
 // Addresses issue #170: unchecked arena index enables out-of-bounds reads.
 
-use field::{Field, PrimeCharacteristicRing};
+use field::PrimeCharacteristicRing;
 use koala_bear::KoalaBear;
 use mt_air::{SymbolicExpression, get_node};
 
