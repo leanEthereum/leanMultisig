@@ -145,7 +145,19 @@ impl<'a, F: ExtensionField<PF<F>> + 'static> BranchingProgram<'a, F> {
 
     /// Evaluate `g_u(z_row, z_col, z_index, t_prev, t_next)` where `t_prev`
     /// and `t_next` are the column prefix sums encoded as length-m bit
-    /// vectors over `F` (each entry must be 0 or 1).
+    /// vectors over `F`. **Each entry of `t_prev` and `t_next` must be
+    /// `F::ZERO` or `F::ONE`** -- a hard requirement of the BP semantics
+    /// (these vectors represent integers via their binary expansion). The
+    /// verifier enforces this booleanity check in `jagged_parse_commitment`
+    /// before any BP evaluation.
+    ///
+    /// We exploit this booleanity to compute the per-layer eq weights over
+    /// only the 3 general-field inputs `(row, col, idx)` -- 8 weights, ~7
+    /// multiplications -- and use the boolean `prev` and `next` bits to
+    /// pick which 5D combo each weight contributes to. The naive version
+    /// computed eq over all 5 inputs (32 weights, ~31 multiplications) and
+    /// iterated all 32 combos in the transition-matrix build; this cuts
+    /// both the eq cost and the combo loop by ~4x.
     ///
     /// `z_row` may be longer than `m - log_width` (the number of LSB
     /// positions the BP actually reads from it). In that case the trailing
@@ -181,21 +193,42 @@ impl<'a, F: ExtensionField<PF<F>> + 'static> BranchingProgram<'a, F> {
         for layer in (0..self.log_dense_size).rev() {
             let p = layer; // LSB position read at this layer
 
-            let bits_eq = [
+            // 3-input eq over (row, col, idx) -- 8 weights. With `eval_eq`'s
+            // convention (last input becomes LSB of the output index),
+            // weights_3d[i] has row=(i>>2)&1, col=(i>>1)&1, idx=i&1.
+            let bits_eq_3d = [
                 self.row_bit(p),
                 Self::lsb_be(self.z_col, p),
                 Self::lsb_be(self.z_index, p),
-                Self::lsb_be(t_prev, p),
-                Self::lsb_be(t_next, p),
             ];
+            let weights_3d = eval_eq::<F>(&bits_eq_3d);
 
-            // 32 weights, one per (row, col, idx, prev, next) ∈ {0,1}^5.
-            let weights = eval_eq::<F>(&bits_eq);
+            // `prev` and `next` bits are booleans (`F::ZERO` or `F::ONE`).
+            // Only the 8 combos with `combo.prev == prev_is_one` and
+            // `combo.next == next_is_one` carry a non-zero 5D weight; for
+            // those, the 5D weight equals the corresponding 3D weight.
+            let prev_bit = Self::lsb_be(t_prev, p);
+            let next_bit = Self::lsb_be(t_next, p);
+            debug_assert!(
+                prev_bit == F::ZERO || prev_bit == F::ONE,
+                "BP: t_prev bit at position {p} must be 0/1, got {prev_bit:?}"
+            );
+            debug_assert!(
+                next_bit == F::ZERO || next_bit == F::ONE,
+                "BP: t_next bit at position {p} must be 0/1, got {next_bit:?}"
+            );
+            let prev_is_one = prev_bit != F::ZERO;
+            let next_is_one = next_bit != F::ZERO;
 
-            // Group transition outputs by (state, output_state).
             let mut transition_weight: [[F; W]; W] = [[F::ZERO; W]; W];
-            for (combo_idx, &weight) in weights.iter().enumerate().take(N_BIT_COMBOS) {
-                let combo = BitCombo::from_index(combo_idx);
+            for (combo_3d_idx, &weight) in weights_3d.iter().enumerate().take(8) {
+                let combo = BitCombo {
+                    row: (combo_3d_idx >> 2) & 1 == 1,
+                    col: (combo_3d_idx >> 1) & 1 == 1,
+                    idx: combo_3d_idx & 1 == 1,
+                    prev: prev_is_one,
+                    next: next_is_one,
+                };
                 for &state in &states {
                     if let Some(next_state) = transition(state, combo) {
                         transition_weight[state.idx()][next_state.idx()] += weight;
