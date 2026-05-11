@@ -2,7 +2,7 @@ use backend::*;
 use lean_vm::{EF, F};
 use tracing::{info_span, instrument};
 
-use super::config::{JaggedConfig, pack_dense, usize_to_bits, usize_to_point};
+use super::config::{JaggedConfig, pack_dense, usize_to_bits};
 
 /// Output of [`jagged_commit`]. Holds the dense polynomial together with the
 /// underlying WHIR commitment witness, so that [`jagged_open`] can both
@@ -188,164 +188,74 @@ pub fn jagged_open(
 ///
 /// For a regular claim `j` against column `(y_j, c_j)` at row-point `z_row_j`:
 ///   `f_hat_j(i)` (on cube) = `eq(z_row_j, row(i)) * eq(z_col_j, col(i)) * 1[i in y_j]`
+/// where `z_col_j = bits(c_j)` is on the boolean cube, so `eq(z_col_j, c)`
+/// is the indicator `1[c == c_j]`. The "outer product over columns"
+/// therefore collapses to a single stride write per row:
+///   `f[base_j + r * width_j + c_j] += alpha_j * eq(z_row_j, r)` for `r in
+///   [0, h_y)`. The previous implementation iterated `c` from 0 to `width`
+///   and multiplied by `z_col_eq[c]`, which is `width - 1`-out-of-`width`
+///   zero. For `log_width = 4` sub-tables that was ~16x of wasted inner-
+///   loop work.
 ///
 /// For a next-claim, the column's data-only next-MLE `D_next(z_row)` equals
 ///   `sum_{r in [1, h-1]} eq(z_row, r-1) * column[r]`,
-/// so the contribution to `F` is the same outer product as a regular claim,
-/// but written one row down (rows `[1, h-1]` indexed by `r-1 in [0, h-2]`).
-/// We implement this by shifting the destination offset by one row width
-/// and reducing the row count by one.
-///
-/// When a regular claim and a next-claim share the same column and `z_row`
-/// (the common case: paired up/down claims from the AIR sumcheck), the two
-/// outer products overlap on rows `[1, h-1)` and can be fused into a single
-/// pass with combined row factor
-///   `rf[r] = alpha_eq * eq(z_row, r) + alpha_next * eq(z_row, r-1)`
-/// (with `eq(z_row, -1) := 0`). This is purely a prover optimization; the
-/// resulting `F` is bit-for-bit identical to the unfused version.
+/// so the contribution to `F` is the same column write but shifted one row
+/// down (`r in [0, h-2]` mapping to cube row `r + 1`). We implement this
+/// by bumping the destination row offset by one row width and reducing
+/// the row count by one.
 fn materialize_f(config: &JaggedConfig, claims: &[JaggedClaim], alphas: &[EF]) -> Vec<EF> {
     let mut f = EF::zero_vec(config.dense_size());
-    let (pairs, singletons) = group_paired_claims(claims);
 
-    for &(eq_idx, next_idx) in &pairs {
-        write_paired_outer_product(
-            &mut f,
-            config,
-            &claims[eq_idx],
-            alphas[eq_idx],
-            &claims[next_idx],
-            alphas[next_idx],
-        );
-    }
-    for &idx in &singletons {
-        write_single_outer_product(&mut f, config, &claims[idx], alphas[idx]);
-    }
-
-    f
-}
-
-/// Find (regular, next) claim pairs that share column and `z_row` so the
-/// F-materialization can fuse them. Returns `(pairs, singletons)` where
-/// `pairs[i] = (eq_idx, next_idx)` are indices into `claims` and `singletons`
-/// covers everything else (in original order).
-fn group_paired_claims(claims: &[JaggedClaim]) -> (Vec<(usize, usize)>, Vec<usize>) {
-    use std::collections::HashMap;
-
-    // Bucket by (sub_table_id, col_in_sub_table). Within each bucket we then
-    // greedily match each regular claim to a not-yet-matched next-claim with
-    // the same z_row and padding_value.
-    let mut buckets: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
-    for (i, claim) in claims.iter().enumerate() {
-        buckets
-            .entry((claim.sub_table_id, claim.col_in_sub_table))
-            .or_default()
-            .push(i);
-    }
-
-    let mut pairs: Vec<(usize, usize)> = Vec::new();
-    let mut consumed = vec![false; claims.len()];
-
-    for indices in buckets.values() {
-        let next_inds: Vec<usize> = indices.iter().copied().filter(|&i| claims[i].is_next).collect();
-        for &e in indices.iter().filter(|&&i| !claims[i].is_next) {
-            for &n in &next_inds {
-                if consumed[n] {
-                    continue;
-                }
-                if claims[e].padding_value != claims[n].padding_value {
-                    continue;
-                }
-                if claims[e].z_row.0 != claims[n].z_row.0 {
-                    continue;
-                }
-                pairs.push((e, n));
-                consumed[e] = true;
-                consumed[n] = true;
+    // Batch consecutive claims that share `(sub_table_id, is_next, z_row)`.
+    // `build_jagged_claims` emits all column claims for one AIR sumcheck
+    // point as a contiguous run, so each batch typically covers all
+    // `#cols_in_sub_table` columns for a single (table, point, up/down).
+    // Within a batch we run ONE pass over the sub-table's row range,
+    // depositing every batched column's `alpha_j * z_row_eq[r]` into its
+    // own slot of the row chunk. This (a) shares the eq computation across
+    // the batch and (b) keeps memory writes contiguous within each row
+    // instead of doing K stride passes (one per column).
+    let mut i = 0;
+    while i < claims.len() {
+        let head = &claims[i];
+        let mut j = i + 1;
+        while j < claims.len() {
+            let c = &claims[j];
+            if c.sub_table_id != head.sub_table_id || c.is_next != head.is_next || c.z_row.0 != head.z_row.0 {
                 break;
             }
+            j += 1;
         }
-    }
 
-    let singletons: Vec<usize> = (0..claims.len()).filter(|&i| !consumed[i]).collect();
-    (pairs, singletons)
-}
+        let st = config.sub_tables[head.sub_table_id];
+        let base = config.cumulative_areas[head.sub_table_id];
+        let width = 1usize << st.log_width;
 
-/// One outer product into `f` for a single (regular or next) claim. Mirrors
-/// the per-claim contribution of the original unfused materialization.
-fn write_single_outer_product(f: &mut [EF], config: &JaggedConfig, claim: &JaggedClaim, alpha: EF) {
-    let st = config.sub_tables[claim.sub_table_id];
-    let base = config.cumulative_areas[claim.sub_table_id];
-    let width = 1usize << st.log_width;
-    let z_row_eq = eval_eq::<EF>(&claim.z_row);
-    let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
-    let z_col_eq = eval_eq::<EF>(&z_col_point);
-
-    let (effective_base, effective_rows) = if claim.is_next {
-        if st.height < 2 {
-            return;
-        }
-        (base + width, st.height - 1)
-    } else {
-        (base, st.height)
-    };
-
-    f[effective_base..effective_base + effective_rows * width]
-        .par_chunks_mut(width)
-        .enumerate()
-        .for_each(|(r, chunk)| {
-            let row_factor = alpha * z_row_eq[r];
-            for (c, slot) in chunk.iter_mut().enumerate() {
-                *slot += row_factor * z_col_eq[c];
+        let (effective_base, effective_rows) = if head.is_next {
+            if st.height < 2 {
+                i = j;
+                continue;
             }
-        });
-}
+            (base + width, st.height - 1)
+        } else {
+            (base, st.height)
+        };
 
-/// Fused outer product for a (regular, next) pair that shares column and
-/// `z_row`. The combined row factor is
-///   `rf[0]        = alpha_eq * eq(z_row, 0)`
-///   `rf[r in 1..h] = alpha_eq * eq(z_row, r) + alpha_next * eq(z_row, r-1)`
-/// and the outer product `rf[r] * z_col_eq[c]` is written at offset
-/// `base + r*width + c` for `r in [0, h)`. This covers `h` row slots with
-/// one pass, vs. `2h - 1` row slots in two unfused passes (rows `[1, h-1)`
-/// are written by both contributions in the unfused version).
-fn write_paired_outer_product(
-    f: &mut [EF],
-    config: &JaggedConfig,
-    claim_eq: &JaggedClaim,
-    alpha_eq: EF,
-    claim_next: &JaggedClaim,
-    alpha_next: EF,
-) {
-    debug_assert!(!claim_eq.is_next && claim_next.is_next);
-    debug_assert_eq!(claim_eq.sub_table_id, claim_next.sub_table_id);
-    debug_assert_eq!(claim_eq.col_in_sub_table, claim_next.col_in_sub_table);
-    debug_assert_eq!(claim_eq.padding_value, claim_next.padding_value);
-    debug_assert_eq!(claim_eq.z_row.0, claim_next.z_row.0);
+        let z_row_eq = eval_eq::<EF>(&head.z_row);
+        let batch = &claims[i..j];
+        let batch_alphas = &alphas[i..j];
 
-    let st = config.sub_tables[claim_eq.sub_table_id];
-    if st.height == 0 {
-        return;
+        f[effective_base..effective_base + effective_rows * width]
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(r, chunk)| {
+                let row_val = z_row_eq[r];
+                for (claim, &alpha) in batch.iter().zip(batch_alphas) {
+                    chunk[claim.col_in_sub_table] += alpha * row_val;
+                }
+            });
+
+        i = j;
     }
-    let base = config.cumulative_areas[claim_eq.sub_table_id];
-    let width = 1usize << st.log_width;
-    let z_row_eq = eval_eq::<EF>(&claim_eq.z_row);
-    let z_col_point = usize_to_point(claim_eq.col_in_sub_table, st.log_width);
-    let z_col_eq = eval_eq::<EF>(&z_col_point);
-
-    // Combined row factor of length `st.height`.
-    let mut rf: Vec<EF> = Vec::with_capacity(st.height);
-    rf.push(alpha_eq * z_row_eq[0]);
-    for r in 1..st.height {
-        rf.push(alpha_eq * z_row_eq[r] + alpha_next * z_row_eq[r - 1]);
-    }
-
-    f[base..base + st.height * width]
-        .par_chunks_mut(width)
-        .enumerate()
-        .for_each(|(r, chunk)| {
-            let row_factor = rf[r];
-            for (c, slot) in chunk.iter_mut().enumerate() {
-                *slot += row_factor * z_col_eq[c];
-            }
-        });
+    f
 }
