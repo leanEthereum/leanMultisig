@@ -4,7 +4,7 @@ use std::ops::{Add, AddAssign, Mul, Sub};
 
 use backend::*;
 use lean_vm::ColIndex;
-use tracing::info_span;
+use tracing::{info_span, instrument};
 
 // Sumcheck to prove validity of AIR constraints
 //
@@ -444,6 +444,7 @@ where
     acc.into_iter().map(unpack_sum).collect()
 }
 
+#[instrument(skip_all)]
 pub fn prove_batched_air_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut impl FSProver<EF>,
     sessions: &mut [Box<dyn OuterSumcheckSession<EF> + 'a>],
