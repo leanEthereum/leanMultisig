@@ -119,7 +119,7 @@ fn sbox7(x: F) -> F {
     x4 * x2 * x
 }
 
-pub(crate) fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGEST]) {
+pub fn compute_poseidon8_witness(input: [F; WIDTH]) -> (Vec<F>, [F; DIGEST]) {
     let c = get_partial_constants();
     let mut state = input;
     let mut aux = Vec::with_capacity(AUX_COLS_PER_ROW);
@@ -356,7 +356,7 @@ impl<const BUS: bool> TableT for Poseidon8Precompile<BUS> {
 }
 
 /// Constraint count, computed once at monomorphisation. Must match the number
-/// of `assert_*` / `eval_virtual_column` / `declare_values` calls issued in
+/// of `assert_*` / `declare_values` calls issued in
 /// `eval()` exactly; used by the proving pipeline for pre-allocation.
 const fn poseidon8_n_constraints(bus: bool) -> usize {
     // 1 boolean flag.
@@ -447,7 +447,7 @@ impl<const BUS: bool> Air for Poseidon8Precompile<BUS> {
 
         // Phase 2 — bus / declare.
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 flag,
                 &[precompile_data_reconstructed, index_a, index_b, index_res],

@@ -47,13 +47,6 @@ def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, nu
 
 
 def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks: Const):
-    # num_chunks=1 is a trivial pass-through: the "hash" of a single digest is
-    # the digest itself. Handled inline here so `slice_hash_rtl` never has to
-    # deal with num_chunks<2 (it would otherwise generate invalid offsets).
-    if num_chunks == 1:
-        for i in range(0, num_queries):
-            all_resulting_hashes[i] = all_data_to_hash[i]
-        return
     for i in range(0, num_queries):
         data = all_data_to_hash[i]
         res = slice_hash_rtl(data, num_chunks)
@@ -63,10 +56,6 @@ def batch_hash_slice_rtl_const(num_queries, all_data_to_hash, all_resulting_hash
 
 @inline
 def slice_hash_rtl(data, num_chunks):
-    # Precondition: num_chunks >= 2. Callers must dispatch the num_chunks=1 case
-    # separately (the single chunk is its own hash). Without this the generated
-    # offset `data + (num_chunks-2) * DIGEST_LEN` underflows for num_chunks=1
-    # and confuses @inline expansion.
     states = Array((num_chunks - 1) * DIGEST_LEN)
 
     poseidon8_compress(data + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, states)
@@ -83,57 +72,36 @@ def slice_hash(data, num_chunks):
         poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
 
+def slice_hash_with_iv_range(data, num_chunks, dest):
+    debug_assert(0 < num_chunks)
+    debug_assert(2 < num_chunks)
+    states = Array((num_chunks - 1) * DIGEST_LEN)
+    poseidon8_compress(ZERO_VEC_PTR, data, states)
+    for j in range(1, num_chunks - 1):
+        poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    poseidon8_compress(states + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, dest)
+    return
 
 @inline
-def slice_hash_with_iv(data, num_chunks):
-    debug_assert(0 < num_chunks)
+def slice_hash_with_iv(data, num_chunks, dest):
+    debug_assert(2 <= num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
     poseidon8_compress(ZERO_VEC_PTR, data, states)
-    for j in unroll(1, num_chunks):
+    for j in unroll(1, num_chunks - 1):
         poseidon8_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
-    return states + (num_chunks - 1) * DIGEST_LEN
+    poseidon8_compress(states + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, dest)
+    return
 
 
-def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
-    remainder = modulo_8(len, len_bits)
-    num_full_elements = len - remainder
-    num_full_chunks = num_full_elements / DIGEST_LEN
+def slice_hash_with_iv_dynamic_unroll(data, num_chunks, num_chunks_bits: Const):
+    debug_assert(num_chunks != 0)
+    debug_assert(num_chunks < 2**num_chunks_bits)
 
-    if num_full_chunks == 0:
-        left = Array(DIGEST_LEN)
-        fill_padded_chunk(left, data, remainder)
+    if num_chunks == 1:
         result = Array(DIGEST_LEN)
-        poseidon8_compress(ZERO_VEC_PTR, left, result)
+        poseidon8_compress(ZERO_VEC_PTR, data, result)
         return result
 
-    if num_full_chunks == 1:
-        if remainder == 0:
-            result = Array(DIGEST_LEN)
-            poseidon8_compress(ZERO_VEC_PTR, data, result)
-            return result
-        else:
-            h0 = Array(DIGEST_LEN)
-            poseidon8_compress(ZERO_VEC_PTR, data, h0)
-            right = Array(DIGEST_LEN)
-            fill_padded_chunk(right, data + DIGEST_LEN, remainder)
-            result = Array(DIGEST_LEN)
-            poseidon8_compress(h0, right, result)
-            return result
-
-    partial_hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
-    if remainder == 0:
-        return partial_hash
-    else:
-        padded_last = Array(DIGEST_LEN)
-        fill_padded_chunk(padded_last, data + num_full_elements, remainder)
-        final_hash = Array(DIGEST_LEN)
-        poseidon8_compress(partial_hash, padded_last, final_hash)
-        return final_hash
-
-
-@inline
-def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
-    debug_assert(1 < num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
     poseidon8_compress(ZERO_VEC_PTR, data, states)
     n_iters = num_chunks - 1
@@ -145,41 +113,6 @@ def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
         state_ptr = new_state
         data_ptr = data_ptr + DIGEST_LEN
     return state_ptr
-
-
-def fill_padded_chunk(dst, src, n):
-    debug_assert(0 < n)
-    debug_assert(n < DIGEST_LEN)
-    match_range(n, range(1, DIGEST_LEN), lambda r: fill_padded_chunk_const(dst, src, r))
-    return
-
-
-def fill_padded_chunk_const(dst, src, n: Const):
-    for i in unroll(0, n):
-        dst[i] = src[i]
-    for i in unroll(n, DIGEST_LEN):
-        dst[i] = 0
-    return
-
-
-def modulo_8(n, n_bits: Const):
-    # Name is legacy; returns `n mod DIGEST_LEN`. For DIGEST_LEN=4 (Goldilocks)
-    # this is the low 2 bits of n; for DIGEST_LEN=8 (KoalaBear) it's the low 3.
-    debug_assert(1 < n_bits)
-    debug_assert(n < 2**n_bits)
-    bits = Array(n_bits)
-    hint_decompose_bits(n, bits, n_bits, BIG_ENDIAN)
-    partial_sums = Array(n_bits)
-    partial_sums[0] = bits[n_bits - 1]
-    assert partial_sums[0] * (1 - partial_sums[0]) == 0
-    for i in unroll(1, n_bits):
-        b = bits[n_bits - 1 - i]
-        assert b * (1 - b) == 0
-        partial_sums[i] = partial_sums[i - 1] + b * 2**i
-    assert n == partial_sums[n_bits - 1]
-    # DIGEST_LEN = 2^DIGEST_LEN_BITS; we want partial_sums[DIGEST_LEN_BITS - 1]
-    # (low DIGEST_LEN_BITS bits). log2(4) = 2 → index 1; log2(8) = 3 → index 2.
-    return partial_sums[log2_ceil(DIGEST_LEN) - 1]
 
 
 @inline

@@ -36,6 +36,8 @@ pub fn poseidon8_compress_pair(left: &[Goldilocks; 4], right: &[Goldilocks; 4]) 
 /// If `use_iv` is false, the length of the slice must be constant (not malleable).
 pub fn poseidon_compress_slice(data: &[Goldilocks], use_iv: bool) -> [Goldilocks; 4] {
     assert!(!data.is_empty());
+    // Goldilocks DIGEST_LEN = 4: input slice must align to one digest.
+    assert!(data.len().is_multiple_of(4));
     if use_iv {
         let mut hash = [Goldilocks::default(); 4];
         for chunk in data.chunks(4) {

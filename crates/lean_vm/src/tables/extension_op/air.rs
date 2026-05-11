@@ -129,7 +129,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let idx_r = up[COL_IDX_RES];
 
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 activation_flag,
                 &[aux, idx_a, idx_b, idx_r],

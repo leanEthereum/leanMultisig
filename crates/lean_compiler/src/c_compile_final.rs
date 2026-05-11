@@ -150,12 +150,6 @@ pub fn compile_to_low_level_bytecode(
         pc_to_location.push(current_location);
     }
 
-    let instructions_multilinear_packed = pack_extension(
-        &instructions_multilinear
-            .par_iter()
-            .map(|&pf| EF::from(pf))
-            .collect::<Vec<EF>>(),
-    );
     let hash = poseidon_compress_slice(&instructions_multilinear, true);
 
     let code: Vec<_> = instructions
@@ -171,7 +165,6 @@ pub fn compile_to_low_level_bytecode(
     Ok(Bytecode {
         code,
         instructions_multilinear,
-        instructions_multilinear_packed,
         hash,
         starting_frame_memory,
         function_locations,

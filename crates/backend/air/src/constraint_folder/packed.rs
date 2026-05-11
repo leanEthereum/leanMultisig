@@ -9,10 +9,6 @@ pub struct ConstraintFolderPacked<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData:
     pub extra_data: &'a ExtraData,
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
-    pub skip_low: bool,
-    pub accumulator_low: EFPacking<EF>,
-    pub cached_state: Option<Vec<IF>>,
-    pub low_ci_count: usize,
 }
 
 impl<'a, IF, EF, ExtraData> ConstraintFolderPacked<'a, IF, EF, ExtraData>
@@ -28,10 +24,6 @@ where
             extra_data,
             accumulator: EFPacking::<EF>::ZERO,
             constraint_index: 0,
-            skip_low: false,
-            accumulator_low: EFPacking::<EF>::ZERO,
-            cached_state: None,
-            low_ci_count: 0,
         }
     }
 }
@@ -69,10 +61,5 @@ where
         let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
         self.accumulator += EFPacking::<EF>::from(alpha_power) * x;
         self.constraint_index += 1;
-    }
-
-    #[inline]
-    fn eval_virtual_column(&mut self, x: Self::EF) {
-        self.assert_zero_ef(x);
     }
 }

@@ -60,9 +60,4 @@ where
         self.accumulator += alpha_power * x;
         self.constraint_index += 1;
     }
-
-    #[inline]
-    fn eval_virtual_column(&mut self, x: Self::EF) {
-        self.assert_zero_ef(x);
-    }
 }

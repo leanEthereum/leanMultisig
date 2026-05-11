@@ -152,4 +152,13 @@ impl<EF: ExtensionField<PF<EF>>> MleOwned<EF> {
         }
         self
     }
+
+    pub fn as_constant(&self) -> EF {
+        assert_eq!(self.n_vars(), 0);
+        match self {
+            Self::Base(v) => EF::from(v[0]),
+            Self::Extension(v) => v[0],
+            _ => unreachable!(),
+        }
+    }
 }

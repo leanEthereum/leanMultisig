@@ -37,6 +37,8 @@ pub const SNARK_DOMAIN_SEP: [F; 4] = F::new_array([
 ]);
 
 pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
+    assert!(0 < starting_log_inv_rate);
+    assert!(starting_log_inv_rate <= MAX_WHIR_LOG_INV_RATE);
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(WHIR_INITIAL_FOLDING_FACTOR, WHIR_SUBSEQUENT_FOLDING_FACTOR),
         soundness_type: if cfg!(feature = "prox-gaps-conjecture") {
@@ -64,6 +66,8 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
 pub enum ProverError {
     TooBigTable(TooBigTableError),
     Runner(RunnerError),
+    UnknownMessage,
+    MultipleMessages,
 }
 
 impl From<TooBigTableError> for ProverError {
@@ -83,6 +87,8 @@ impl Display for ProverError {
         match self {
             Self::TooBigTable(e) => write!(f, "{}", e),
             Self::Runner(e) => write!(f, "{}", e),
+            Self::UnknownMessage => write!(f, "Unknown message, not part of the type2"),
+            Self::MultipleMessages => write!(f, "Multiple common messages in the type2"),
         }
     }
 }

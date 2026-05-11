@@ -36,10 +36,10 @@ pub const WOTS_SIG_SIZE_FE: usize = RANDOMNESS_LEN_FE + V * XMSS_DIGEST_LEN;
 pub const LOG_LIFETIME: usize = 32;
 
 // Tweak: domain separation within each hash.
-pub(crate) const TWEAK_TYPE_CHAIN: usize = 0;
-pub(crate) const TWEAK_TYPE_WOTS_PK: usize = 1;
-pub(crate) const TWEAK_TYPE_MERKLE: usize = 2;
-pub(crate) const TWEAK_TYPE_ENCODING: usize = 3;
+pub const TWEAK_TYPE_CHAIN: usize = 0;
+pub const TWEAK_TYPE_WOTS_PK: usize = 1;
+pub const TWEAK_TYPE_MERKLE: usize = 2;
+pub const TWEAK_TYPE_ENCODING: usize = 3;
 
 const _: () = assert!(V.is_multiple_of(2)); // For efficiency of the snark (we can batch chains in pairs)
 
@@ -50,7 +50,7 @@ const _: () = assert!(V.is_multiple_of(2)); // For efficiency of the snark (we c
 ///   bits  0..32 : index (u32)
 ///   bits 32..42 : sub_position (10 bits)
 ///   bits 42..44 : tweak_type (2 bits)
-pub(crate) fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> [F; TWEAK_LEN] {
+pub fn make_tweak(tweak_type: usize, sub_position: usize, index: u32) -> [F; TWEAK_LEN] {
     assert!(tweak_type < 4);
     assert!(sub_position < 1 << 10);
     let packed = ((tweak_type as u64) << 42) | ((sub_position as u64) << 32) | u64::from(index);

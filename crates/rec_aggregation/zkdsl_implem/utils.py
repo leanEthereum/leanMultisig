@@ -370,7 +370,6 @@ def zero_ef(a):
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
-
 @inline
 def zero_digest_tail(a):
     # Zero DIGEST_LEN-1 entries — typically called on `ptr + 1` after writing a
@@ -413,7 +412,6 @@ def copy_poseidon_input(a, b):
     copy_digest(a, b)
     copy_digest(a + DIGEST_LEN, b + DIGEST_LEN)
     return
-
 
 @inline
 def copy_many_ef(a, b, n):
@@ -677,6 +675,18 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
         else:
             res = mul_extension_ret(p, res)
     return res
+
+
+def mle_of_zeros_then_ones_pow2(point, log_n_zeros: Const, n_vars):
+    debug_assert(log_n_zeros <= n_vars)
+    if log_n_zeros == n_vars:
+        return ZERO_VEC_PTR
+    n_factors = n_vars - log_n_zeros
+    prod: Mut = one_minus_self_extension_ret(point)
+    for i in range(1, n_factors):
+        new_prod = mul_extension_ret(prod, one_minus_self_extension_ret(point + i * DIM))
+        prod = new_prod
+    return sub_base_extension_ret(1, prod)
 
 
 @inline

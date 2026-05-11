@@ -506,7 +506,7 @@ dot_product_ee(x, y, z)              # z = x * y
 
 # Copy extension element (multiply by [1,0,0,0,0]).
 # `ONE_EF_PTR` is a guest-program constant that the program must materialize
-# in its preamble memory at startup; see `crates/rec_aggregation/utils.py`
+# in its preamble memory at startup; see `crates/rec_aggregation/zkdsl_implem/utils.py`
 # for an example (`build_preamble_memory`).
 dot_product_ee(src, ONE_EF_PTR, dst)
 
