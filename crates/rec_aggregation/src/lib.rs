@@ -13,7 +13,9 @@ pub use compilation::{
 use lean_prover::verify_execution::verify_execution;
 use lean_vm::{DIGEST_LEN, EF, F};
 pub use type_1_aggregation::{TypeOneInfo, TypeOneMultiSignature, aggregate_type_1, verify_type_1};
-pub use type_2_aggregation::{TypeTwoMultiSignature, merge_many_type_1, split_type_2, verify_type_2};
+pub use type_2_aggregation::{
+    TypeTwoMultiSignature, merge_many_type_1, split_type_2, split_type_2_by_msg, verify_type_2,
+};
 use utils::poseidon_compress_slice;
 
 #[allow(missing_debug_implementations)]

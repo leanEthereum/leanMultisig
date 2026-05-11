@@ -5,7 +5,10 @@ use lean_multisig::{
     verify_type_1, verify_type_2,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use rec_aggregation::benchmark::{AggregationTopology, run_aggregation_benchmark};
+use rec_aggregation::{
+    benchmark::{AggregationTopology, run_aggregation_benchmark},
+    split_type_2_by_msg,
+};
 use xmss::{
     signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark},
     xmss_key_gen, xmss_sign, xmss_verify,
@@ -110,7 +113,7 @@ fn test_type_2_aggregation() {
     let split_a = split_type_2(type2.clone(), 0, log_inv_rate).unwrap();
     println!("split index 0: {:.2}s", time.elapsed().as_secs_f64());
     let time = Instant::now();
-    let split_b = split_type_2(type2, 1, log_inv_rate).unwrap();
+    let split_b = split_type_2_by_msg(type2, message_b, log_inv_rate).unwrap();
     println!("split index 1: {:.2}s", time.elapsed().as_secs_f64());
     assert_eq!(
         (split_a.info.message, &split_a.info.slot, &split_a.info.pubkeys),
