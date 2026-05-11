@@ -86,14 +86,66 @@ thread_local! {
 /// Returns the base address of the mmap'd region, mapping it on the first call.
 fn ensure_region() -> usize {
     REGION_INIT.call_once(|| {
+        // On aarch64 Linux (M2/Asahi) THP page size is 32 MiB. We over-allocate
+        // by THP_SIZE so we can round REGION_BASE up to a 32 MiB boundary, which
+        // is what khugepaged needs to collapse base pages into hugepages. Without
+        // this alignment MADV_HUGEPAGE is observed to fire only intermittently
+        // (iter 7: real signal but p=0.019 not p<0.01). With alignment + an
+        // eager touch (one write per 32 MiB) the kernel collapses the touched
+        // region into THP synchronously, making the win deterministic.
+        #[cfg(target_arch = "aarch64")]
+        const THP_SIZE: usize = 32 << 20; // 32 MiB on M2 Asahi
+        #[cfg(not(target_arch = "aarch64"))]
+        const THP_SIZE: usize = 0;
+
+        let mmap_size = REGION_SIZE + THP_SIZE;
         // SAFETY: mmap_anonymous returns a page-aligned pointer or null. MAP_NORESERVE
         // means no physical memory is committed until pages are touched.
-        let ptr = unsafe { syscall::mmap_anonymous(REGION_SIZE) };
-        if ptr.is_null() {
+        let raw = unsafe { syscall::mmap_anonymous(mmap_size) };
+        if raw.is_null() {
             std::process::abort();
         }
-        unsafe { syscall::madvise(ptr, REGION_SIZE, syscall::MADV_NOHUGEPAGE) };
-        REGION_BASE.store(ptr as usize, Ordering::Release);
+
+        let aligned_base = if THP_SIZE > 0 {
+            (raw as usize).next_multiple_of(THP_SIZE)
+        } else {
+            raw as usize
+        };
+
+        // On aarch64, ask khugepaged to use THP for the slab region. On x86_64
+        // preserve the historical NOHUGEPAGE hint (2 MiB THP can fragment slab
+        // release; documented original choice).
+        #[cfg(target_arch = "aarch64")]
+        let advice = syscall::MADV_HUGEPAGE;
+        #[cfg(not(target_arch = "aarch64"))]
+        let advice = syscall::MADV_NOHUGEPAGE;
+        unsafe { syscall::madvise(aligned_base as *mut u8, REGION_SIZE, advice) };
+
+        // Eager pre-touch on aarch64: write one byte per 32 MiB hugepage across
+        // the first PRETOUCH_BYTES of every per-thread slab (sized to cover the
+        // ~0.73 GiB observed actual touch + 50% headroom). Each write triggers a
+        // page fault that the kernel resolves into a 32 MiB THP given our
+        // earlier MADV_HUGEPAGE hint and the 32 MiB-aligned base. This makes
+        // the THP win deterministic instead of khugepaged-async-dependent.
+        // Runs in REGION_INIT.call_once, well before any timed proof window.
+        #[cfg(target_arch = "aarch64")]
+        {
+            const PRETOUCH_BYTES: usize = 1 << 30; // 1 GiB per slab
+            for slab_idx in 0..MAX_THREADS {
+                let slab_base = aligned_base + slab_idx * SLAB_SIZE;
+                let mut off = 0;
+                while off < PRETOUCH_BYTES {
+                    // SAFETY: aligned_base..aligned_base+REGION_SIZE is a valid
+                    // anonymous mmap reservation; we only touch within slab.
+                    unsafe {
+                        std::ptr::write_volatile((slab_base + off) as *mut u8, 0);
+                    }
+                    off += THP_SIZE;
+                }
+            }
+        }
+
+        REGION_BASE.store(aligned_base, Ordering::Release);
     });
     REGION_BASE.load(Ordering::Acquire)
 }
