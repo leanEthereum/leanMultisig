@@ -76,12 +76,12 @@ pub fn jagged_parse_commitment(
 
 /// Verify a jagged opening proof.
 ///
-/// Mirrors [`super::prover::jagged_open`]: rebuild the batched sumcheck
-/// claim, verify the product sumcheck, decouple `q(i*) * F(i*)` using the
-/// prover-supplied `q(i*)`, recompute `F(i*)` by evaluating the width-6
-/// branching program once per claim (since each claim's `z_tab` is on cube,
-/// only one sub-table contributes per claim), and forward the dense WHIR
-/// claim to the underlying verifier.
+/// Mirrors [`super::prover::jagged_open`]: sample the batching alphas,
+/// compute the (padding-corrected) combined claim value `v_combined`, then
+/// hand `(v_combined, BP-based F(i*) callback)` to WHIR as a raw weighted
+/// statement. WHIR's own sumcheck folds `<polynomial, F> = v_combined`
+/// internally; this routine no longer runs (or verifies) a dedicated
+/// jagged sumcheck.
 pub fn jagged_verify(
     config: &JaggedConfig,
     parsed: &ParsedJaggedCommitment,
@@ -122,67 +122,57 @@ pub fn jagged_verify(
         })
         .sum();
 
-    // 3. Verify the product sumcheck (degree 2, m rounds).
-    let sumcheck = sumcheck_verify(verifier_state, m, 2, v_combined, None)?;
-    let sumcheck_point = sumcheck.point;
-    let sumcheck_value = sumcheck.value;
-
-    // 4. Receive q(i*).
-    let q_at_istar = verifier_state.next_extension_scalar()?;
-
-    // 5. Recompute F(i*) via per-claim BP evals.
+    // 3. Pre-cache the EF-lifted cumulative_area bits, plus one shifted
+    // copy per sub-table actually used by a next-claim. We do this OUTSIDE
+    // the WHIR callback so the closure doesn't capture mutable state.
     let cumulative_area_bits_ef: Vec<Vec<EF>> = parsed
         .cumulative_area_bits
         .iter()
         .map(|bits| bits.iter().map(|&b| EF::from(b)).collect())
         .collect();
-
-    // For next-claims we need the bit vector of `t_prev + 2^{c_y}`. Cache one
-    // shifted vector per (sub_table_id, log_width) actually used.
     let mut shifted_t_prev_cache: std::collections::BTreeMap<usize, Vec<EF>> = Default::default();
-
-    let mut f_at_istar = EF::ZERO;
-    for (claim, &alpha) in claims.iter().zip(&alphas) {
-        let st = config.sub_tables[claim.sub_table_id];
-        let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
-
-        // Pick t_prev: shifted by 2^{c_y} for next-claims, plain for regular.
-        let t_prev_bits: &[EF] = if claim.is_next {
-            shifted_t_prev_cache.entry(claim.sub_table_id).or_insert_with(|| {
-                let original = config.cumulative_areas[claim.sub_table_id];
-                let shifted = original + (1usize << st.log_width);
-                // Sanity: shifted must remain within [0, t_next] so the BP
-                // semantics ("i = t_prev + ..." with i < t_next) are
-                // consistent. shifted == t_next means the row range is
-                // empty, which corresponds to a height-1 column (where a
-                // next-claim is vacuously zero); the prover skips
-                // materialization in that case.
-                debug_assert!(shifted <= config.cumulative_areas[claim.sub_table_id + 1]);
-                usize_to_bits(shifted, m).into_iter().map(EF::from).collect()
-            });
-            shifted_t_prev_cache.get(&claim.sub_table_id).unwrap()
-        } else {
-            &cumulative_area_bits_ef[claim.sub_table_id]
-        };
-
-        let bp = BranchingProgram {
-            z_row: &claim.z_row,
-            z_col: &z_col_point,
-            z_index: &sumcheck_point,
-            log_width: st.log_width,
-            log_dense_size: m,
-        };
-        let bp_eval = bp.eval(t_prev_bits, &cumulative_area_bits_ef[claim.sub_table_id + 1]);
-        f_at_istar += alpha * bp_eval;
+    for claim in claims {
+        if claim.is_next && !shifted_t_prev_cache.contains_key(&claim.sub_table_id) {
+            let st = config.sub_tables[claim.sub_table_id];
+            let original = config.cumulative_areas[claim.sub_table_id];
+            let shifted = original + (1usize << st.log_width);
+            debug_assert!(shifted <= config.cumulative_areas[claim.sub_table_id + 1]);
+            let bits: Vec<EF> = usize_to_bits(shifted, m).into_iter().map(EF::from).collect();
+            shifted_t_prev_cache.insert(claim.sub_table_id, bits);
+        }
     }
 
-    // 6. Check sumcheck identity.
-    if sumcheck_value != q_at_istar * f_at_istar {
-        return Err(ProofError::InvalidProof);
-    }
+    // 4. Hand `(v_combined, F(i*)-via-BP)` to WHIR. The closure runs once,
+    // after WHIR's sumcheck folds have produced the final point i*.
+    let eval_f_at_final = |i_star: &MultilinearPoint<EF>| -> Vec<EF> {
+        let mut f_at_istar = EF::ZERO;
+        for (claim, &alpha) in claims.iter().zip(&alphas) {
+            let st = config.sub_tables[claim.sub_table_id];
+            let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
+            let t_prev_bits: &[EF] = if claim.is_next {
+                shifted_t_prev_cache.get(&claim.sub_table_id).unwrap()
+            } else {
+                &cumulative_area_bits_ef[claim.sub_table_id]
+            };
+            let bp = BranchingProgram {
+                z_row: &claim.z_row,
+                z_col: &z_col_point,
+                z_index: i_star,
+                log_width: st.log_width,
+                log_dense_size: m,
+            };
+            let bp_eval = bp.eval(t_prev_bits, &cumulative_area_bits_ef[claim.sub_table_id + 1]);
+            f_at_istar += alpha * bp_eval;
+        }
+        vec![f_at_istar]
+    };
 
-    // 7. Verify the underlying WHIR opening.
-    let stmt = SparseStatement::dense(sumcheck_point, q_at_istar);
-    WhirConfig::new(whir_config, m).verify(verifier_state, &parsed.whir, vec![stmt])?;
+    WhirConfig::new(whir_config, m).verify_with_extras(
+        verifier_state,
+        &parsed.whir,
+        vec![],
+        vec![v_combined],
+        eval_f_at_final,
+    )?;
     Ok(())
 }

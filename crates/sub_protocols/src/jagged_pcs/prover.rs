@@ -100,17 +100,22 @@ pub fn jagged_commit(
 
 /// Open the jagged commitment for a batch of per-column evaluation claims.
 ///
-/// Protocol:
-///   1. Sample batching coefficients `alpha_j` and reduce the K claims to a
-///      single sumcheck of `sum_i q(i) * F(i) = sum_j alpha_j * v_j`.
-///   2. Prover materializes `F(i) = sum_j alpha_j * f_hat(point_j, i)` over
-///      the boolean cube; on cube `i`, only the unique sub-table containing
-///      `i` and only claims attached to that sub-table contribute.
-///   3. Run a product sumcheck reducing `(q, F)` to a single point `i*`.
-///   4. Send `q(i*)` so the verifier can decouple `q(i*) * F(i*)` and
-///      compute `F(i*)` itself by evaluating the width-6 branching program
-///      once per claim.
-///   5. Forward the dense claim `q(i*) = ?` to the underlying WHIR.
+/// Protocol (fused with WHIR -- no dedicated jagged sumcheck):
+///   1. Sample batching coefficients `alpha_j`.
+///   2. Combined claim value
+///      `v_combined = sum_j alpha_j * (v_j - padding_adjustment_j)`,
+///      so the underlying claim is about the data-only column `D` rather
+///      than the padded `P`.
+///   3. Materialize `F(i) = sum_j alpha_j * f_hat(point_j, i)` over the
+///      boolean cube; on cube `i`, only the sub-table containing `i` and
+///      only claims attached to that sub-table contribute.
+///   4. Hand `(F, v_combined)` to WHIR as a raw weighted statement. WHIR's
+///      own initial sumcheck folds `polynomial * F` and the claim
+///      `<polynomial, F> = v_combined`, eliminating the dedicated m-round
+///      jagged sumcheck (and the `q(i*)` transcript send) that the
+///      pre-fusion version required. The verifier mirrors this by passing
+///      a BP-based callback that computes `F(i*)` at WHIR's final folding
+///      point.
 #[instrument(skip_all)]
 pub fn jagged_open(
     witness: JaggedPcsWitness,
@@ -144,7 +149,7 @@ pub fn jagged_open(
         );
     }
 
-    // 2. Sample batching alphas.
+    // 2. Sample batching alphas (verifier mirrors this exact sequence).
     let alphas: Vec<EF> = (0..claims.len()).map(|_| prover_state.sample()).collect();
 
     // 3. Combined claim value, adjusted to be about the data-only column `D`
@@ -159,29 +164,24 @@ pub fn jagged_open(
         .sum();
 
     // 4. Materialize F(i) over the cube of size 2^m. Only valid cells in
-    // each sub-table get a non-zero contribution.
+    // each sub-table get a non-zero contribution. Fused (regular, next)
+    // pairs share the eq(z_row, .) computation.
     let f_evals = info_span!("Materialize F(i)").in_scope(|| materialize_f(&config, claims, &alphas));
-    let f_mle = MleOwned::Extension(f_evals);
 
-    // 5. Run the product sumcheck.
-    let dense_ref = dense.by_ref();
-    let f_ref = f_mle.by_ref();
-    let (sumcheck_point, sumcheck_value, _q_folded, _f_folded) = info_span!("Jagged product sumcheck")
-        .in_scope(|| run_product_sumcheck(&dense_ref, &f_ref, prover_state, v_combined, m, 0));
-
-    // 6. Send q(i*) so the verifier can split sumcheck_value = q(i*) * F(i*).
-    let q_at_istar = dense.evaluate(&sumcheck_point);
-    prover_state.add_extension_scalars(&[q_at_istar]);
-    debug_assert_eq!(
-        sumcheck_value,
-        q_at_istar * f_mle.evaluate(&sumcheck_point),
-        "sumcheck value should equal q(i*) * F(i*)"
-    );
-
-    // 7. Forward the dense claim to WHIR.
-    let stmt = SparseStatement::dense(sumcheck_point, q_at_istar);
+    // 5. Hand (F, v_combined) to WHIR as a raw weighted statement. WHIR's
+    // initial sumcheck handles `<polynomial, F> = v_combined` as part of
+    // its first folding rounds; no separate sumcheck needed.
     let whir = WhirConfig::new(whir_config, m);
-    whir.prove(prover_state, vec![stmt], whir_witness, &dense.by_ref());
+    whir.prove_with_extras(
+        prover_state,
+        vec![],
+        vec![RawWeights {
+            cube_weights: f_evals,
+            claimed_sum: v_combined,
+        }],
+        whir_witness,
+        &dense.by_ref(),
+    );
 }
 
 /// Compute the cube-evaluation table of `F(i) = sum_j alpha_j * f_hat_j(i)`.

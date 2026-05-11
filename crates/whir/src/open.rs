@@ -41,12 +41,43 @@ where
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
     ) -> MultilinearPoint<EF> {
+        self.prove_with_extras(prover_state, statement, vec![], witness, polynomial)
+    }
+
+    /// Same as [`Self::prove`], but also lets the caller inject a list of
+    /// pre-built "extra" weight polynomials on the dense cube together with
+    /// their claimed inner-product values. Each extra is added to the
+    /// initial-round combined weight polynomial with the next available
+    /// gamma power, and its claimed sum is folded into the initial
+    /// `combined_sum`. The verifier mirrors this via
+    /// [`Self::verify_with_extras`].
+    ///
+    /// This is the hook the jagged PCS uses to fold its
+    /// "`sum_i q(i) * F(i) = v_combined`" sumcheck directly into WHIR's
+    /// initial sumcheck folding, eliminating a dedicated m-round sumcheck
+    /// (~`4 * 2^m` extra multiplications and the `q(i*)` transcript send).
+    pub fn prove_with_extras(
+        &self,
+        prover_state: &mut impl FSProver<EF>,
+        statement: Vec<SparseStatement<EF>>,
+        extras: Vec<RawWeights<EF>>,
+        witness: Witness<EF>,
+        polynomial: &MleRef<'_, EF>,
+    ) -> MultilinearPoint<EF> {
         assert!(self.validate_parameters());
         assert!(self.validate_witness(&witness, polynomial));
         self.validate_statement(&statement);
+        for extra in &extras {
+            assert_eq!(
+                extra.cube_weights.len(),
+                1 << self.num_variables,
+                "RawWeights cube length must equal 2^num_variables"
+            );
+        }
 
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial).unwrap();
+            RoundState::initialize_first_round_state(self, prover_state, statement, extras, witness, polynomial)
+                .unwrap();
 
         for round in 0..=self.n_rounds() {
             self.round(round, prover_state, &mut round_state).unwrap();
@@ -411,6 +442,7 @@ where
     pub(crate) fn run_initial_sumcheck_rounds(
         evals: &MleRef<'_, EF>,
         statement: &[SparseStatement<EF>],
+        extras: &[RawWeights<EF>],
         combination_randomness: EF,
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
@@ -418,7 +450,7 @@ where
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
-        let (weights, sum) = combine_statement::<EF>(statement, combination_randomness);
+        let (weights, sum) = combine_statement::<EF>(statement, extras, combination_randomness);
 
         let mut evals = evals.pack();
         let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
@@ -467,6 +499,7 @@ where
         prover: &WhirConfig<EF>,
         prover_state: &mut impl FSProver<EF>,
         mut statement: Vec<SparseStatement<EF>>,
+        extras: Vec<RawWeights<EF>>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
     ) -> ProofResult<Self> {
@@ -489,6 +522,7 @@ where
         let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds(
             polynomial,
             &statement,
+            &extras,
             combination_randomness_gen,
             prover_state,
             prover.folding_factor.at_round(0),
@@ -512,13 +546,18 @@ where
     }
 }
 
-#[instrument(skip_all, fields(num_constraints = statements.len(), n_vars = statements[0].total_num_variables))]
-fn combine_statement<EF>(statements: &[SparseStatement<EF>], gamma: EF) -> (Vec<EFPacking<EF>>, EF)
+#[instrument(skip_all, fields(num_constraints = statements.len(), n_extras = extras.len(), n_vars = statements[0].total_num_variables))]
+fn combine_statement<EF>(
+    statements: &[SparseStatement<EF>],
+    extras: &[RawWeights<EF>],
+    gamma: EF,
+) -> (Vec<EFPacking<EF>>, EF)
 where
     EF: ExtensionField<PF<EF>>,
 {
     let num_variables = statements[0].total_num_variables;
     assert!(statements.iter().all(|e| e.total_num_variables == num_variables));
+    assert!(extras.iter().all(|e| e.cube_weights.len() == 1 << num_variables));
 
     let mut combined_weights = EFPacking::<EF>::zero_vec(1 << (num_variables - packing_log_width::<EF>()));
 
@@ -576,6 +615,18 @@ where
                 });
             gamma_pow = *next_gamma_powers.last().unwrap() * gamma;
         }
+    }
+
+    // Append each extra raw-weight polynomial to combined_weights with its
+    // own gamma power, mirroring the verifier-side gamma advance in
+    // `combine_constraints`. Each extra consumes exactly one gamma power.
+    for extra in extras {
+        let packed = pack_extension::<EF>(&extra.cube_weights);
+        combined_weights.par_iter_mut().zip(&packed).for_each(|(out, &w)| {
+            *out += w * gamma_pow;
+        });
+        combined_sum += extra.claimed_sum * gamma_pow;
+        gamma_pow *= gamma;
     }
 
     (combined_weights, combined_sum)

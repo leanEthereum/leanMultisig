@@ -90,6 +90,28 @@ where
         F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
     {
+        self.verify_with_extras::<F, _>(verifier_state, parsed_commitment, statement, vec![], |_| vec![])
+    }
+
+    /// Like [`Self::verify`], but the caller also supplies the claimed sums
+    /// of any extra raw-weight statements injected via
+    /// [`WhirConfig::prove_with_extras`], plus a closure that evaluates each
+    /// extra weight polynomial at WHIR's final folding point. The closure is
+    /// invoked exactly once, after WHIR's sumcheck folds have completed,
+    /// when the final folding randomness is known.
+    pub fn verify_with_extras<F, FN>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF>,
+        parsed_commitment: &ParsedCommitment<F, EF>,
+        statement: Vec<SparseStatement<EF>>,
+        extras_claimed_sums: Vec<EF>,
+        eval_extras_at_final: FN,
+    ) -> ProofResult<MultilinearPoint<EF>>
+    where
+        F: TwoAdicField + ExtensionField<PF<EF>>,
+        EF: ExtensionField<F>,
+        FN: FnOnce(&MultilinearPoint<EF>) -> Vec<EF>,
+    {
         statement
             .iter()
             .for_each(|c| assert_eq!(c.total_num_variables, parsed_commitment.num_variables));
@@ -107,7 +129,8 @@ where
             .into_iter()
             .chain(statement)
             .collect();
-        let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
+        let combination_randomness =
+            self.combine_constraints_with_extras(verifier_state, &mut claimed_sum, &constraints, &extras_claimed_sums)?;
         round_constraints.push((combination_randomness, constraints));
 
         // Initial sumcheck
@@ -191,7 +214,19 @@ where
                 .collect(),
         );
 
-        let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness.clone());
+        // With the full folding randomness in hand, ask the caller to
+        // evaluate any injected extra weight polynomials at this point. The
+        // closure runs exactly once.
+        let extras_at_final = eval_extras_at_final(&folding_randomness);
+        assert_eq!(
+            extras_at_final.len(),
+            extras_claimed_sums.len(),
+            "extras callback returned {} evaluations but {} were declared",
+            extras_at_final.len(),
+            extras_claimed_sums.len(),
+        );
+        let evaluation_of_weights =
+            self.eval_constraints_poly_with_extras(&round_constraints, &extras_at_final, folding_randomness.clone());
 
         // Check the final sumcheck evaluation (coefficient form, reversed point)
         let mut reversed_point = final_sumcheck_randomness.0.clone();
@@ -210,6 +245,21 @@ where
         claimed_sum: &mut EF,
         constraints: &[SparseStatement<EF>],
     ) -> ProofResult<Vec<EF>> {
+        self.combine_constraints_with_extras(verifier_state, claimed_sum, constraints, &[])
+    }
+
+    /// Like [`Self::combine_constraints`], but additionally folds `extras_sums`
+    /// (one EF per extra raw-weight statement injected by
+    /// [`WhirConfig::prove_with_extras`]) into `claimed_sum` after the
+    /// sparse statements have been processed. Each extra consumes one
+    /// gamma power -- matching the prover-side combine_statement advance.
+    pub(crate) fn combine_constraints_with_extras(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF>,
+        claimed_sum: &mut EF,
+        constraints: &[SparseStatement<EF>],
+        extras_sums: &[EF],
+    ) -> ProofResult<Vec<EF>> {
         let combination_randomness_gen: EF = verifier_state.sample();
         let mut combination_randomness = vec![EF::ONE];
         for smt in constraints {
@@ -218,6 +268,11 @@ where
                 *claimed_sum += combination_randomness_pow * e.value;
                 combination_randomness.push(combination_randomness_pow * combination_randomness_gen);
             }
+        }
+        for &extra_sum in extras_sums {
+            let combination_randomness_pow = *combination_randomness.last().unwrap();
+            *claimed_sum += combination_randomness_pow * extra_sum;
+            combination_randomness.push(combination_randomness_pow * combination_randomness_gen);
         }
         combination_randomness.pop().unwrap();
 
@@ -341,9 +396,17 @@ where
         Ok(res)
     }
 
-    fn eval_constraints_poly(
+    /// Accumulate `evaluation_of_weights = sum_round sum_constraint
+    /// weight(constraint, final_point) * randomness` plus the extras'
+    /// `sum_j extras_at_final[j] * randomness_for_extra[j]`. The trailing
+    /// `extras_at_final.len()` entries of round 0's `randomness` are
+    /// reserved for the extras, matching the verifier side of
+    /// [`Self::combine_constraints_with_extras`] and the prover side of
+    /// `combine_statement`.
+    fn eval_constraints_poly_with_extras(
         &self,
         constraints: &[(Vec<EF>, Vec<SparseStatement<EF>>)],
+        extras_at_final: &[EF],
         mut point: MultilinearPoint<EF>,
     ) -> EF {
         let mut value = EF::ZERO;
@@ -373,6 +436,14 @@ where
                         .product::<EF>()
                         * common_weight;
                     value += eval * randomness[i];
+                    i += 1;
+                }
+            }
+            // Extras live at round 0 only (they were combined with the user
+            // statements + OOD at the very beginning).
+            if round == 0 {
+                for &extra_eval in extras_at_final {
+                    value += extra_eval * randomness[i];
                     i += 1;
                 }
             }

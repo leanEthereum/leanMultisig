@@ -27,6 +27,24 @@ pub(crate) use utils::*;
 mod matrix;
 pub(crate) use matrix::*;
 
+/// A pre-built dense weight polynomial together with its claimed
+/// inner-product value against the committed polynomial. Used by
+/// [`WhirConfig::prove_with_extras`] / [`WhirConfig::verify_with_extras`] to
+/// fold custom weight polynomials (e.g. the jagged-PCS `F` polynomial)
+/// directly into WHIR's initial sumcheck, instead of running a separate
+/// dedicated sumcheck first.
+///
+/// On the prover side, `cube_weights` must contain the full cube
+/// evaluations (length `2^num_variables`). The verifier-side counterpart is
+/// the `extras_claimed_sums: Vec<EF>` argument to
+/// [`WhirConfig::verify_with_extras`] plus a closure that computes the
+/// weight polynomial's evaluation at WHIR's final folding point.
+#[derive(Clone, Debug)]
+pub struct RawWeights<EF> {
+    pub cube_weights: Vec<EF>,
+    pub claimed_sum: EF,
+}
+
 #[derive(Clone, Debug)]
 pub struct SparseStatement<EF> {
     pub total_num_variables: usize,
