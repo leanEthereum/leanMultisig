@@ -141,6 +141,14 @@ pub trait TableT: Air {
         self.n_columns()
     }
 
+    /// Number of columns that are committed to via the stacked PCS (WHIR).
+    /// The convention is: committed columns come at indices `0..n_committed_columns()` of the trace,
+    /// AIR columns are a prefix `0..n_columns()` of those, and `n_columns()..n_committed_columns()`
+    /// are committed but not visible to the AIR (e.g. inputs to a GKR sub-protocol).
+    fn n_committed_columns(&self) -> usize {
+        self.n_columns()
+    }
+
     fn is_execution_table(&self) -> bool {
         false
     }

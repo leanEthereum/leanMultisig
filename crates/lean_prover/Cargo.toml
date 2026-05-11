@@ -21,6 +21,7 @@ sub_protocols.workspace = true
 lean_vm.workspace = true
 lean_compiler.workspace = true
 backend.workspace = true
+poseidon_gkr.workspace = true
 itertools.workspace = true
 serde.workspace = true
 

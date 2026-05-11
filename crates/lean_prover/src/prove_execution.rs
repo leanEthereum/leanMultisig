@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::*;
 use lean_vm::*;
+use poseidon_gkr::prove_poseidon_gkr;
 
 use serde::{Deserialize, Serialize};
 use sub_protocols::*;
@@ -218,6 +219,61 @@ pub fn prove_execution(
         let claim = delegate_to_inner!(table => split);
         committed_statements.get_mut(table).unwrap().push(claim);
     }
+
+    info_span!("Poseidon-16 GKR").in_scope(|| {
+        let p16_table = Table::poseidon16();
+        let trace = &traces[&p16_table].columns;
+        let log_n_rows = traces[&p16_table].log_n_rows;
+        let inner_point = MultilinearPoint(from_end(gkr_point, log_n_rows).to_vec());
+
+        // Send extra evals for compressed_output[HALF_DIGEST_LEN..DIGEST_LEN] at logup_point.
+        let upper_compressed_evals: Vec<EF> = (HALF_DIGEST_LEN..DIGEST_LEN)
+            .map(|i| (&trace[POSEIDON_16_COL_COMPRESSED_OUTPUT_START + i][..]).evaluate(&inner_point))
+            .collect();
+        prover_state.add_extension_scalars(&upper_compressed_evals);
+        {
+            let entry = &mut committed_statements.get_mut(&p16_table).unwrap()[0];
+            for (i, &eval) in upper_compressed_evals.iter().enumerate() {
+                entry
+                    .1
+                    .insert(POSEIDON_16_COL_COMPRESSED_OUTPUT_START + HALF_DIGEST_LEN + i, eval);
+            }
+        }
+
+        // Derive perm_out_0_7 = compressed_output_eval[i] - input_eval[i] for i in 0..8.
+        let logup_col_evals = &logup_statements.columns_values[&p16_table];
+        let perm_out_0_7: Vec<EF> = (0..DIGEST_LEN)
+            .map(|i| {
+                let comp_eval = if i < HALF_DIGEST_LEN {
+                    logup_col_evals[&(POSEIDON_16_COL_COMPRESSED_OUTPUT_START + i)]
+                } else {
+                    upper_compressed_evals[i - HALF_DIGEST_LEN]
+                };
+                let in_eval = logup_col_evals[&(POSEIDON_16_COL_INPUT_START + i)];
+                comp_eval - in_eval
+            })
+            .collect();
+
+        let p16_gkr_result = prove_poseidon_gkr::<16>(
+            &mut prover_state,
+            trace,
+            POSEIDON_16_COL_INPUT_START,
+            POSEIDON_16_COL_GKR_START,
+            inner_point,
+            &perm_out_0_7,
+        );
+
+        // GKR reduced to a claim on the 16 committed input columns at p16_gkr_result.input_point.
+        let mut input_evals_map = BTreeMap::new();
+        debug_assert_eq!(p16_gkr_result.input_evals.len(), 16);
+        for (i, eval) in p16_gkr_result.input_evals.iter().enumerate() {
+            input_evals_map.insert(POSEIDON_16_COL_INPUT_START + i, *eval);
+        }
+        committed_statements
+            .get_mut(&p16_table)
+            .unwrap()
+            .push((p16_gkr_result.input_point, input_evals_map, BTreeMap::new()));
+    });
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);

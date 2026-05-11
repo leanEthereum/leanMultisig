@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::*;
 use backend::{Proof, RawProof, VerifierState};
 use lean_vm::*;
+use poseidon_gkr::verify_poseidon_gkr;
 use sub_protocols::*;
 use utils::{ToUsize, from_end, get_poseidon16};
 
@@ -172,6 +173,52 @@ pub fn verify_execution(
 
     if my_air_final_value != claimed_air_final_value {
         return Err(ProofError::InvalidProof);
+    }
+
+    // -----  Poseidon-16 GKR sub-protocol verification -----
+    {
+        let p16_table = Table::poseidon16();
+        let log_n_rows = table_n_vars[&p16_table];
+        let inner_point = MultilinearPoint(from_end(gkr_point, log_n_rows).to_vec());
+
+        let upper_compressed_evals = verifier_state.next_extension_scalars_vec(HALF_DIGEST_LEN)?;
+        {
+            let entry = &mut committed_statements.get_mut(&p16_table).unwrap()[0];
+            for (i, &eval) in upper_compressed_evals.iter().enumerate() {
+                entry
+                    .1
+                    .insert(POSEIDON_16_COL_COMPRESSED_OUTPUT_START + HALF_DIGEST_LEN + i, eval);
+            }
+        }
+
+        let logup_col_evals = &logup_statements.columns_values[&p16_table];
+        let perm_out_0_7: Vec<EF> = (0..DIGEST_LEN)
+            .map(|i| {
+                let comp_eval = if i < HALF_DIGEST_LEN {
+                    logup_col_evals[&(POSEIDON_16_COL_COMPRESSED_OUTPUT_START + i)]
+                } else {
+                    upper_compressed_evals[i - HALF_DIGEST_LEN]
+                };
+                let in_eval = logup_col_evals[&(POSEIDON_16_COL_INPUT_START + i)];
+                comp_eval - in_eval
+            })
+            .collect();
+
+        let p16_gkr_result = verify_poseidon_gkr::<16>(
+            &mut verifier_state,
+            log_n_rows,
+            &inner_point,
+            &perm_out_0_7,
+        )?;
+
+        let mut input_evals_map = BTreeMap::new();
+        for (i, eval) in p16_gkr_result.input_evals.iter().enumerate() {
+            input_evals_map.insert(POSEIDON_16_COL_INPUT_START + i, *eval);
+        }
+        committed_statements
+            .get_mut(&p16_table)
+            .unwrap()
+            .push((p16_gkr_result.input_point, input_evals_map, BTreeMap::new()));
     }
 
     let public_memory_random_point =

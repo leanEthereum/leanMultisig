@@ -1,13 +1,25 @@
 use tracing::instrument;
 
-use crate::{
-    F,
-    tables::{Poseidon1Cols16, WIDTH},
+use crate::F;
+use crate::tables::poseidon_16::{
+    POSEIDON_16_COL_COMPRESSED_OUTPUT_START, POSEIDON_16_COL_GKR_START, POSEIDON_16_COL_INPUT_START,
 };
 use backend::*;
+use poseidon_gkr::fill_poseidon_gkr_trace;
 
-#[instrument(name = "generate Poseidon16 AIR trace", skip_all)]
+/// Fill the GKR-layer columns and the lower half of the compressed-output columns from the input columns.
+///
+/// The 4 AIR/index columns, the inputs, the *upper* half of compressed_output[4..8], and the
+/// 4 eff_second columns are assumed to be already filled by `execute()`. We compute the GKR layer
+/// columns from the inputs and overwrite compressed_output[0..4] = perm_state[0..4] + input[0..4].
+///
+/// Note: although `execute()` already wrote correct compressed_output values (it had the actual
+/// poseidon outputs in hand), we recompute the *lower* 4 here too so that this function is
+/// self-consistent and so that the compressed_output cols are recomputed from the GKR-layer
+/// output (a useful sanity check during witness generation).
+#[instrument(name = "generate Poseidon16 trace", skip_all)]
 pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
+    // Pad shorter columns up to the trace height.
     let n = trace.iter().map(|col| col.len()).max().unwrap();
     for col in trace.iter_mut() {
         if col.len() != n {
@@ -15,146 +27,10 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
         }
     }
 
-    let m = n - (n % packing_width::<F>());
-    let trace_packed: Vec<_> = trace.iter().map(|col| FPacking::<F>::pack_slice(&col[..m])).collect();
-
-    // fill the packed rows
-    (0..m / packing_width::<F>()).into_par_iter().for_each(|i| {
-        let ptrs: Vec<*mut FPacking<F>> = trace_packed
-            .iter()
-            .map(|col| unsafe { (col.as_ptr() as *mut FPacking<F>).add(i) })
-            .collect();
-        let perm: &mut Poseidon1Cols16<&mut FPacking<F>> =
-            unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut FPacking<F>>) };
-
-        generate_trace_rows_for_perm(perm);
-    });
-
-    // fill the remaining rows (non packed)
-    for i in m..n {
-        let ptrs: Vec<*mut F> = trace
-            .iter()
-            .map(|col| unsafe { (col.as_ptr() as *mut F).add(i) })
-            .collect();
-        let perm: &mut Poseidon1Cols16<&mut F> = unsafe { &mut *(ptrs.as_ptr() as *mut Poseidon1Cols16<&mut F>) };
-        generate_trace_rows_for_perm(perm);
-    }
-}
-
-pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &mut Poseidon1Cols16<&mut F>) {
-    let inputs: [F; WIDTH] = std::array::from_fn(|i| *perm.inputs[i]);
-    let mut state = inputs;
-
-    // No initial linear layer for Poseidon1 (unlike Poseidon2)
-
-    for (full_round, constants) in perm
-        .beginning_full_rounds
-        .iter_mut()
-        .zip(poseidon1_initial_constants().chunks_exact(2))
-    {
-        generate_2_full_round(&mut state, full_round, &constants[0], &constants[1]);
-    }
-
-    // --- Sparse partial rounds ---
-    // Transition: add first-round constants, multiply by m_i
-    let frc = poseidon1_sparse_first_round_constants();
-    for (s, &c) in state.iter_mut().zip(frc.iter()) {
-        *s += c;
-    }
-    let m_i = poseidon1_sparse_m_i();
-    let input_for_mi = state;
-    for i in 0..WIDTH {
-        let row: [F; WIDTH] = m_i[i].map(F::from);
-        state[i] = F::dot_product(&input_for_mi, &row);
-    }
-
-    let first_rows = poseidon1_sparse_first_row();
-    let v_vecs = poseidon1_sparse_v();
-    let scalar_rc = poseidon1_sparse_scalar_round_constants();
-    let n_partial = perm.partial_rounds.len();
-    for round in 0..n_partial {
-        // S-box on state[0]
-        state[0] = state[0].cube();
-        *perm.partial_rounds[round] = state[0];
-        // Scalar round constant (not on last round)
-        if round < n_partial - 1 {
-            state[0] += scalar_rc[round];
-        }
-        // Sparse matrix
-        let old_s0 = state[0];
-        let row: [F; WIDTH] = first_rows[round].map(F::from);
-        let new_s0 = F::dot_product(&state, &row);
-        state[0] = new_s0;
-        for i in 1..WIDTH {
-            state[i] += old_s0 * v_vecs[round][i - 1];
-        }
-    }
-
-    let n_ending_full_rounds = perm.ending_full_rounds.len();
-    for (full_round, constants) in perm
-        .ending_full_rounds
-        .iter_mut()
-        .zip(poseidon1_final_constants().chunks_exact(2))
-    {
-        generate_2_full_round(&mut state, full_round, &constants[0], &constants[1]);
-    }
-
-    // Last 2 full rounds with compression (add inputs to outputs)
-    generate_last_2_full_rounds(
-        &mut state,
-        &inputs,
-        &mut perm.outputs,
-        &poseidon1_final_constants()[2 * n_ending_full_rounds],
-        &poseidon1_final_constants()[2 * n_ending_full_rounds + 1],
+    fill_poseidon_gkr_trace(
+        trace,
+        POSEIDON_16_COL_INPUT_START,
+        POSEIDON_16_COL_GKR_START,
+        POSEIDON_16_COL_COMPRESSED_OUTPUT_START,
     );
-}
-
-#[inline]
-fn generate_2_full_round<F: Algebra<KoalaBear> + Copy>(
-    state: &mut [F; WIDTH],
-    post_full_round: &mut [&mut F; WIDTH],
-    round_constants_1: &[KoalaBear; WIDTH],
-    round_constants_2: &[KoalaBear; WIDTH],
-) {
-    for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
-        *state_i += *const_i;
-        *state_i = state_i.cube();
-    }
-    mds_circ_16(state);
-
-    for (state_i, const_i) in state.iter_mut().zip(round_constants_2.iter()) {
-        *state_i += *const_i;
-        *state_i = state_i.cube();
-    }
-    mds_circ_16(state);
-
-    post_full_round.iter_mut().zip(*state).for_each(|(post, x)| {
-        **post = x;
-    });
-}
-
-#[inline]
-fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
-    state: &mut [F; WIDTH],
-    inputs: &[F; WIDTH],
-    outputs: &mut [&mut F; WIDTH / 2],
-    round_constants_1: &[KoalaBear; WIDTH],
-    round_constants_2: &[KoalaBear; WIDTH],
-) {
-    for (state_i, const_i) in state.iter_mut().zip(round_constants_1) {
-        *state_i += *const_i;
-        *state_i = state_i.cube();
-    }
-    mds_circ_16(state);
-
-    for (state_i, const_i) in state.iter_mut().zip(round_constants_2.iter()) {
-        *state_i += *const_i;
-        *state_i = state_i.cube();
-    }
-    mds_circ_16(state);
-
-    // Add inputs to outputs (compression)
-    for ((output, state_i), &input_i) in outputs.iter_mut().zip(state).zip(inputs) {
-        **output = *state_i + input_i;
-    }
 }

@@ -283,7 +283,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
             .map(|lookup_f| lookup_f.index.to_string())
             .collect::<Vec<_>>();
         lookup_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
-        num_cols_air.push(table.n_columns().to_string());
+        num_cols_air.push(table.n_committed_columns().to_string());
         let this_lookup_f_values_str = table
             .lookups()
             .iter()

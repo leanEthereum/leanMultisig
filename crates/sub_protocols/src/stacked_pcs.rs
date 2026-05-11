@@ -89,7 +89,7 @@ pub fn stacked_pcs_global_statements(
                     .collect(),
             ));
         }
-        offset += table.n_columns() << n_vars;
+        offset += table.n_committed_columns() << n_vars;
     }
     global_statements
 }
@@ -126,7 +126,7 @@ pub fn stack_polynomials_and_commit(
 
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
-        for col_index in 0..table.n_columns() {
+        for col_index in 0..table.n_committed_columns() {
             let col = &traces[table].columns[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
@@ -189,7 +189,7 @@ fn compute_stacked_n_vars(
         + (1 << log_bytecode.max(max_table_log_n_rows))
         + tables_log_heights
             .iter()
-            .map(|(table, log_n_rows)| table.n_columns() << log_n_rows)
+            .map(|(table, log_n_rows)| table.n_committed_columns() << log_n_rows)
             .sum::<usize>();
     log2_ceil_usize(total_len)
 }
@@ -212,6 +212,11 @@ pub fn total_whir_statements() -> usize {
             + table.n_down_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
+            // Extra statements for tables with a sub-GKR (Poseidon16):
+            // * 16: GKR-reduced claim on the input columns (one per input column).
+            // * HALF_DIGEST_LEN: extra evals of compressed_output[HALF_DIGEST_LEN..DIGEST_LEN]
+            //   sent in the GKR step and merged into the logup-point committed statement.
+            + if table == &lean_vm::Table::poseidon16() { 16 + lean_vm::HALF_DIGEST_LEN } else { 0 }
         })
         .sum::<usize>()
         // bytecode lookup

@@ -105,31 +105,6 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     let ExecutionResult { mut traces, .. } = execution_result;
 
-    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
-    fill_trace_poseidon_16(&mut poseidon_trace.columns);
-
-    // For half_output rows, override last 4 output columns with actual memory values
-    // (the AIR doesn't constrain them, but the lookup checks against memory).
-    {
-        let split = POSEIDON_16_COL_OUTPUT_START + HALF_DIGEST_LEN;
-        let (left, right) = poseidon_trace.columns.split_at_mut(split);
-        let half_output_col = &left[POSEIDON_16_COL_FLAG_HALF_OUTPUT];
-        let res_col = &left[POSEIDON_16_COL_INDEX_INPUT_RES];
-        let output_cols: &mut [Vec<F>; HALF_DIGEST_LEN] = (&mut right[..HALF_DIGEST_LEN]).try_into().unwrap();
-
-        transposed_par_iter_mut(output_cols)
-            .zip(half_output_col)
-            .zip(res_col)
-            .for_each(|((row, &half), &res)| {
-                if half == F::ONE {
-                    let base = res.to_usize() + HALF_DIGEST_LEN;
-                    for j in 0..HALF_DIGEST_LEN {
-                        *row[j] = memory_padded[base + j];
-                    }
-                }
-            });
-    }
-
     let extension_op_trace = traces.get_mut(&Table::extension_op()).unwrap();
     fill_trace_extension_op(extension_op_trace, &memory_padded);
 
@@ -143,6 +118,36 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
         pad_table(&table, &mut traces, padding_zero_vec_ptr, null_poseidon_16_hash_ptr);
+    }
+
+    // Fill the Poseidon-16 GKR layer columns *after* padding so we operate on power-of-two-sized
+    // columns (the GKR witness gen uses parallelised SIMD packing).
+    let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
+    fill_trace_poseidon_16(&mut poseidon_trace.columns);
+
+    // For half_output rows, set eff_second to the *final* memory residue at index_res + 4..+8.
+    // `execute()` recorded the pre-write residue, but the memory lookup checks against
+    // memory_padded (the final state). If the upper half is overwritten later in execution,
+    // those diverge — using the final state keeps the lookup balanced.
+    {
+        let (left, right) = poseidon_trace
+            .columns
+            .split_at_mut(POSEIDON_16_COL_EFF_SECOND_START);
+        let half_output_col = &left[POSEIDON_16_COL_FLAG_HALF_OUTPUT];
+        let res_col = &left[POSEIDON_16_COL_INDEX_INPUT_RES];
+        let eff_second_cols: &mut [Vec<F>; HALF_DIGEST_LEN] = (&mut right[..HALF_DIGEST_LEN]).try_into().unwrap();
+
+        transposed_par_iter_mut(eff_second_cols)
+            .zip(half_output_col)
+            .zip(res_col)
+            .for_each(|((row, &half), &res)| {
+                if half == F::ONE {
+                    let base = res.to_usize() + HALF_DIGEST_LEN;
+                    for j in 0..HALF_DIGEST_LEN {
+                        *row[j] = memory_padded[base + j];
+                    }
+                }
+            });
     }
 
     ExecutionTrace {
@@ -161,11 +166,11 @@ fn pad_table(
 ) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.columns[0].len();
-    trace
-        .columns
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| assert_eq!(col.len(), h, "column {}, table {}", i, table.name()));
+    // Some columns may still be empty here (the Poseidon GKR layer columns are filled after
+    // padding for SIMD/parallelism), so we allow `col.len() <= h`.
+    trace.columns.iter().enumerate().for_each(|(i, col)| {
+        assert!(col.len() <= h, "column {}, table {}", i, table.name())
+    });
 
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
