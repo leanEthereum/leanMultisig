@@ -33,16 +33,19 @@ The bytecode-claim region encodes a multilinear evaluation: a point + the result
 - The outer `· 5` is the **extension-field degree**: each extension element is 5 base-field elements.
 - For `log_size = 19`: `(19 + 4 + 1) · 5 = 24 · 5 = 120` (already a multiple of 8, but otherwise we padd it with zeros).
 
-## Type-1 component data (fixed, 4 chunks = 32 FE)
+## Type-1 component data (fixed, 5 chunks = 40 FE)
+
+Raw payload is 33 FE (8 + 9 + 8 + 8), padded with 7 zero FE up to the next multiple of `DIGEST_LEN = 8`.
 
 | Offset | Size | Contents                           |
 | ------ | ---- | ---------------------------------- |
 | `136`  | `8`  | Hash of all aggregated public keys |
-| `144`  | `8`  | Message                            |
-| `152`  | `8`  | Merkle chunks identifying the slot |
-| `160`  | `8`  | Tweak-table hash                   |
+| `144`  | `9`  | Message (`MSG_LEN_FE`)             |
+| `153`  | `8`  | Merkle chunks identifying the slot |
+| `161`  | `8`  | Tweak-table hash                   |
+| `169`  | `7`  | Zero padding                       |
 
-**Total Type-1 buffer = 168 FE = 21 chunks** (independent of `n_sigs`).
+**Total Type-1 buffer = 176 FE = 22 chunks** (independent of `n_sigs`).
 
 ## Type-2 component data (variable, `n_components` chunks)
 
@@ -55,8 +58,8 @@ The bytecode-claim region encodes a multilinear evaluation: a point + the result
 ## Picture
 
 ```
-Type-1 (168 FE):
-[flag=1 | n_sigs | 0×6] [bytecode claim, 120 FE] [domsep, 8 FE] [pubkeys_hash | message | merkle_chunks | tweaks_hash]
+Type-1 (176 FE):
+[flag=1 | n_sigs | 0×6] [bytecode claim, 120 FE] [domsep, 8 FE] [pubkeys_hash(8) | message(9) | merkle_chunks(8) | tweaks_hash(8) | pad(7)]
 
 Type-2 ((n+17)·8 FE):
 [flag=0 | n     | 0×6] [bytecode claim, 120 FE] [domsep, 8 FE] [digest_0] [digest_1] … [digest_{n-1}]
