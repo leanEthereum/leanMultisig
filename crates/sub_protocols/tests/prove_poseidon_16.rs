@@ -2,9 +2,7 @@ use std::time::Instant;
 
 use backend::*;
 use lean_vm::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND,
-    POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, fill_trace_poseidon_16,
-    num_cols_poseidon_16,
+    EF, ExtraDataForBuses, F, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND, POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, TableT, fill_trace_poseidon_16, num_cols_poseidon_16
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use sub_protocols::{
@@ -37,7 +35,7 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
     fill_trace_poseidon_16(&mut trace);
 
     let air = Poseidon16Precompile::<false>;
-    let n_constraints = air.n_constraints();
+    let n_constraints = air.n_total_constraints();
     let air_degree = air.degree_air();
 
     let whir_config_builder = WhirConfigBuilder {

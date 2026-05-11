@@ -1,4 +1,4 @@
-use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
+use crate::{EF, ExecutionTable, ExtraDataForBuses, TableT, eval_virtual_bus_column};
 use backend::*;
 
 pub const N_RUNTIME_COLUMNS: usize = 8;
@@ -48,7 +48,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![COL_PC, COL_FP]
     }
-    fn n_constraints(&self) -> usize {
+    fn n_air_constraints(&self) -> usize {
         13
     }
 
@@ -98,6 +98,9 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
                 is_precompile,
                 &[precompile_data, nu_a, nu_b, nu_c],
             ));
+            for col in self.logup_claim_columns() {
+                builder.assert_zero(builder.up()[col]);
+            }
         } else {
             builder.declare_values(&[is_precompile]);
             builder.declare_values(&[precompile_data, nu_a, nu_b, nu_c]);

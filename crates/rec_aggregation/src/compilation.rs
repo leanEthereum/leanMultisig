@@ -276,6 +276,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
     let mut air_down_columns = vec![];
+    let mut logup_claim_columns_str = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
             .lookups()
@@ -311,6 +312,15 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+        logup_claim_columns_str.push(format!(
+            "[{}]",
+            table
+                .logup_claim_columns()
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     replacements.insert(
         "LOOKUPS_INDEXES_PLACEHOLDER".to_string(),
@@ -329,8 +339,8 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         Table::execution().index().to_string(),
     );
     replacements.insert(
-        "MAX_NUM_AIR_CONSTRAINTS_PLACEHOLDER".to_string(),
-        max_air_constraints().to_string(),
+        "MAX_NUM_CONSTRAINTS_PLACEHOLDER".to_string(),
+        max_total_constraints().to_string(),
     );
     replacements.insert(
         "AIR_DEGREES_PLACEHOLDER".to_string(),
@@ -347,6 +357,10 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     replacements.insert(
         "AIR_DOWN_COLUMNS_PLACEHOLDER".to_string(),
         format!("[{}]", air_down_columns.join(", ")),
+    );
+    replacements.insert(
+        "LOGUP_CLAIM_COLUMNS_PLACEHOLDER".to_string(),
+        format!("[{}]", logup_claim_columns_str.join(", ")),
     );
     replacements.insert(
         "EVALUATE_AIR_FUNCTIONS_PLACEHOLDER".to_string(),
@@ -501,10 +515,34 @@ where
     res += "\n    bus_res = mul_extension_ret(bus_res, bus_beta)";
     res += &format!("\n    sum: Mut = add_extension_ret(bus_res, {})", flag);
 
+    // Logup-claim virtual columns. These match the prover's BUS=true Air::eval, where
+    // each `assert_zero(up[col])` (right after the bus virtual column) contributes
+    // `alpha_powers[1 + j] * up[col_j]` to the constraint accumulator. The AIR
+    // transitions then use alpha_powers[1 + N + ..].
+    let logup_cols = table.logup_claim_columns();
+    let n_logup = logup_cols.len();
+    if n_logup > 0 {
+        res += &format!("\n    logup_buf = Array(DIM * {})", n_logup);
+        for (j, col) in logup_cols.iter().enumerate() {
+            res += &format!(
+                "\n    copy_5({} + DIM * {}, logup_buf + DIM * {})",
+                AIR_INNER_VALUES_VAR, col, j
+            );
+        }
+        res += "\n    weighted_logup = Array(DIM)";
+        res += &format!(
+            "\n    dot_product_ee(air_alpha_powers + DIM, logup_buf, weighted_logup, {})",
+            n_logup
+        );
+        res += "\n    sum = add_extension_ret(sum, weighted_logup)";
+    }
+
     // Batch constraint weighting: single dot_product_ee(alpha_powers, constraints_buf, result, n_constraints)
+    // Alpha index offset = 1 (skip bus) + n_logup (skip logup-claim virtuals).
     res += "\n    weighted_constraints = Array(DIM)";
     res += &format!(
-        "\n    dot_product_ee(air_alpha_powers + DIM, constraints_buf, weighted_constraints, {})",
+        "\n    dot_product_ee(air_alpha_powers + {} * DIM, constraints_buf, weighted_constraints, {})",
+        1 + n_logup,
         n_constraints
     );
     res += "\n    sum = add_extension_ret(sum, weighted_constraints)";

@@ -86,20 +86,12 @@ pub fn verify_execution(
     let gkr_point = &logup_statements.gkr_point;
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
-        let log_n = table_n_vars[&table];
-        committed_statements.insert(
-            table,
-            vec![(
-                MultilinearPoint(from_end(gkr_point, log_n).to_vec()),
-                logup_statements.columns_values[&table].clone(),
-                BTreeMap::new(),
-            )],
-        );
+        committed_statements.insert(table, Vec::new());
     }
 
     let bus_beta = verifier_state.sample();
     let air_alpha = verifier_state.sample();
-    let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_total_constraints() + 1);
     let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
@@ -123,7 +115,15 @@ pub fn verify_execution(
             }
             + bus_beta * (bus_denominator_value - logup_c);
 
-        initial_sum += eta_power * bus_final_value;
+        let logup_extra_sum = bus_final_value
+            + table
+                .logup_claim_columns()
+                .iter()
+                .enumerate()
+                .map(|(j, col)| air_alpha_powers[1 + j] * logup_statements.columns_values[table][col])
+                .sum::<EF>();
+
+        initial_sum += eta_power * logup_extra_sum;
 
         verify_data.push(TableVerifyData {
             table: *table,

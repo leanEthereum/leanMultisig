@@ -289,7 +289,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![]
     }
-    fn n_constraints(&self) -> usize {
+    fn n_air_constraints(&self) -> usize {
         BUS as usize + 80
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
@@ -321,6 +321,9 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
                 cols.flag_active,
                 &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
             ));
+            for col in self.logup_claim_columns() {
+                builder.assert_zero(builder.up()[col]);
+            }
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag_active));
             builder.declare_values(&[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res]);

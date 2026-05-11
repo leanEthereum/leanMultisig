@@ -63,6 +63,9 @@ impl TableT for Table {
     fn lookups(&self) -> Vec<LookupIntoMemory> {
         delegate_to_inner!(self, lookups)
     }
+    fn logup_claim_columns(&self) -> Vec<ColIndex> {
+        delegate_to_inner!(self, logup_claim_columns)
+    }
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
     }
@@ -95,8 +98,8 @@ impl Air for Table {
     fn n_columns(&self) -> usize {
         delegate_to_inner!(self, n_columns)
     }
-    fn n_constraints(&self) -> usize {
-        delegate_to_inner!(self, n_constraints)
+    fn n_air_constraints(&self) -> usize {
+        delegate_to_inner!(self, n_air_constraints)
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         delegate_to_inner!(self, down_column_indexes)
@@ -110,8 +113,8 @@ pub fn max_bus_width_including_domainsep() -> usize {
     1 + MAX_PRECOMPILE_BUS_WIDTH.max(N_INSTRUCTION_COLUMNS) // "+1" for domain separation in logup between memory / bytecode / precompiles interactions
 }
 
-pub fn max_air_constraints() -> usize {
-    ALL_TABLES.iter().map(|table| table.n_constraints()).max().unwrap()
+pub fn max_total_constraints() -> usize {
+    ALL_TABLES.iter().map(|table| table.n_total_constraints()).max().unwrap()
 }
 
 #[cfg(test)]

@@ -158,4 +158,18 @@ pub trait TableT: Air {
         }
         cols
     }
+
+    fn n_total_constraints(&self) -> usize {
+        self.n_air_constraints() + self.logup_claim_columns().len() + 1 // +1 for thus AUX data
+    }
+
+    fn logup_claim_columns(&self) -> Vec<ColIndex> {
+        let mut cols: Vec<ColIndex> = Vec::new();
+        for lookup in self.lookups() {
+            cols.push(lookup.index);
+            cols.extend(lookup.values);
+        }
+        cols.sort();
+        cols
+    }
 }

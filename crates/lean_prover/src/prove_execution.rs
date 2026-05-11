@@ -137,20 +137,12 @@ pub fn prove_execution(
     let gkr_point = &logup_statements.gkr_point;
     let mut committed_statements: CommittedStatements = Default::default();
     for table in ALL_TABLES {
-        let log_n_rows = traces[&table].log_n_rows;
-        committed_statements.insert(
-            table,
-            vec![(
-                MultilinearPoint(from_end(gkr_point, log_n_rows).to_vec()),
-                logup_statements.columns_values[&table].clone(),
-                BTreeMap::new(),
-            )],
-        );
+        committed_statements.insert(table, Vec::new());
     }
 
     let bus_beta = prover_state.sample();
     let air_alpha = prover_state.sample();
-    let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_total_constraints() + 1);
     let air_eta: EF = prover_state.sample();
 
     let tables_log_heights: BTreeMap<Table, VarCount> =
@@ -184,6 +176,14 @@ pub fn prove_execution(
             }
             + bus_beta * (bus_denominator_value - logup_c);
 
+        let logup_extra_sum = bus_final_value
+            + table
+                .logup_claim_columns()
+                .iter()
+                .enumerate()
+                .map(|(j, col)| air_alpha_powers[1 + j] * logup_statements.columns_values[table][col])
+                .sum::<EF>();
+
         let eq_suffix = from_end(gkr_point, *log_n_rows).to_vec();
 
         let extra_data = ExtraDataForBuses::new(logup_alphas_eq_poly.clone(), bus_beta, air_alpha_powers.clone());
@@ -196,7 +196,7 @@ pub fn prove_execution(
 
         macro_rules! make_session {
             ($t:expr) => {{
-                let session = AirSumcheckSession::new(packed, eq_suffix, bus_final_value, *$t, extra_data, non_padded);
+                let session = AirSumcheckSession::new(packed, eq_suffix, logup_extra_sum, *$t, extra_data, non_padded);
                 Box::new(session) as Box<dyn OuterSumcheckSession<EF> + '_>
             }};
         }

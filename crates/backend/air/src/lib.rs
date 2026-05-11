@@ -16,7 +16,7 @@ pub trait Air: Send + Sync + 'static {
 
     fn n_columns(&self) -> usize;
 
-    fn n_constraints(&self) -> usize;
+    fn n_air_constraints(&self) -> usize;
 
     fn down_column_indexes(&self) -> Vec<usize>;
 

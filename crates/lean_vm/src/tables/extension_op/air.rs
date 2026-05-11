@@ -1,5 +1,5 @@
 use crate::{
-    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses,
+    EF, EXT_OP_FLAG_ADD, EXT_OP_FLAG_IS_BE, EXT_OP_FLAG_MUL, EXT_OP_FLAG_POLY_EQ, ExtraDataForBuses, TableT,
     eval_virtual_bus_column,
     tables::extension_op::{EXT_OP_LEN_MULTIPLIER, ExtensionOpPrecompile},
 };
@@ -47,7 +47,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
     fn degree_air(&self) -> usize {
         6
     }
-    fn n_constraints(&self) -> usize {
+    fn n_air_constraints(&self) -> usize {
         33
     }
     fn down_column_indexes(&self) -> Vec<usize> {
@@ -114,6 +114,9 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
                 activation_flag,
                 &[aux, idx_a, idx_b, idx_r],
             ));
+            for col in self.logup_claim_columns() {
+                builder.assert_zero(builder.up()[col]);
+            }
         } else {
             builder.declare_values(&[activation_flag]);
             builder.declare_values(&[aux, idx_a, idx_b, idx_r]);
