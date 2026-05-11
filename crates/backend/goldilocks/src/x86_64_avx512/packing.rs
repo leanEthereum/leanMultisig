@@ -383,6 +383,12 @@ unsafe fn mds_output<const I: usize>(s: &[__m512i; 8], s_hi: &[__m512i; 8]) -> _
 /// the array through the stack). Each of the 8 outputs is computed by a
 /// distinct const-generic instantiation of `mds_output`, preventing LLVM
 /// from re-rolling them.
+///
+/// Note: an `avx512ifma` variant of this (using `vpmadd52luq` to fuse the
+/// mul-add accumulation) was tried and measured ~15% *slower* on Zen 4 — the
+/// fused IFMA op runs on the multiplier port at no better throughput than
+/// `vpmuludq`, while the `vpaddq` it replaces was happily dual-issuing on the
+/// add ports. Kept the `vpmuludq + vpaddq` form.
 #[inline(always)]
 pub(crate) fn mds_mul_simd(
     state: [PackedGoldilocksAVX512; POSEIDON1_WIDTH],
