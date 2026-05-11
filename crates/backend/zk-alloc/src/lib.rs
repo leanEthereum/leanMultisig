@@ -48,7 +48,10 @@ const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 /// phase-crossing allocation in [256, 1500) is now in the arena and gets
 /// recycled. Sticky-System realloc still protects grown Vecs that started in
 /// System. Correctness gate enforces.
+#[cfg(target_arch = "aarch64")]
 const MIN_ARENA_BYTES: usize = 256;
+#[cfg(not(target_arch = "aarch64"))]
+const MIN_ARENA_BYTES: usize = 4096;
 
 #[derive(Debug)]
 pub struct ZkAllocator;
