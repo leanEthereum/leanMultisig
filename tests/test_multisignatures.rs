@@ -148,8 +148,7 @@ fn test_type1_type2_compression() {
 
     // The pubkey set is shared between prover and verifier.
     let raws_a = signatures[..3].to_vec();
-    let mut shared_pubkeys_a = raws_a.iter().map(|(pk, _)| pk.clone()).collect::<Vec<_>>();
-    shared_pubkeys_a.sort();
+    let shared_pubkeys_a = raws_a.iter().map(|(pk, _)| pk.clone()).collect::<Vec<_>>();
     let type1_a = aggregate_type_1(&[], raws_a, message, slot, log_inv_rate).unwrap();
 
     let type1_a_compressed_compact = type1_a.compress_without_pubkeys();

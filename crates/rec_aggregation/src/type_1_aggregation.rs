@@ -122,10 +122,9 @@ impl<'de> Deserialize<'de> for TypeOneInfoWithoutPubkeys {
 }
 
 impl TypeOneInfoWithoutPubkeys {
-    pub(crate) fn with_pubkeys(self, pubkeys: Vec<XmssPublicKey>) -> Option<TypeOneInfo> {
-        if !pubkeys.is_sorted() {
-            return None;
-        }
+    pub(crate) fn with_pubkeys(self, mut pubkeys: Vec<XmssPublicKey>) -> Option<TypeOneInfo> {
+        pubkeys.sort();
+        pubkeys.dedup();
         Some(TypeOneInfo {
             without_pubkeys: self,
             pubkeys,
