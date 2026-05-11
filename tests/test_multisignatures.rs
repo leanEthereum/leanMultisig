@@ -8,6 +8,7 @@ use leansig_wrapper::{xmss_keygen_fast, xmss_sign_fast, xmss_verify};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rec_aggregation::benchmark::{AggregationTopology, run_aggregation_benchmark};
 use rec_aggregation::signatures_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
+use rec_aggregation::split_type_2_by_msg;
 
 #[test]
 fn test_xmss_signature() {
@@ -106,7 +107,7 @@ fn test_type_2_aggregation() {
     let split_a = split_type_2(type2.clone(), 0, log_inv_rate).unwrap();
     println!("split index 0: {:.2}s", time.elapsed().as_secs_f64());
     let time = Instant::now();
-    let split_b = split_type_2(type2, 1, log_inv_rate).unwrap();
+    let split_b = split_type_2_by_msg(type2, message_b, log_inv_rate).unwrap();
     println!("split index 1: {:.2}s", time.elapsed().as_secs_f64());
     assert_eq!(
         (

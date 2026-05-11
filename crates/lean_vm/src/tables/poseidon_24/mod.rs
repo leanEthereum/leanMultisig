@@ -296,7 +296,7 @@ impl<const BUS: bool> Air for Poseidon24Precompile<BUS> {
                 * AB::IF::from_usize(Poseidon24Mode::Permute9_18.as_usize());
 
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag,
                 &[

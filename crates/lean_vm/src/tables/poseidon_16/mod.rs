@@ -5,7 +5,7 @@ use crate::{execution::memory::MemoryAccess, tables::poseidon_16::trace_gen::gen
 use backend::*;
 use utils::{ToUsize, poseidon16_compress};
 
-/// Dispatch `mds_circ_16` through concrete types.
+/// Dispatch `mds_fft_16` through concrete types.
 /// For `SymbolicExpression` we use the dense form so the zkDSL generator can
 /// emit `dot_product_be` precompile calls instead of Karatsuba arithmetic.
 #[inline(always)]
@@ -17,7 +17,7 @@ fn mds_air_16<A: PrimeCharacteristicRing + 'static>(state: &mut [A; WIDTH_16]) {
     macro_rules! dispatch {
         ($t:ty) => {
             if TypeId::of::<A>() == TypeId::of::<$t>() {
-                mds_circ_16::<$t>(unsafe { &mut *(state as *mut [A; WIDTH_16] as *mut [$t; WIDTH_16]) });
+                mds_fft_16::<$t>(unsafe { &mut *(state as *mut [A; WIDTH_16] as *mut [$t; WIDTH_16]) });
                 return;
             }
         };
@@ -229,7 +229,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         // Bus data: [POSEIDON_PRECOMPILE_DATA (constant), a, b, res]
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag,
                 &[

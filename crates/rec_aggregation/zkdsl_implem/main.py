@@ -121,7 +121,7 @@ def main():
     tweaks_hash_expected = data_buf + TYPE_1_TWEAKS_HASH_OFFSET
 
     # meta = [n_recursions, n_dup, n_raw_xmss]
-    meta = Array(4)
+    meta = Array(3)
     hint_witness("meta", meta)
     n_recursions = meta[0]
     assert n_recursions <= MAX_RECURSIONS
