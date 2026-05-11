@@ -61,6 +61,7 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
 pub enum ProverError {
     TooBigTable(TooBigTableError),
     Runner(RunnerError),
+    Proof(ProofError),
     UnknownMessage,
     MultipleMessages,
 }
@@ -77,11 +78,18 @@ impl From<RunnerError> for ProverError {
     }
 }
 
+impl From<ProofError> for ProverError {
+    fn from(err: ProofError) -> Self {
+        Self::Proof(err)
+    }
+}
+
 impl Display for ProverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooBigTable(e) => write!(f, "{}", e),
             Self::Runner(e) => write!(f, "{}", e),
+            Self::Proof(e) => write!(f, "{}", e),
             Self::UnknownMessage => write!(f, "Unknown message, not part of the type2"),
             Self::MultipleMessages => write!(f, "Multiple common messages in the type2"),
         }
