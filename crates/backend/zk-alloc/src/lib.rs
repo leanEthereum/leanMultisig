@@ -132,19 +132,41 @@ fn ensure_region() -> usize {
         unsafe { syscall::madvise(aligned_base as *mut u8, REGION_SIZE, advice) };
 
         // Eager pre-touch on aarch64: write one byte per 32 MiB hugepage across
-        // the first PRETOUCH_BYTES of every per-thread slab (sized to cover the
-        // ~0.73 GiB observed actual touch + 50% headroom). Each write triggers a
-        // page fault that the kernel resolves into a 32 MiB THP given our
-        // earlier MADV_HUGEPAGE hint and the 32 MiB-aligned base. This makes
-        // the THP win deterministic instead of khugepaged-async-dependent.
+        // the first `pretouch_bytes` of every per-thread slab. Each write
+        // triggers a page fault that the kernel resolves into a 32 MiB THP
+        // given our earlier MADV_HUGEPAGE hint and the 32 MiB-aligned base.
+        // This makes the THP win deterministic instead of
+        // khugepaged-async-dependent.
+        //
+        // Adapt `pretouch_bytes` to MemTotal (was a hard-coded 1 GiB in iter 8).
+        // The 1 GiB const × MAX_THREADS=14 = 14 GiB pre-touch overshoots the
+        // 16 GiB Asahi M2 box: the eval gate's prove_loop_cand was OOM-killed
+        // twice with anon-rss ~14.3 GiB on 2026-05-11 (journalctl). Cap at
+        // MemTotal / MAX_THREADS / OVERCOMMIT_GUARD so total pre-touch stays
+        // under MemTotal/3, leaving room for the workload's own ~10 GiB
+        // touched footprint and the rest of the process.
+        // - 16 GiB / 14 / 3 ≈ 390 MiB per slab → ~5.4 GiB pre-touched
+        // - 64 GiB / 14 / 3 ≈ 1.56 GiB per slab → capped at 1 GiB ceiling
+        // Floor at THP_SIZE so we still pre-touch at least one hugepage per
+        // slab if `total_ram_bytes()` returns a degenerately small value or
+        // fails (returns 0 → fall back to THP_SIZE).
         // Runs in REGION_INIT.call_once, well before any timed proof window.
         #[cfg(target_arch = "aarch64")]
         {
-            const PRETOUCH_BYTES: usize = 1 << 30; // 1 GiB per slab
+            const PRETOUCH_HARD_CAP: usize = 1 << 30; // 1 GiB ceiling per slab
+            const OVERCOMMIT_GUARD: usize = 3; // total pre-touch ≤ MemTotal/3
+            // SAFETY: total_ram_bytes is allocation-free (sysinfo syscall into stack buffer).
+            let mem_total = unsafe { syscall::total_ram_bytes() };
+            let pretouch_bytes = if mem_total == 0 {
+                THP_SIZE
+            } else {
+                let budget = mem_total / MAX_THREADS / OVERCOMMIT_GUARD;
+                budget.clamp(THP_SIZE, PRETOUCH_HARD_CAP)
+            };
             for slab_idx in 0..MAX_THREADS {
                 let slab_base = aligned_base + slab_idx * SLAB_SIZE;
                 let mut off = 0;
-                while off < PRETOUCH_BYTES {
+                while off < pretouch_bytes {
                     // SAFETY: aligned_base..aligned_base+REGION_SIZE is a valid
                     // anonymous mmap reservation; we only touch within slab.
                     unsafe {

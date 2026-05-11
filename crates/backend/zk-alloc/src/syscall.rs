@@ -77,6 +77,7 @@ mod imp {
 
     const SYS_MMAP: usize = 222;
     const SYS_MADVISE: usize = 233;
+    const SYS_SYSINFO: usize = 179;
 
     const PROT_READ: usize = 1;
     const PROT_WRITE: usize = 2;
@@ -123,6 +124,44 @@ mod imp {
     }
 
     #[inline]
+    unsafe fn syscall1(nr: usize, a1: usize) -> isize {
+        let ret: isize;
+        unsafe {
+            std::arch::asm!(
+                "svc 0",
+                in("x8") nr,
+                inlateout("x0") a1 as isize => ret,
+                options(nostack),
+            );
+        }
+        ret
+    }
+
+    /// Returns the system's total RAM in bytes via the `sysinfo(2)` syscall, or
+    /// 0 on failure. Allocation-free: writes the kernel struct into a stack
+    /// buffer, no libc / no Vec / no String. Safe to call from inside
+    /// `#[global_allocator]` initialisation.
+    ///
+    /// Layout of `struct sysinfo` on 64-bit Linux (kernel/asm-generic):
+    ///   off  0  long uptime
+    ///   off  8  ulong loads[3]
+    ///   off 32  ulong totalram        <-- the field we want
+    ///   off 40  ulong freeram
+    ///   ...
+    ///   off108  u32   mem_unit        <-- multiplier (always 1 on 64-bit)
+    pub unsafe fn total_ram_bytes() -> usize {
+        let mut buf = [0u8; 128];
+        let ret = unsafe { syscall1(SYS_SYSINFO, buf.as_mut_ptr() as usize) };
+        if ret < 0 {
+            return 0;
+        }
+        let totalram =
+            u64::from_ne_bytes([buf[32], buf[33], buf[34], buf[35], buf[36], buf[37], buf[38], buf[39]]) as usize;
+        let mem_unit = u32::from_ne_bytes([buf[108], buf[109], buf[110], buf[111]]) as usize;
+        totalram.saturating_mul(mem_unit.max(1))
+    }
+
+    #[inline]
     pub unsafe fn mmap_anonymous(size: usize) -> *mut u8 {
         let flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
         let ret = unsafe { syscall6(SYS_MMAP, 0, size, PROT_READ | PROT_WRITE, flags, usize::MAX, 0) };
@@ -163,8 +202,8 @@ mod imp {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
-pub use imp::MADV_HUGEPAGE;
 #[cfg(not(target_arch = "aarch64"))]
 pub use imp::MADV_NOHUGEPAGE;
+#[cfg(target_arch = "aarch64")]
+pub use imp::{MADV_HUGEPAGE, total_ram_bytes};
 pub use imp::{madvise, mmap_anonymous};
