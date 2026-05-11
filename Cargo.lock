@@ -476,6 +476,7 @@ dependencies = [
  "lean_vm",
  "mt-goldilocks",
  "rand",
+ "rayon",
  "rec_aggregation",
  "serde_json",
  "sub_protocols",

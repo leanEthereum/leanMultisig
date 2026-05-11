@@ -99,6 +99,7 @@ system-info.workspace = true
 
 [dev-dependencies]
 goldilocks = { path = "crates/backend/goldilocks", package = "mt-goldilocks" }
+rayon.workspace = true
 
 
 [profile.release]
