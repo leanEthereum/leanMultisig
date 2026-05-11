@@ -90,7 +90,7 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
     let packed_point = MultilinearPoint([betas.clone(), natural_ordering_point].concat());
     let packed_eval = padd_with_zero_to_next_power_of_two(&col_evals).evaluate(&MultilinearPoint(betas));
 
-    whir_config.prove(
+    let _ = whir_config.prove(
         &mut prover_state,
         vec![SparseStatement::dense(packed_point, packed_eval)],
         witness,
