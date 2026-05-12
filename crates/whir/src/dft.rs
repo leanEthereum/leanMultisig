@@ -96,12 +96,12 @@ where
         //
         // To make the GPU FFT a net win we'd need to port the radix-4/radix-8
         // multi-layer butterfly. See `bench_fft_cpu_vs_gpu` for direct numbers.
-        // Empirical threshold: the GPU FFT (radix-8 + radix-4 + radix-2 cascade)
-        // beats the CPU multi-layer butterfly only at `h * w >= ~100M`, where
-        // memory bandwidth dominates over the GPU's per-dispatch overhead.
-        // For smaller FFTs the CPU's L1-resident multi-layer pass is faster.
+        // The GPU FFT (radix-16 cascade) wins on the big commit FFT but loses
+        // by a few ms in-pipeline on the smaller WHIR-round matrices — those
+        // are dominated by `prepare_evals_for_fft_packed_extension` (CPU-only)
+        // and run in <5 ms total. Only route the big matrices to GPU.
         fn gpu_fft_threshold() -> usize {
-            1 << 26
+            1 << 26 // ~256 MiB worth of u32
         }
         if gpu_poseidon::gpu_enabled()
             && gpu_poseidon::metal_available()

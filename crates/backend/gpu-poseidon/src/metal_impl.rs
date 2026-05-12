@@ -491,6 +491,12 @@ struct FftRadix8Params {
     uint eighth_height;     // grid extent (height / 8)
 };
 
+struct FftRadix16Params {
+    uint log_s;             // smallest stride (layer L)
+    uint width;
+    uint sixteenth_height;  // grid extent (height / 16)
+};
+
 // One thread per (column, pair_idx). tid.x = col, tid.y = pair_idx.
 // Layout: matrix[row * width + col], row in 0..height, col in 0..width.
 // At this layer, pair_idx = block_idx * stride + i_off where:
@@ -725,6 +731,201 @@ kernel void fft_evals_radix8(
         matrix[i3] = kb_add(e3pp, t37); matrix[i7] = kb_sub(e3pp, t37);
     }
 }
+
+// Radix-16 evals-DFT step: one thread processes FOUR layers (strides s, 2s, 4s, 8s)
+// on 16 elements. Compared to radix-8 this halves the device-memory pass count
+// again — for a 524288-row FFT we now do 5 passes instead of 7.
+//
+// Layout: within an 8s "macro-block" we hold elements at offsets
+//   e[k] at position (block_base + i_off + k*s) for k in 0..16,
+// where i_off in [0, s). Inner butterfly graph (DIT):
+//   Layer L:    pair (2k, 2k+1)   for k in 0..8        — twiddle tw_s [i_off]
+//   Layer L+1:  pair (4k, 4k+2),  (4k+1, 4k+3) for k in 0..4
+//                 — twiddles tw_2s[i_off], tw_2s[i_off+s]
+//   Layer L+2:  pair (8k, 8k+4), (8k+1,8k+5), (8k+2,8k+6), (8k+3,8k+7) for k in 0..2
+//                 — twiddles tw_4s[i_off + j*s] for j in 0..4
+//   Layer L+3:  pair (k, k+8) for k in 0..8
+//                 — twiddles tw_8s[i_off + j*s] for j in 0..8
+// Twiddle-free shortcut applies only when i_off == 0 (the very first butterfly
+// in each layer); the other butterflies in the same thread always use a twiddle.
+kernel void fft_evals_radix16(
+    device uint   *matrix [[buffer(0)]],
+    constant uint *tw_s   [[buffer(1)]],   // length = s
+    constant uint *tw_2s  [[buffer(2)]],   // length = 2s
+    constant uint *tw_4s  [[buffer(3)]],   // length = 4s
+    constant uint *tw_8s  [[buffer(4)]],   // length = 8s
+    constant FftRadix16Params &p [[buffer(5)]],
+    uint2 tid [[thread_position_in_grid]]
+) {
+    if (tid.x >= p.width || tid.y >= p.sixteenth_height) return;
+    uint col      = tid.x;
+    uint pair_idx = tid.y;
+
+    uint s          = 1u << p.log_s;
+    uint i_off      = pair_idx & (s - 1u);
+    uint block_idx  = pair_idx >> p.log_s;
+    uint block_base = block_idx << (p.log_s + 4u);  // 16 * s
+
+    uint sw = p.width;
+    uint i0  = (block_base + i_off              ) * sw + col;
+    uint i1  = i0 + s * sw;
+    uint i2  = i0 + 2u * s * sw;
+    uint i3  = i0 + 3u * s * sw;
+    uint i4  = i0 + 4u * s * sw;
+    uint i5  = i0 + 5u * s * sw;
+    uint i6  = i0 + 6u * s * sw;
+    uint i7  = i0 + 7u * s * sw;
+    uint i8  = i0 + 8u * s * sw;
+    uint i9  = i0 + 9u * s * sw;
+    uint i10 = i0 + 10u * s * sw;
+    uint i11 = i0 + 11u * s * sw;
+    uint i12 = i0 + 12u * s * sw;
+    uint i13 = i0 + 13u * s * sw;
+    uint i14 = i0 + 14u * s * sw;
+    uint i15 = i0 + 15u * s * sw;
+
+    uint e0  = matrix[i0];  uint e1  = matrix[i1];
+    uint e2  = matrix[i2];  uint e3  = matrix[i3];
+    uint e4  = matrix[i4];  uint e5  = matrix[i5];
+    uint e6  = matrix[i6];  uint e7  = matrix[i7];
+    uint e8  = matrix[i8];  uint e9  = matrix[i9];
+    uint e10 = matrix[i10]; uint e11 = matrix[i11];
+    uint e12 = matrix[i12]; uint e13 = matrix[i13];
+    uint e14 = matrix[i14]; uint e15 = matrix[i15];
+
+    // --- Layer L: stride s -- 8 butterflies on (2k, 2k+1), shared twiddle tw_s[i_off]
+    {
+        uint t01, t23, t45, t67, t89, tab, tcd, tef;
+        if (i_off == 0u) {
+            t01 = kb_sub(e1, e0); t23 = kb_sub(e3, e2);
+            t45 = kb_sub(e5, e4); t67 = kb_sub(e7, e6);
+            t89 = kb_sub(e9, e8); tab = kb_sub(e11, e10);
+            tcd = kb_sub(e13, e12); tef = kb_sub(e15, e14);
+        } else {
+            uint tw = tw_s[i_off];
+            t01 = kb_mul(kb_sub(e1,  e0),  tw);
+            t23 = kb_mul(kb_sub(e3,  e2),  tw);
+            t45 = kb_mul(kb_sub(e5,  e4),  tw);
+            t67 = kb_mul(kb_sub(e7,  e6),  tw);
+            t89 = kb_mul(kb_sub(e9,  e8),  tw);
+            tab = kb_mul(kb_sub(e11, e10), tw);
+            tcd = kb_mul(kb_sub(e13, e12), tw);
+            tef = kb_mul(kb_sub(e15, e14), tw);
+        }
+        uint n0  = kb_add(e0,  t01); uint n1  = kb_sub(e0,  t01);
+        uint n2  = kb_add(e2,  t23); uint n3  = kb_sub(e2,  t23);
+        uint n4  = kb_add(e4,  t45); uint n5  = kb_sub(e4,  t45);
+        uint n6  = kb_add(e6,  t67); uint n7  = kb_sub(e6,  t67);
+        uint n8  = kb_add(e8,  t89); uint n9  = kb_sub(e8,  t89);
+        uint n10 = kb_add(e10, tab); uint n11 = kb_sub(e10, tab);
+        uint n12 = kb_add(e12, tcd); uint n13 = kb_sub(e12, tcd);
+        uint n14 = kb_add(e14, tef); uint n15 = kb_sub(e14, tef);
+        e0=n0; e1=n1; e2=n2; e3=n3; e4=n4; e5=n5; e6=n6; e7=n7;
+        e8=n8; e9=n9; e10=n10; e11=n11; e12=n12; e13=n13; e14=n14; e15=n15;
+    }
+
+    // --- Layer L+1: stride 2s.
+    //   Pairs (0,2),(4,6),(8,10),(12,14) with tw_2s[i_off]
+    //   Pairs (1,3),(5,7),(9,11),(13,15) with tw_2s[i_off+s]
+    {
+        uint tw_a_base, tw_b_base;
+        bool tf_a = (i_off == 0u);
+        if (!tf_a) { tw_a_base = tw_2s[i_off]; }
+        tw_b_base = tw_2s[i_off + s];
+        uint t02, t46, t8a, tce, t13, t57, t9b, tdf;
+        if (tf_a) {
+            t02 = kb_sub(e2, e0); t46 = kb_sub(e6, e4);
+            t8a = kb_sub(e10, e8); tce = kb_sub(e14, e12);
+        } else {
+            t02 = kb_mul(kb_sub(e2,  e0), tw_a_base);
+            t46 = kb_mul(kb_sub(e6,  e4), tw_a_base);
+            t8a = kb_mul(kb_sub(e10, e8), tw_a_base);
+            tce = kb_mul(kb_sub(e14, e12), tw_a_base);
+        }
+        t13 = kb_mul(kb_sub(e3,  e1),  tw_b_base);
+        t57 = kb_mul(kb_sub(e7,  e5),  tw_b_base);
+        t9b = kb_mul(kb_sub(e11, e9),  tw_b_base);
+        tdf = kb_mul(kb_sub(e15, e13), tw_b_base);
+
+        uint n0  = kb_add(e0,  t02); uint n2  = kb_sub(e0,  t02);
+        uint n4  = kb_add(e4,  t46); uint n6  = kb_sub(e4,  t46);
+        uint n8  = kb_add(e8,  t8a); uint n10 = kb_sub(e8,  t8a);
+        uint n12 = kb_add(e12, tce); uint n14 = kb_sub(e12, tce);
+        uint n1  = kb_add(e1,  t13); uint n3  = kb_sub(e1,  t13);
+        uint n5  = kb_add(e5,  t57); uint n7  = kb_sub(e5,  t57);
+        uint n9  = kb_add(e9,  t9b); uint n11 = kb_sub(e9,  t9b);
+        uint n13 = kb_add(e13, tdf); uint n15 = kb_sub(e13, tdf);
+        e0=n0; e1=n1; e2=n2; e3=n3; e4=n4; e5=n5; e6=n6; e7=n7;
+        e8=n8; e9=n9; e10=n10; e11=n11; e12=n12; e13=n13; e14=n14; e15=n15;
+    }
+
+    // --- Layer L+2: stride 4s.
+    //   For each "4s-block" of 8 elements (positions 0..7 and 8..15):
+    //     pair (4k, 4k+4) with tw_4s[i_off + (k mod 1)*s]  -- actually:
+    //   Pairs (0,4),(1,5),(2,6),(3,7) with tw_4s[i_off + j*s] for j=0..3
+    //   Pairs (8,12),(9,13),(10,14),(11,15) with same tw_4s[i_off + j*s]
+    {
+        uint tw0, tw1, tw2, tw3;
+        bool tf0 = (i_off == 0u);
+        if (!tf0) tw0 = tw_4s[i_off];
+        tw1 = tw_4s[i_off + s];
+        tw2 = tw_4s[i_off + 2u * s];
+        tw3 = tw_4s[i_off + 3u * s];
+
+        uint t04, t15, t26, t37, t8c, t9d, tae, tbf;
+        if (tf0) {
+            t04 = kb_sub(e4, e0); t8c = kb_sub(e12, e8);
+        } else {
+            t04 = kb_mul(kb_sub(e4,  e0),  tw0);
+            t8c = kb_mul(kb_sub(e12, e8),  tw0);
+        }
+        t15 = kb_mul(kb_sub(e5,  e1),  tw1);
+        t26 = kb_mul(kb_sub(e6,  e2),  tw2);
+        t37 = kb_mul(kb_sub(e7,  e3),  tw3);
+        t9d = kb_mul(kb_sub(e13, e9),  tw1);
+        tae = kb_mul(kb_sub(e14, e10), tw2);
+        tbf = kb_mul(kb_sub(e15, e11), tw3);
+
+        uint n0  = kb_add(e0,  t04); uint n4  = kb_sub(e0,  t04);
+        uint n1  = kb_add(e1,  t15); uint n5  = kb_sub(e1,  t15);
+        uint n2  = kb_add(e2,  t26); uint n6  = kb_sub(e2,  t26);
+        uint n3  = kb_add(e3,  t37); uint n7  = kb_sub(e3,  t37);
+        uint n8  = kb_add(e8,  t8c); uint n12 = kb_sub(e8,  t8c);
+        uint n9  = kb_add(e9,  t9d); uint n13 = kb_sub(e9,  t9d);
+        uint n10 = kb_add(e10, tae); uint n14 = kb_sub(e10, tae);
+        uint n11 = kb_add(e11, tbf); uint n15 = kb_sub(e11, tbf);
+        e0=n0; e1=n1; e2=n2; e3=n3; e4=n4; e5=n5; e6=n6; e7=n7;
+        e8=n8; e9=n9; e10=n10; e11=n11; e12=n12; e13=n13; e14=n14; e15=n15;
+    }
+
+    // --- Layer L+3: stride 8s.
+    //   Pairs (k, k+8) for k in 0..8, twiddles tw_8s[i_off + k*s].
+    {
+        uint t08, t19, t2a, t3b, t4c, t5d, t6e, t7f;
+        if (i_off == 0u) {
+            t08 = kb_sub(e8, e0);
+        } else {
+            uint tw0 = tw_8s[i_off];
+            t08 = kb_mul(kb_sub(e8, e0), tw0);
+        }
+        t19 = kb_mul(kb_sub(e9,  e1), tw_8s[i_off + s]);
+        t2a = kb_mul(kb_sub(e10, e2), tw_8s[i_off + 2u * s]);
+        t3b = kb_mul(kb_sub(e11, e3), tw_8s[i_off + 3u * s]);
+        t4c = kb_mul(kb_sub(e12, e4), tw_8s[i_off + 4u * s]);
+        t5d = kb_mul(kb_sub(e13, e5), tw_8s[i_off + 5u * s]);
+        t6e = kb_mul(kb_sub(e14, e6), tw_8s[i_off + 6u * s]);
+        t7f = kb_mul(kb_sub(e15, e7), tw_8s[i_off + 7u * s]);
+
+        matrix[i0]  = kb_add(e0, t08);  matrix[i8]  = kb_sub(e0, t08);
+        matrix[i1]  = kb_add(e1, t19);  matrix[i9]  = kb_sub(e1, t19);
+        matrix[i2]  = kb_add(e2, t2a);  matrix[i10] = kb_sub(e2, t2a);
+        matrix[i3]  = kb_add(e3, t3b);  matrix[i11] = kb_sub(e3, t3b);
+        matrix[i4]  = kb_add(e4, t4c);  matrix[i12] = kb_sub(e4, t4c);
+        matrix[i5]  = kb_add(e5, t5d);  matrix[i13] = kb_sub(e5, t5d);
+        matrix[i6]  = kb_add(e6, t6e);  matrix[i14] = kb_sub(e6, t6e);
+        matrix[i7]  = kb_add(e7, t7f);  matrix[i15] = kb_sub(e7, t7f);
+    }
+}
 "#;
 
 // =========================================================================
@@ -743,6 +944,7 @@ pub struct MetalCtx {
     pub fft_evals_layer_pipeline: ComputePipelineState,
     pub fft_evals_radix4_pipeline: ComputePipelineState,
     pub fft_evals_radix8_pipeline: ComputePipelineState,
+    pub fft_evals_radix16_pipeline: ComputePipelineState,
 }
 
 // SAFETY: Metal handles are inherently Send/Sync; the metal-rs crate marks them
@@ -782,6 +984,7 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
     let fft_evals_layer_pipeline = mk("fft_evals_layer")?;
     let fft_evals_radix4_pipeline = mk("fft_evals_radix4")?;
     let fft_evals_radix8_pipeline = mk("fft_evals_radix8")?;
+    let fft_evals_radix16_pipeline = mk("fft_evals_radix16")?;
     Ok(MetalCtx {
         device,
         queue,
@@ -794,6 +997,7 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
         fft_evals_layer_pipeline,
         fft_evals_radix4_pipeline,
         fft_evals_radix8_pipeline,
+        fft_evals_radix16_pipeline,
     })
 }
 
@@ -1273,6 +1477,14 @@ struct FftRadix8Params {
     eighth_height: u32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct FftRadix16Params {
+    log_s: u32,
+    width: u32,
+    sixteenth_height: u32,
+}
+
 /// Wrap a `&[u32]` as a Metal buffer with zero copy when page-aligned, else
 /// fall back to the copying `with_data` constructor. The second return value
 /// is `true` when the buffer aliases the input — i.e. kernel writes to it
@@ -1402,7 +1614,34 @@ pub fn fft_evals_in_place_gpu(matrix: &mut [u32], height: usize, width: usize, t
         if pass > 0 {
             enc.memory_barrier_with_resources(&matrix_resources);
         }
-        if remaining >= 3 {
+        if remaining >= 4 {
+            // Radix-16: process 4 consecutive layers in one pass.
+            enc.set_compute_pipeline_state(&ctx.fft_evals_radix16_pipeline);
+            let log_s = layer;
+            let tw_s_idx = log_h - 1 - layer;
+            let tw_2s_idx = log_h - 1 - (layer + 1);
+            let tw_4s_idx = log_h - 1 - (layer + 2);
+            let tw_8s_idx = log_h - 1 - (layer + 3);
+            let sixteenth_h = (height / 16) as NSUInteger;
+            let params = FftRadix16Params {
+                log_s: log_s as u32,
+                width: width as u32,
+                sixteenth_height: sixteenth_h as u32,
+            };
+            enc.set_buffer(1, Some(&twiddle_bufs[tw_s_idx]), 0);
+            enc.set_buffer(2, Some(&twiddle_bufs[tw_2s_idx]), 0);
+            enc.set_buffer(3, Some(&twiddle_bufs[tw_4s_idx]), 0);
+            enc.set_buffer(4, Some(&twiddle_bufs[tw_8s_idx]), 0);
+            enc.set_bytes(
+                5,
+                std::mem::size_of::<FftRadix16Params>() as NSUInteger,
+                (&params as *const FftRadix16Params) as *const _,
+            );
+            let tg_x = w.min(max_tg).max(1);
+            let tg_y = ((max_tg / tg_x).max(1)).min(sixteenth_h);
+            enc.dispatch_threads(MTLSize::new(w, sixteenth_h, 1), MTLSize::new(tg_x, tg_y, 1));
+            layer += 4;
+        } else if remaining >= 3 {
             // Radix-8: process 3 consecutive layers in one pass.
             enc.set_compute_pipeline_state(&ctx.fft_evals_radix8_pipeline);
             let log_s = layer;
