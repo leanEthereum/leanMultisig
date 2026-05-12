@@ -55,6 +55,69 @@ pub(crate) fn merkle_commit<F: Field, EF: ExtensionField<F>>(
     }
 }
 
+/// GPU path: build the entire Merkle tree (leaf layer + all parents) on the GPU
+/// in a single command buffer. Returns `None` when Metal isn't usable or when
+/// the height isn't a power of two (the GPU kernel only handles power-of-two
+/// pair-reductions; non-power-of-two cases fall back to CPU).
+#[instrument(name = "build merkle tree (GPU)", skip_all)]
+fn try_gpu_build_merkle_tree(
+    leaf: &DenseMatrix<KoalaBear>,
+    effective_base_width: usize,
+    scalar_state: &[KoalaBear; 16],
+) -> Option<symetric::merkle::MerkleTree<KoalaBear, DIGEST_ELEMS>> {
+    if !gpu_poseidon::gpu_enabled() || !gpu_poseidon::metal_available() {
+        return None;
+    }
+    let height = leaf.height();
+    if !height.is_power_of_two() {
+        return None;
+    }
+    let width = leaf.width();
+
+    // SAFETY: KoalaBear is #[repr(transparent)] over a Montgomery-form u32.
+    let matrix_u32: &[u32] =
+        unsafe { std::slice::from_raw_parts(leaf.values.as_ptr() as *const u32, leaf.values.len()) };
+    let initial_u32: [u32; 16] = unsafe { std::mem::transmute(*scalar_state) };
+
+    let layers_u32 =
+        gpu_poseidon::build_merkle_tree_full(matrix_u32, height, width, effective_base_width, &initial_u32);
+
+    // SAFETY: transparent-repr reasoning ([u32; 8] → [KoalaBear; 8]).
+    let digest_layers: Vec<Vec<[KoalaBear; DIGEST_ELEMS]>> = unsafe { std::mem::transmute(layers_u32) };
+    Some(symetric::merkle::MerkleTree { digest_layers })
+}
+
+/// GPU path for the `effective == full` case (no precomputed initial state).
+/// Used by the WHIR open-rounds where each row of the matrix is the entire
+/// stream — the first sponge absorption fills the full width of the state.
+#[instrument(name = "build merkle tree (GPU, no init)", skip_all)]
+fn try_gpu_build_merkle_tree_no_initial(
+    leaf: &DenseMatrix<KoalaBear>,
+    full_base_width: usize,
+) -> Option<symetric::merkle::MerkleTree<KoalaBear, DIGEST_ELEMS>> {
+    if !gpu_poseidon::gpu_enabled() || !gpu_poseidon::metal_available() {
+        return None;
+    }
+    let height = leaf.height();
+    if !height.is_power_of_two() {
+        return None;
+    }
+    // Kernel requires full_width >= 16 (WIDTH) and multiple of RATE=8.
+    if full_base_width < 16 || !full_base_width.is_multiple_of(8) {
+        return None;
+    }
+    let width = leaf.width();
+
+    // SAFETY: KoalaBear is #[repr(transparent)] over a Montgomery-form u32.
+    let matrix_u32: &[u32] =
+        unsafe { std::slice::from_raw_parts(leaf.values.as_ptr() as *const u32, leaf.values.len()) };
+
+    let layers_u32 = gpu_poseidon::build_merkle_tree_full_no_initial(matrix_u32, height, width, full_base_width);
+
+    let digest_layers: Vec<Vec<[KoalaBear; DIGEST_ELEMS]>> = unsafe { std::mem::transmute(layers_u32) };
+    Some(symetric::merkle::MerkleTree { digest_layers })
+}
+
 #[instrument(name = "build merkle tree", skip_all)]
 fn build_merkle_tree_koalabear(
     leaf: DenseMatrix<KoalaBear>,
@@ -63,23 +126,31 @@ fn build_merkle_tree_koalabear(
 ) -> RoundMerkleTree<KoalaBear> {
     let perm = default_koalabear_poseidon1_16();
     let n_zero_suffix_rate_chunks = (full_base_width - effective_base_width) / 8;
-    let first_layer = if n_zero_suffix_rate_chunks >= 2 {
+    let tree = if n_zero_suffix_rate_chunks >= 2 {
         let scalar_state = symetric::precompute_zero_suffix_state::<KoalaBear, _, 16, 8, DIGEST_ELEMS>(
             &perm,
             n_zero_suffix_rate_chunks,
         );
-        let packed_state: [PFPacking<KoalaBear>; 16] =
-            std::array::from_fn(|i| PFPacking::<KoalaBear>::from_fn(|_| scalar_state[i]));
-        first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(
-            &perm,
-            &leaf,
-            &packed_state,
-            effective_base_width,
-        )
+        if let Some(gpu_tree) = try_gpu_build_merkle_tree(&leaf, effective_base_width, &scalar_state) {
+            gpu_tree
+        } else {
+            let packed_state: [PFPacking<KoalaBear>; 16] =
+                std::array::from_fn(|i| PFPacking::<KoalaBear>::from_fn(|_| scalar_state[i]));
+            let first_layer = first_digest_layer_with_initial_state::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(
+                &perm,
+                &leaf,
+                &packed_state,
+                effective_base_width,
+            );
+            symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer)
+        }
+    } else if let Some(gpu_tree) = try_gpu_build_merkle_tree_no_initial(&leaf, full_base_width) {
+        gpu_tree
     } else {
-        first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(&perm, &leaf, full_base_width)
+        let first_layer =
+            first_digest_layer::<PFPacking<KoalaBear>, _, _, DIGEST_ELEMS, 16, 8>(&perm, &leaf, full_base_width);
+        symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer)
     };
-    let tree = symetric::merkle::MerkleTree::from_first_layer::<PFPacking<KoalaBear>, _, 16>(&perm, first_layer);
     WhirMerkleTree {
         leaf,
         tree,

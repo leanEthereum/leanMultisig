@@ -1,0 +1,15 @@
+[package]
+name = "gpu-poseidon"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+field = { path = "../field", package = "mt-field" }
+koala-bear = { path = "../koala-bear", package = "mt-koala-bear" }
+symetric = { path = "../symetric", package = "mt-symetric" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.33"
+objc = "0.2"
+libc = "0.2"
+tracing.workspace = true

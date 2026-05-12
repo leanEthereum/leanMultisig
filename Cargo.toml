@@ -20,6 +20,7 @@ members = [
     "crates/backend/sumcheck",
     "crates/backend/system-info",
     "crates/backend/zk-alloc",
+    "crates/backend/gpu-poseidon",
 ]
 
 [workspace.lints]
@@ -63,6 +64,7 @@ rec_aggregation = { path = "crates/rec_aggregation" }
 backend = { path = "crates/backend" }
 zk-alloc = { path = "crates/backend/zk-alloc" }
 system-info = { path = "crates/backend/system-info" }
+gpu-poseidon = { path = "crates/backend/gpu-poseidon" }
 
 # External
 sha3 = "0.11.0"
@@ -97,6 +99,7 @@ xmss.workspace = true
 backend.workspace = true
 serde_json.workspace = true
 system-info.workspace = true
+gpu-poseidon.workspace = true
 
 
 [profile.release]

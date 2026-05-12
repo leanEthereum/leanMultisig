@@ -22,6 +22,8 @@ enum Cli {
         json: bool,
         #[arg(long, default_value = "1", help = "Number of measured runs per node (after warmup)")]
         repeat: usize,
+        #[arg(long, help = "Use the Metal GPU backend for Poseidon (macOS only)")]
+        gpu: bool,
     },
     #[command(about = "Run n->1 recursion")]
     Recursion {
@@ -38,6 +40,8 @@ enum Cli {
         json: bool,
         #[arg(long, default_value = "1", help = "Number of measured runs per node (after warmup)")]
         repeat: usize,
+        #[arg(long, help = "Use the Metal GPU backend for Poseidon (macOS only)")]
+        gpu: bool,
     },
     #[command(about = "Run a fancy aggregation topology")]
     FancyAggregation {
@@ -48,7 +52,23 @@ enum Cli {
         json: bool,
         #[arg(long, default_value = "1", help = "Number of measured runs per node (after warmup)")]
         repeat: usize,
+        #[arg(long, help = "Use the Metal GPU backend for Poseidon (macOS only)")]
+        gpu: bool,
     },
+}
+
+/// Enable the Metal GPU backend if `gpu` is true. Warns and continues on CPU
+/// if Metal isn't available on this platform.
+fn configure_gpu(gpu: bool) {
+    if !gpu {
+        return;
+    }
+    if gpu_poseidon::metal_available() {
+        gpu_poseidon::set_gpu_enabled(true);
+        eprintln!("GPU backend: Metal enabled");
+    } else {
+        eprintln!("GPU backend requested but Metal is unavailable on this platform; falling back to CPU");
+    }
 }
 
 fn run_with_warmup(topology: &AggregationTopology, tracing: bool, json: bool, repeat: usize) {
@@ -79,7 +99,9 @@ fn main() {
             tracing,
             json,
             repeat,
+            gpu,
         } => {
+            configure_gpu(gpu);
             let topology = AggregationTopology {
                 raw_xmss: n_signatures,
                 children: vec![],
@@ -94,7 +116,9 @@ fn main() {
             tracing,
             json,
             repeat,
+            gpu,
         } => {
+            configure_gpu(gpu);
             let topology = AggregationTopology {
                 raw_xmss: 0,
                 children: vec![
@@ -111,7 +135,8 @@ fn main() {
             };
             run_with_warmup(&topology, tracing, json, repeat);
         }
-        Cli::FancyAggregation { json, repeat } => {
+        Cli::FancyAggregation { json, repeat, gpu } => {
+            configure_gpu(gpu);
             let topology = AggregationTopology {
                 raw_xmss: 0,
                 children: vec![AggregationTopology {
