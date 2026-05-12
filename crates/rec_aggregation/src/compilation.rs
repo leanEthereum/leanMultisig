@@ -192,6 +192,17 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
 
     // VM recursion parameters (different from WHIR)
     replacements.insert("N_TABLES_PLACEHOLDER".to_string(), N_TABLES.to_string());
+
+    // Jagged-PCS sub-table count for the inner zkVM. Mirrors the layout
+    // built by `ZkvmJaggedLayout::new`: 3 base sub-tables (memory,
+    // memory_acc, bytecode_acc) plus one per power-of-two width chunk of
+    // each AIR table's columns. This is a compile-time constant because
+    // each table's `n_columns()` is constant.
+    let mut n_sub_tables: usize = 3;
+    for &table in &ALL_TABLES {
+        n_sub_tables += sub_protocols::jagged_pcs::decompose_table_widths(table.n_columns()).len();
+    }
+    replacements.insert("N_SUB_TABLES_PLACEHOLDER".to_string(), n_sub_tables.to_string());
     replacements.insert(
         "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
         MIN_LOG_N_ROWS_PER_TABLE.to_string(),
@@ -377,6 +388,16 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     replacements.insert(
         "TOTAL_WHIR_STATEMENTS_PLACEHOLDER".to_string(),
         total_whir_statements().to_string(),
+    );
+    // Number of jagged-PCS claims passed to `jagged_open` by the Rust
+    // prover for the inner zkVM proof. Equals `total_whir_statements()`
+    // minus pc_end (which is "implicitly enforced via the structural
+    // padding-row value" in jagged, see `build_jagged_claims` in
+    // `crates/lean_prover/src/prove_execution.rs`). The recursion
+    // verifier samples one EF alpha per claim in `recursion.py`.
+    replacements.insert(
+        "N_JAGGED_CLAIMS_PLACEHOLDER".to_string(),
+        (total_whir_statements() - 1).to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());

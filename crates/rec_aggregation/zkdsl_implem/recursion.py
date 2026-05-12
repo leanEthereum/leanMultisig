@@ -3,6 +3,13 @@ from whir import *
 from hashing import *
 
 N_TABLES = N_TABLES_PLACEHOLDER
+N_SUB_TABLES = N_SUB_TABLES_PLACEHOLDER
+# Number of jagged-PCS claims the inner prover packs into `v_combined`.
+# Used to size the `alpha` sample vector right before WHIR. Matches the
+# claim list built by `crates/lean_prover/src/prove_execution.rs::build_jagged_claims`
+# (5 fixed: memory, memory_acc, public_memory, bytecode_acc, pc_start;
+# plus per-table AIR up/down column claims).
+N_JAGGED_CLAIMS = N_JAGGED_CLAIMS_PLACEHOLDER
 
 LOGUP_GKR_N_VARS_TO_SEND_COEFFS = LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER
 LOGUP_GKR_N_COEFFS_SENT = 2**LOGUP_GKR_N_VARS_TO_SEND_COEFFS
@@ -57,14 +64,21 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     fs = fs_observe(fs, bytecode_hash_domsep, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
     # table dims
-    debug_assert(N_TABLES + 1 < DIGEST_LEN)
-    fs, dims = fs_receive_chunks(fs, 1)
-    for i in unroll(N_TABLES + 3, 8):
+    # The jagged-branch Rust prover writes (in this order):
+    #   [whir_log_inv_rate, log_memory, public_input_len, padding_zero_vec_ptr,
+    #    log_n_rows_per_table[0..N_TABLES], non_padded_n_rows_per_table[0..N_TABLES]]
+    # = 4 + 2*N_TABLES scalars, padded by the FS framework to the next
+    # multiple of 8 (= 16 for N_TABLES = 3, i.e. 2 chunks).
+    debug_assert(4 + 2 * N_TABLES <= 16)
+    fs, dims = fs_receive_chunks(fs, 2)
+    for i in unroll(4 + 2 * N_TABLES, 16):
         assert dims[i] == 0
     whir_log_inv_rate = dims[0]
     log_memory = dims[1]
     public_input_len = dims[2]
-    table_log_heights = dims + 3
+    padding_zero_vec_ptr = dims[3]
+    table_log_heights = dims + 4
+    table_non_padded_n_rows = dims + 4 + N_TABLES
 
     assert public_input_len == PUB_INPUT_SIZE
 
@@ -89,6 +103,15 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
+
+    # JAGGED-PCS: read the cumulative-area bit strings the prover wrote
+    # before the WHIR commitment. `jagged_commit` (Rust prover) calls
+    # `add_base_scalars(&usize_to_bits(area, m))` once per cumulative area
+    # (= N_SUB_TABLES + 1 calls), each padded by the FS framework to the
+    # next multiple of 8. We absorb them here to keep the verifier's FS
+    # state in sync. Booleanity + monotonicity checks are deferred until
+    # the bits are actually consumed by `bp_eval` (TODO).
+    fs = read_cumulative_areas(fs, stacked_n_vars)
 
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
@@ -494,6 +517,13 @@ def continue_recursion_ordered(
     public_memory_eval = Array(DIM)
     dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
+    # JAGGED-PCS: sample one batching alpha per claim. Mirrors the prover's
+    # `jagged_open` which samples `n_claims` alphas right before invoking
+    # WHIR. Alphas are not yet consumed -- `v_combined` and `F(i*)`
+    # plumbing is the next surgery step. We sample them here only to keep
+    # the FS state in sync with the prover.
+    fs, jagged_alphas = fs_sample_many_ef(fs, N_JAGGED_CLAIMS)
+
     # WHIR BASE
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
@@ -798,6 +828,34 @@ def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
         total_lookup_values += 1  # for the bus
         total += n_rows * total_lookup_values
     return log2_ceil_runtime(total)
+
+
+def read_cumulative_areas(fs, m):
+    """Absorb N_SUB_TABLES + 1 jagged-PCS cumulative-area bit strings from
+    the FS transcript. Each string has `m` raw bits (= log_dense_size),
+    framework-padded by the prover to the next multiple of 8. Dispatch on
+    the runtime `m` at the top level (cheaper than dispatching per-area
+    since `m` is shared across all areas)."""
+    new_fs = match_range(
+        m,
+        range(MIN_STACKED_N_VARS, TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - MIN_WHIR_LOG_INV_RATE + 1),
+        lambda mm: absorb_cumulative_areas_const(fs, mm),
+    )
+    return new_fs
+
+
+def absorb_cumulative_areas_const(fs: Mut, m: Const):
+    # `m` is the bit-count per cumulative area, fixed at compile time
+    # by the outer `match_range` dispatch.
+    n_chunks = div_ceil(m, 8)
+    n_remainder = 8 * n_chunks - m
+    for _ in unroll(0, N_SUB_TABLES + 1):
+        fs, area_data = fs_receive_chunks(fs, n_chunks)
+        # The prover writes `m` real bits then `n_remainder` zero-padding
+        # scalars; assert the padding so we don't accept malformed input.
+        for k in unroll(m, m + n_remainder):
+            assert area_data[k] == 0
+    return fs
 
 
 def evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly):

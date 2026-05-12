@@ -53,14 +53,8 @@ pub type PackedFillFn<EF> = Box<dyn FnOnce(&mut [EFPacking<EF>], EF) + Send>;
 ///   pack-and-add pass) when it can write the contribution in packed
 ///   form directly.
 pub enum RawWeights<EF: ExtensionField<PF<EF>>> {
-    Cube {
-        cube_weights: Vec<EF>,
-        claimed_sum: EF,
-    },
-    PackedFill {
-        fill: PackedFillFn<EF>,
-        claimed_sum: EF,
-    },
+    Cube { cube_weights: Vec<EF>, claimed_sum: EF },
+    PackedFill { fill: PackedFillFn<EF>, claimed_sum: EF },
 }
 
 impl<EF: ExtensionField<PF<EF>>> RawWeights<EF> {
