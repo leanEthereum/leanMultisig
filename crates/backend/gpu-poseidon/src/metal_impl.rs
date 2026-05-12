@@ -152,12 +152,24 @@ inline uint cube(uint x) {
     return kb_mul(kb_mul(x, x), x);
 }
 
-inline uint dot16(thread const uint *state, constant uint *row) {
-    uint acc = kb_mul(state[0], row[0]);
-    for (int i = 1; i < 16; i++) {
-        acc = kb_add(acc, kb_mul(state[i], row[i]));
-    }
-    return acc;
+// Pairwise tree-reduced dot product of two 16-element vectors. Critical path
+// is log2(16) = 4 adds + 1 mul instead of the 16-deep serial chain a naive
+// `acc += s[i]*r[i]` loop would produce — important because dot16 is on the
+// partial-round critical path (state[0] depends on it before the next cube).
+inline uint dot16(thread const uint *s, constant uint *r) {
+    uint p0 = kb_add(kb_mul(s[0],  r[0]),  kb_mul(s[1],  r[1]));
+    uint p1 = kb_add(kb_mul(s[2],  r[2]),  kb_mul(s[3],  r[3]));
+    uint p2 = kb_add(kb_mul(s[4],  r[4]),  kb_mul(s[5],  r[5]));
+    uint p3 = kb_add(kb_mul(s[6],  r[6]),  kb_mul(s[7],  r[7]));
+    uint p4 = kb_add(kb_mul(s[8],  r[8]),  kb_mul(s[9],  r[9]));
+    uint p5 = kb_add(kb_mul(s[10], r[10]), kb_mul(s[11], r[11]));
+    uint p6 = kb_add(kb_mul(s[12], r[12]), kb_mul(s[13], r[13]));
+    uint p7 = kb_add(kb_mul(s[14], r[14]), kb_mul(s[15], r[15]));
+    uint q0 = kb_add(p0, p1);
+    uint q1 = kb_add(p2, p3);
+    uint q2 = kb_add(p4, p5);
+    uint q3 = kb_add(p6, p7);
+    return kb_add(kb_add(q0, q1), kb_add(q2, q3));
 }
 
 // 16-point radix-2 FFT / IFFT butterflies (Montgomery-form KoalaBear).
@@ -215,18 +227,26 @@ inline void full_round(thread uint *state, constant uint *rc) {
 }
 
 inline void permute(thread uint *state) {
+    // Force full unrolling so the round-array indices fold to compile-time
+    // constants and the compiler can keep round constants in registers instead
+    // of reissuing constant-memory loads.
+    #pragma clang loop unroll(full)
     for (int r = 0; r < 4; r++) {
         full_round(state, &INITIAL_RC[r * 16]);
     }
+    #pragma clang loop unroll(full)
     for (int i = 0; i < 16; i++) {
         state[i] = kb_add(state[i], SPARSE_FIRST_RC[i]);
     }
     uint tmp[16];
+    #pragma clang loop unroll(full)
     for (int i = 0; i < 16; i++) {
         tmp[i] = dot16(state, &SPARSE_M_I[i * 16]);
     }
+    #pragma clang loop unroll(full)
     for (int i = 0; i < 16; i++) state[i] = tmp[i];
 
+    #pragma clang loop unroll(full)
     for (int r = 0; r < 20; r++) {
         state[0] = cube(state[0]);
         if (r < 19) {
@@ -234,11 +254,13 @@ inline void permute(thread uint *state) {
         }
         uint old_s0 = state[0];
         state[0] = dot16(state, &SPARSE_FIRST_ROW[r * 16]);
+        #pragma clang loop unroll(full)
         for (int i = 1; i < 16; i++) {
             state[i] = kb_add(state[i], kb_mul(old_s0, SPARSE_V[r * 16 + (i - 1)]));
         }
     }
 
+    #pragma clang loop unroll(full)
     for (int r = 0; r < 4; r++) {
         full_round(state, &TERMINAL_RC[r * 16]);
     }
@@ -500,7 +522,7 @@ pub fn bench_compress_chain(n_threads: usize, n_iter: u32) -> (std::time::Durati
         (&n_iter as *const u32) as *const _,
     );
 
-    let tg_size = ctx.compress_chain_pipeline.max_total_threads_per_threadgroup().min(64);
+    let tg_size = ctx.compress_chain_pipeline.max_total_threads_per_threadgroup();
 
     let start = std::time::Instant::now();
     enc.dispatch_threads(MTLSize::new(n_threads as NSUInteger, 1, 1), MTLSize::new(tg_size, 1, 1));
@@ -535,7 +557,7 @@ pub fn compress_many(inputs: &[[u32; 16]]) -> Vec<[u32; 16]> {
     enc.set_buffer(0, Some(&in_buf), 0);
     enc.set_buffer(1, Some(&out_buf), 0);
 
-    let tg_size = ctx.compress_one_pipeline.max_total_threads_per_threadgroup().min(64);
+    let tg_size = ctx.compress_one_pipeline.max_total_threads_per_threadgroup();
     enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg_size, 1, 1));
     enc.end_encoding();
     cmd.commit();
@@ -639,7 +661,7 @@ pub fn hash_leaves_with_initial_state(
         (&params as *const LeafParams) as *const _,
     );
 
-    let tg_size = ctx.hash_leaves_pipeline.max_total_threads_per_threadgroup().min(64);
+    let tg_size = ctx.hash_leaves_pipeline.max_total_threads_per_threadgroup();
     enc.dispatch_threads(MTLSize::new(height as NSUInteger, 1, 1), MTLSize::new(tg_size, 1, 1));
     enc.end_encoding();
     cmd.commit();
@@ -746,7 +768,7 @@ pub fn build_merkle_tree_full(
             std::mem::size_of::<LeafParams>() as NSUInteger,
             (&params as *const LeafParams) as *const _,
         );
-        let tg = ctx.hash_leaves_pipeline.max_total_threads_per_threadgroup().min(64);
+        let tg = ctx.hash_leaves_pipeline.max_total_threads_per_threadgroup();
         enc.dispatch_threads(MTLSize::new(height as NSUInteger, 1, 1), MTLSize::new(tg, 1, 1));
         enc.end_encoding();
     }
@@ -760,7 +782,6 @@ pub fn build_merkle_tree_full(
         let tg = ctx
             .compress_pairs_pipeline
             .max_total_threads_per_threadgroup()
-            .min(64)
             .min(n as NSUInteger);
         enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg.max(1), 1, 1));
         enc.end_encoding();
@@ -884,7 +905,6 @@ pub fn build_merkle_tree_full_no_initial(
         let tg = ctx
             .compress_pairs_pipeline
             .max_total_threads_per_threadgroup()
-            .min(64)
             .min(n as NSUInteger);
         enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg.max(1), 1, 1));
         enc.end_encoding();
