@@ -15,7 +15,7 @@ type F = KoalaBear;
 type EF = QuinticExtensionFieldKB;
 
 /*
-WHIR_NUM_VARIABLES=25 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
+WHIR_NUM_VARIABLES=25 WHIR_LOG_INV_RATE=1 cargo test --release --package mt-whir --test run_whir -- test_run_whir --exact --nocapture
 */
 
 #[test]
@@ -36,15 +36,20 @@ fn test_run_whir() {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(18);
+    let starting_log_inv_rate = std::env::var("WHIR_LOG_INV_RATE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2);
+
     let num_coeffs = 1 << num_variables;
 
     let params = WhirConfigBuilder {
-        security_level: 123,
+        security_level: 124,
         max_num_variables_to_send_coeffs: 9,
         pow_bits: 18,
         folding_factor: FoldingFactor::new(7, 4),
         soundness_type: SecurityAssumption::JohnsonBound,
-        starting_log_inv_rate: 2,
+        starting_log_inv_rate,
         rs_domain_initial_reduction_factor: 5,
     };
     let params = WhirConfig::new(&params, num_variables);
@@ -136,7 +141,7 @@ fn test_run_whir() {
 }
 
 #[test]
-fn display_whir_nb_queries() {
+fn display_whir_round_info() {
     let first_folding_factor = 7;
     for n_vars in 20..31 {
         for log_inv_rate in 1..5 {
@@ -144,24 +149,35 @@ fn display_whir_nb_queries() {
                 continue;
             }
             let params = WhirConfigBuilder {
-                security_level: 123,
-                max_num_variables_to_send_coeffs: 9,
-                pow_bits: 18,
-                folding_factor: FoldingFactor::new(first_folding_factor, 4),
+                security_level: 124,
+                max_num_variables_to_send_coeffs: 8,
+                pow_bits: 16,
+                folding_factor: FoldingFactor::new(first_folding_factor, 5),
                 soundness_type: SecurityAssumption::JohnsonBound,
                 starting_log_inv_rate: log_inv_rate,
                 rs_domain_initial_reduction_factor: 5,
             };
             let params = WhirConfig::<EF>::new(&params, n_vars);
+            let folding_pow_bits = std::iter::once(params.starting_folding_pow_bits)
+                .chain(params.round_parameters.iter().map(|r| r.folding_pow_bits))
+                .collect::<Vec<_>>();
+            let query_pow_bits = params
+                .round_parameters
+                .iter()
+                .map(|r| r.query_pow_bits)
+                .chain(std::iter::once(params.final_query_pow_bits))
+                .collect::<Vec<_>>();
             println!(
-                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}",
+                "n_vars: {}, log_inv_rate: {}, num_queries: {:?}, folding_pow_bits: {:?}, query_pow_bits: {:?}",
                 n_vars,
                 log_inv_rate,
                 params
                     .round_parameters
                     .iter()
                     .map(|r| r.num_queries)
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+                folding_pow_bits,
+                query_pow_bits,
             );
         }
     }

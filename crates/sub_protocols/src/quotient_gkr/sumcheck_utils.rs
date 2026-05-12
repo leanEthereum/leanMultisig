@@ -197,6 +197,25 @@ pub(super) fn run_phase1_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     initial_pending_r: Option<EF>,
 ) -> (Vec<EF>, [EF; 4]) {
     let w = packing_log_width::<EF>();
+
+    if layer_chunk_log <= w {
+        assert!(initial_pending_r.is_none());
+        let (num_l, num_r) = even_odd_split(&unpack_and_unreverse_active::<EF>(nums.as_ref(), layer_chunk_log));
+        let (den_l, den_r) = even_odd_split(&unpack_and_unreverse_active::<EF>(dens.as_ref(), layer_chunk_log));
+        return run_phase2_sumcheck(
+            prover_state,
+            num_l,
+            num_r,
+            den_l,
+            den_r,
+            remaining_eq,
+            q_natural,
+            alpha,
+            sum,
+            mmf,
+        );
+    }
+
     let head_len = (remaining_eq.len() + 1).saturating_sub(layer_chunk_log);
     let outer_point: Vec<EF> = remaining_eq[..head_len].to_vec();
     let eq_outer: Vec<EF> = precomputed_eq_outer.unwrap_or_else(|| eval_eq(&outer_point));

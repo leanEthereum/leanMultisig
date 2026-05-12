@@ -300,10 +300,6 @@ impl<F: Field> AirBuilder for SymbolicAirBuilder<F> {
         self.constraints.push(x);
     }
 
-    fn eval_virtual_column(&mut self, _: Self::EF) {
-        unimplemented!()
-    }
-
     fn declare_values(&mut self, values: &[Self::IF]) {
         if self.bus_flag_value.is_none() {
             assert_eq!(values.len(), 1);

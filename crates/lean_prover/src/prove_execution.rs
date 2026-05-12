@@ -3,15 +3,18 @@ use std::collections::BTreeMap;
 use crate::*;
 use lean_vm::*;
 
+use serde::{Deserialize, Serialize};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
 use utils::{build_prover_state, from_end};
-#[derive(Debug)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionProof {
     pub proof: Proof<F>,
     // benchmark / debug purpose
-    pub metadata: ExecutionMetadata,
+    #[serde(skip, default)]
+    pub metadata: Option<ExecutionMetadata>,
 }
 
 pub fn prove_execution(
@@ -20,7 +23,7 @@ pub fn prove_execution(
     witness: &ExecutionWitness,
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
-) -> ExecutionProof {
+) -> Result<ExecutionProof, ProverError> {
     check_rate(whir_config.starting_log_inv_rate)
         .map_err(|err| panic!("{err}"))
         .unwrap();
@@ -29,11 +32,11 @@ pub fn prove_execution(
         public_memory_size,
         mut memory, // padded with zeros to next power of two
         metadata,
-    } = info_span!("Witness generation").in_scope(|| {
+    } = info_span!("Witness generation").in_scope(|| -> Result<_, ProverError> {
         let execution_result = info_span!("Executing bytecode")
-            .in_scope(|| execute_bytecode(bytecode, public_input, witness, vm_profiler));
-        info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result))
-    });
+            .in_scope(|| try_execute_bytecode(bytecode, public_input, witness, vm_profiler))?;
+        Ok(info_span!("Building execution trace").in_scope(|| get_execution_trace(bytecode, execution_result)))
+    })?;
 
     // Memory must be at least MIN_LOG_MEMORY_SIZE and at least bytecode size
     // (required by the stacked polynomial ordering)
@@ -58,6 +61,19 @@ pub fn prove_execution(
         .map(F::from_usize)
         .collect::<Vec<_>>(),
     );
+    for (table, table_trace) in &traces {
+        let log_n_rows = table_trace.log_n_rows;
+        assert!(log_n_rows >= MIN_LOG_N_ROWS_PER_TABLE, "missing padding");
+        let log_limit = max_log_n_rows_per_table(table);
+        if log_n_rows > log_limit {
+            return Err(TooBigTableError {
+                table_name: table.name(),
+                log_n_rows,
+                log_limit,
+            }
+            .into());
+        }
+    }
 
     let mut table_log = String::new();
     for (table, trace) in &traces {
@@ -246,8 +262,11 @@ pub fn prove_execution(
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
-    ExecutionProof {
+    tracing::info!("total pow_grinding time: {} ms", pow_grinding_time().as_millis());
+    reset_pow_grinding_time();
+
+    Ok(ExecutionProof {
         proof: prover_state.into_proof(),
-        metadata,
-    }
+        metadata: Some(metadata),
+    })
 }

@@ -6,8 +6,9 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
-    SourceLocation, Table, TableT,
+    ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
+    PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -143,7 +144,11 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<SimpleExpr>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check at runtime 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
     /// analysis cannot drop it; both sides are read at execution time.
     AssertEq {
@@ -191,7 +196,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -219,7 +224,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -242,7 +247,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
-            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::DebugAssert { expr, .. } => vec![&expr.left, &expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -265,7 +270,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
             Self::Print { content, .. } => content.iter_mut().collect(),
-            Self::DebugAssert(b, _) => vec![&mut b.left, &mut b.right],
+            Self::DebugAssert { expr, .. } => vec![&mut expr.left, &mut expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -1518,7 +1523,7 @@ fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine
 }
 
 fn check_program_scoping(program: &Program) {
-    for (_, function) in program.functions.iter() {
+    for function in program.functions.values() {
         let mut scope = Scope { vars: BTreeSet::new() };
         for arg in function.arguments.iter() {
             scope.vars.insert(arg.name.clone());
@@ -2266,16 +2271,27 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon16 precompile (4 variants)
+                        if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            if args.len() != 3 {
+                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
+                                .contains(&function_name.as_str());
+                            let is_hardcoded_left =
+                                [POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
+                                    .contains(&function_name.as_str());
+                            let expected_args = if is_hardcoded_left { 4 } else { 3 };
+                            if args.len() != expected_args {
+                                let signature = if is_hardcoded_left {
+                                    "(ptr_a, ptr_b, ptr_res, offset)"
+                                } else {
+                                    "(ptr_a, ptr_b, ptr_res)"
+                                };
                                 return Err(format!(
-                                    "Precompile {function_name} expects 3 arguments (ptr_a, ptr_b, ptr_res), got {}, at {location}",
+                                    "Precompile {function_name} expects {expected_args} arguments {signature}, got {}, at {location}",
                                     args.len()
                                 ));
                             }
@@ -2283,11 +2299,23 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            let hardcoded_offset_left = if is_hardcoded_left {
+                                Some(simplified_args[3].as_constant().ok_or_else(|| {
+                                    format!(
+                                        "{function_name}: offset argument must be a compile-time constant, at {location}"
+                                    )
+                                })?)
+                            } else {
+                                None
+                            };
                             res.push(SimpleLine::Precompile(PrecompileArgs {
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data: PrecompileCompTimeArgs::Poseidon16 {
+                                    half_output,
+                                    hardcoded_offset_left,
+                                },
                             }));
                             continue;
                         }
@@ -2548,14 +2576,15 @@ fn simplify_lines(
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
                 if *debug {
-                    res.push(SimpleLine::DebugAssert(
-                        BooleanExpr {
+                    res.push(SimpleLine::DebugAssert {
+                        expr: BooleanExpr {
                             left,
                             right,
                             kind: boolean.kind,
                         },
-                        *location,
-                    ));
+                        location: *location,
+                        preceds_runtime_inequality: false,
+                    });
                 } else {
                     match boolean.kind {
                         Boolean::Different => {
@@ -2611,14 +2640,15 @@ fn simplify_lines(
                             });
 
                             // We add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: bound_minus_one.clone().into(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -2629,14 +2659,15 @@ fn simplify_lines(
                             // Range check: assert left <= right
 
                             // we add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: right.clone(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -4064,8 +4095,8 @@ impl SimpleLine {
                 None => "assert False".to_string(),
             },
             Self::LocationReport { .. } => Default::default(),
-            Self::DebugAssert(bool, _) => {
-                format!("debug_assert({bool})")
+            Self::DebugAssert { expr, .. } => {
+                format!("debug_assert({expr})")
             }
             Self::AssertEq { left, right, .. } => {
                 format!("assert_eq({left} == {right})")

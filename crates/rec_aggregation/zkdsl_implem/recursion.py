@@ -168,9 +168,9 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
         retrieved_denominators_value,
         mul_extension_ret(
             bytecode_padded_multilinear_location_prefix,
-            mle_of_zeros_then_ones(
+            mle_of_zeros_then_ones_pow2(
                 point_gkr + (n_vars_logup_gkr - log_bytecode_padded) * DIM,
-                2**LOG_GUEST_BYTECODE_LEN,
+                LOG_GUEST_BYTECODE_LEN,
                 log_bytecode_padded,
             ),
         ),
