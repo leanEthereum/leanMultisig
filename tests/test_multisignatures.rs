@@ -36,7 +36,7 @@ fn test_aggregation() {
             log_inv_rate: 1,
             overlap: 0,
         };
-        run_aggregation_benchmark(&topology, false, true);
+        run_aggregation_benchmark(&topology, false, true, 1);
     }
 }
 
