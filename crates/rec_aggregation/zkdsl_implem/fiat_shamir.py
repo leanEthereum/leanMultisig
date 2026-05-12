@@ -53,11 +53,46 @@ def fs_grinding(fs, bits):
     new_fs[8] = transcript_ptr + 8
 
     sampled = new_fs[0]
-    _, partial_sums_24 = checked_decompose_bits(sampled)
-    sampled_low_bits_value = partial_sums_24[bits - 1]
-    assert sampled_low_bits_value == 0
+    debug_assert(bits <= 24)
+    match_range(bits, range(0, 25), lambda b: assert_trailing_bits_are_zeros(sampled, b))
 
     return new_fs
+
+def assert_trailing_bits_are_zeros(value, bits: Const):
+    debug_assert(bits != 0)
+
+    chunk_size = 12
+    num_chunks = 24 / chunk_size # 2
+
+    chunks = Array(num_chunks)
+    hint_decompose_bits_merkle_whir(chunks, value, chunk_size)
+    for i in unroll(0, num_chunks):
+        assert chunks[i] < 2**chunk_size
+    
+    partial_sums = Array(num_chunks)
+    partial_sums[0] = chunks[0]
+    for i in unroll(1, num_chunks):
+        partial_sums[i] = partial_sums[i - 1] + chunks[i] * 2**(i * chunk_size)
+    # p = 0xfa000001 = 250 * 2^24 + 1, so 2^24 * 250 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -250.
+    # Deduce top_byte from the identity partial_sum + top_byte * 2^24 == a:
+    # top_byte = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 250
+    top_byte = (partial_sums[num_chunks - 1] - value) * 250
+    assert top_byte < 251
+    if top_byte == 250:
+        assert partial_sums[num_chunks - 1] == 0
+
+    if bits < 12:
+        assert chunks[0] / 2**bits < 2**(chunk_size - bits)
+    elif bits < 24:
+        assert chunks[0] == 0
+        assert chunks[1] / 2**(bits - 12) < 2**(chunk_size - (bits - 12))
+    else:
+        debug_assert(bits == 24)
+        assert chunks[0] == 0
+        assert chunks[1] == 0
+    
+    return
+    
 
 
 def fs_sample_chunks(fs, n_chunks: Const):
