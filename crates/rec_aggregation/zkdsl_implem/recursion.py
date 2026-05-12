@@ -41,7 +41,7 @@ BYTECODE_POINT_N_VARS = LOG_GUEST_BYTECODE_LEN + log2_ceil(N_INSTRUCTION_COLUMNS
 BYTECODE_ZERO_EVAL = BYTECODE_ZERO_EVAL_PLACEHOLDER
 BYTECODE_CLAIM_SIZE = (BYTECODE_POINT_N_VARS + 1) * DIM
 BYTECODE_CLAIM_SIZE_PADDED = next_multiple_of(BYTECODE_CLAIM_SIZE, DIGEST_LEN)
-INNER_PUBLIC_MEMORY_LOG_SIZE = 3 # public input = 1 hash digest = 8 field elements
+INNER_PUBLIC_MEMORY_LOG_SIZE = 2  # Goldilocks: public input = 1 hash digest = 4 field elements
 PUB_INPUT_SIZE = DIGEST_LEN  # the public input is a single digest
 
 
@@ -55,10 +55,11 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     fs = fs_observe(fs, inner_public_memory, PUB_INPUT_SIZE)  # observe public input (the data digest)
     fs = fs_observe(fs, bytecode_hash_domsep, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
-    # table dims
-    debug_assert(N_TABLES + 1 < DIGEST_LEN)
-    fs, dims = fs_receive_chunks(fs, 1)
-    for i in unroll(N_TABLES + 3, 8):
+    # table dims — 3 leading slots (whir_log_inv_rate, log_memory, public_input_len)
+    # + N_TABLES per-table heights. Under Goldilocks DIGEST_LEN=4 so one chunk
+    # is not enough; we pull two (8 slots). Surplus slots must be zero.
+    fs, dims = fs_receive_chunks(fs, 2)
+    for i in unroll(N_TABLES + 3, 2 * DIGEST_LEN):
         assert dims[i] == 0
     whir_log_inv_rate = dims[0]
     log_memory = dims[1]
@@ -87,7 +88,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     assert LOG_GUEST_BYTECODE_LEN <= log_memory
 
     stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
-    assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
+    assert stacked_n_vars <= EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
     num_oods = get_num_oods(whir_log_inv_rate, stacked_n_vars)
     num_ood_at_commitment = num_oods[0]
@@ -104,7 +105,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     n_vars_logup_gkr = compute_total_gkr_n_vars(log_memory, log_bytecode_padded, table_heights)
 
     fs, quotient_gkr, point_gkr, numerators_value, denominators_value = verify_gkr_quotient(fs, n_vars_logup_gkr)
-    set_to_5_zeros(quotient_gkr)
+    zero_ef(quotient_gkr)
 
     memory_and_acc_prefix = multilinear_location_prefix(0, n_vars_logup_gkr - log_memory, point_gkr)
 
@@ -372,8 +373,8 @@ def continue_recursion_ordered(
         mle_of_zeros_then_ones(point_gkr, offset, n_vars_logup_gkr),
     )
 
-    copy_5(retrieved_numerators_value, numerators_value)
-    copy_5(retrieved_denominators_value, denominators_value)
+    copy_ef(retrieved_numerators_value, numerators_value)
+    copy_ef(retrieved_denominators_value, denominators_value)
 
     memory_and_acc_point = point_gkr + (n_vars_logup_gkr - log_memory) * DIM
 
@@ -456,7 +457,7 @@ def continue_recursion_ordered(
                 pcs_values_down[table_index][last_index][AIR_DOWN_COLUMNS[table_index][i]].push(evals_down + i * DIM)
 
     # verify that the AIR-batched sumcheck is valid
-    copy_5(check_sum, batched_air_final_value)
+    copy_ef(check_sum, batched_air_final_value)
 
     fs, public_memory_random_point = fs_sample_many_ef(fs, INNER_PUBLIC_MEMORY_LOG_SIZE)
     poly_eq_public_mem = compute_eq_mle_extension(public_memory_random_point, INNER_PUBLIC_MEMORY_LOG_SIZE)
@@ -647,7 +648,7 @@ def continue_recursion_ordered(
                     curr_randomness += DIM
         offset += n_rows * total_num_cols
 
-    copy_5(mul_extension_ret(s, final_value), end_sum)
+    copy_ef(mul_extension_ret(s, final_value), end_sum)
     return
 
 
@@ -659,8 +660,8 @@ def multilinear_location_prefix(offset, n_vars, point):
 
 def fingerprint_2(table_index, data_1, data_2, logup_alphas_eq_poly):
     buff = Array(DIM * 2)
-    copy_5(data_1, buff)
-    copy_5(data_2, buff + DIM)
+    copy_ef(data_1, buff)
+    copy_ef(data_2, buff + DIM)
     res: Mut = dot_product_ee_ret(buff, logup_alphas_eq_poly, 2)
     res = add_extension_ret(res, mul_base_extension_ret(table_index, logup_alphas_eq_poly + (2 ** log2_ceil(MAX_BUS_WIDTH) - 1) * DIM))
     return res
@@ -739,7 +740,7 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
     new_claim_num = dot_product_ee_ret(inner_evals, point_poly_eq, 2)
     new_claim_den = dot_product_ee_ret(inner_evals + 2 * DIM, point_poly_eq, 2)
 
-    copy_5(beta, postponed_point + n_vars * DIM)
+    copy_ef(beta, postponed_point + n_vars * DIM)
 
     return fs, postponed_point, new_claim_num, new_claim_den
 

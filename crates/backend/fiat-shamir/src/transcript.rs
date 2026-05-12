@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::PrunedMerklePaths;
 
-pub const DIGEST_LEN_FE: usize = 8;
+pub const DIGEST_LEN_FE: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct MerkleOpening<F> {

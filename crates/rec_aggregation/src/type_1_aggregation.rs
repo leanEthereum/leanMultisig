@@ -4,7 +4,7 @@ use lean_prover::SNARK_DOMAIN_SEP;
 use lean_prover::prove_execution::{ExecutionProof, prove_execution};
 use lean_vm::*;
 use tracing::instrument;
-use utils::{poseidon_compress_slice, poseidon16_compress_pair};
+use utils::{poseidon_compress_slice, poseidon8_compress_pair};
 use xmss::CHAIN_LENGTH;
 use xmss::make_tweak;
 use xmss::{
@@ -27,8 +27,8 @@ use crate::verify_inner;
 
 /// Number of tweaks in the table: 1 encoding + V*CHAIN_LENGTH chains + 1 wots_pk + LOG_LIFETIME merkle
 pub(crate) const N_TWEAKS: usize = 1 + V * CHAIN_LENGTH + 1 + LOG_LIFETIME;
-/// All tweaks are stored as a 4-FE slot [tw[0], tw[1], 0, 0].
-pub(crate) const TWEAK_SLOT_SIZE: usize = 4;
+/// Under Goldilocks each tweak is a single 64-bit FE, stored in a 2-FE slot `[tw[0], 0]`.
+pub(crate) const TWEAK_SLOT_SIZE: usize = 2;
 pub(crate) const TWEAK_TABLE_SIZE_FE_PADDED: usize = (N_TWEAKS * TWEAK_SLOT_SIZE).next_multiple_of(DIGEST_LEN);
 
 pub(crate) const TWEAKS_HASHING_USE_IV: bool = false; // fixed size → no IV needed
@@ -118,13 +118,13 @@ pub(crate) fn hash_pubkeys(pub_keys: &[XmssPublicKey]) -> [F; DIGEST_LEN] {
     poseidon_compress_slice(&flat, true)
 }
 
-/// Tweak slots are 4-FE [tw[0], tw[1], 0, 0]
+/// Tweak slots are 2-FE `[tw[0], 0]` under Goldilocks (1 real FE + 1 zero pad).
 fn compute_tweak_table(slot: u32) -> Vec<F> {
     let mut table = Vec::new();
 
     let push_padded = |table: &mut Vec<F>, tweak_type: usize, sub_position: usize, index: u32| {
         table.extend(make_tweak(tweak_type, sub_position, index));
-        table.extend(std::iter::repeat_n(F::ZERO, 2));
+        table.push(F::ZERO);
     };
 
     // Encoding tweak
@@ -176,7 +176,7 @@ pub(crate) fn build_type1_input_data(
     data.extend_from_slice(bytecode_claim_flat);
     let claim_padding = bytecode_claim_flat.len().next_multiple_of(DIGEST_LEN) - bytecode_claim_flat.len();
     data.extend(std::iter::repeat_n(F::ZERO, claim_padding));
-    data.extend_from_slice(&poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
+    data.extend_from_slice(&poseidon8_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP));
     data.extend_from_slice(pubkeys_hash);
     data.extend_from_slice(message);
     data.extend(compute_merkle_chunks_for_slot(slot));

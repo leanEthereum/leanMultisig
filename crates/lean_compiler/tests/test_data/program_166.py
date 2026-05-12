@@ -30,12 +30,12 @@ def main():
         a[i] = 1
     w.push(DynArray([a]))
     b = Array(DIM)
-    copy_5(w[5][0], b)
+    copy_ef(w[5][0], b)
     return
 
 
 @inline
-def copy_5(a, b):
+def copy_ef(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     return
 

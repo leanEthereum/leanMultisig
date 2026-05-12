@@ -5,13 +5,13 @@ MAX_RECURSIONS = MAX_RECURSIONS_PLACEHOLDER
 MAX_N_SIGS = MAX_XMSS_AGGREGATED_PLACEHOLDER
 MAX_N_DUPS = MAX_XMSS_DUPLICATES_PLACEHOLDER
 
-# data_buf[0..8] = [flag, count, 0×6] (count = n_sigs for type-1, n_components for type-2).
+# Goldilocks DIGEST_LEN = 4, so data_buf[0..4] = [flag, count, 0, 0] (count = n_sigs for type-1, n_components for type-2).
 TYPE_1_FLAG = TYPE_1_FLAG_PLACEHOLDER
 TYPE_2_FLAG = TYPE_2_FLAG_PLACEHOLDER
 
 BYTECODE_SUMCHECK_PROOF_SIZE = BYTECODE_SUMCHECK_PROOF_SIZE_PLACEHOLDER
 
-# layout: [flag, count, 0×6 (8)] [bytecode_claim_padded] [bytecode_hash_domsep(8)] [type1/type2 mode-specific data]
+# layout: [flag, count, 0, 0 (4)] [bytecode_claim_padded] [bytecode_hash_domsep(4)] [type1/type2 mode-specific data]
 BYTECODE_CLAIM_OFFSET = DIGEST_LEN  # (right after the prefix chunk)
 BYTECODE_HASH_DOMSEP_OFFSET = BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE_PADDED
 COMPONENT_DATA_OFFSET = BYTECODE_HASH_DOMSEP_OFFSET + DIGEST_LEN
@@ -24,7 +24,13 @@ TYPE_1_TWEAKS_HASH_OFFSET = TYPE_1_MERKLE_CHUNKS_OFFSET + N_MERKLE_CHUNKS
 TYPE_1_INPUT_DATA_SIZE_PADDED = TYPE_1_TWEAKS_HASH_OFFSET + DIGEST_LEN
 TYPE_1_INPUT_DATA_NUM_CHUNKS = TYPE_1_INPUT_DATA_SIZE_PADDED / DIGEST_LEN
 
-# Type-2 mode-specific data (variable): n_components × digest(8).
+# Number of DIGEST_LEN-sized chunks in the type-1 component-data block
+# (pubkeys_hash | message | merkle_chunks | tweaks_hash).
+COMPONENT_DATA_NUM_CHUNKS = (TYPE_1_INPUT_DATA_SIZE_PADDED - COMPONENT_DATA_OFFSET) / DIGEST_LEN
+# Number of DIGEST_LEN-sized chunks needed to hold the merkle chunks for one slot.
+MERKLE_CHUNKS_NUM_CHUNKS = N_MERKLE_CHUNKS / DIGEST_LEN
+
+# Type-2 mode-specific data (variable): n_components × digest(DIGEST_LEN).
 TYPE_2_DIGESTS_OFFSET = COMPONENT_DATA_OFFSET
 
 BYTECODE_CLAIM_NUM_CHUNKS = BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN
@@ -40,7 +46,8 @@ def main():
     input_data_num_chunks = input_data_num_chunks_buf[0]
     data_buf = Array(input_data_num_chunks * DIGEST_LEN)
     hint_witness("input_data", data_buf)
-    set_to_6_zeros(data_buf + 2)
+    for k in unroll(2, DIGEST_LEN):
+        data_buf[k] = 0
 
     bytecode_claim_output = data_buf + BYTECODE_CLAIM_OFFSET
     bytecode_hash_domsep = data_buf + BYTECODE_HASH_DOMSEP_OFFSET
@@ -92,8 +99,12 @@ def main():
      
         kept_type1_buff = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
         hint_witness("kept_type1_buff", kept_type1_buff)
-        copy_8(data_buf, kept_type1_buff) # type-1 flag | n_signatures | 0×6
-        copy_32(data_buf + COMPONENT_DATA_OFFSET, kept_type1_buff + COMPONENT_DATA_OFFSET )
+        copy_digest(data_buf, kept_type1_buff)  # type-1 flag | n_signatures | 0×(DIGEST_LEN-2)
+        for k in unroll(0, COMPONENT_DATA_NUM_CHUNKS):
+            copy_digest(
+                data_buf + COMPONENT_DATA_OFFSET + k * DIGEST_LEN,
+                kept_type1_buff + COMPONENT_DATA_OFFSET + k * DIGEST_LEN,
+            )
         ensure_well_formed_input_data(kept_type1_buff, bytecode_hash_domsep, TYPE_1_FLAG)
         digest_kept = type2_digests + type2_kept_index * DIGEST_LEN
         slice_hash_with_iv(kept_type1_buff, TYPE_1_INPUT_DATA_NUM_CHUNKS, digest_kept)
@@ -139,15 +150,19 @@ def main():
     hint_witness("aggregate_sizes", aggregate_sizes)
 
     computed_tweaks_hash = slice_hash(tweak_table, TWEAK_TABLE_SIZE_FE_PADDED / DIGEST_LEN)
-    copy_8(computed_tweaks_hash, tweaks_hash_expected)
+    copy_digest(computed_tweaks_hash, tweaks_hash_expected)
 
     # 1->1 optimization: a single recursive type-1 child, no raw signatures, no duplicates.
     if n_recursions == 1:
         assert n_dup == 0
         if n_raw_xmss == 0:
             type1_data_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
-            copy_8(data_buf, type1_data_buf)  # prefix
-            copy_32(data_buf + COMPONENT_DATA_OFFSET, type1_data_buf + COMPONENT_DATA_OFFSET )
+            copy_digest(data_buf, type1_data_buf)  # prefix
+            for k in unroll(0, COMPONENT_DATA_NUM_CHUNKS):
+                copy_digest(
+                    data_buf + COMPONENT_DATA_OFFSET + k * DIGEST_LEN,
+                    type1_data_buf + COMPONENT_DATA_OFFSET + k * DIGEST_LEN,
+                )
             hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
             ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
             inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
@@ -161,7 +176,7 @@ def main():
 
     # General path
     computed_pubkeys_hash = slice_hash_with_iv_dynamic_unroll(all_pubkeys, n_sigs, log2_ceil(MAX_N_SIGS))
-    copy_8(computed_pubkeys_hash, pubkeys_hash_expected)
+    copy_digest(computed_pubkeys_hash, pubkeys_hash_expected)
 
     # Buffer for partition verification
     n_total = n_sigs + n_dup
@@ -192,7 +207,7 @@ def main():
         counter += 1
         pk0 = all_pubkeys + idx0 * PUB_KEY_SIZE
         running_hash: Mut = Array(DIGEST_LEN)
-        poseidon16_compress(ZERO_VEC_PTR, pk0, running_hash)
+        poseidon8_compress(ZERO_VEC_PTR, pk0, running_hash)
 
         for j in dynamic_unroll(1, n_sub, log2_ceil(MAX_N_SIGS)):
             idx = sub_indices_arr[j]
@@ -201,7 +216,7 @@ def main():
             counter += 1
             pk = all_pubkeys + idx * PUB_KEY_SIZE
             new_hash = Array(DIGEST_LEN)
-            poseidon16_compress(running_hash, pk, new_hash)
+            poseidon8_compress(running_hash, pk, new_hash)
             running_hash = new_hash
 
         type1_data_buf = Array(TYPE_1_INPUT_DATA_SIZE_PADDED)
@@ -210,10 +225,14 @@ def main():
         for k in unroll(2, DIGEST_LEN):
             type1_data_buf[k] = 0
         
-        copy_8(running_hash, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET)
-        copy_8(message, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET + DIGEST_LEN)
-        copy_8(merkle_chunks_for_slot, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET + DIGEST_LEN + MESSAGE_LEN)
-        copy_8(tweaks_hash_expected, type1_data_buf + TYPE_1_TWEAKS_HASH_OFFSET)
+        copy_digest(running_hash, type1_data_buf + TYPE_1_PUBKEYS_HASH_OFFSET)
+        copy_digest(message, type1_data_buf + TYPE_1_MSG_HASH_OFFSET)
+        for k in unroll(0, MERKLE_CHUNKS_NUM_CHUNKS):
+            copy_digest(
+                merkle_chunks_for_slot + k * DIGEST_LEN,
+                type1_data_buf + TYPE_1_MERKLE_CHUNKS_OFFSET + k * DIGEST_LEN,
+            )
+        copy_digest(tweaks_hash_expected, type1_data_buf + TYPE_1_TWEAKS_HASH_OFFSET)
         hint_witness("inner_bytecode_claim", type1_data_buf + BYTECODE_CLAIM_OFFSET)
         ensure_well_formed_input_data(type1_data_buf, bytecode_hash_domsep, TYPE_1_FLAG)
         inner_pub_mem = Array(INNER_PUB_MEM_SIZE)
@@ -226,7 +245,7 @@ def main():
 
     if n_recursions == 0:
         for k in unroll(0, BYTECODE_POINT_N_VARS):
-            set_to_5_zeros(bytecode_claim_output + k * DIM)
+            zero_ef(bytecode_claim_output + k * DIM)
         bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM] = BYTECODE_ZERO_EVAL
         for k in unroll(1, DIM):
             bytecode_claim_output[BYTECODE_POINT_N_VARS * DIM + k] = 0
@@ -245,14 +264,14 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
             assert claim_ptr[k] == 0
         claim_hash = slice_hash(claim_ptr, BYTECODE_CLAIM_SIZE_PADDED / DIGEST_LEN)
         new_hash = Array(DIGEST_LEN)
-        poseidon16_compress(bytecode_claims_hash, claim_hash, new_hash)
+        poseidon8_compress(bytecode_claims_hash, claim_hash, new_hash)
         bytecode_claims_hash = new_hash
 
     bytecode_sumcheck_proof = Array(BYTECODE_SUMCHECK_PROOF_SIZE)
     hint_witness("bytecode_sumcheck_proof", bytecode_sumcheck_proof)
     reduction_fs: Mut = fs_new(bytecode_sumcheck_proof)
     reduction_fs, received_claims_hash = fs_receive_chunks(reduction_fs, 1)
-    copy_8(bytecode_claims_hash, received_claims_hash)
+    copy_digest(bytecode_claims_hash, received_claims_hash)
 
     reduction_fs, alpha = fs_sample_ef(reduction_fs)
     alpha_powers = powers(alpha, n_bytecode_claims)
@@ -260,7 +279,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     all_values = Array(n_bytecode_claims * DIM)
     for i in range(0, n_bytecode_claims):
         claim_ptr = bytecode_claims[i]
-        copy_5(claim_ptr + BYTECODE_POINT_N_VARS * DIM, all_values + i * DIM)
+        copy_ef(claim_ptr + BYTECODE_POINT_N_VARS * DIM, all_values + i * DIM)
 
     claimed_sum = Array(DIM)
     dot_product_ee_dynamic(all_values, alpha_powers, claimed_sum, n_bytecode_claims)
@@ -277,7 +296,7 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
     bytecode_value_at_r = div_extension_ret(final_eval, w_r)
 
     copy_many_ef(challenges, bytecode_claim_output, BYTECODE_POINT_N_VARS)
-    copy_5(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
+    copy_ef(bytecode_value_at_r, bytecode_claim_output + BYTECODE_POINT_N_VARS * DIM)
     return
 
 
@@ -285,8 +304,9 @@ def reduce_bytecode_claims(bytecode_claims, n_bytecode_claims, bytecode_claim_ou
 def ensure_well_formed_input_data(data_buf, bytecode_hash_domsep, flag):
     data_buf[0] = flag
     # data_buf[1]: count
-    set_to_6_zeros(data_buf + 2)
+    for k in unroll(2, DIGEST_LEN):
+        data_buf[k] = 0
     for k in unroll(BYTECODE_CLAIM_OFFSET + BYTECODE_CLAIM_SIZE, BYTECODE_HASH_DOMSEP_OFFSET):
         data_buf[k] = 0
-    copy_8(bytecode_hash_domsep, data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
+    copy_digest(bytecode_hash_domsep, data_buf + BYTECODE_HASH_DOMSEP_OFFSET)
     return

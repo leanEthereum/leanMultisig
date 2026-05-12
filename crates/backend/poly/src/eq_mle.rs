@@ -1115,12 +1115,12 @@ mod tests {
     use std::time::Instant;
 
     use field::Field;
-    use koala_bear::QuinticExtensionFieldKB;
+    use goldilocks::CubicExtensionFieldGL;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
-    type F = koala_bear::KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type F = goldilocks::Goldilocks;
+    type EF = CubicExtensionFieldGL;
 
     #[test]
     fn test_compute_sparse_eval() {
@@ -1205,8 +1205,10 @@ mod tests {
                 compute_eval_eq_packed::<_, true>(&eval, &mut out_2, scalar);
                 println!("EXTENSION PACKED: {:?}", time.elapsed());
 
-                let unpacked_out_2: Vec<EF> =
-                    <EF as ExtensionField<F>>::ExtensionPacking::to_ext_iter_vec(out_2.clone());
+                let unpacked_out_2: Vec<EF> = <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<
+                    F,
+                    EF,
+                >>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);
@@ -1214,7 +1216,7 @@ mod tests {
                 compute_eval_eq::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                    .map(<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("EXTENSION PACKED AFTER: {:?}", time.elapsed());
 
@@ -1240,8 +1242,10 @@ mod tests {
                 compute_eval_eq_base_packed::<F, _, true>(&eval, &mut out_2, scalar);
                 println!("BASE PACKED: {:?}", time.elapsed());
 
-                let unpacked_out_2: Vec<EF> =
-                    <EF as ExtensionField<F>>::ExtensionPacking::to_ext_iter_vec(out_2.clone());
+                let unpacked_out_2: Vec<EF> = <<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<
+                    F,
+                    EF,
+                >>::to_ext_iter_vec(out_2.clone());
                 assert_eq!(out_1, unpacked_out_2);
 
                 let mut out_3 = EF::zero_vec(1 << n_vars);
@@ -1249,7 +1253,7 @@ mod tests {
                 compute_eval_eq_base::<F, EF, true>(&eval, &mut out_3, scalar);
                 let out_3_packed = out_3
                     .par_chunks_exact(packing_width)
-                    .map(<EF as ExtensionField<F>>::ExtensionPacking::from_ext_slice)
+                    .map(<<EF as ExtensionField<F>>::ExtensionPacking as PackedFieldExtension<F, EF>>::from_ext_slice)
                     .collect::<Vec<_>>();
                 println!("BASE PACKED AFTER: {:?}", time.elapsed());
 

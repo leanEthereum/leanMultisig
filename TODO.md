@@ -9,7 +9,6 @@
 
 ## Security:
 
-- 128 bits security? (currently 124)
 - Fiat Shamir: add a claim tracing feature, to ensure all the claims are indeed checked (Lev)
 - Double Check AIR constraints, logup overflows etc
 - Do we need to enforce some values at the first row of the dot-product table?

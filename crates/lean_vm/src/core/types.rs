@@ -3,13 +3,13 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use backend::{KoalaBear, QuinticExtensionFieldKB};
+use backend::{CubicExtensionFieldGL, Goldilocks};
 
 /// Base field type for VM operations
-pub type F = KoalaBear;
+pub type F = Goldilocks;
 
 /// Extension field type for VM operations
-pub type EF = QuinticExtensionFieldKB;
+pub type EF = CubicExtensionFieldGL;
 
 /// Line number in source code for debugging
 pub type SourceLineNumber = usize;

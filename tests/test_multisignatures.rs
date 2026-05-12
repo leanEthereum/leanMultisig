@@ -10,6 +10,7 @@ use rec_aggregation::{
     split_type_2_by_msg,
 };
 use xmss::{
+    MESSAGE_LEN_FE,
     signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark},
     xmss_key_gen, xmss_sign, xmss_verify,
 };
@@ -77,7 +78,7 @@ fn test_type_2_aggregation() {
 
     let slot_b = BENCHMARK_SLOT + 1;
     let mut rng_b: StdRng = StdRng::seed_from_u64(17);
-    let message_b: [_; 8] = std::array::from_fn(|_| rng_b.random());
+    let message_b: [_; MESSAGE_LEN_FE] = std::array::from_fn(|_| rng_b.random());
 
     assert!(message_b != message_a && slot_b != slot_a);
 

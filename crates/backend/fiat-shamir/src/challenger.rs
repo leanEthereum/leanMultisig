@@ -1,7 +1,7 @@
 use field::PrimeField64;
 use symetric::Compression;
 
-pub(crate) const RATE: usize = 8;
+pub(crate) const RATE: usize = 4;
 pub(crate) const WIDTH: usize = RATE * 2;
 
 #[derive(Clone, Debug)]

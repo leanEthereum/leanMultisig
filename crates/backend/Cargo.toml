@@ -13,5 +13,5 @@ rayon.workspace = true
 whir = { path = "../whir", package = "mt-whir" }
 tracing.workspace = true
 fiat-shamir = { path = "fiat-shamir", package = "mt-fiat-shamir" }
-koala-bear = { path = "koala-bear", package = "mt-koala-bear" }
+goldilocks = { path = "goldilocks", package = "mt-goldilocks" }
 utils = { path = "utils", package = "mt-utils" }

@@ -52,7 +52,7 @@ impl ExecutionMetadata {
         out.push('\n');
         if self.n_poseidons > 0 {
             out.push_str(&format!(
-                "Poseidon16 calls: {} (1 poseidon per {} instructions)\n",
+                "Poseidon8 calls: {} (1 poseidon per {} instructions)\n",
                 pretty_integer(self.n_poseidons),
                 self.cycles / self.n_poseidons
             ));

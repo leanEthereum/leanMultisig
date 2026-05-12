@@ -45,8 +45,8 @@ pub fn run_product_sumcheck<EF: ExtensionField<PF<EF>>>(
     assert!(n_rounds >= 1);
     let first_sumcheck_poly = match (pol_a, pol_b) {
         (MleRef::BasePacked(evals), MleRef::ExtensionPacked(weights)) => {
-            if EF::DIMENSION == 5 {
-                compute_product_sumcheck_polynomial_base_ext_packed::<5, _, _, _, EF>(evals, weights, sum)
+            if EF::DIMENSION == 3 {
+                compute_product_sumcheck_polynomial_base_ext_packed::<3, _, _, _, EF>(evals, weights, sum)
             } else {
                 unimplemented!()
             }
@@ -168,10 +168,12 @@ pub fn compute_product_sumcheck_polynomial<
     DensePolynomial::new(vec![c0, c1, c2])
 }
 
-// using delayed modular reduction
+// Generic over PrimeField64 (Goldilocks and Goldilocks both qualify). The Goldilocks-specific
+// delayed u128/i128 accumulation path is retained as a specialization candidate for a future
+// pass — see `crates/backend/goldilocks/README.md`.
 pub fn compute_product_sumcheck_polynomial_base_ext_packed<
     const DIM: usize,
-    F: PrimeField32,
+    F: PrimeField64,
     PF: PackedField<Scalar = F>,
     EFP: BasedVectorSpace<PF> + Copy + Send + Sync,
     EF: Field + BasedVectorSpace<F>,
@@ -186,8 +188,6 @@ pub fn compute_product_sumcheck_polynomial_base_ext_packed<
     assert!(n.is_power_of_two());
     let half = n / 2;
 
-    type Acc<const D: usize> = ([u128; D], [i128; D]);
-
     let chunk_size = 1024;
 
     let (c0_acc, c2_acc) = pol_0[..half]
@@ -199,8 +199,8 @@ pub fn compute_product_sumcheck_polynomial_base_ext_packed<
                 .zip(pol_1[half..].par_chunks(chunk_size)),
         )
         .map(|((b_lo, b_hi), (e_lo, e_hi))| {
-            let mut c0 = [0u128; DIM];
-            let mut c2 = [0i128; DIM];
+            let mut c0 = [F::ZERO; DIM];
+            let mut c2 = [F::ZERO; DIM];
             for i in 0..b_lo.len() {
                 let x0_lanes = b_lo[i].as_slice();
                 let x1_lanes = b_hi[i].as_slice();
@@ -210,20 +210,20 @@ pub fn compute_product_sumcheck_polynomial_base_ext_packed<
                     let y0_j = y0_coords[j].as_slice();
                     let y1_j = y1_coords[j].as_slice();
                     for lane in 0..PF::WIDTH {
-                        let x0 = x0_lanes[lane].to_unique_u32() as u64;
-                        let y0 = y0_j[lane].to_unique_u32();
-                        let y1 = y1_j[lane].to_unique_u32();
-                        c0[j] += (y0 as u64 * x0) as u128;
-                        c2[j] += (y1 as i64 - y0 as i64) as i128
-                            * (x1_lanes[lane].to_unique_u32() as i64 - x0 as i64) as i128;
+                        let x0 = x0_lanes[lane];
+                        let x1 = x1_lanes[lane];
+                        let y0 = y0_j[lane];
+                        let y1 = y1_j[lane];
+                        c0[j] += y0 * x0;
+                        c2[j] += (y1 - y0) * (x1 - x0);
                     }
                 }
             }
             (c0, c2)
         })
         .reduce(
-            || ([0u128; DIM], [0i128; DIM]),
-            |(mut a0, mut a2): Acc<DIM>, (b0, b2): Acc<DIM>| {
+            || ([F::ZERO; DIM], [F::ZERO; DIM]),
+            |(mut a0, mut a2): ([F; DIM], [F; DIM]), (b0, b2): ([F; DIM], [F; DIM])| {
                 for j in 0..DIM {
                     a0[j] += b0[j];
                     a2[j] += b2[j];
@@ -232,8 +232,8 @@ pub fn compute_product_sumcheck_polynomial_base_ext_packed<
             },
         );
 
-    let c0 = EF::from_basis_coefficients_fn(|j| F::reduce_product_sum(c0_acc[j]));
-    let c2 = EF::from_basis_coefficients_fn(|j| F::reduce_signed_product_sum(c2_acc[j]));
+    let c0 = EF::from_basis_coefficients_fn(|j| c0_acc[j]);
+    let c2 = EF::from_basis_coefficients_fn(|j| c2_acc[j]);
     let c1 = sum - c0.double() - c2;
 
     DensePolynomial::new(vec![c0, c1, c2])

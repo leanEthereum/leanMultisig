@@ -2,9 +2,10 @@ use std::time::Instant;
 
 use backend::*;
 use lean_vm::{
-    EF, ExtraDataForBuses, F, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND,
-    POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, fill_trace_poseidon_16,
-    num_cols_poseidon_16,
+    EF, ExtraDataForBuses, F, HALF_DIGEST_LEN, POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST,
+    POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND, POSEIDON_8_COL_FLAG, POSEIDON_8_COL_INPUT_START,
+    POSEIDON_8_COL_OUTPUT_START, POSEIDON_8_COL_ROUND_START, Poseidon8Precompile, compute_poseidon8_witness,
+    fill_trace_poseidon_8, num_cols_poseidon_8,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use sub_protocols::{
@@ -12,31 +13,47 @@ use sub_protocols::{
 };
 use utils::{build_prover_state, build_verifier_state, padd_with_zero_to_next_power_of_two};
 
-const WIDTH: usize = 16;
-const HALF_DIGEST_LEN: usize = 4;
+// Width of the Poseidon1 permutation under Goldilocks (compresses 8 → DIGEST=4).
+const WIDTH: usize = 8;
 
 #[test]
-fn test_prove_poseidon_16() {
-    // LOG_N_ROWS=20 cargo test --release --package sub_protocols --test prove_poseidon_16 -- test_prove_poseidon_16 --exact --nocapture
+fn test_prove_poseidon_8() {
+    // LOG_N_ROWS=20 cargo test --release --package sub_protocols --test prove_poseidon_8 -- test_prove_poseidon_8 --exact --nocapture
     let log_n_rows: usize = std::env::var("LOG_N_ROWS").unwrap_or("11".to_string()).parse().unwrap();
-    prove_air_poseidon_16(log_n_rows);
+    utils::init_tracing();
+    prove_air_poseidon_8(log_n_rows);
 }
 
 #[allow(clippy::too_many_lines)]
-fn prove_air_poseidon_16(log_n_rows: usize) {
+fn prove_air_poseidon_8(log_n_rows: usize) {
     let n_rows = 1 << log_n_rows;
     let mut rng = StdRng::seed_from_u64(0);
-    let n_cols = num_cols_poseidon_16();
+    let n_cols = num_cols_poseidon_8();
     let mut trace = vec![vec![F::ZERO; n_rows]; n_cols];
-    for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH) {
+    for t in trace.iter_mut().skip(POSEIDON_8_COL_INPUT_START).take(WIDTH) {
         *t = (0..n_rows).map(|_| rng.random()).collect();
     }
-    trace[POSEIDON_16_COL_FLAG] = vec![F::ONE; n_rows];
-    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST] = vec![F::ZERO; n_rows];
-    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND] = vec![F::from_usize(HALF_DIGEST_LEN); n_rows];
-    fill_trace_poseidon_16(&mut trace);
+    trace[POSEIDON_8_COL_FLAG] = vec![F::ONE; n_rows];
+    trace[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_FIRST] = vec![F::ZERO; n_rows];
+    trace[POSEIDON_8_COL_EFFECTIVE_INDEX_LEFT_SECOND] = vec![F::from_usize(HALF_DIGEST_LEN); n_rows];
 
-    let air = Poseidon16Precompile::<false>;
+    // Fill the per-round witness columns + outputs from the inputs.
+    // The AIR's transition constraints require a consistent Poseidon1 permutation
+    // trace, otherwise sumcheck verification fails.
+    for row in 0..n_rows {
+        let input: [F; WIDTH] = std::array::from_fn(|i| trace[POSEIDON_8_COL_INPUT_START + i][row]);
+        let (aux, output) = compute_poseidon8_witness(input);
+        for (i, v) in output.iter().enumerate() {
+            trace[POSEIDON_8_COL_OUTPUT_START + i][row] = *v;
+        }
+        for (i, v) in aux.iter().enumerate() {
+            trace[POSEIDON_8_COL_ROUND_START + i][row] = *v;
+        }
+    }
+
+    fill_trace_poseidon_8(&mut trace);
+
+    let air = Poseidon8Precompile::<false>;
     let n_constraints = air.n_constraints();
     let air_degree = air.degree_air();
 
@@ -119,7 +136,7 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
 
     let col_evals_v: Vec<EF> = verifier_state.next_extension_scalars_vec(n_cols).unwrap();
     let constraint_eval =
-        <Poseidon16Precompile<false> as SumcheckComputation<EF>>::eval_extension(&air, &col_evals_v, &extra_data);
+        <Poseidon8Precompile<false> as SumcheckComputation<EF>>::eval_extension(&air, &col_evals_v, &extra_data);
 
     let natural_ordering_point_v = natural_ordering_point_for_session(&sumcheck_air_point_v.0, log_n_rows);
     let eq_val = MultilinearPoint(eq_factor_v).eq_poly_outside(&MultilinearPoint(natural_ordering_point_v.clone()));

@@ -5,10 +5,10 @@ pub const LOGUP_MEMORY_DOMAINSEP: usize = 0;
 pub const LOGUP_PRECOMPILE_DOMAINSEP: usize = 1;
 pub const LOGUP_BYTECODE_DOMAINSEP: usize = 2;
 
-/// Large field = extension field of degree DIMENSION over koala-bear
-pub const DIMENSION: usize = 5;
+/// Large field = extension field of degree DIMENSION over Goldilocks
+pub const DIMENSION: usize = 3;
 
-pub const DIGEST_LEN: usize = 8;
+pub const DIGEST_LEN: usize = 4;
 
 pub const MIN_WHIR_LOG_INV_RATE: usize = 1;
 pub const MAX_WHIR_LOG_INV_RATE: usize = 4;
@@ -22,9 +22,9 @@ pub const MIN_BYTECODE_LOG_SIZE: usize = 8;
 /// Minimum and maximum number of rows per table (as powers of two), both inclusive
 pub const MIN_LOG_N_ROWS_PER_TABLE: usize = 8; // Zero padding will be added to each at least, if this minimum is not reached, (ensuring AIR / GKR work fine, with SIMD, without too much edge cases). Long term, we should find a more elegant solution.
 pub const MAX_LOG_N_ROWS_PER_TABLE: [(Table, usize); 3] = [
-    (Table::execution(), 24),
+    (Table::execution(), 25),
     (Table::extension_op(), 21),
-    (Table::poseidon16(), 21),
+    (Table::poseidon8(), 21),
 ];
 
 pub fn max_log_n_rows_per_table(table: &Table) -> usize {

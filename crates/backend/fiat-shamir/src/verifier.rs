@@ -9,7 +9,7 @@ use crate::{
 };
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, PrimeField64};
-use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
+use goldilocks::{Goldilocks, default_goldilocks_poseidon1_8};
 use symetric::Compression;
 
 pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
@@ -68,16 +68,16 @@ where
 
     #[allow(clippy::missing_transmute_annotations)]
     fn restore_merkle_paths(paths: PrunedMerklePaths<PF<EF>, PF<EF>>) -> Option<Vec<MerkleOpening<PF<EF>>>> {
-        assert_eq!(TypeId::of::<PF<EF>>(), TypeId::of::<KoalaBear>());
-        // SAFETY: We've confirmed PF<EF> == KoalaBear
-        let paths: PrunedMerklePaths<KoalaBear, KoalaBear> = unsafe { std::mem::transmute(paths) };
-        let perm = default_koalabear_poseidon1_16();
-        let hash_fn = |data: &[KoalaBear]| symetric::hash_slice::<_, _, 16, 8, DIGEST_LEN_FE>(&perm, data);
-        let combine_fn = |left: &[KoalaBear; DIGEST_LEN_FE], right: &[KoalaBear; DIGEST_LEN_FE]| {
+        assert_eq!(TypeId::of::<PF<EF>>(), TypeId::of::<Goldilocks>());
+        // SAFETY: We've confirmed PF<EF> == Goldilocks
+        let paths: PrunedMerklePaths<Goldilocks, Goldilocks> = unsafe { std::mem::transmute(paths) };
+        let perm = default_goldilocks_poseidon1_8();
+        let hash_fn = |data: &[Goldilocks]| symetric::hash_slice::<_, _, 8, 4, DIGEST_LEN_FE>(&perm, data);
+        let combine_fn = |left: &[Goldilocks; DIGEST_LEN_FE], right: &[Goldilocks; DIGEST_LEN_FE]| {
             symetric::compress(&perm, [*left, *right])
         };
-        let restored: MerklePaths<KoalaBear, KoalaBear> = paths.restore(&hash_fn, &combine_fn)?;
-        let openings: Vec<MerkleOpening<KoalaBear>> = restored
+        let restored: MerklePaths<Goldilocks, Goldilocks> = paths.restore(&hash_fn, &combine_fn)?;
+        let openings: Vec<MerkleOpening<Goldilocks>> = restored
             .0
             .into_iter()
             .map(|path| MerkleOpening {
@@ -85,7 +85,7 @@ where
                 path: path.sibling_hashes,
             })
             .collect();
-        // SAFETY: PF<EF> == KoalaBear
+        // SAFETY: PF<EF> == Goldilocks
         Some(unsafe { std::mem::transmute(openings) })
     }
 }

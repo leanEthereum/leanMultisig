@@ -2,7 +2,7 @@ use backend::*;
 use rand::{CryptoRng, RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest as Sha3Digest, Keccak256};
-use utils::poseidon16_compress;
+use utils::poseidon8_compress;
 
 use crate::*;
 
@@ -119,7 +119,7 @@ pub fn xmss_key_gen(
                         &left,
                         &right,
                     );
-                    poseidon16_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap()
+                    poseidon8_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap()
                 })
                 .collect()
         };
@@ -226,7 +226,7 @@ pub fn xmss_verify(
             &left_child,
             &right_child,
         );
-        current_hash = poseidon16_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap();
+        current_hash = poseidon8_compress(merkle_data)[..XMSS_DIGEST_LEN].try_into().unwrap();
     }
     if current_hash == pub_key.merkle_root {
         Ok(())

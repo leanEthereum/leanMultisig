@@ -9,7 +9,7 @@ def main():
     for i in unroll(0, 2):
         res = f1(ARR[i])
         buff[i + 1] = res
-    assert buff[2] == 1390320454
+    assert buff[2] == 17401132340371191870  # regenerated for Goldilocks (P=2^64-2^32+1)
     return
 
 

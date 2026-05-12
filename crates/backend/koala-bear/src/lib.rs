@@ -11,7 +11,7 @@ pub mod quintic_extension;
 pub mod symmetric;
 
 #[cfg(test)]
-mod benchmark_poseidons;
+mod benchmark_poseidons_koalabear;
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod aarch64_neon;

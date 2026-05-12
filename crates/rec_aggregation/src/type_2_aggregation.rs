@@ -8,7 +8,7 @@ use lean_vm::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utils::poseidon_compress_slice;
-use utils::poseidon16_compress_pair;
+use utils::poseidon8_compress_pair;
 
 use crate::InnerVerified;
 use crate::bytecode_claims::compute_bytecode_value_at;
@@ -66,7 +66,7 @@ impl TypeTwoMultiSignature {
     }
 }
 
-/// Layout: [prefix(8) | bytecode_claim_padded | bytecode_hash_domsep(8) | n × digest(8)].
+/// Layout: [prefix(DIGEST_LEN) | bytecode_claim_padded | bytecode_hash_domsep(DIGEST_LEN) | n × digest(DIGEST_LEN)].
 fn build_type2_input_data(digests: &[[F; DIGEST_LEN]], bytecode_claim_flat: &[F]) -> Vec<F> {
     let n = digests.len();
     let claim_padded = bytecode_claim_flat.len().next_multiple_of(DIGEST_LEN);
@@ -76,11 +76,11 @@ fn build_type2_input_data(digests: &[[F; DIGEST_LEN]], bytecode_claim_flat: &[F]
 
     data[0] = F::from_usize(TYPE2_FLAG);
     data[1] = F::from_usize(n);
-    // data[2..8] stays zero (prefix-chunk pad).
+    // data[2..DIGEST_LEN] stays zero (prefix-chunk pad).
 
     data[BYTECODE_CLAIM_OFFSET..][..bytecode_claim_flat.len()].copy_from_slice(bytecode_claim_flat);
     let bytecode_hash = &get_aggregation_bytecode().hash;
-    let domsep = poseidon16_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP);
+    let domsep = poseidon8_compress_pair(bytecode_hash, &SNARK_DOMAIN_SEP);
     data[domsep_offset..][..DIGEST_LEN].copy_from_slice(&domsep);
 
     for (i, d) in digests.iter().enumerate() {

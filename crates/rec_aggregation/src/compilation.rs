@@ -1,7 +1,7 @@
 use backend::*;
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
-    GRINDING_BITS, MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
+    MAX_NUM_VARIABLES_TO_SEND_COEFFS, RS_DOMAIN_INITIAL_REDUCTION_FACTOR, WHIR_INITIAL_FOLDING_FACTOR,
     WHIR_SUBSEQUENT_FOLDING_FACTOR, default_whir_config,
 };
 use lean_vm::*;
@@ -79,7 +79,7 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
 
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
-    let mut log_size_guess = 18;
+    let mut log_size_guess = 19;
     let bytecode_zero_eval = F::ONE;
     loop {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
@@ -106,31 +106,23 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     let mut all_potential_num_queries = vec![];
     let mut all_potential_query_grinding = vec![];
     let mut all_potential_num_oods = vec![];
-    let mut all_potential_folding_grinding = vec![];
-    let mut too_much_grinding = false;
     for log_inv_rate in MIN_WHIR_LOG_INV_RATE..=MAX_WHIR_LOG_INV_RATE {
-        let max_n_vars = F::TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
+        let max_n_vars = EFFECTIVE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate;
         let whir_config_builder = default_whir_config(log_inv_rate);
 
         let mut queries_for_rate = vec![];
         let mut query_grinding_for_rate = vec![];
         let mut oods_for_rate = vec![];
-        let mut folding_grinding_for_rate = vec![];
         for n_vars in min_stacked..=max_n_vars {
             let cfg = WhirConfig::<EF>::new(&whir_config_builder, n_vars);
-            if cfg.max_folding_pow_bits() > GRINDING_BITS {
-                too_much_grinding = true;
-            }
 
             let mut num_queries = vec![];
             let mut query_grinding_bits = vec![];
             let mut oods = vec![cfg.commitment_ood_samples];
-            let mut folding_grinding = vec![cfg.starting_folding_pow_bits];
             for round in &cfg.round_parameters {
                 num_queries.push(round.num_queries);
                 query_grinding_bits.push(round.query_pow_bits);
                 oods.push(round.ood_samples);
-                folding_grinding.push(round.folding_pow_bits);
             }
             num_queries.push(cfg.final_queries);
             query_grinding_bits.push(cfg.final_query_pow_bits);
@@ -151,22 +143,10 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
                 "[{}]",
                 oods.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")
             ));
-            folding_grinding_for_rate.push(format!(
-                "[{}]",
-                folding_grinding
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
         }
         all_potential_num_queries.push(format!("[{}]", queries_for_rate.join(", ")));
         all_potential_query_grinding.push(format!("[{}]", query_grinding_for_rate.join(", ")));
         all_potential_num_oods.push(format!("[{}]", oods_for_rate.join(", ")));
-        all_potential_folding_grinding.push(format!("[{}]", folding_grinding_for_rate.join(", ")));
-    }
-    if too_much_grinding {
-        tracing::info!("Warning: Too much grinding for WHIR folding"); // TODO
     }
     replacements.insert(
         "WHIR_FIRST_RS_REDUCTION_FACTOR_PLACEHOLDER".to_string(),
@@ -183,10 +163,6 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     replacements.insert(
         "WHIR_ALL_POTENTIAL_NUM_OODS_PLACEHOLDER".to_string(),
         format!("[{}]", all_potential_num_oods.join(", ")),
-    );
-    replacements.insert(
-        "WHIR_ALL_POTENTIAL_FOLDING_GRINDING_PLACEHOLDER".to_string(),
-        format!("[{}]", all_potential_folding_grinding.join(", ")),
     );
     replacements.insert("MIN_STACKED_N_VARS_PLACEHOLDER".to_string(), min_stacked.to_string());
 
@@ -223,6 +199,10 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     replacements.insert(
         "WHIR_SUBSEQUENT_FOLDING_FACTOR_PLACEHOLDER".to_string(),
         WHIR_SUBSEQUENT_FOLDING_FACTOR.to_string(),
+    );
+    replacements.insert(
+        "EFFECTIVE_TWO_ADICITY_PLACEHOLDER".to_string(),
+        EFFECTIVE_TWO_ADICITY.to_string(),
     );
     replacements.insert(
         "MAX_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
@@ -414,7 +394,7 @@ fn all_air_evals_in_zk_dsl() -> String {
     let mut res = String::new();
     res += &air_eval_in_zk_dsl(ExecutionTable::<false> {});
     res += &air_eval_in_zk_dsl(ExtensionOpPrecompile::<false> {});
-    res += &air_eval_in_zk_dsl(Poseidon16Precompile::<false> {});
+    res += &air_eval_in_zk_dsl(Poseidon8Precompile::<false> {});
     res
 }
 
@@ -422,8 +402,8 @@ const AIR_INNER_VALUES_VAR: &str = "inner_evals";
 
 struct AirCodegenCtx {
     expr_cache: HashMap<u32, String>,
-    consts_cache: HashMap<Vec<u32>, String>,
-    ef_const_cache: HashMap<u32, String>,
+    consts_cache: HashMap<Vec<u64>, String>,
+    ef_const_cache: HashMap<u64, String>,
     ctr: Counter,
 }
 
@@ -437,7 +417,7 @@ impl AirCodegenCtx {
         }
     }
 
-    fn write_base_constants(&mut self, values: &[u32], res: &mut String) -> String {
+    fn write_base_constants(&mut self, values: &[u64], res: &mut String) -> String {
         if let Some(name) = self.consts_cache.get(values) {
             return name.clone();
         }
@@ -450,7 +430,7 @@ impl AirCodegenCtx {
         name
     }
 
-    fn write_embedded_constant(&mut self, c: u32, res: &mut String) -> String {
+    fn write_embedded_constant(&mut self, c: u64, res: &mut String) -> String {
         if let Some(name) = self.ef_const_cache.get(&c) {
             return name.clone();
         }
@@ -486,7 +466,7 @@ where
     res += &format!("\n    buff = Array(DIM * {})", bus_data.len());
     for (i, data) in bus_data.iter().enumerate() {
         let data_str = eval_air_constraint(*data, None, &mut ctx, &mut res);
-        res += &format!("\n    copy_5({}, buff + DIM * {})", data_str, i);
+        res += &format!("\n    copy_ef({}, buff + DIM * {})", data_str, i);
     }
     // dot product: bus_res = sum(buff[i] * logup_alphas_eq_poly[i]) for i in 0..bus_data.len()
     res += "\n    bus_res_init = Array(DIM)";
@@ -521,7 +501,7 @@ fn eval_air_constraint(
     res: &mut String,
 ) -> String {
     let v = match expr {
-        SymbolicExpression::Constant(c) => ctx.write_embedded_constant(c.as_canonical_u32(), res),
+        SymbolicExpression::Constant(c) => ctx.write_embedded_constant(c.as_canonical_u64(), res),
         SymbolicExpression::Variable(v) => format!("{} + DIM * {}", AIR_INNER_VALUES_VAR, v.index),
         SymbolicExpression::Operation(idx) => {
             if let Some(v) = ctx.expr_cache.get(&idx) {
@@ -548,7 +528,7 @@ fn eval_air_constraint(
     if let Some(d) = dest
         && v != d
     {
-        res.push_str(&format!("\n    copy_5({}, {})", v, d));
+        res.push_str(&format!("\n    copy_ef({}, {})", v, d));
     }
     v
 }
@@ -581,7 +561,7 @@ fn try_emit_dot_product_be(idx: u32, dest: Option<&str>, ctx: &mut AirCodegenCtx
                 }
                 let (c, expr) = match (mul.lhs, mul.rhs) {
                     (SymbolicExpression::Constant(c), o) | (o, SymbolicExpression::Constant(c)) => {
-                        (c.as_canonical_u32(), o)
+                        (c.as_canonical_u64(), o)
                     }
                     _ => return None,
                 };
@@ -652,11 +632,11 @@ fn eval_air_binary_op(
     res: &mut String,
 ) -> String {
     let c0 = match lhs {
-        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u64()),
         _ => None,
     };
     let c1 = match rhs {
-        SymbolicExpression::Constant(c) => Some(c.as_canonical_u32()),
+        SymbolicExpression::Constant(c) => Some(c.as_canonical_u64()),
         _ => None,
     };
 
@@ -744,5 +724,5 @@ fn display_all_air_evals_in_zk_dsl() {
 
 #[test]
 fn display_poseidon_air_in_zk_dsl() {
-    println!("{}", air_eval_in_zk_dsl(Poseidon16Precompile::<false> {}));
+    println!("{}", air_eval_in_zk_dsl(Poseidon8Precompile::<false> {}));
 }

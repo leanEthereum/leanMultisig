@@ -103,8 +103,8 @@ mod tests {
 
     use super::*;
 
-    type F = KoalaBear;
-    type EF = QuinticExtensionFieldKB;
+    type F = Goldilocks;
+    type EF = CubicExtensionFieldGL;
 
     #[test]
     fn test_evaluate_as_larger_multilinear_pol() {

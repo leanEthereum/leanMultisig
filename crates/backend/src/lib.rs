@@ -1,7 +1,7 @@
 pub use air::*;
 pub use fiat_shamir::*;
 pub use field::*;
-pub use koala_bear::*;
+pub use goldilocks::*;
 pub use poly::*;
 pub use rayon;
 pub use rayon::prelude::*;

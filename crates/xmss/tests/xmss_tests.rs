@@ -2,7 +2,7 @@ use backend::*;
 use rand::{SeedableRng, rngs::StdRng};
 use xmss::*;
 
-type F = KoalaBear;
+type F = Goldilocks;
 
 #[test]
 fn test_xmss_serialize_deserialize() {

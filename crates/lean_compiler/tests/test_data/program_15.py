@@ -10,7 +10,7 @@ def main():
     i, j, k = func_1(x, y)
     assert i == 2
     assert j == 3
-    assert k == 2130706432
+    assert k == 18446744069414584320  # -1 mod P_Goldilocks
 
     g = Array(8)
     h = Array(8)

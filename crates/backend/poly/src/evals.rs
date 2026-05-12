@@ -350,11 +350,11 @@ where
 mod tests {
     use std::time::Instant;
 
-    use koala_bear::QuinticExtensionFieldKB;
+    use goldilocks::CubicExtensionFieldGL;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    type F = QuinticExtensionFieldKB;
-    type EF = QuinticExtensionFieldKB;
+    type F = CubicExtensionFieldGL;
+    type EF = CubicExtensionFieldGL;
 
     use super::*;
 

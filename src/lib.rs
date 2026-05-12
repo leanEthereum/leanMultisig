@@ -7,7 +7,7 @@ pub use rec_aggregation::{
 };
 pub use xmss::{MESSAGE_LEN_FE, XmssPublicKey, XmssSecretKey, XmssSignature, xmss_key_gen, xmss_sign, xmss_verify};
 
-pub type F = KoalaBear;
+pub type F = Goldilocks;
 
 /// Call once before proving. Compiles the aggregation program and precomputes DFT twiddles.
 pub fn setup_prover() {

@@ -159,12 +159,10 @@ where
             &stir_combination_randomness,
         );
 
-        let next_folding_randomness = round_state.sumcheck_prover.run_sumcheck_many_rounds(
-            None,
-            prover_state,
-            folding_factor_next,
-            round_params.folding_pow_bits,
-        );
+        let next_folding_randomness =
+            round_state
+                .sumcheck_prover
+                .run_sumcheck_many_rounds(None, prover_state, folding_factor_next);
 
         round_state.randomness_vec.extend_from_slice(&next_folding_randomness.0);
 
@@ -238,7 +236,7 @@ where
             let final_folding_randomness =
                 round_state
                     .sumcheck_prover
-                    .run_sumcheck_many_rounds(None, prover_state, self.final_sumcheck_rounds, 0);
+                    .run_sumcheck_many_rounds(None, prover_state, self.final_sumcheck_rounds);
 
             round_state.randomness_vec.extend(final_folding_randomness.0);
         }
@@ -385,7 +383,6 @@ where
         prev_folding_scalar: Option<EF>,
         prover_state: &mut impl FSProver<EF>,
         n_rounds: usize,
-        pow_bits: usize,
     ) -> MultilinearPoint<EF> {
         let (challenges, folds, new_sum) = sumcheck_prove_many_rounds(
             MleGroupRef::merge(&[&self.evals.by_ref(), &self.weights.by_ref()]),
@@ -398,7 +395,7 @@ where
             None,
             n_rounds,
             false,
-            pow_bits,
+            0,
         );
 
         self.sum = new_sum;
@@ -414,7 +411,6 @@ where
         combination_randomness: EF,
         prover_state: &mut impl FSProver<EF>,
         folding_factor: usize,
-        pow_bits: usize,
     ) -> (Self, MultilinearPoint<EF>) {
         assert_ne!(folding_factor, 0);
 
@@ -422,14 +418,8 @@ where
 
         let mut evals = evals.pack();
         let mut weights = Mle::Owned(MleOwned::ExtensionPacked(weights));
-        let (challengess, new_sum, new_evals, new_weights) = run_product_sumcheck(
-            &evals.by_ref(),
-            &weights.by_ref(),
-            prover_state,
-            sum,
-            folding_factor,
-            pow_bits,
-        );
+        let (challengess, new_sum, new_evals, new_weights) =
+            run_product_sumcheck(&evals.by_ref(), &weights.by_ref(), prover_state, sum, folding_factor, 0);
 
         evals = new_evals.into();
         weights = new_weights.into();
@@ -492,7 +482,6 @@ where
             combination_randomness_gen,
             prover_state,
             prover.folding_factor.at_round(0),
-            prover.starting_folding_pow_bits,
         );
 
         Ok(Self {
