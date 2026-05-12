@@ -3,7 +3,9 @@
 use std::fmt::Display;
 
 use backend::*;
-use lean_vm::{EF, F, MAX_WHIR_LOG_INV_RATE, MIN_LOG_N_ROWS_PER_TABLE, MIN_WHIR_LOG_INV_RATE, Table, TableT};
+use lean_vm::{
+    EF, F, MAX_WHIR_LOG_INV_RATE, MIN_LOG_N_ROWS_PER_TABLE, MIN_WHIR_LOG_INV_RATE, RunnerError, Table, TableT,
+};
 use utils::*;
 
 mod trace_gen;
@@ -30,6 +32,8 @@ pub const SNARK_DOMAIN_SEP: [F; 8] = F::new_array([
 ]);
 
 pub fn default_whir_config(starting_log_inv_rate: usize) -> WhirConfigBuilder {
+    assert!(0 < starting_log_inv_rate);
+    assert!(starting_log_inv_rate <= MAX_WHIR_LOG_INV_RATE);
     WhirConfigBuilder {
         folding_factor: FoldingFactor::new(WHIR_INITIAL_FOLDING_FACTOR, WHIR_SUBSEQUENT_FOLDING_FACTOR),
         soundness_type: if cfg!(feature = "prox-gaps-conjecture") {
@@ -56,6 +60,9 @@ pub(crate) fn check_rate(log_inv_rate: usize) -> Result<(), ProofError> {
 #[derive(Debug, Clone)]
 pub enum ProverError {
     TooBigTable(TooBigTableError),
+    Runner(RunnerError),
+    UnknownMessage,
+    MultipleMessages,
 }
 
 impl From<TooBigTableError> for ProverError {
@@ -64,10 +71,19 @@ impl From<TooBigTableError> for ProverError {
     }
 }
 
+impl From<RunnerError> for ProverError {
+    fn from(err: RunnerError) -> Self {
+        Self::Runner(err)
+    }
+}
+
 impl Display for ProverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooBigTable(e) => write!(f, "{}", e),
+            Self::Runner(e) => write!(f, "{}", e),
+            Self::UnknownMessage => write!(f, "Unknown message, not part of the type2"),
+            Self::MultipleMessages => write!(f, "Multiple common messages in the type2"),
         }
     }
 }

@@ -361,6 +361,13 @@ def set_to_5_zeros(a):
     return
 
 @inline
+def set_to_6_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    a[5] = 0
+    return
+
+@inline
 def copy_6(a, b):
     dot_product_ee(a, ONE_EF_PTR, b)
     a[5] = b[5]
@@ -396,6 +403,15 @@ def copy_16(a, b):
     dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
     dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
     a[15] = b[15]
+    return
+
+@inline
+def copy_32(a, b):
+    chunks = div_floor(32, DIM)
+    for i in unroll(0, chunks):
+        copy_5(a + i * DIM, b + i * DIM)
+    if DIM * chunks != 32:
+        copy_5(a + (32 - DIM), b + (32 - DIM))
     return
 
 
@@ -660,6 +676,18 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
         else:
             res = mul_extension_ret(p, res)
     return res
+
+
+def mle_of_zeros_then_ones_pow2(point, log_n_zeros: Const, n_vars):
+    debug_assert(log_n_zeros <= n_vars)
+    if log_n_zeros == n_vars:
+        return ZERO_VEC_PTR
+    n_factors = n_vars - log_n_zeros
+    prod: Mut = one_minus_self_extension_ret(point)
+    for i in range(1, n_factors):
+        new_prod = mul_extension_ret(prod, one_minus_self_extension_ret(point + i * DIM))
+        prod = new_prod
+    return sub_base_extension_ret(1, prod)
 
 
 @inline

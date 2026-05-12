@@ -8,7 +8,40 @@ use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_
 use xmss::{XmssPublicKey, XmssSignature};
 
 use crate::compilation::{get_aggregation_bytecode, init_aggregation_bytecode};
-use crate::{AggregatedXMSS, AggregationTopology, count_signers, xmss_aggregate};
+use crate::type_1_aggregation::{TypeOneMultiSignature, aggregate_type_1, verify_type_1};
+
+#[derive(Debug, Clone)]
+pub struct AggregationTopology {
+    pub raw_xmss: usize,
+    pub children: Vec<AggregationTopology>,
+    pub log_inv_rate: usize,
+    pub overlap: usize, // Ignored for leaves.
+}
+
+pub fn biggest_leaf(topology: &AggregationTopology) -> Option<AggregationTopology> {
+    fn visit(t: &AggregationTopology, best: &mut Option<(usize, usize)>) {
+        if t.raw_xmss > 0 && best.is_none_or(|(n, _)| t.raw_xmss > n) {
+            *best = Some((t.raw_xmss, t.log_inv_rate));
+        }
+        for c in &t.children {
+            visit(c, best);
+        }
+    }
+    let mut best = None;
+    visit(topology, &mut best);
+    best.map(|(raw_xmss, log_inv_rate)| AggregationTopology {
+        raw_xmss,
+        children: vec![],
+        log_inv_rate,
+        overlap: 0,
+    })
+}
+
+pub(crate) fn count_signers(topology: &AggregationTopology) -> usize {
+    let child_count: usize = topology.children.iter().map(count_signers).sum();
+    let n_overlaps = topology.children.len().saturating_sub(1);
+    topology.raw_xmss + child_count - topology.overlap * n_overlaps
+}
 
 fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
@@ -249,20 +282,19 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     tracing: bool,
     is_root: bool,
-) -> (Vec<XmssPublicKey>, AggregatedXMSS) {
+) -> TypeOneMultiSignature {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
         .map(|i| (pub_keys[i].clone(), signatures[i].clone()))
         .collect();
 
-    let mut child_pub_keys_list: Vec<Vec<XmssPublicKey>> = vec![];
-    let mut child_aggs: Vec<AggregatedXMSS> = vec![];
+    let mut children: Vec<TypeOneMultiSignature> = vec![];
     let mut child_start = raw_count;
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child);
         path.push(child_idx);
-        let (child_pks, child_agg) = build_aggregation(
+        let child_sig = build_aggregation(
             child,
             child_display_index,
             nodes,
@@ -274,20 +306,13 @@ fn build_aggregation(
             false,
         );
         path.pop();
-        child_pub_keys_list.push(child_pks);
-        child_aggs.push(child_agg);
+        children.push(child_sig);
         child_display_index += count_nodes(child);
         child_start += child_count;
         if child_idx < topology.children.len() - 1 {
             child_start -= topology.overlap;
         }
     }
-
-    let children: Vec<(&[XmssPublicKey], AggregatedXMSS)> = child_pub_keys_list
-        .iter()
-        .zip(child_aggs)
-        .map(|(pks, agg)| (pks.as_slice(), agg))
-        .collect();
 
     let time = Instant::now();
 
@@ -298,24 +323,25 @@ fn build_aggregation(
     #[cfg(not(feature = "standard-alloc"))]
     zk_alloc::begin_phase();
 
-    let (global_pub_keys, result) = xmss_aggregate(
+    let result = aggregate_type_1(
         &children,
         raw_xmss,
-        &message_for_benchmark(),
+        message_for_benchmark(),
         BENCHMARK_SLOT,
         topology.log_inv_rate,
-    );
+    )
+    .unwrap();
 
     // Clone the outputs out of the arena before the next phase resets its slabs.
     #[cfg(not(feature = "standard-alloc"))]
-    let (global_pub_keys, result) = {
+    let result = {
         zk_alloc::end_phase();
-        (global_pub_keys.clone(), result.clone())
+        result.clone()
     };
 
     let elapsed = time.elapsed();
-    let meta = result.metadata.as_ref().unwrap();
-    let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
+    let meta = result.proof.metadata.as_ref().unwrap();
+    let proof_kib = result.proof.proof.proof_size_fe() * F::bits() / (8 * 1024);
     let is_leaf = topology.children.is_empty();
 
     if tracing {
@@ -349,7 +375,7 @@ fn build_aggregation(
         stats,
     });
 
-    (global_pub_keys, result)
+    result
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, silent: bool) -> BenchmarkReport {
@@ -387,7 +413,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, 
 
     let mut nodes: Vec<NodeReport> = Vec::new();
     let mut path: Vec<usize> = Vec::new();
-    let (global_pub_keys, aggregated_sigs) = build_aggregation(
+    let aggregated = build_aggregation(
         topology,
         0,
         &mut nodes,
@@ -399,14 +425,7 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, tracing: bool, 
         true,
     );
 
-    // Verify root proof
-    crate::xmss_verify_aggregation(
-        &global_pub_keys,
-        &aggregated_sigs,
-        &message_for_benchmark(),
-        BENCHMARK_SLOT,
-    )
-    .unwrap();
+    verify_type_1(&aggregated).expect("root type-1 proof failed to verify");
 
     BenchmarkReport { nodes }
 }

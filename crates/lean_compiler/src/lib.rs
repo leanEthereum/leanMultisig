@@ -91,26 +91,30 @@ impl From<RunnerError> for Error {
 pub enum ProgramSource {
     Raw(String),
     Filepath(String),
+    Embedded {
+        entry: String,
+        dir: &'static include_dir::Dir<'static>,
+    },
 }
 
 impl ProgramSource {
     pub fn get_content(&self, flags: &CompilationFlags) -> Result<String, String> {
-        match self {
-            ProgramSource::Raw(src) => {
-                let mut result = src.clone();
-                for (key, value) in flags.replacements.iter() {
-                    result = result.replace(key, value);
-                }
-                Ok(result)
-            }
+        let raw = match self {
+            ProgramSource::Raw(src) => src.clone(),
             ProgramSource::Filepath(fp) => {
-                let mut result = std::fs::read_to_string(fp).map_err(|e| format!("Failed to read file {fp}: {e}"))?;
-                for (key, value) in flags.replacements.iter() {
-                    result = result.replace(key, value);
-                }
-                Ok(result)
+                std::fs::read_to_string(fp).map_err(|e| format!("Failed to read file {fp}: {e}"))?
             }
+            ProgramSource::Embedded { entry, dir } => dir
+                .get_file(entry)
+                .and_then(|f| f.contents_utf8())
+                .ok_or_else(|| format!("Embedded entry '{entry}' not found or not valid UTF-8"))?
+                .to_string(),
+        };
+        let mut result = raw;
+        for (key, value) in flags.replacements.iter() {
+            result = result.replace(key, value);
         }
+        Ok(result)
     }
 }
 

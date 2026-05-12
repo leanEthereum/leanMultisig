@@ -419,6 +419,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
+name = "include_dir"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd"
+dependencies = [
+ "include_dir_macros",
+]
+
+[[package]]
+name = "include_dir_macros"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +508,7 @@ name = "lean_compiler"
 version = "0.1.0"
 dependencies = [
  "backend",
+ "include_dir",
  "lean_vm",
  "pest",
  "pest_derive",
@@ -511,6 +531,7 @@ dependencies = [
  "pest_derive",
  "rand",
  "rec_aggregation",
+ "serde",
  "sub_protocols",
  "tracing",
  "utils",
@@ -913,6 +934,7 @@ name = "rec_aggregation"
 version = "0.1.0"
 dependencies = [
  "backend",
+ "include_dir",
  "lean_compiler",
  "lean_prover",
  "lean_vm",
@@ -1094,6 +1116,7 @@ name = "system-info"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rayon",
 ]
 
 [[package]]
@@ -1453,6 +1476,7 @@ name = "zk-alloc"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rayon",
  "system-info",
 ]
 

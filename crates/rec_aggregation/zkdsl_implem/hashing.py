@@ -72,57 +72,36 @@ def slice_hash(data, num_chunks):
         poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + (j + 1) * DIGEST_LEN, states + j * DIGEST_LEN)
     return states + (num_chunks - 2) * DIGEST_LEN
 
+def slice_hash_with_iv_range(data, num_chunks, dest):
+    debug_assert(0 < num_chunks)
+    debug_assert(2 < num_chunks)
+    states = Array((num_chunks - 1) * DIGEST_LEN)
+    poseidon16_compress(ZERO_VEC_PTR, data, states)
+    for j in range(1, num_chunks - 1):
+        poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
+    poseidon16_compress(states + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, dest)
+    return
 
 @inline
-def slice_hash_with_iv(data, num_chunks):
-    debug_assert(0 < num_chunks)
+def slice_hash_with_iv(data, num_chunks, dest):
+    debug_assert(2 <= num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
     poseidon16_compress(ZERO_VEC_PTR, data, states)
-    for j in unroll(1, num_chunks):
+    for j in unroll(1, num_chunks - 1):
         poseidon16_compress(states + (j - 1) * DIGEST_LEN, data + j * DIGEST_LEN, states + j * DIGEST_LEN)
-    return states + (num_chunks - 1) * DIGEST_LEN
+    poseidon16_compress(states + (num_chunks - 2) * DIGEST_LEN, data + (num_chunks - 1) * DIGEST_LEN, dest)
+    return
 
 
-def slice_hash_with_iv_dynamic_unroll(data, len, len_bits: Const):
-    remainder = modulo_8(len, len_bits)
-    num_full_elements = len - remainder
-    num_full_chunks = num_full_elements / 8
+def slice_hash_with_iv_dynamic_unroll(data, num_chunks, num_chunks_bits: Const):
+    debug_assert(num_chunks != 0)
+    debug_assert(num_chunks < 2**num_chunks_bits)
 
-    if num_full_chunks == 0:
-        left = Array(DIGEST_LEN)
-        fill_padded_chunk(left, data, remainder)
+    if num_chunks == 1:
         result = Array(DIGEST_LEN)
-        poseidon16_compress(ZERO_VEC_PTR, left, result)
+        poseidon16_compress(ZERO_VEC_PTR, data, result)
         return result
 
-    if num_full_chunks == 1:
-        if remainder == 0:
-            result = Array(DIGEST_LEN)
-            poseidon16_compress(ZERO_VEC_PTR, data, result)
-            return result
-        else:
-            h0 = Array(DIGEST_LEN)
-            poseidon16_compress(ZERO_VEC_PTR, data, h0)
-            right = Array(DIGEST_LEN)
-            fill_padded_chunk(right, data + DIGEST_LEN, remainder)
-            result = Array(DIGEST_LEN)
-            poseidon16_compress(h0, right, result)
-            return result
-
-    partial_hash = slice_hash_chunks_with_iv(data, num_full_chunks, len_bits)
-    if remainder == 0:
-        return partial_hash
-    else:
-        padded_last = Array(DIGEST_LEN)
-        fill_padded_chunk(padded_last, data + num_full_elements, remainder)
-        final_hash = Array(DIGEST_LEN)
-        poseidon16_compress(partial_hash, padded_last, final_hash)
-        return final_hash
-
-
-@inline
-def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
-    debug_assert(1 < num_chunks)
     states = Array(num_chunks * DIGEST_LEN)
     poseidon16_compress(ZERO_VEC_PTR, data, states)
     n_iters = num_chunks - 1
@@ -134,37 +113,6 @@ def slice_hash_chunks_with_iv(data, num_chunks, num_chunks_bits):
         state_ptr = new_state
         data_ptr = data_ptr + DIGEST_LEN
     return state_ptr
-
-
-def fill_padded_chunk(dst, src, n):
-    debug_assert(0 < n)
-    debug_assert(n < DIGEST_LEN)
-    match_range(n, range(1, DIGEST_LEN), lambda r: fill_padded_chunk_const(dst, src, r))
-    return
-
-
-def fill_padded_chunk_const(dst, src, n: Const):
-    for i in unroll(0, n):
-        dst[i] = src[i]
-    for i in unroll(n, DIGEST_LEN):
-        dst[i] = 0
-    return
-
-
-def modulo_8(n, n_bits: Const):
-    debug_assert(2 < n_bits)
-    debug_assert(n < 2**n_bits)
-    bits = Array(n_bits)
-    hint_decompose_bits(n, bits, n_bits, BIG_ENDIAN)
-    partial_sums = Array(n_bits)
-    partial_sums[0] = bits[n_bits - 1]
-    assert partial_sums[0] * (1 - partial_sums[0]) == 0
-    for i in unroll(1, n_bits):
-        b = bits[n_bits - 1 - i]
-        assert b * (1 - b) == 0
-        partial_sums[i] = partial_sums[i - 1] + b * 2**i
-    assert n == partial_sums[n_bits - 1]
-    return partial_sums[2]
 
 
 @inline
