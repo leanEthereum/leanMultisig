@@ -316,7 +316,7 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
 
         // Bus data: [precompile_data, a, b, res]
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag_active,
                 &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
