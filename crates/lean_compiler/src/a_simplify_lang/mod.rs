@@ -3703,20 +3703,22 @@ fn expand_dynamic_unroll(
     // The template is the zkDSL expansion of dynamic_unroll, with `end` as the
     // runtime bound and `__iter` as a placeholder for the iterator assignment.
     //
-    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
+    // Bits are stored in big-endian order: bits[0] is the most significant bit
+    // (weight 2^(n_bits-1)), bits[n_bits-1] is the least significant (weight 2^0).
+    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^(n_bits-1-k).
     // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == n_iters.
     //
-    // For large bits (2^k > CHUNK_SIZE), we split into chunks to reduce bytecode size:
-    // - outer runtime loop over n_chunks = 2^k / CHUNK_SIZE
+    // For large bits (block_size > CHUNK_SIZE), we split into chunks to reduce bytecode size:
+    // - outer runtime loop over n_chunks = block_size / CHUNK_SIZE
     // - inner unroll over CHUNK_SIZE iterations
-    // For k <= log2(CHUNK_SIZE), the range loop has minimal overhead.
+    // For small bits, the range loop has minimal overhead.
 
     // Build the template with per-bit chunking logic.
     // Pre-compute __base_k = start_val + ps[k] once per activated bit,
     // so the inner loop stays at 1 ADD per iteration.
     let mut loop_body = String::new();
     for k in 0..n_bits {
-        let block_size = 1usize << k;
+        let block_size = 1usize << (n_bits - 1 - k);
         if block_size <= DYNAMIC_UNROLL_CHUNK_SIZE {
             // Small block: fully unroll
             loop_body.push_str(&format!(
@@ -3748,14 +3750,13 @@ fn expand_dynamic_unroll(
 def __dynamic_unroll_template(end):
     n_iters = end - {start_val}
     bits = Array({n_bits})
-    le = 1
-    hint_decompose_bits(n_iters, bits, {n_bits}, le)
+    hint_decompose_bits(n_iters, bits, {n_bits})
     ps = Array({ps_len})
     ps[0] = 0
     for k in unroll(0, {n_bits}):
         b = bits[k]
         assert b * (1 - b) == 0
-        ps[k + 1] = ps[k] + b * 2**k
+        ps[k + 1] = ps[k] + b * 2**({n_bits} - 1 - k)
     assert n_iters == ps[{n_bits}]
 {loop_body}
     return
@@ -3779,7 +3780,7 @@ def __dynamic_unroll_template(end):
 
     // Rename all internal variables with @du{id}_ prefix.
     // __iter is renamed directly to the user's iterator variable.
-    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk", "n_iters"]
+    let internals: BTreeSet<String> = ["bits", "ps", "k", "j", "b", "chunk", "n_iters"]
         .iter()
         .map(|s| s.to_string())
         .collect();
