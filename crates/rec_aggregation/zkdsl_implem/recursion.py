@@ -253,6 +253,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
             value_bytecode_acc,
             padding_zero_vec_ptr,
             cumulative_area_ptrs,
+            table_non_padded_n_rows,
         )
     else:
         continue_recursion_ordered(
@@ -286,6 +287,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
             value_bytecode_acc,
             padding_zero_vec_ptr,
             cumulative_area_ptrs,
+            table_non_padded_n_rows,
         )
 
     return bytecode_claim
@@ -323,6 +325,7 @@ def continue_recursion_ordered(
     value_bytecode_acc,
     padding_zero_vec_ptr,
     cumulative_area_ptrs,
+    table_non_padded_n_rows,
 ):
     bus_numerators_values = DynArray([])
     bus_denominators_values = DynArray([])
@@ -596,35 +599,53 @@ def continue_recursion_ordered(
     # then UP cols (sorted by col_index), then DOWN cols (sorted by col_index).
     for table_index in unroll(0, N_TABLES):
         log_n_rows_t = table_log_heights[table_index]
-        n_zeros_down = two_exp(log_n_rows_t) - 1  # runtime
-        # UP cols: pad_adj = 0
+        # Sub-table height is the NON-PADDED row count (matches the Rust
+        # `SubTable { height: non_padded_per_table[t] }`), NOT 2^log_n_rows.
+        # For is_next claims: n_zeros = h - 1 (else n_zeros = h).
+        h_t = table_non_padded_n_rows[table_index]
+        air_point = pcs_points[table_index][0]
+        # Precompute the two indicator MLEs once per table (shared across all
+        # cols of this table since they share the z_row = AIR sumcheck point).
+        mle_up_t = mle_of_zeros_then_ones(air_point, h_t, log_n_rows_t)
+        mle_dn_t = mle_of_zeros_then_ones(air_point, h_t - 1, log_n_rows_t)
+        # UP cols: pad_adj = padding_value * mle_up_t
         for j in unroll(0, NUM_COLS_AIR[table_index]):
             up_value_ptr = pcs_values[table_index][0][j][0]
             alpha_ptr = jagged_alphas + claim_idx_runtime * DIM
-            v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, up_value_ptr))
+            pad_kind = PADDING_KIND[table_index][j]
+            if pad_kind == 0:
+                v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, up_value_ptr))
+            if pad_kind != 0:
+                pad_val_base: Imu
+                if pad_kind == 1:
+                    pad_val_base = PADDING_FIXED_VALUE[table_index][j]
+                if pad_kind == 2:
+                    pad_val_base = padding_zero_vec_ptr
+                if pad_kind == 3:
+                    pad_val_base = null_hash_ptr
+                pad_adj = mul_base_extension_ret(pad_val_base, mle_up_t)
+                adjusted_value = sub_extension_ret(up_value_ptr, pad_adj)
+                v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, adjusted_value))
             claim_idx_runtime += 1
-        # DOWN cols: pad_adj possibly non-zero
+        # DOWN cols: pad_adj = padding_value * mle_dn_t (only present for is_next claims)
         for j in unroll(0, NUM_COLS_AIR[table_index]):
             if len(pcs_values_down[table_index][0][j]) == 1:
                 down_value_ptr = pcs_values_down[table_index][0][j][0]
                 alpha_ptr = jagged_alphas + claim_idx_runtime * DIM
-                pad_kind = PADDING_KIND[table_index][j]
-                # adjusted = value - pad_adj
-                if pad_kind == 0:
+                pad_kind_dn = PADDING_KIND[table_index][j]
+                if pad_kind_dn == 0:
                     v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, down_value_ptr))
-                if pad_kind != 0:
-                    air_point = pcs_points[table_index][0]
-                    mle_val = mle_of_zeros_then_ones(air_point, n_zeros_down, log_n_rows_t)
-                    pad_val_base: Imu
-                    if pad_kind == 1:
-                        pad_val_base = PADDING_FIXED_VALUE[table_index][j]
-                    if pad_kind == 2:
-                        pad_val_base = padding_zero_vec_ptr
-                    if pad_kind == 3:
-                        pad_val_base = null_hash_ptr
-                    pad_adj = mul_base_extension_ret(pad_val_base, mle_val)
-                    adjusted_value = sub_extension_ret(down_value_ptr, pad_adj)
-                    v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, adjusted_value))
+                if pad_kind_dn != 0:
+                    pad_val_base_dn: Imu
+                    if pad_kind_dn == 1:
+                        pad_val_base_dn = PADDING_FIXED_VALUE[table_index][j]
+                    if pad_kind_dn == 2:
+                        pad_val_base_dn = padding_zero_vec_ptr
+                    if pad_kind_dn == 3:
+                        pad_val_base_dn = null_hash_ptr
+                    pad_adj_dn = mul_base_extension_ret(pad_val_base_dn, mle_dn_t)
+                    adjusted_value_dn = sub_extension_ret(down_value_ptr, pad_adj_dn)
+                    v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, adjusted_value_dn))
                 claim_idx_runtime += 1
     assert claim_idx_runtime == N_JAGGED_CLAIMS
 

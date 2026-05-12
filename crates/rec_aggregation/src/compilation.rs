@@ -399,6 +399,149 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         "N_JAGGED_CLAIMS_PLACEHOLDER".to_string(),
         (total_whir_statements() - 1).to_string(),
     );
+
+    // Jagged-PCS layout: rebuild ZkvmJaggedLayout-equivalent metadata at
+    // compile time so the recursion verifier can map (table, AIR col) ->
+    // (sub_table_id, col_in_sub_table) and look up per-sub-table log_widths.
+    // Per-sub-table heights are NOT here (they're computed at verify time
+    // from log_memory / log_bytecode / table_log_heights).
+    let mut sub_table_log_widths: Vec<usize> = vec![0, 0, 0]; // memory, memory_acc, bytecode_acc
+    let mut next_sub_table_id: usize = 3;
+    let mut air_col_sub_table_ids: Vec<Vec<usize>> = vec![];
+    let mut air_col_in_sub_table: Vec<Vec<usize>> = vec![];
+    for &table in &ALL_TABLES {
+        let n_cols = table.n_columns();
+        let widths = sub_protocols::jagged_pcs::decompose_table_widths(n_cols);
+        let mut sids: Vec<usize> = Vec::with_capacity(n_cols);
+        let mut iids: Vec<usize> = Vec::with_capacity(n_cols);
+        for w in &widths {
+            let log_w = (*w as f64).log2() as usize;
+            assert_eq!(1 << log_w, *w, "decompose_table_widths must return powers of 2");
+            sub_table_log_widths.push(log_w);
+            for c in 0..*w {
+                sids.push(next_sub_table_id);
+                iids.push(c);
+            }
+            next_sub_table_id += 1;
+        }
+        assert_eq!(sids.len(), n_cols);
+        air_col_sub_table_ids.push(sids);
+        air_col_in_sub_table.push(iids);
+    }
+    replacements.insert(
+        "SUB_TABLE_LOG_WIDTHS_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            sub_table_log_widths
+                .iter()
+                .map(|w| w.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+    replacements.insert(
+        "AIR_COL_SUB_TABLE_ID_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            air_col_sub_table_ids
+                .iter()
+                .map(|sids| format!(
+                    "[{}]",
+                    sids.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ")
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+    replacements.insert(
+        "AIR_COL_IN_SUB_TABLE_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            air_col_in_sub_table
+                .iter()
+                .map(|iids| format!(
+                    "[{}]",
+                    iids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ")
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+    // PC column location (used for the pc_start claim).
+    let exec_idx = Table::execution().index();
+    let pc_loc_sub_table_id = air_col_sub_table_ids[exec_idx][COL_PC];
+    let pc_loc_col_in_sub_table = air_col_in_sub_table[exec_idx][COL_PC];
+    replacements.insert(
+        "PC_LOC_SUB_TABLE_ID_PLACEHOLDER".to_string(),
+        pc_loc_sub_table_id.to_string(),
+    );
+    replacements.insert(
+        "PC_LOC_COL_IN_SUB_TABLE_PLACEHOLDER".to_string(),
+        pc_loc_col_in_sub_table.to_string(),
+    );
+
+    // Per-AIR-column padding values. We invoke each table's padding_row
+    // with sentinel addresses for zero_vec_ptr/null_hash_ptr; cells equal
+    // to those sentinels become "runtime-pointer" kinds, F::ZERO becomes
+    // "no padding", and anything else becomes a fixed-value kind. The
+    // sentinels are chosen to fit in usize without colliding with real
+    // padding constants.
+    const SENTINEL_ZVP: usize = 0x1000_0011;
+    const SENTINEL_NHP: usize = 0x1000_0021;
+    let zvp_field = F::from_usize(SENTINEL_ZVP);
+    let nhp_field = F::from_usize(SENTINEL_NHP);
+    let mut padding_kind: Vec<Vec<u8>> = vec![];
+    let mut padding_fixed: Vec<Vec<u32>> = vec![];
+    for &table in &ALL_TABLES {
+        let row = table.padding_row(SENTINEL_ZVP, SENTINEL_NHP);
+        let mut tk: Vec<u8> = vec![];
+        let mut tf: Vec<u32> = vec![];
+        for v in row.iter().copied().take(table.n_columns()) {
+            if v == F::ZERO {
+                tk.push(0);
+                tf.push(0);
+            } else if v == zvp_field {
+                tk.push(2);
+                tf.push(0);
+            } else if v == nhp_field {
+                tk.push(3);
+                tf.push(0);
+            } else {
+                tk.push(1);
+                tf.push(v.as_canonical_u32());
+            }
+        }
+        padding_kind.push(tk);
+        padding_fixed.push(tf);
+    }
+    replacements.insert(
+        "PADDING_KIND_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            padding_kind
+                .iter()
+                .map(|t| format!("[{}]", t.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+    replacements.insert(
+        "PADDING_FIXED_VALUE_PLACEHOLDER".to_string(),
+        format!(
+            "[{}]",
+            padding_fixed
+                .iter()
+                .map(|t| format!("[{}]", t.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    );
+
+    // PC padding value (a fixed scalar = ENDING_PC for the exec table).
+    let pc_pad_kind = padding_kind[exec_idx][COL_PC];
+    let pc_pad_value = padding_fixed[exec_idx][COL_PC];
+    replacements.insert("PC_PAD_KIND_PLACEHOLDER".to_string(), pc_pad_kind.to_string());
+    replacements.insert("PC_PAD_FIXED_PLACEHOLDER".to_string(), pc_pad_value.to_string());
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
     replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
 
