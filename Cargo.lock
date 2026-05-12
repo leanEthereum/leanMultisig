@@ -944,6 +944,7 @@ dependencies = [
  "postcard",
  "rand",
  "serde",
+ "serde_json",
  "sub_protocols",
  "tracing",
  "utils",

@@ -3,8 +3,9 @@ use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
     N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
 };
-use lean_vm::{EF, F, Table, TableT, TableTrace};
+use lean_vm::{EF, F, SlotColumn, Table, TableT, TableTrace};
 use std::collections::BTreeMap;
+use std::ops::Range;
 use tracing::instrument;
 use utils::VarCount;
 use utils::ansi::Colorize;
@@ -200,6 +201,138 @@ pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
         min_tables_log_heights.insert(table, MIN_LOG_N_ROWS_PER_TABLE);
     }
     compute_stacked_n_vars(MIN_LOG_MEMORY_SIZE, log_bytecode, &min_tables_log_heights)
+}
+
+/// Concrete byte-offset layout of the stacked PCS polynomial.
+///
+/// Mirrors the layout produced by `stack_polynomials_and_commit`, but exposes the per-region ranges
+/// so callers can write trace columns and accumulators directly into the final committed buffer —
+/// no per-column memcpy at commit time.
+#[derive(Debug, Clone)]
+pub struct GlobalPolyLayout {
+    pub stacked_n_vars: VarCount,
+    pub used_len: usize,
+    pub memory: Range<usize>,
+    pub memory_acc: Range<usize>,
+    pub bytecode_acc: Range<usize>,
+    /// `(table, column_index) -> range` for every committed column of every table.
+    /// Iterated in the same height-descending order used by `stack_polynomials_and_commit`.
+    pub trace_columns: BTreeMap<(Table, usize), Range<usize>>,
+}
+
+impl GlobalPolyLayout {
+    pub fn compute(log_memory: usize, log_bytecode: usize, tables_log_heights: &BTreeMap<Table, VarCount>) -> Self {
+        let memory_len = 1usize << log_memory;
+        let bytecode_acc_raw_len = 1usize << log_bytecode;
+        let tables_sorted = sort_tables_by_height(tables_log_heights);
+        let largest_table_height = 1usize << tables_sorted[0].1;
+        let bytecode_acc_padded_len = bytecode_acc_raw_len.max(largest_table_height);
+
+        let mut offset = 0usize;
+        let memory = offset..offset + memory_len;
+        offset += memory_len;
+        let memory_acc = offset..offset + memory_len;
+        offset += memory_len;
+        let bytecode_acc = offset..offset + bytecode_acc_padded_len;
+        offset += bytecode_acc_padded_len;
+
+        let mut trace_columns = BTreeMap::new();
+        for (table, log_n_rows) in &tables_sorted {
+            let n_rows = 1usize << *log_n_rows;
+            for col_index in 0..table.n_columns() {
+                trace_columns.insert((*table, col_index), offset..offset + n_rows);
+                offset += n_rows;
+            }
+        }
+
+        let stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode, tables_log_heights);
+        debug_assert_eq!(log2_ceil_usize(offset), stacked_n_vars);
+        Self {
+            stacked_n_vars,
+            used_len: offset,
+            memory,
+            memory_acc,
+            bytecode_acc,
+            trace_columns,
+        }
+    }
+}
+
+/// Build a `TableTrace` whose committed columns are backed by slots inside `global_polynomial`.
+/// Non-committed ("virtual") columns remain `Owned`. The caller is responsible for ensuring
+/// `global_polynomial` outlives every `TableTrace` returned here.
+///
+/// # Safety
+/// The returned `SlotColumn::Slot` variants hold raw pointers into `global_polynomial`.
+/// `global_polynomial` must not be moved, reallocated, or dropped while the returned traces are in
+/// use, and every (table, col) slot in `layout` must be disjoint (the layout calculator guarantees
+/// the latter).
+pub unsafe fn build_slot_backed_traces(
+    global_polynomial: &mut [F],
+    layout: &GlobalPolyLayout,
+) -> BTreeMap<Table, TableTrace> {
+    let mut traces: BTreeMap<Table, TableTrace> = BTreeMap::new();
+    let global_ptr = global_polynomial.as_mut_ptr();
+    let global_len = global_polynomial.len();
+
+    for &table in ALL_TABLES.iter() {
+        let mut columns: Vec<SlotColumn> = Vec::with_capacity(table.n_columns_total());
+        for col_index in 0..table.n_columns() {
+            let range = &layout.trace_columns[&(table, col_index)];
+            assert!(range.end <= global_len);
+            // SAFETY: ranges are disjoint, in-bounds; we hold &mut to the whole buffer.
+            let slot = unsafe { std::slice::from_raw_parts_mut(global_ptr.add(range.start), range.end - range.start) };
+            columns.push(unsafe { SlotColumn::from_slot(slot) });
+        }
+        // Virtual / non-committed columns (e.g. extension-op aux columns): stay Owned, they're
+        // not part of the stacked polynomial.
+        for _ in table.n_columns()..table.n_columns_total() {
+            columns.push(SlotColumn::new());
+        }
+        traces.insert(
+            table,
+            TableTrace {
+                columns,
+                non_padded_n_rows: 0,
+                log_n_rows: 0,
+            },
+        );
+    }
+    traces
+}
+
+/// Commit a pre-built stacked global polynomial. Mirrors `stack_polynomials_and_commit` but skips
+/// the per-column memcpy: the polynomial must already contain memory / memory_acc / bytecode_acc /
+/// every trace column at the offsets given by `GlobalPolyLayout::compute`.
+#[instrument(skip_all)]
+pub fn commit_prebuilt_global_polynomial(
+    prover_state: &mut impl FSProver<EF>,
+    whir_config_builder: &WhirConfigBuilder,
+    global_polynomial: Vec<F>,
+    layout: &GlobalPolyLayout,
+) -> StackedPcsWitness {
+    debug_assert_eq!(global_polynomial.len(), 1usize << layout.stacked_n_vars);
+    let used_len = layout.used_len;
+    let stacked_n_vars = layout.stacked_n_vars;
+    tracing::info!(
+        "{}",
+        format!(
+            "stacked PCS data: {} = 2^{} * (1 + {:.2})",
+            used_len,
+            stacked_n_vars - 1,
+            (used_len as f64) / (1 << (stacked_n_vars - 1)) as f64 - 1.0
+        )
+        .green()
+    );
+
+    let global_polynomial = MleOwned::Base(global_polynomial);
+    let inner_witness =
+        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial, used_len);
+    StackedPcsWitness {
+        stacked_n_vars,
+        inner_witness,
+        global_polynomial,
+    }
 }
 
 pub fn total_whir_statements() -> usize {

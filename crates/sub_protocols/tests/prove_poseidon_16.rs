@@ -3,7 +3,7 @@ use std::time::Instant;
 use backend::*;
 use lean_vm::{
     EF, ExtraDataForBuses, F, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST, POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND,
-    POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, fill_trace_poseidon_16,
+    POSEIDON_16_COL_FLAG, POSEIDON_16_COL_INPUT_START, Poseidon16Precompile, SlotColumn, fill_trace_poseidon_16,
     num_cols_poseidon_16,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -27,13 +27,14 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
     let n_rows = 1 << log_n_rows;
     let mut rng = StdRng::seed_from_u64(0);
     let n_cols = num_cols_poseidon_16();
-    let mut trace = vec![vec![F::ZERO; n_rows]; n_cols];
+    let mut trace: Vec<SlotColumn> = (0..n_cols).map(|_| SlotColumn::Owned(vec![F::ZERO; n_rows])).collect();
     for t in trace.iter_mut().skip(POSEIDON_16_COL_INPUT_START).take(WIDTH) {
-        *t = (0..n_rows).map(|_| rng.random()).collect();
+        *t = SlotColumn::Owned((0..n_rows).map(|_| rng.random()).collect());
     }
-    trace[POSEIDON_16_COL_FLAG] = vec![F::ONE; n_rows];
-    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST] = vec![F::ZERO; n_rows];
-    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND] = vec![F::from_usize(HALF_DIGEST_LEN); n_rows];
+    trace[POSEIDON_16_COL_FLAG] = SlotColumn::Owned(vec![F::ONE; n_rows]);
+    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST] = SlotColumn::Owned(vec![F::ZERO; n_rows]);
+    trace[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND] =
+        SlotColumn::Owned(vec![F::from_usize(HALF_DIGEST_LEN); n_rows]);
     fill_trace_poseidon_16(&mut trace);
 
     let air = Poseidon16Precompile::<false>;
@@ -69,7 +70,7 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
     // BUS=false => `logup_alphas_eq_poly` and `bus_beta` are unused; only `alpha_powers` matter.
     let extra_data = ExtraDataForBuses::new(Vec::new(), EF::ZERO, air_alpha_powers);
     let eq_factor: Vec<EF> = prover_state.sample_vec(log_n_rows);
-    let column_refs: Vec<&[F]> = trace.iter().map(Vec::as_slice).collect();
+    let column_refs: Vec<&[F]> = trace.iter().map(|c| c.as_slice()).collect();
     let packed = MleGroupRef::<EF>::Base(column_refs).pack();
 
     let mut sessions: Vec<Box<dyn OuterSumcheckSession<EF> + '_>> = vec![Box::new(AirSumcheckSession::new(

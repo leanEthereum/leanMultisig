@@ -16,6 +16,9 @@ pub use execution::*;
 mod utils;
 pub(crate) use utils::*;
 
+mod slot_column;
+pub use slot_column::*;
+
 // `PRECOMPILE_DATA` is the bus discriminator separating the two precompile
 // tables. Disjointness is by parity of bit 0:
 //

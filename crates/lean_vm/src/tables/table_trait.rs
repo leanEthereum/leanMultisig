@@ -1,4 +1,5 @@
 use crate::execution::memory::MemoryAccess;
+use crate::tables::SlotColumn;
 use crate::{EF, F, InstructionContext, PrecompileCompTimeArgs, RunnerError, Table};
 use backend::*;
 
@@ -48,7 +49,7 @@ pub struct Bus {
 
 #[derive(Debug, Default)]
 pub struct TableTrace {
-    pub columns: Vec<Vec<F>>,
+    pub columns: Vec<SlotColumn>,
     pub non_padded_n_rows: usize,
     pub log_n_rows: VarCount,
 }
@@ -56,7 +57,7 @@ pub struct TableTrace {
 impl TableTrace {
     pub fn new<A: TableT>(air: &A) -> Self {
         Self {
-            columns: vec![Vec::new(); air.n_columns_total()],
+            columns: (0..air.n_columns_total()).map(|_| SlotColumn::new()).collect(),
             non_padded_n_rows: 0, // filled later
             log_n_rows: 0,        // filled later
         }

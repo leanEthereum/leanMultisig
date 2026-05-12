@@ -2,12 +2,12 @@ use tracing::instrument;
 
 use crate::{
     F,
-    tables::{Poseidon1Cols16, WIDTH},
+    tables::{Poseidon1Cols16, SlotColumn, WIDTH},
 };
 use backend::*;
 
 #[instrument(name = "generate Poseidon16 AIR trace", skip_all)]
-pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
+pub fn fill_trace_poseidon_16(trace: &mut [SlotColumn]) {
     let n = trace.iter().map(|col| col.len()).max().unwrap();
     for col in trace.iter_mut() {
         if col.len() != n {
@@ -16,7 +16,10 @@ pub fn fill_trace_poseidon_16(trace: &mut [Vec<F>]) {
     }
 
     let m = n - (n % packing_width::<F>());
-    let trace_packed: Vec<_> = trace.iter().map(|col| FPacking::<F>::pack_slice(&col[..m])).collect();
+    let trace_packed: Vec<_> = trace
+        .iter()
+        .map(|col| FPacking::<F>::pack_slice(&col.as_slice()[..m]))
+        .collect();
 
     // fill the packed rows
     (0..m / packing_width::<F>()).into_par_iter().for_each(|i| {

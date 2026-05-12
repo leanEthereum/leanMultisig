@@ -31,12 +31,34 @@ pub fn try_execute_bytecode(
     witness: &ExecutionWitness,
     profiling: bool,
 ) -> Result<ExecutionResult, RunnerError> {
+    try_execute_bytecode_into(bytecode, public_input, witness, None, Trace::new(), profiling)
+}
+
+/// Like `try_execute_bytecode` but lets the caller pre-build memory and trace storage. Used by the
+/// prover to direct-write execution data into a pre-allocated stacked WHIR polynomial: the caller
+/// builds `Memory` with a `SlotColumn::Slot` `values` buffer and `TableTrace.columns` with
+/// `SlotColumn::Slot` variants, all pointing into the global polynomial. Per-cycle writes then
+/// land directly in the final committed layout — no later memcpy.
+///
+/// If `memory` is `None`, a default `Memory::new` (owned) is built from `public_input`. If `Some`,
+/// the caller must have already initialized positions `0..padd_with_zero_to_next_power_of_two(public_input).len()`
+/// with the public memory contents.
+pub fn try_execute_bytecode_into(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    witness: &ExecutionWitness,
+    memory: Option<Memory>,
+    initial_trace: Trace,
+    profiling: bool,
+) -> Result<ExecutionResult, RunnerError> {
     let mut std_out = String::new();
     let mut instruction_history = ExecutionHistory::new();
     execute_bytecode_helper(
         bytecode,
         public_input,
         witness,
+        memory,
+        initial_trace,
         &mut std_out,
         &mut instruction_history,
         profiling,
@@ -66,20 +88,31 @@ pub fn execute_bytecode(
         .unwrap_or_else(|err| panic!("Error during bytecode execution: {err}"))
 }
 
-struct Trace {
-    pcs: Vec<usize>,
-    fps: Vec<usize>,
-    tables: BTreeMap<Table, TableTrace>,
-    counts: InstructionCounts,
-    pending_deref_hints: Vec<(usize, usize)>, // (target_addr, src_addr) constraints to resolve at end
+#[derive(Debug)]
+pub struct Trace {
+    pub pcs: Vec<usize>,
+    pub fps: Vec<usize>,
+    pub tables: BTreeMap<Table, TableTrace>,
+    pub counts: InstructionCounts,
+    pub pending_deref_hints: Vec<(usize, usize)>, // (target_addr, src_addr) constraints to resolve at end
 }
 
 impl Trace {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             pcs: Vec::new(),
             fps: Vec::new(),
             tables: BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i])))),
+            counts: InstructionCounts::default(),
+            pending_deref_hints: Vec::new(),
+        }
+    }
+
+    pub fn with_tables(tables: BTreeMap<Table, TableTrace>) -> Self {
+        Self {
+            pcs: Vec::new(),
+            fps: Vec::new(),
+            tables,
             counts: InstructionCounts::default(),
             pending_deref_hints: Vec::new(),
         }
@@ -96,6 +129,12 @@ impl Trace {
                 col.extend(new_data);
             }
         }
+    }
+}
+
+impl Default for Trace {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -241,6 +280,8 @@ fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],
     witness: &ExecutionWitness,
+    memory: Option<Memory>,
+    initial_trace: Trace,
     std_out: &mut String,
     instruction_history: &mut ExecutionHistory,
     profiling: bool,
@@ -250,15 +291,26 @@ fn execute_bytecode_helper(
         .iter()
         .map(|(name, entries)| (name.clone(), NamedHintCursor::new(entries)))
         .collect();
-    let public_memory = padd_with_zero_to_next_power_of_two(public_input);
-    let public_memory_size = public_memory.len();
-    let mut memory = Memory::new(public_memory);
+    let public_memory_size = public_input.len().next_power_of_two();
+    let mut memory = match memory {
+        Some(m) => {
+            debug_assert!(
+                m.values.len() >= public_memory_size,
+                "caller-provided memory too small for public input"
+            );
+            m
+        }
+        None => {
+            let public_memory = padd_with_zero_to_next_power_of_two(public_input);
+            Memory::new(public_memory)
+        }
+    };
     let mut fp = public_memory_size + witness.preamble_memory_len;
     fp = fp.next_multiple_of(DIMENSION);
     let initial_ap = fp + bytecode.starting_frame_memory;
     let mut pc = STARTING_PC;
     let mut ap = initial_ap;
-    let mut trace = Trace::new();
+    let mut trace = initial_trace;
     let mut cpu_cycles_before_new_line = 0;
     let mut last_checkpoint_cpu_cycles = 0;
     let mut checkpoint_ap = initial_ap;

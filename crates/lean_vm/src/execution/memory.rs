@@ -1,6 +1,7 @@
 use crate::MAX_LOG_MEMORY_SIZE;
 use crate::core::{DIMENSION, EF, F};
 use crate::diagnostics::RunnerError;
+use crate::tables::SlotColumn;
 use backend::*;
 
 pub trait MemoryAccess {
@@ -63,10 +64,26 @@ pub trait MemoryAccess {
 }
 
 /// Write-once VM memory.
-#[derive(Debug, Clone, Default)]
+///
+/// `values` is a `SlotColumn` so it can be either:
+/// - `Owned`: a regular `Vec<F>` that grows on demand (the default, used by the runner CLI, tests,
+///   etc.). Internally indistinguishable from the previous `Vec<F>` representation.
+/// - `Slot`: a borrowed slice into the prover's pre-allocated stacked WHIR polynomial. In that
+///   mode the cap is fixed to the predicted padded memory size; every `set` lands directly in
+///   the final committed buffer with no later memcpy.
+#[derive(Debug, Default)]
 pub struct Memory {
-    pub values: Vec<F>,
+    pub values: SlotColumn,
     pub written: Vec<bool>,
+}
+
+impl Clone for Memory {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            written: self.written.clone(),
+        }
+    }
 }
 
 impl MemoryAccess for Memory {
@@ -83,13 +100,32 @@ impl Memory {
     pub fn new(public_memory: Vec<F>) -> Self {
         let written = vec![true; public_memory.len()];
         Self {
-            values: public_memory,
+            values: SlotColumn::Owned(public_memory),
             written,
         }
     }
 
+    /// Construct a slot-backed memory: `values` is borrowed from `slot` (capacity = `slot.len()`),
+    /// initialized with `public_memory` copied into `[0, public_memory.len())`. `written` is owned
+    /// and grows / shrinks alongside `values`'s logical length.
+    ///
+    /// # Safety
+    /// `slot` must outlive every operation on the returned `Memory`.
+    pub unsafe fn new_in_slot(slot: &mut [F], public_memory: &[F]) -> Self {
+        assert!(slot.len() >= public_memory.len());
+        slot[..public_memory.len()].copy_from_slice(public_memory);
+        // SAFETY: positions `0..public_memory.len()` were just initialized by `copy_from_slice`.
+        let values = unsafe { SlotColumn::from_slot_with_len(slot, public_memory.len()) };
+        let written = vec![true; public_memory.len()];
+        Self { values, written }
+    }
+
     pub fn len(&self) -> usize {
         self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     pub fn resize(&mut self, new_len: usize) {

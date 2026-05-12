@@ -1,7 +1,8 @@
+use crate::hints::aggregation_hints;
 use backend::*;
 use lean_prover::ProverError;
 use lean_prover::SNARK_DOMAIN_SEP;
-use lean_prover::prove_execution::{ExecutionProof, prove_execution};
+use lean_prover::prove_execution::{ExecutionProof, prove_execution_hinted};
 use lean_vm::*;
 use tracing::instrument;
 use utils::{poseidon_compress_slice, poseidon16_compress_pair};
@@ -377,7 +378,16 @@ pub fn aggregate_type_1(
         preamble_memory_len: PREAMBLE_MEMORY_LEN,
         hints,
     };
-    let proof = prove_execution(bytecode, &public_input, &witness, &whir_config, false)?;
+    // Hint priority: on-disk cache (exact-fit from a previous run) → workload heuristic
+    // (heuristic constants, may over/under-estimate). The hinted prover handles either with a
+    // retry under the hood; after a successful proof we persist the actually-used hints so the
+    // next run for the same (bytecode, n_xmss, n_recursions) skips both the heuristic and any
+    // retry.
+    let exec_hints = crate::hints_cache::load(&bytecode.hash, raw_count, n_recursions)
+        .unwrap_or_else(|| aggregation_hints(raw_count, n_recursions));
+    let (proof, used_hints) =
+        prove_execution_hinted(bytecode, &public_input, &witness, &whir_config, false, exec_hints)?;
+    crate::hints_cache::save(&bytecode.hash, raw_count, n_recursions, &used_hints);
 
     Ok(TypeOneMultiSignature {
         info: TypeOneInfo {

@@ -2,8 +2,12 @@
 pub mod benchmark;
 mod bytecode_claims;
 mod compilation;
+mod hints;
+mod hints_cache;
 mod type_1_aggregation;
 mod type_2_aggregation;
+
+pub use hints::aggregation_hints;
 
 use backend::{Evaluation, Proof, ProofError, RawProof};
 pub use compilation::{

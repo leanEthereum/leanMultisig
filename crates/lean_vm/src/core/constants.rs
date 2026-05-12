@@ -1,4 +1,5 @@
 use crate::Table;
+use std::collections::BTreeMap;
 
 /// Domain separation in logup
 pub const LOGUP_MEMORY_DOMAINSEP: usize = 0;
@@ -40,6 +41,21 @@ pub const STARTING_PC: usize = 1;
 
 /// Ending program counter (the final block is a looping block of 1 instruction)
 pub const ENDING_PC: usize = 0;
+
+/// Caller-supplied upper bound on the padded memory size and per-table padded row counts.
+///
+/// `prove_execution_hinted` uses this to allocate the stacked WHIR polynomial up front so VM
+/// execution writes directly into its slots — no dry-run, no per-column memcpy. If a hint turns
+/// out smaller than what the workload actually needs (a `SlotColumn` would overflow), the prover
+/// catches the panic and falls back to the safe dry-run + retry path.
+///
+/// Hints may safely *over*-estimate (wastes a bit of peak memory, costs nothing else); they must
+/// not under-estimate any individual table.
+#[derive(Debug, Clone)]
+pub struct ExecutionHints {
+    pub log_memory_size: usize,
+    pub tables_log_n_rows: BTreeMap<Table, usize>,
+}
 
 #[cfg(test)]
 mod tests {
