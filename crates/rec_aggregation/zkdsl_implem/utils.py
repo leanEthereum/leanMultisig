@@ -469,20 +469,21 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
 #   - high 32 bits = 0xFFFFFFFF and low 32 bits = 0
 #   - high 32 bits < 0xFFFFFFFF and low 32 bits arbitrary
 def checked_decompose_bits(a):
-    # Return a pointer to the F_BITS=64 little-endian bits of `a`, plus the
-    # partial sums over the low HALF_BITS=32 bits. Enforces canonicality.
+    # Return a pointer to the F_BITS=64 big-endian bits of `a` (bits[0] is MSB,
+    # bits[F_BITS - 1] is LSB), plus the partial sums over the low HALF_BITS=32
+    # bits. Enforces canonicality.
     bits = Array(F_BITS)
-    hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
+    hint_decompose_bits(a, bits, F_BITS)
 
     for i in unroll(0, F_BITS):
         assert bits[i] * (1 - bits[i]) == 0
     partial_sums_low = Array(HALF_BITS)
-    partial_sums_low[0] = bits[0]
+    partial_sums_low[0] = bits[F_BITS - 1]
     for i in unroll(1, HALF_BITS):
-        partial_sums_low[i] = partial_sums_low[i - 1] + bits[i] * 2**i
-    sum_high: Mut = bits[HALF_BITS]
+        partial_sums_low[i] = partial_sums_low[i - 1] + bits[F_BITS - 1 - i] * 2**i
+    sum_high: Mut = bits[F_BITS - 1 - HALF_BITS]
     for i in unroll(1, F_BITS - HALF_BITS):
-        sum_high += bits[HALF_BITS + i] * 2**i
+        sum_high += bits[F_BITS - 1 - HALF_BITS - i] * 2**i
     # If the high 32 bits are all set, the low 32 bits must be zero (only p-1).
     if sum_high == 2**(F_BITS - HALF_BITS) - 1:
         assert partial_sums_low[HALF_BITS - 1] == 0
@@ -518,21 +519,33 @@ def whir_1_merkle_step_and_pow(v, state_in, path_chunk, state_out, power_shift):
 @inline
 def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     # Decompose the full 64-bit Goldilocks FE `a` into 16 × 4-bit nibbles so
-    # that `a == partial_sum` holds for any valid field element (no top-bits
-    # restriction). The first `n_nibbles = ceil(domain_size/4)` nibbles encode
-    # the Merkle query index modulo 2^domain_size.
+    # that `a == partial_sum_low + partial_sum_high * 2^32` holds. The first
+    # `n_nibbles = ceil(domain_size/4)` nibbles encode the Merkle query index
+    # modulo 2^domain_size.
     NUM_NIBBLES = F_BITS / 4
+    HALF_NIBBLES = NUM_NIBBLES / 2  # 8 nibbles = 32 bits
     nibbles = Array(NUM_NIBBLES)
     hint_decompose_bits_merkle_whir(nibbles, a, NUM_NIBBLES, 4)
 
     for i in unroll(0, NUM_NIBBLES):
         assert nibbles[i] < 16
 
-    partial_sum: Mut = nibbles[0]
-    for i in unroll(1, NUM_NIBBLES):
-        partial_sum += nibbles[i] * 16**i
+    # Split into low/high 32-bit halves so we can enforce canonicality:
+    # without this check, integers in [p, 2^64) reduce mod p to elements in
+    # F but provide an alternate nibble decomposition — a soundness break.
+    partial_sum_low: Mut = nibbles[0]
+    for i in unroll(1, HALF_NIBBLES):
+        partial_sum_low += nibbles[i] * 16**i
+    partial_sum_high: Mut = nibbles[HALF_NIBBLES]
+    for i in unroll(1, HALF_NIBBLES):
+        partial_sum_high += nibbles[HALF_NIBBLES + i] * 16**i
 
-    assert a == partial_sum
+    assert a == partial_sum_low + partial_sum_high * 2**HALF_BITS
+
+    # If the top 32 bits are all set, the bottom 32 bits must be zero
+    # (only canonical element with top = 2^32 - 1 is p - 1 = 2^64 - 2^32).
+    if partial_sum_high == 2**HALF_BITS - 1:
+        assert partial_sum_low == 0
 
     leaf_data = Array(num_chunks * DIGEST_LEN)
     hint_witness("merkle_leaf", leaf_data)
@@ -608,7 +621,7 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
-    hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
+    hint_decompose_bits(to_decompose, bits, n_bits)
     sum: Mut = bits[n_bits - 1]
     assert sum * (1 - sum) == 0
     for i in unroll(1, n_bits):
@@ -668,7 +681,7 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
 
     for i in range(0, n_vars):
         p = point + (n_vars - 1 - i) * DIM
-        if bits[i] == 0:
+        if bits[F_BITS - 1 - i] == 0:
             one_minus_p = one_minus_self_extension_ret(p)
             tmp = mul_extension_ret(one_minus_p, res)
             res = add_extension_ret(tmp, p)

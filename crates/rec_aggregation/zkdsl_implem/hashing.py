@@ -15,10 +15,6 @@ REPEATED_ONES_PTR = ONE_EF_PTR + DIM
 PREAMBLE_MEMORY_END = REPEATED_ONES_PTR + NUM_REPEATED_ONES
 PREAMBLE_MEMORY_LEN = PREAMBLE_MEMORY_END - PUBLIC_INPUT_LEN
 
-# bit decomposition hint
-LITTLE_ENDIAN = 1
-BIG_ENDIAN = 0
-
 
 def batch_hash_slice_rtl(num_queries, all_data_to_hash, all_resulting_hashes, num_chunks):
     if num_chunks == DIM * 2:

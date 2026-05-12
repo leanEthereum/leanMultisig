@@ -58,11 +58,47 @@ def fs_grinding(fs, bits):
     new_fs[FS_TPTR] = transcript_ptr + DIGEST_LEN
 
     sampled = new_fs[0]
-    _, partial_sums_24 = checked_decompose_bits(sampled)
-    sampled_low_bits_value = partial_sums_24[bits - 1]
-    assert sampled_low_bits_value == 0
+    debug_assert(bits <= 24)
+    match_range(bits, range(0, 25), lambda b: assert_trailing_bits_are_zeros(sampled, b))
 
     return new_fs
+
+def assert_trailing_bits_are_zeros(value, bits: Const):
+    debug_assert(bits != 0)
+    debug_assert(bits <= 24)
+
+    chunk_size = 16
+    num_chunks = F_BITS / chunk_size  # 4
+    half_chunks = num_chunks / 2  # 2
+
+    chunks = Array(num_chunks)
+    hint_decompose_bits_merkle_whir(chunks, value, num_chunks, chunk_size)
+    for i in unroll(0, num_chunks):
+        assert chunks[i] < 2**chunk_size
+
+    # Recompose into low/high 32-bit halves and enforce canonicality:
+    # if the high 32 bits are all set (top half = 2^32 - 1), the low 32
+    # bits must be zero (only valid such element is p - 1 = 2^64 - 2^32).
+    partial_sum_low: Mut = chunks[0]
+    for i in unroll(1, half_chunks):
+        partial_sum_low += chunks[i] * 2**(i * chunk_size)
+    partial_sum_high: Mut = chunks[half_chunks]
+    for i in unroll(1, half_chunks):
+        partial_sum_high += chunks[half_chunks + i] * 2**(i * chunk_size)
+
+    assert value == partial_sum_low + partial_sum_high * 2**HALF_BITS
+
+    if partial_sum_high == 2**HALF_BITS - 1:
+        assert partial_sum_low == 0
+
+    if bits < 16:
+        assert chunks[0] / 2**bits < 2**(chunk_size - bits)
+    else:
+        assert chunks[0] == 0
+        assert chunks[1] / 2**(bits - 16) < 2**(chunk_size - (bits - 16))
+
+    return
+
 
 
 def fs_sample_chunks(fs, n_chunks: Const):
