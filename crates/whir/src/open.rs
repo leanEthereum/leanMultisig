@@ -568,7 +568,7 @@ where
                 .zip(&indexed_smt_values)
                 .for_each(|(out_buff, &(origin_index, _))| {
                     out_buff[..1 << shift]
-                        .par_iter_mut()
+                        .iter_mut()
                         .zip(&inner_poly)
                         .for_each(|(out_elem, &poly_elem)| {
                             *out_elem += poly_elem * next_gamma_powers[origin_index];
