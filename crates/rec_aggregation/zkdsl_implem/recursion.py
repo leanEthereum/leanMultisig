@@ -141,7 +141,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     assert log_memory <= MAX_LOG_MEMORY_SIZE
     assert LOG_GUEST_BYTECODE_LEN <= log_memory
 
-    stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode_padded, table_heights)
+    stacked_n_vars = compute_stacked_n_vars(log_memory, LOG_GUEST_BYTECODE_LEN, table_non_padded_n_rows)
     assert stacked_n_vars <= TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - whir_log_inv_rate
 
     # JAGGED-PCS: read the cumulative-area bit strings the prover wrote
@@ -946,14 +946,27 @@ def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
 
 
 @inline
-def compute_stacked_n_vars(log_memory, log_bytecode_padded, tables_heights):
-    total: Mut = two_exp(log_memory + 1)  # memory + acc_memory
-    total += two_exp(log_bytecode_padded)
+def compute_stacked_n_vars(log_memory, log_bytecode, tables_non_padded_n_rows):
+    """Compute the jagged-PCS dense polynomial's `log_dense_size`. Mirrors
+    Rust `JaggedConfig::new` ∘ `ZkvmJaggedLayout::new`: the AIR sub-tables
+    use the actual NON-PADDED row counts (not `2^log_n_rows`), and
+    bytecode_acc's height is `2^log_bytecode` (no `max(...)` -- that was
+    the pre-jagged stacked-PCS layout).
+
+    `total = 2 * 2^log_memory + 2^log_bytecode + sum_t n_cols_t * non_padded_n_rows[t]`,
+    `log_dense_size = log2_ceil(total)`.
+
+    With the bounds set by `MAX_LOG_MEMORY_SIZE = 26`,
+    `MAX_LOG_N_ROWS_PER_TABLE = [24, 21, 21]`, the total is at most
+    `2^28 + 2^19 + 20·2^24 + 29·2^21 + 100·2^21 < 2^30`, so
+    `log2_ceil_runtime` works directly without scaling.
+    """
+    total: Mut = two_exp(log_memory + 1)  # memory + memory_acc (padded)
+    total += two_exp(log_bytecode)  # bytecode_acc (padded)
     for table_index in unroll(0, N_TABLES):
-        n_rows = tables_heights[table_index]
-        total += n_rows * NUM_COLS_AIR[table_index]
-    debug_assert(30 - 24 < MIN_LOG_N_ROWS_PER_TABLE)  # cf log2_ceil
-    return MIN_LOG_N_ROWS_PER_TABLE + log2_ceil_runtime(total / 2**MIN_LOG_N_ROWS_PER_TABLE)
+        h = tables_non_padded_n_rows[table_index]
+        total += h * NUM_COLS_AIR[table_index]
+    return log2_ceil_runtime(total)
 
 
 def compute_total_gkr_n_vars(log_memory, log_bytecode_padded, tables_heights):
