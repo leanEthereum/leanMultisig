@@ -19,6 +19,7 @@
 //! cost of an extra sumcheck. This is left as a follow-up; see the module
 //! re-export comment in `sub_protocols::lib`.
 
+mod assist;
 mod branching;
 mod config;
 mod prover;

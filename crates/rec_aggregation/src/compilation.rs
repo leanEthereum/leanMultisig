@@ -203,6 +203,133 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         n_sub_tables += sub_protocols::jagged_pcs::decompose_table_widths(table.n_columns()).len();
     }
     replacements.insert("N_SUB_TABLES_PLACEHOLDER".to_string(), n_sub_tables.to_string());
+
+    // Compile-time metadata for the jagged-assist sub-protocol's per-group
+    // structure. The Rust prover side runs `jagged_assist_prove` which
+    // groups claims by (sub_table_id, is_next, z_row) -- consecutive
+    // grouping in the order they appear in `build_jagged_claims`. The
+    // zkDSL verifier mirrors this here so it can iterate the same groups
+    // in the same order to read the prover's per-group sumcheck
+    // transcripts (target_g + log_width rounds of 3-point polynomials).
+    //
+    // Group "type" encodes which z_row to use:
+    //   0 = memory                         (z_row = memory_and_acc_point, len log_memory)
+    //   1 = memory_acc                     (z_row = memory_and_acc_point, len log_memory)
+    //   2 = public_memory                  (z_row = pad_high(pm_pt, log_memory), len log_memory)
+    //   3 = bytecode_acc                   (z_row = bytecode_and_acc_point, len LOG_GUEST_BYTECODE_LEN)
+    //   4 = pc_start                       (z_row = zeros^log_n_cycles)
+    //   5 + table_index = AIR table        (z_row = pcs_points[t][0], len log_n_rows[t])
+    let mut sub_table_widths: Vec<usize> = vec![0, 0, 0]; // memory, memory_acc, bytecode_acc
+    let mut col_locations: BTreeMap<Table, Vec<(usize, usize)>> = BTreeMap::new();
+    let mut next_st_id: usize = 3;
+    for &table in &ALL_TABLES {
+        let widths = sub_protocols::jagged_pcs::decompose_table_widths(table.n_columns());
+        let mut locs: Vec<(usize, usize)> = Vec::with_capacity(table.n_columns());
+        for w in widths {
+            let log_w = (w as f64).log2() as usize;
+            sub_table_widths.push(log_w);
+            for c in 0..w {
+                locs.push((next_st_id, c));
+            }
+            next_st_id += 1;
+        }
+        col_locations.insert(table, locs);
+    }
+
+    // Mirror `build_jagged_claims` iteration order to enumerate per-claim
+    // (group_type, sub_table_id, col_in_sub_table, is_next) metadata.
+    let pc_loc = col_locations[&Table::execution()][COL_PC];
+    let mut claims_meta: Vec<(u8, usize, usize, bool)> = vec![
+        (0, 0, 0, false),               // claim 0: memory
+        (1, 1, 0, false),               // claim 1: memory_acc
+        (2, 0, 0, false),               // claim 2: public_memory
+        (3, 2, 0, false),               // claim 3: bytecode_acc
+        (4, pc_loc.0, pc_loc.1, false), // claim 4: pc_start
+    ];
+    for (t_idx, &table) in ALL_TABLES.iter().enumerate() {
+        let air_type = 5 + t_idx as u8;
+        let locs = &col_locations[&table];
+        // UP cols, sorted by col_index = the natural 0..n_cols order.
+        for &(st, cis) in locs.iter() {
+            claims_meta.push((air_type, st, cis, false));
+        }
+        // DOWN cols, sorted by col_index (matches Rust BTreeMap iteration).
+        let mut down_cols = table.down_column_indexes();
+        down_cols.sort();
+        for &col_idx in &down_cols {
+            let (st, cis) = locs[col_idx];
+            claims_meta.push((air_type, st, cis, true));
+        }
+    }
+
+    // Consecutive grouping by (group_type, sub_table_id, is_next).
+    // Within a group, claims share z_row (since group_type encodes the
+    // z_row choice in the zkVM case).
+    let mut groups: Vec<(u8, usize, bool, Vec<usize>)> = Vec::new(); // (type, st, is_next, col_list)
+    for &(gt, st, cis, is_next) in &claims_meta {
+        let matches_last = groups
+            .last()
+            .map(|(gt_l, st_l, in_l, _)| *gt_l == gt && *st_l == st && *in_l == is_next)
+            .unwrap_or(false);
+        if matches_last {
+            groups.last_mut().unwrap().3.push(cis);
+        } else {
+            groups.push((gt, st, is_next, vec![cis]));
+        }
+    }
+    let n_assist_groups = groups.len();
+
+    // Emit placeholders.
+    replacements.insert("N_ASSIST_GROUPS_PLACEHOLDER".to_string(), n_assist_groups.to_string());
+    let fmt_int_list =
+        |v: &[usize]| -> String { format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) };
+    let group_types: Vec<usize> = groups.iter().map(|g| g.0 as usize).collect();
+    let group_sub_table_ids: Vec<usize> = groups.iter().map(|g| g.1).collect();
+    let group_is_next: Vec<usize> = groups.iter().map(|g| usize::from(g.2)).collect();
+    let group_log_widths: Vec<usize> = groups.iter().map(|g| sub_table_widths[g.1]).collect();
+    let group_n_claims: Vec<usize> = groups.iter().map(|g| g.3.len()).collect();
+    let mut group_claim_offsets: Vec<usize> = Vec::with_capacity(n_assist_groups);
+    let mut running = 0usize;
+    for g in &groups {
+        group_claim_offsets.push(running);
+        running += g.3.len();
+    }
+    assert_eq!(running, claims_meta.len());
+    replacements.insert("ASSIST_GROUP_TYPE_PLACEHOLDER".to_string(), fmt_int_list(&group_types));
+    replacements.insert(
+        "ASSIST_GROUP_SUB_TABLE_ID_PLACEHOLDER".to_string(),
+        fmt_int_list(&group_sub_table_ids),
+    );
+    replacements.insert(
+        "ASSIST_GROUP_IS_NEXT_PLACEHOLDER".to_string(),
+        fmt_int_list(&group_is_next),
+    );
+    replacements.insert(
+        "ASSIST_GROUP_LOG_WIDTH_PLACEHOLDER".to_string(),
+        fmt_int_list(&group_log_widths),
+    );
+    replacements.insert(
+        "ASSIST_GROUP_N_CLAIMS_PLACEHOLDER".to_string(),
+        fmt_int_list(&group_n_claims),
+    );
+    replacements.insert(
+        "ASSIST_GROUP_CLAIM_OFFSET_PLACEHOLDER".to_string(),
+        fmt_int_list(&group_claim_offsets),
+    );
+    // Per-group col_in_sub_table lists.
+    let cols_str = format!(
+        "[{}]",
+        groups.iter().map(|g| fmt_int_list(&g.3)).collect::<Vec<_>>().join(", ")
+    );
+    replacements.insert("ASSIST_GROUP_COL_LISTS_PLACEHOLDER".to_string(), cols_str);
+
+    // Group-type sentinels for the zkDSL `if` dispatch.
+    replacements.insert("GROUP_TYPE_MEMORY_PLACEHOLDER".to_string(), "0".to_string());
+    replacements.insert("GROUP_TYPE_MEMORY_ACC_PLACEHOLDER".to_string(), "1".to_string());
+    replacements.insert("GROUP_TYPE_PUBLIC_MEMORY_PLACEHOLDER".to_string(), "2".to_string());
+    replacements.insert("GROUP_TYPE_BYTECODE_ACC_PLACEHOLDER".to_string(), "3".to_string());
+    replacements.insert("GROUP_TYPE_PC_START_PLACEHOLDER".to_string(), "4".to_string());
+    replacements.insert("GROUP_TYPE_AIR_BASE_PLACEHOLDER".to_string(), "5".to_string());
     replacements.insert(
         "MIN_LOG_N_ROWS_PER_TABLE_PLACEHOLDER".to_string(),
         MIN_LOG_N_ROWS_PER_TABLE.to_string(),

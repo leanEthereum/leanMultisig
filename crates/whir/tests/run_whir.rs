@@ -128,7 +128,7 @@ fn test_run_whir() {
     let parsed_commitment = params.parse_commitment::<F>(&mut verifier_state).unwrap();
 
     params
-        .verify::<F>(&mut verifier_state, &parsed_commitment, statement.clone())
+        .verify::<F, _>(&mut verifier_state, &parsed_commitment, statement.clone())
         .unwrap();
 
     println!(

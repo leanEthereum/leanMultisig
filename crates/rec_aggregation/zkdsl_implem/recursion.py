@@ -28,6 +28,29 @@ PADDING_FIXED_VALUE = PADDING_FIXED_VALUE_PLACEHOLDER
 PC_PAD_KIND = PC_PAD_KIND_PLACEHOLDER
 PC_PAD_FIXED = PC_PAD_FIXED_PLACEHOLDER
 
+# Jagged-assist sub-protocol metadata. The Rust prover emits one
+# `target_g` + `log_width_g`-round sumcheck per group; the zkDSL verifier
+# below reads and verifies them, reducing K=169 BP evaluations of F(i*)
+# to one BP eval per group.
+N_ASSIST_GROUPS = N_ASSIST_GROUPS_PLACEHOLDER
+ASSIST_GROUP_TYPE = ASSIST_GROUP_TYPE_PLACEHOLDER  # 0=mem,1=mem_acc,2=pub_mem,3=bc_acc,4=pc_start,5+t=AIR table t
+ASSIST_GROUP_SUB_TABLE_ID = ASSIST_GROUP_SUB_TABLE_ID_PLACEHOLDER
+ASSIST_GROUP_IS_NEXT = ASSIST_GROUP_IS_NEXT_PLACEHOLDER
+ASSIST_GROUP_LOG_WIDTH = ASSIST_GROUP_LOG_WIDTH_PLACEHOLDER
+ASSIST_GROUP_N_CLAIMS = ASSIST_GROUP_N_CLAIMS_PLACEHOLDER
+ASSIST_GROUP_CLAIM_OFFSET = ASSIST_GROUP_CLAIM_OFFSET_PLACEHOLDER
+ASSIST_GROUP_COL_LISTS = ASSIST_GROUP_COL_LISTS_PLACEHOLDER  # [[col_in_st, ...]; N_ASSIST_GROUPS]
+GROUP_TYPE_MEMORY = GROUP_TYPE_MEMORY_PLACEHOLDER
+GROUP_TYPE_MEMORY_ACC = GROUP_TYPE_MEMORY_ACC_PLACEHOLDER
+GROUP_TYPE_PUBLIC_MEMORY = GROUP_TYPE_PUBLIC_MEMORY_PLACEHOLDER
+GROUP_TYPE_BYTECODE_ACC = GROUP_TYPE_BYTECODE_ACC_PLACEHOLDER
+GROUP_TYPE_PC_START = GROUP_TYPE_PC_START_PLACEHOLDER
+GROUP_TYPE_AIR_BASE = GROUP_TYPE_AIR_BASE_PLACEHOLDER
+
+# `(p + 1) / 2` for KoalaBear (p = 2^31 - 2^24 + 1). Used as the inverse
+# of 2 in the degree-2 Lagrange interpolation in the assist sumcheck.
+JAGGED_ASSIST_INV_2 = 1065353217
+
 LOGUP_GKR_N_VARS_TO_SEND_COEFFS = LOGUP_GKR_N_VARS_TO_SEND_COEFFS_PLACEHOLDER
 LOGUP_GKR_N_COEFFS_SENT = 2**LOGUP_GKR_N_VARS_TO_SEND_COEFFS
 
@@ -676,15 +699,16 @@ def continue_recursion_ordered(
         whir_sum,
     )
 
-    # JAGGED-PCS: compute `f_at_istar = sum_j alpha_j * BP_eval_j(...)` at
-    # the WHIR final folding point `i* = folding_randomness_global`. This
-    # is the contribution of the jagged-fused "extras" slot to the
-    # evaluation-of-weights term that `s` must equal for the WHIR sumcheck
-    # identity to close (see `verify_with_extras` Rust path).
+    # JAGGED-PCS assist sub-protocol: replaces the per-claim BP eval loop
+    # (K=N_JAGGED_CLAIMS BP evals) with a per-group sumcheck delegation.
+    # See `crates/sub_protocols/src/jagged_pcs/assist.rs` for the Rust
+    # prover side. Per group g, the prover sends `target_g` plus
+    # `log_width_g`-round sumcheck transcripts; the verifier samples
+    # challenges, computes `eq_combined_g = sum_j alpha_j * eq(rho_g, z_col_j)`,
+    # does ONE `bp_eval` at `(z_row_g, rho_g, i_star, t_prev_g, t_next_g)`
+    # and checks the sumcheck identity. F(i*) = sum_g target_g.
 
-    # Lift each cumulative_area's m base-field bits to EF representation
-    # (one bit per length-DIM slot, with the bit in coord 0 and the rest
-    # zero). MAX_M bounds the runtime stacked_n_vars.
+    # Pre-lift cumulative_area bits to EF representation.
     MAX_M = TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - MIN_WHIR_LOG_INV_RATE
     all_t_ef = Array((N_SUB_TABLES + 1) * MAX_M * DIM)
     for st_id in unroll(0, N_SUB_TABLES + 1):
@@ -695,9 +719,8 @@ def continue_recursion_ordered(
             for kk in unroll(1, DIM):
                 out_base[k * DIM + kk] = 0
 
-    # Pre-lift the shifted t_prev (= original + 2^log_width) for each
-    # AIR sub-table that may host an is_next claim. We do this for ALL
-    # AIR sub-tables (st_id >= 3); cheap and avoids per-claim dispatch.
+    # Pre-lift the shifted t_prev (= original + 2^log_width) for each AIR
+    # sub-table that may host an is_next claim.
     shifted_t_ef = Array(N_SUB_TABLES * MAX_M * DIM)
     for st_id in unroll(3, N_SUB_TABLES):
         log_width_st = SUB_TABLE_LOG_WIDTHS[st_id]
@@ -705,33 +728,9 @@ def continue_recursion_ordered(
         out_base = shifted_t_ef + st_id * MAX_M * DIM
         shift_bits_and_lift(bits_ptr, stacked_n_vars, log_width_st, out_base)
 
-    f_at_istar: Mut = Array(DIM)
-    for k in unroll(0, DIM):
-        f_at_istar[k] = 0
-
-    claim_idx2: Mut = 0
-    alpha_ptr2: Mut = jagged_alphas
-
-    # Claim 0: memory (sub_table=0 = memory_st, log_width=0)
-    bp_val_0 = bp_eval(
-        memory_and_acc_point, log_memory, ZERO_VEC_PTR, 0, folding_randomness_global,
-        all_t_ef + 0 * MAX_M * DIM, all_t_ef + 1 * MAX_M * DIM,
-        0, stacked_n_vars,
-    )
-    alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-    f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_0))
-    claim_idx2 += 1
-    # Claim 1: memory_acc (sub_table=1 = memory_acc_st, log_width=0)
-    bp_val_1 = bp_eval(
-        memory_and_acc_point, log_memory, ZERO_VEC_PTR, 0, folding_randomness_global,
-        all_t_ef + 1 * MAX_M * DIM, all_t_ef + 2 * MAX_M * DIM,
-        0, stacked_n_vars,
-    )
-    alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-    f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_1))
-    claim_idx2 += 1
-    # Claim 2: public_memory (sub_table=0 = memory_st, z_row = pad_high(pm_pt, log_memory))
-    # Build pm_z_row at runtime by prepending zeros to length log_memory.
+    # Pre-build the z_rows for the fixed groups (memory, public_memory,
+    # pc_start) which have non-trivial structure.
+    # `pm_z_row`: pad_high(public_memory_random_point, log_memory).
     pm_z_row = Array(MAX_LOG_MEMORY_SIZE * DIM)
     n_pad_high = log_memory - INNER_PUBLIC_MEMORY_LOG_SIZE
     for k in range(0, n_pad_high):
@@ -740,76 +739,112 @@ def continue_recursion_ordered(
     for k in unroll(0, INNER_PUBLIC_MEMORY_LOG_SIZE):
         for kk in unroll(0, DIM):
             pm_z_row[(n_pad_high + k) * DIM + kk] = public_memory_random_point[k * DIM + kk]
-    bp_val_2 = bp_eval(
-        pm_z_row, log_memory, ZERO_VEC_PTR, 0, folding_randomness_global,
-        all_t_ef + 0 * MAX_M * DIM, all_t_ef + 1 * MAX_M * DIM,
-        0, stacked_n_vars,
-    )
-    alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-    f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_2))
-    claim_idx2 += 1
-    # Claim 3: bytecode_acc (sub_table=2 = bytecode_acc_st, log_width=0)
-    bp_val_3 = bp_eval(
-        bytecode_and_acc_point, LOG_GUEST_BYTECODE_LEN, ZERO_VEC_PTR, 0, folding_randomness_global,
-        all_t_ef + 2 * MAX_M * DIM, all_t_ef + 3 * MAX_M * DIM,
-        0, stacked_n_vars,
-    )
-    alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-    f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_3))
-    claim_idx2 += 1
-    # Claim 4: pc_start (sub_table = PC_LOC_SUB_TABLE_ID, col = PC_LOC_COL_IN_SUB_TABLE,
-    # z_row = zeros of length log_n_cycles)
+    # `pc_z_row`: zeros of length log_n_cycles.
     pc_z_row = Array(MAX_LOG_N_ROWS_PER_TABLE[EXECUTION_TABLE_INDEX] * DIM)
     for k in range(0, log_n_cycles):
         for kk in unroll(0, DIM):
             pc_z_row[k * DIM + kk] = 0
-    pc_z_col = make_z_col(PC_LOC_COL_IN_SUB_TABLE, SUB_TABLE_LOG_WIDTHS[PC_LOC_SUB_TABLE_ID])
-    bp_val_4 = bp_eval(
-        pc_z_row, log_n_cycles, pc_z_col, SUB_TABLE_LOG_WIDTHS[PC_LOC_SUB_TABLE_ID],
-        folding_randomness_global,
-        all_t_ef + PC_LOC_SUB_TABLE_ID * MAX_M * DIM,
-        all_t_ef + (PC_LOC_SUB_TABLE_ID + 1) * MAX_M * DIM,
-        SUB_TABLE_LOG_WIDTHS[PC_LOC_SUB_TABLE_ID], stacked_n_vars,
-    )
-    alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-    f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_4))
-    claim_idx2 += 1
 
-    # Per-AIR-table per-column claims, in ALL_TABLES order, UP before DOWN.
-    for table_index in unroll(0, N_TABLES):
-        log_n_rows_t = table_log_heights[table_index]
-        air_point = pcs_points[table_index][0]
-        # UP cols
-        for j in unroll(0, NUM_COLS_AIR[table_index]):
-            up_st = AIR_COL_SUB_TABLE_ID[table_index][j]
-            up_log_w = SUB_TABLE_LOG_WIDTHS[up_st]
-            up_col_in_st = AIR_COL_IN_SUB_TABLE[table_index][j]
-            up_z_col = make_z_col(up_col_in_st, up_log_w)
-            bp_val_up = bp_eval(
-                air_point, log_n_rows_t, up_z_col, up_log_w, folding_randomness_global,
-                all_t_ef + up_st * MAX_M * DIM, all_t_ef + (up_st + 1) * MAX_M * DIM,
-                up_log_w, stacked_n_vars,
+    f_at_istar: Mut = Array(DIM)
+    for k in unroll(0, DIM):
+        f_at_istar[k] = 0
+
+    for g in unroll(0, N_ASSIST_GROUPS):
+        st_id = ASSIST_GROUP_SUB_TABLE_ID[g]
+        log_width = ASSIST_GROUP_LOG_WIDTH[g]
+        is_next = ASSIST_GROUP_IS_NEXT[g]
+        n_claims = ASSIST_GROUP_N_CLAIMS[g]
+        claim_offset = ASSIST_GROUP_CLAIM_OFFSET[g]
+        group_type = ASSIST_GROUP_TYPE[g]
+
+        # Dispatch to the right z_row pointer + length based on group_type.
+        # `group_type` is a compile-time constant per iteration, so only one
+        # branch is emitted into the bytecode.
+        z_row_ptr: Imu
+        z_row_len: Imu
+        if group_type == GROUP_TYPE_MEMORY:
+            z_row_ptr = memory_and_acc_point
+            z_row_len = log_memory
+        if group_type == GROUP_TYPE_MEMORY_ACC:
+            z_row_ptr = memory_and_acc_point
+            z_row_len = log_memory
+        if group_type == GROUP_TYPE_PUBLIC_MEMORY:
+            z_row_ptr = pm_z_row
+            z_row_len = log_memory
+        if group_type == GROUP_TYPE_BYTECODE_ACC:
+            z_row_ptr = bytecode_and_acc_point
+            z_row_len = LOG_GUEST_BYTECODE_LEN
+        if group_type == GROUP_TYPE_PC_START:
+            z_row_ptr = pc_z_row
+            z_row_len = log_n_cycles
+        if group_type == GROUP_TYPE_AIR_BASE + 0:
+            z_row_ptr = pcs_points[0][0]
+            z_row_len = table_log_heights[0]
+        if group_type == GROUP_TYPE_AIR_BASE + 1:
+            z_row_ptr = pcs_points[1][0]
+            z_row_len = table_log_heights[1]
+        if group_type == GROUP_TYPE_AIR_BASE + 2:
+            z_row_ptr = pcs_points[2][0]
+            z_row_len = table_log_heights[2]
+
+        # t_prev: shifted if is_next.
+        t_prev_ptr: Imu
+        if is_next == 0:
+            t_prev_ptr = all_t_ef + st_id * MAX_M * DIM
+        if is_next == 1:
+            t_prev_ptr = shifted_t_ef + st_id * MAX_M * DIM
+        t_next_ptr = all_t_ef + (st_id + 1) * MAX_M * DIM
+
+        # Read target_g from the FS transcript.
+        fs, target_g = fs_receive_ef_inlined(fs, 1)
+
+        if log_width == 0:
+            # No sumcheck rounds: single claim, target_g == alpha_offset * h_g(()).
+            debug_assert(n_claims == 1)
+            h_at_rho = bp_eval(
+                z_row_ptr, z_row_len, ZERO_VEC_PTR, 0, folding_randomness_global,
+                t_prev_ptr, t_next_ptr, 0, stacked_n_vars,
             )
-            alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-            f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_up))
-            claim_idx2 += 1
-        # DOWN cols
-        for j in unroll(0, NUM_COLS_AIR[table_index]):
-            if len(pcs_values_down[table_index][0][j]) == 1:
-                dn_st = AIR_COL_SUB_TABLE_ID[table_index][j]
-                dn_log_w = SUB_TABLE_LOG_WIDTHS[dn_st]
-                dn_col_in_st = AIR_COL_IN_SUB_TABLE[table_index][j]
-                dn_z_col = make_z_col(dn_col_in_st, dn_log_w)
-                bp_val_dn = bp_eval(
-                    air_point, log_n_rows_t, dn_z_col, dn_log_w, folding_randomness_global,
-                    shifted_t_ef + dn_st * MAX_M * DIM,
-                    all_t_ef + (dn_st + 1) * MAX_M * DIM,
-                    dn_log_w, stacked_n_vars,
-                )
-                alpha_ptr2 = jagged_alphas + claim_idx2 * DIM
-                f_at_istar = add_extension_ret(f_at_istar, mul_extension_ret(alpha_ptr2, bp_val_dn))
-                claim_idx2 += 1
-    assert claim_idx2 == N_JAGGED_CLAIMS
+            alpha_ptr_only = jagged_alphas + claim_offset * DIM
+            product = mul_extension_ret(h_at_rho, alpha_ptr_only)
+            for k in unroll(0, DIM):
+                assert target_g[k] == product[k]
+        if log_width != 0:
+            # Run log_width-round sumcheck.
+            rho = Array(log_width * DIM)
+            current_claim_sum: Mut = Array(DIM)
+            copy_5(target_g, current_claim_sum)
+            for j in unroll(0, log_width):
+                fs, poly3 = fs_receive_ef_inlined(fs, 3)
+                # P(0) + P(1) == current_claim_sum.
+                for k in unroll(0, DIM):
+                    assert poly3[k] + poly3[k + DIM] == current_claim_sum[k]
+                # Sample challenge rho_j.
+                fs, rho_j = fs_sample_ef(fs)
+                copy_5(rho_j, rho + j * DIM)
+                # current_claim_sum := P(rho_j) via Lagrange interp.
+                current_claim_sum = interp_deg2_at(poly3, rho_j)
+
+            # Compute eq_combined = sum_c alpha_{offset+c} * eq(rho, x_c).
+            eq_combined: Mut = Array(DIM)
+            for k in unroll(0, DIM):
+                eq_combined[k] = 0
+            for c in unroll(0, n_claims):
+                col_in_st = ASSIST_GROUP_COL_LISTS[g][c]
+                eq_val = compute_eq_for_const_col(rho, log_width, col_in_st)
+                alpha_ptr_c = jagged_alphas + (claim_offset + c) * DIM
+                eq_combined = add_extension_ret(eq_combined, mul_extension_ret(alpha_ptr_c, eq_val))
+
+            # ONE BP eval per group, replacing K_g per-claim BP evals.
+            h_at_rho = bp_eval(
+                z_row_ptr, z_row_len, rho, log_width, folding_randomness_global,
+                t_prev_ptr, t_next_ptr, log_width, stacked_n_vars,
+            )
+            product = mul_extension_ret(h_at_rho, eq_combined)
+            for k in unroll(0, DIM):
+                assert current_claim_sum[k] == product[k]
+
+        f_at_istar = add_extension_ret(f_at_istar, target_g)
 
     s = add_extension_ret(s, mul_extension_ret(gamma_for_extra, f_at_istar))
 
@@ -983,27 +1018,55 @@ def shift_bits_and_lift(bits_in, m, log_width: Const, out_ef: Mut):
     return
 
 
-def make_z_col(col_in_sub_table: Const, log_width: Const):
-    """Big-endian boolean point of `col_in_sub_table` in `log_width` bits,
-    as a `log_width * DIM` EF array. Both args are compile-time.
+def interp_deg2_at(poly3, x):
+    """Lagrange-interpolate the unique degree-2 polynomial through
+    `(0, P(0)), (1, P(1)), (2, P(2))` and evaluate at `x`. `poly3` is a
+    flat `3 * DIM` EF array storing `[P(0); P(1); P(2)]`. Returns a new
+    `DIM`-element EF."""
+    x_minus_1 = sub_extension_ret(x, ONE_EF_PTR)
+    x_minus_2 = sub_extension_ret(x_minus_1, ONE_EF_PTR)
+    # L_0 = (x-1)(x-2)/2; L_1 = -x(x-2); L_2 = x(x-1)/2
+    x_m1_times_x_m2 = mul_extension_ret(x_minus_1, x_minus_2)
+    l0_p0 = mul_extension_ret(x_m1_times_x_m2, poly3)
+    l0_p0_half = mul_base_extension_ret(JAGGED_ASSIST_INV_2, l0_p0)
 
-    NOTE: zkDSL `/` is field division at runtime; for compile-time bit
-    extraction we use the equivalent `(col >> (log_width-1-k)) & 1`
-    formulation via a pre-shifted modulus. Specifically:
-        bit_k = (col % (2**(log_width-k))) // (2**(log_width-1-k))
-    Both `%` and `**` are guaranteed compile-time-only in zkDSL, so this
-    avoids any field-arithmetic interpretation of `/` on Const ints."""
+    x_times_x_m2 = mul_extension_ret(x, x_minus_2)
+    minus_x_times_x_m2 = opposite_extension_ret(x_times_x_m2)
+    l1_p1 = mul_extension_ret(minus_x_times_x_m2, poly3 + DIM)
+
+    x_times_x_m1 = mul_extension_ret(x, x_minus_1)
+    l2_p2 = mul_extension_ret(x_times_x_m1, poly3 + 2 * DIM)
+    l2_p2_half = mul_base_extension_ret(JAGGED_ASSIST_INV_2, l2_p2)
+
+    return add_extension_ret(add_extension_ret(l0_p0_half, l1_p1), l2_p2_half)
+
+
+def compute_eq_for_const_col(rho, log_width: Const, col_in_st: Const):
+    """Compute `eq(rho, bits(col_in_st))` where `bits(col_in_st)` is the
+    big-endian boolean point of `col_in_st` in `log_width` bits.
+
+    `eq` factors:
+        bit k of `col_in_st` (MSB-first) == 0  ->  factor = (1 - rho[k])
+        bit k of `col_in_st` (MSB-first) == 1  ->  factor =      rho[k]
+
+    Returns an EF pointer of length DIM. For `log_width == 0` returns
+    `ONE_EF_PTR` (the identity element)."""
     if log_width == 0:
-        return ZERO_VEC_PTR
-    z_col = Array(log_width * DIM)
+        return ONE_EF_PTR
+    result: Mut = Array(DIM)
+    copy_5(ONE_EF_PTR, result)
     for k in unroll(0, log_width):
         low_mod = 2 ** (log_width - k)
         high_pow = 2 ** (log_width - 1 - k)
-        bit_value = div_floor(col_in_sub_table % low_mod, high_pow)
-        z_col[k * DIM] = bit_value
-        for kk in unroll(1, DIM):
-            z_col[k * DIM + kk] = 0
-    return z_col
+        bit = div_floor(col_in_st % low_mod, high_pow)
+        rho_k = rho + k * DIM
+        factor: Imu
+        if bit == 0:
+            factor = one_minus_self_extension_ret(rho_k)
+        if bit == 1:
+            factor = rho_k
+        result = mul_extension_ret(result, factor)
+    return result
 
 
 def absorb_cumulative_areas_const(fs: Mut, m: Const, area_ptrs: Mut):

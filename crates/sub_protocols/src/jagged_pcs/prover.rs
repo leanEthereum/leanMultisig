@@ -183,7 +183,7 @@ pub fn jagged_open(
     // initial sumcheck handles `<polynomial, F> = v_combined` as part of
     // its first folding rounds; no separate sumcheck needed.
     let whir = WhirConfig::new(whir_config, m);
-    whir.prove_with_extras(
+    let folding_randomness = whir.prove_with_extras(
         prover_state,
         vec![],
         vec![RawWeights::Cube {
@@ -193,6 +193,12 @@ pub fn jagged_open(
         whir_witness,
         &dense.by_ref(),
     );
+
+    // 6. Run the jagged-assist sub-protocol post-WHIR to delegate F(i*)
+    // computation. The assist groups claims by (sub_table_id, is_next),
+    // runs a small sumcheck per group, and lets the verifier replace K
+    // per-claim BP evaluations with one BP eval per group.
+    super::assist::jagged_assist_prove(&config, claims, &alphas, &folding_randomness, prover_state);
 }
 
 /// Compute the cube-evaluation table of `F(i) = sum_j alpha_j * f_hat_j(i)`.

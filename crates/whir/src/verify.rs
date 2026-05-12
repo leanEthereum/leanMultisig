@@ -80,17 +80,18 @@ where
     PF<EF>: TwoAdicField,
 {
     #[allow(clippy::too_many_lines)]
-    pub fn verify<F>(
+    pub fn verify<F, V>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut V,
         parsed_commitment: &ParsedCommitment<F, EF>,
         statement: Vec<SparseStatement<EF>>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
+        V: FSVerifier<EF>,
     {
-        self.verify_with_extras::<F, _>(verifier_state, parsed_commitment, statement, vec![], |_| vec![])
+        self.verify_with_extras::<F, V, _>(verifier_state, parsed_commitment, statement, vec![], |_, _| Ok(vec![]))
     }
 
     /// Like [`Self::verify`], but the caller also supplies the claimed sums
@@ -99,9 +100,9 @@ where
     /// extra weight polynomial at WHIR's final folding point. The closure is
     /// invoked exactly once, after WHIR's sumcheck folds have completed,
     /// when the final folding randomness is known.
-    pub fn verify_with_extras<F, FN>(
+    pub fn verify_with_extras<F, V, FN>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut V,
         parsed_commitment: &ParsedCommitment<F, EF>,
         statement: Vec<SparseStatement<EF>>,
         extras_claimed_sums: Vec<EF>,
@@ -110,7 +111,8 @@ where
     where
         F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
-        FN: FnOnce(&MultilinearPoint<EF>) -> Vec<EF>,
+        V: FSVerifier<EF>,
+        FN: FnOnce(&mut V, &MultilinearPoint<EF>) -> ProofResult<Vec<EF>>,
     {
         statement
             .iter()
@@ -217,7 +219,7 @@ where
         // With the full folding randomness in hand, ask the caller to
         // evaluate any injected extra weight polynomials at this point. The
         // closure runs exactly once.
-        let extras_at_final = eval_extras_at_final(&folding_randomness);
+        let extras_at_final = eval_extras_at_final(verifier_state, &folding_randomness)?;
         assert_eq!(
             extras_at_final.len(),
             extras_claimed_sums.len(),

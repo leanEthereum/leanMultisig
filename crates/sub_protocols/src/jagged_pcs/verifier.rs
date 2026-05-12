@@ -1,8 +1,7 @@
 use backend::*;
 use lean_vm::{EF, F};
 
-use super::branching::BranchingProgram;
-use super::config::{JaggedConfig, usize_to_bits, usize_to_point};
+use super::config::{JaggedConfig, usize_to_bits};
 use super::prover::JaggedClaim;
 
 /// Output of the verifier-side "parse commitment" step. Holds the parsed
@@ -143,28 +142,22 @@ pub fn jagged_verify(
     }
 
     // 4. Hand `(v_combined, F(i*)-via-BP)` to WHIR. The closure runs once,
-    // after WHIR's sumcheck folds have produced the final point i*.
-    let eval_f_at_final = |i_star: &MultilinearPoint<EF>| -> Vec<EF> {
-        let mut f_at_istar = EF::ZERO;
-        for (claim, &alpha) in claims.iter().zip(&alphas) {
-            let st = config.sub_tables[claim.sub_table_id];
-            let z_col_point = usize_to_point(claim.col_in_sub_table, st.log_width);
-            let t_prev_bits: &[EF] = if claim.is_next {
-                shifted_t_prev_cache.get(&claim.sub_table_id).unwrap()
-            } else {
-                &cumulative_area_bits_ef[claim.sub_table_id]
-            };
-            let bp = BranchingProgram {
-                z_row: &claim.z_row,
-                z_col: &z_col_point,
-                z_index: i_star,
-                log_width: st.log_width,
-                log_dense_size: m,
-            };
-            let bp_eval = bp.eval(t_prev_bits, &cumulative_area_bits_ef[claim.sub_table_id + 1]);
-            f_at_istar += alpha * bp_eval;
-        }
-        vec![f_at_istar]
+    // after WHIR's sumcheck folds have produced the final point i*. It
+    // receives `verifier_state` so it can run the "jagged assist"
+    // sub-protocol -- per-group sumcheck delegation that replaces K BP
+    // evaluations with O(K*m) cheap arithmetic plus one BP eval per group.
+    let eval_f_at_final = |verifier_state: &mut _, i_star: &MultilinearPoint<EF>| -> ProofResult<Vec<EF>> {
+        let f_at_istar = super::assist::jagged_assist_verify(
+            config,
+            claims,
+            &alphas,
+            &cumulative_area_bits_ef,
+            &shifted_t_prev_cache,
+            i_star,
+            m,
+            verifier_state,
+        )?;
+        Ok(vec![f_at_istar])
     };
 
     WhirConfig::new(whir_config, m).verify_with_extras(
