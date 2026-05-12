@@ -486,10 +486,17 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     // "no padding", and anything else becomes a fixed-value kind. The
     // sentinels are chosen to fit in usize without colliding with real
     // padding constants.
+    // Padding-kind sentinels. Cells that equal F::from_usize(SENTINEL_ZVP)
+    // map to kind=2 (use runtime padding_zero_vec_ptr); SENTINEL_NHP → kind=3
+    // (null_hash_ptr); SENTINEL_ZVP + HALF_DIGEST_LEN → kind=4 (zero_vec_ptr
+    // + HALF_DIGEST_LEN, used by Poseidon's `effective_index_left_second`).
+    // Sentinels chosen far apart and not colliding with real padding constants.
     const SENTINEL_ZVP: usize = 0x1000_0011;
     const SENTINEL_NHP: usize = 0x1000_0021;
+    const HALF_DIGEST_LEN: usize = 4;
     let zvp_field = F::from_usize(SENTINEL_ZVP);
     let nhp_field = F::from_usize(SENTINEL_NHP);
+    let zvp_plus_half_field = F::from_usize(SENTINEL_ZVP + HALF_DIGEST_LEN);
     let mut padding_kind: Vec<Vec<u8>> = vec![];
     let mut padding_fixed: Vec<Vec<u32>> = vec![];
     for &table in &ALL_TABLES {
@@ -505,6 +512,9 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
                 tf.push(0);
             } else if v == nhp_field {
                 tk.push(3);
+                tf.push(0);
+            } else if v == zvp_plus_half_field {
+                tk.push(4);
                 tf.push(0);
             } else {
                 tk.push(1);

@@ -623,6 +623,8 @@ def continue_recursion_ordered(
                     pad_val_base = padding_zero_vec_ptr
                 if pad_kind == 3:
                     pad_val_base = null_hash_ptr
+                if pad_kind == 4:
+                    pad_val_base = padding_zero_vec_ptr + 4  # zero_vec_ptr + HALF_DIGEST_LEN
                 pad_adj = mul_base_extension_ret(pad_val_base, mle_up_t)
                 adjusted_value = sub_extension_ret(up_value_ptr, pad_adj)
                 v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, adjusted_value))
@@ -643,6 +645,8 @@ def continue_recursion_ordered(
                         pad_val_base_dn = padding_zero_vec_ptr
                     if pad_kind_dn == 3:
                         pad_val_base_dn = null_hash_ptr
+                    if pad_kind_dn == 4:
+                        pad_val_base_dn = padding_zero_vec_ptr + 4
                     pad_adj_dn = mul_base_extension_ret(pad_val_base_dn, mle_dn_t)
                     adjusted_value_dn = sub_extension_ret(down_value_ptr, pad_adj_dn)
                     v_combined = add_extension_ret(v_combined, mul_extension_ret(alpha_ptr, adjusted_value_dn))
@@ -981,12 +985,21 @@ def shift_bits_and_lift(bits_in, m, log_width: Const, out_ef: Mut):
 
 def make_z_col(col_in_sub_table: Const, log_width: Const):
     """Big-endian boolean point of `col_in_sub_table` in `log_width` bits,
-    as a `log_width * DIM` EF array. Both args are compile-time."""
+    as a `log_width * DIM` EF array. Both args are compile-time.
+
+    NOTE: zkDSL `/` is field division at runtime; for compile-time bit
+    extraction we use the equivalent `(col >> (log_width-1-k)) & 1`
+    formulation via a pre-shifted modulus. Specifically:
+        bit_k = (col % (2**(log_width-k))) // (2**(log_width-1-k))
+    Both `%` and `**` are guaranteed compile-time-only in zkDSL, so this
+    avoids any field-arithmetic interpretation of `/` on Const ints."""
     if log_width == 0:
         return ZERO_VEC_PTR
     z_col = Array(log_width * DIM)
     for k in unroll(0, log_width):
-        bit_value = (col_in_sub_table / 2 ** (log_width - 1 - k)) % 2
+        low_mod = 2 ** (log_width - k)
+        high_pow = 2 ** (log_width - 1 - k)
+        bit_value = div_floor(col_in_sub_table % low_mod, high_pow)
         z_col[k * DIM] = bit_value
         for kk in unroll(1, DIM):
             z_col[k * DIM + kk] = 0
