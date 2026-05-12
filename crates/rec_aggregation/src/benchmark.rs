@@ -13,15 +13,29 @@ fn count_nodes(topology: &AggregationTopology) -> usize {
     1 + topology.children.iter().map(count_nodes).sum::<usize>()
 }
 
-#[derive(Clone)]
-struct NodeStats {
-    time_secs: f64,
-    proof_kib: usize,
-    cycles: usize,
-    memory: usize,
-    poseidons: usize,
-    dots: usize,
-    n_xmss: Option<usize>,
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct NodeStats {
+    pub time_secs: f64,
+    pub proof_kib: usize,
+    pub cycles: usize,
+    pub memory: usize,
+    pub poseidons: usize,
+    pub dots: usize,
+    pub n_xmss: Option<usize>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct NodeReport {
+    /// Path from the root of the aggregation topology to this node.
+    /// `[]` is the root; `[i]` is the i-th child of the root; deeper
+    /// paths follow the same nesting. Same convention as devnet5.
+    pub path: Vec<usize>,
+    pub stats: NodeStats,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BenchmarkReport {
+    pub nodes: Vec<NodeReport>,
 }
 
 struct LiveTree {
@@ -214,6 +228,8 @@ fn build_aggregation(
     signatures: &[XmssSignature],
     overlap: usize,
     tracing: bool,
+    path: &mut Vec<usize>,
+    reports: &mut Vec<NodeReport>,
 ) -> (Vec<XmssPublicKey>, AggregatedXMSS, f64) {
     let raw_count = topology.raw_xmss;
     let raw_xmss: Vec<(XmssPublicKey, XmssSignature)> = (0..raw_count)
@@ -226,6 +242,7 @@ fn build_aggregation(
     let mut child_display_index = display_index;
     for (child_idx, child) in topology.children.iter().enumerate() {
         let child_count = count_signers(child, overlap);
+        path.push(child_idx);
         let (child_pks, child_agg, _) = build_aggregation(
             child,
             child_display_index,
@@ -234,7 +251,10 @@ fn build_aggregation(
             &signatures[child_start..child_start + child_count],
             overlap,
             tracing,
+            path,
+            reports,
         );
+        path.pop();
         child_pub_keys_list.push(child_pks);
         child_aggs.push(child_agg);
         child_display_index += count_nodes(child);
@@ -276,28 +296,43 @@ fn build_aggregation(
         );
     }
 
+    let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
+    let is_leaf = topology.children.is_empty();
+    let stats = NodeStats {
+        time_secs: elapsed.as_secs_f64(),
+        proof_kib,
+        cycles: result.metadata.as_ref().unwrap().cycles,
+        memory: result.metadata.as_ref().unwrap().memory,
+        poseidons: result.metadata.as_ref().unwrap().n_poseidons,
+        dots: result.metadata.as_ref().unwrap().n_extension_ops,
+        n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
+    };
+
     if !tracing {
         let own_display_index = display_index + count_nodes(topology) - 1;
-        let proof_kib = result.proof.proof_size_fe() * F::bits() / (8 * 1024);
-        let is_leaf = topology.children.is_empty();
-        display.update_node(
-            own_display_index,
-            NodeStats {
-                time_secs: elapsed.as_secs_f64(),
-                proof_kib,
-                cycles: result.metadata.as_ref().unwrap().cycles,
-                memory: result.metadata.as_ref().unwrap().memory,
-                poseidons: result.metadata.as_ref().unwrap().n_poseidons,
-                dots: result.metadata.as_ref().unwrap().n_extension_ops,
-                n_xmss: if is_leaf { Some(topology.raw_xmss) } else { None },
-            },
-        );
+        display.update_node(own_display_index, stats.clone());
     }
+
+    reports.push(NodeReport { path: path.clone(), stats });
 
     (global_pub_keys, result, elapsed.as_secs_f64())
 }
 
 pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize, tracing: bool) -> f64 {
+    run_aggregation_benchmark_report(topology, overlap, tracing).nodes.last()
+        .expect("aggregation produced at least one node")
+        .stats.time_secs
+}
+
+/// Same wall-clock measurement as `run_aggregation_benchmark` but returns
+/// the full per-node breakdown (time, proof size, cycles, memory,
+/// Poseidon / extension-op counts). Callers that only need the root
+/// wall-clock can stay on `run_aggregation_benchmark`.
+pub fn run_aggregation_benchmark_report(
+    topology: &AggregationTopology,
+    overlap: usize,
+    tracing: bool,
+) -> BenchmarkReport {
     if tracing {
         utils::init_tracing();
     }
@@ -325,12 +360,16 @@ pub fn run_aggregation_benchmark(topology: &AggregationTopology, overlap: usize,
         display.print_initial();
     }
 
-    let (global_pub_keys, aggregated_sigs, time) =
-        build_aggregation(topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing);
+    let mut path: Vec<usize> = vec![];
+    let mut reports: Vec<NodeReport> = vec![];
+    let (global_pub_keys, aggregated_sigs, _) = build_aggregation(
+        topology, 0, &mut display, &pub_keys, &signatures, overlap, tracing,
+        &mut path, &mut reports,
+    );
 
     // Verify root proof
     crate::xmss_verify_aggregation(global_pub_keys, &aggregated_sigs, &BENCHMARK_MESSAGE, BENCHMARK_SLOT).unwrap();
-    time
+    BenchmarkReport { nodes: reports }
 }
 
 #[test]
