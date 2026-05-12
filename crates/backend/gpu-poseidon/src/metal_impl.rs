@@ -152,6 +152,70 @@ inline uint cube(uint x) {
     return kb_mul(kb_mul(x, x), x);
 }
 
+// =========================================================================
+// Quintic extension field arithmetic over KoalaBear.
+// An EF element is 5 base coefficients [c0, c1, c2, c3, c4] representing
+// c0 + c1·X + c2·X² + c3·X³ + c4·X⁴ in F[X]/(X⁵ + X² − 1).
+// We follow the same pre-shuffled dot-product layout that `quintic_mul` in
+// koala-bear uses on CPU, so parity is mechanical.
+// =========================================================================
+
+inline void ef_add(thread uint *r, thread const uint *a, thread const uint *b) {
+    r[0] = kb_add(a[0], b[0]);
+    r[1] = kb_add(a[1], b[1]);
+    r[2] = kb_add(a[2], b[2]);
+    r[3] = kb_add(a[3], b[3]);
+    r[4] = kb_add(a[4], b[4]);
+}
+
+inline void ef_sub(thread uint *r, thread const uint *a, thread const uint *b) {
+    r[0] = kb_sub(a[0], b[0]);
+    r[1] = kb_sub(a[1], b[1]);
+    r[2] = kb_sub(a[2], b[2]);
+    r[3] = kb_sub(a[3], b[3]);
+    r[4] = kb_sub(a[4], b[4]);
+}
+
+// Dot product of 5 KoalaBear pairs.
+inline uint ef_dot5(uint a0, uint a1, uint a2, uint a3, uint a4,
+                    uint b0, uint b1, uint b2, uint b3, uint b4) {
+    uint t0 = kb_add(kb_mul(a0, b0), kb_mul(a1, b1));
+    uint t1 = kb_add(kb_mul(a2, b2), kb_mul(a3, b3));
+    return kb_add(kb_add(t0, t1), kb_mul(a4, b4));
+}
+
+// EF multiplication mod X⁵ + X² − 1 (matches CPU `quintic_mul`).
+inline void ef_mul(thread uint *r, thread const uint *a, thread const uint *b) {
+    uint b0_m3   = kb_sub(b[0], b[3]);
+    uint b1_m4   = kb_sub(b[1], b[4]);
+    uint b4_m2   = kb_sub(b[4], b[2]);
+    uint b3_m1_4 = kb_sub(b[3], b1_m4); // b[3] − (b[1] − b[4]) = b[3] − b[1] + b[4]
+
+    r[0] = ef_dot5(a[0], a[1], a[2], a[3], a[4],   b[0],  b[4],  b[3],  b[2],  b1_m4);
+    r[1] = ef_dot5(a[0], a[1], a[2], a[3], a[4],   b[1],  b[0],  b[4],  b[3],  b[2]);
+    r[2] = ef_dot5(a[0], a[1], a[2], a[3], a[4],   b[2],  b1_m4, b0_m3, b4_m2, b3_m1_4);
+    r[3] = ef_dot5(a[0], a[1], a[2], a[3], a[4],   b[3],  b[2],  b1_m4, b0_m3, b4_m2);
+    r[4] = ef_dot5(a[0], a[1], a[2], a[3], a[4],   b[4],  b[3],  b[2],  b1_m4, b0_m3);
+}
+
+// Test kernel: 1 thread per (a, b) pair, computes r = a * b mod X⁵+X²−1.
+kernel void ef_mul_many(
+    device const uint *a_in [[buffer(0)]],
+    device const uint *b_in [[buffer(1)]],
+    device uint       *out  [[buffer(2)]],
+    constant uint     &n    [[buffer(3)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= n) return;
+    uint a[5], b[5], r[5];
+    for (uint i = 0; i < 5; i++) {
+        a[i] = a_in[tid * 5 + i];
+        b[i] = b_in[tid * 5 + i];
+    }
+    ef_mul(r, a, b);
+    for (uint i = 0; i < 5; i++) out[tid * 5 + i] = r[i];
+}
+
 // Pairwise tree-reduced dot product of two 16-element vectors. Critical path
 // is log2(16) = 4 adds + 1 mul instead of the 16-deep serial chain a naive
 // `acc += s[i]*r[i]` loop would produce — important because dot16 is on the
@@ -945,6 +1009,7 @@ pub struct MetalCtx {
     pub fft_evals_radix4_pipeline: ComputePipelineState,
     pub fft_evals_radix8_pipeline: ComputePipelineState,
     pub fft_evals_radix16_pipeline: ComputePipelineState,
+    pub ef_mul_many_pipeline: ComputePipelineState,
 }
 
 // SAFETY: Metal handles are inherently Send/Sync; the metal-rs crate marks them
@@ -985,6 +1050,7 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
     let fft_evals_radix4_pipeline = mk("fft_evals_radix4")?;
     let fft_evals_radix8_pipeline = mk("fft_evals_radix8")?;
     let fft_evals_radix16_pipeline = mk("fft_evals_radix16")?;
+    let ef_mul_many_pipeline = mk("ef_mul_many")?;
     Ok(MetalCtx {
         device,
         queue,
@@ -998,6 +1064,7 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
         fft_evals_radix4_pipeline,
         fft_evals_radix8_pipeline,
         fft_evals_radix16_pipeline,
+        ef_mul_many_pipeline,
     })
 }
 
@@ -1724,6 +1791,45 @@ pub fn fft_evals_in_place_gpu(matrix: &mut [u32], height: usize, width: usize, t
     }
 }
 
+/// Multiply pairs of quintic-extension (KoalaBear) values element-wise on GPU.
+/// `a` and `b` are flat slices of length `n * 5` (5 Montgomery-form u32s per EF).
+/// `out` (length `n * 5`) is overwritten with `a[i] * b[i]` mod X^5+X^2-1.
+pub fn ef_mul_many_gpu(a: &[u32], b: &[u32], out: &mut [u32]) {
+    let ctx = ctx().expect("Metal context unavailable");
+    assert_eq!(a.len() % 5, 0);
+    assert_eq!(a.len(), b.len());
+    assert_eq!(a.len(), out.len());
+    let n = (a.len() / 5) as u32;
+
+    let (a_buf, _) = buf_from_slice(ctx, a);
+    let (b_buf, _) = buf_from_slice(ctx, b);
+    let (out_buf, out_no_copy) = buf_from_slice(ctx, out);
+
+    let cmd = ctx.queue.new_command_buffer();
+    let enc = cmd.new_compute_command_encoder();
+    enc.set_compute_pipeline_state(&ctx.ef_mul_many_pipeline);
+    enc.set_buffer(0, Some(&a_buf), 0);
+    enc.set_buffer(1, Some(&b_buf), 0);
+    enc.set_buffer(2, Some(&out_buf), 0);
+    enc.set_bytes(3, 4, &n as *const u32 as *const _);
+
+    let tg = ctx
+        .ef_mul_many_pipeline
+        .max_total_threads_per_threadgroup()
+        .min(n as NSUInteger)
+        .max(1);
+    enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg, 1, 1));
+    enc.end_encoding();
+    cmd.commit();
+    cmd.wait_until_completed();
+
+    if !out_no_copy {
+        unsafe {
+            std::ptr::copy_nonoverlapping(out_buf.contents() as *const u32, out.as_mut_ptr(), out.len());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1994,5 +2100,48 @@ mod tests {
             elem_size,
         );
         assert_eq!(cpu_out_ef, gpu_out_ef);
+    }
+
+    #[test]
+    fn ef_mul_parity_vs_cpu() {
+        use field::BasedVectorSpace;
+        use koala_bear::QuinticExtensionFieldKB;
+        type EF = QuinticExtensionFieldKB;
+
+        // Generate some deterministic (a, b) pairs.
+        let n = 32usize;
+        let cpu_a: Vec<EF> = (0..n)
+            .map(|i| {
+                EF::from_basis_coefficients_fn(|j| KoalaBear::new((i as u32).wrapping_mul(0x9e3779b1) ^ (j as u32 * 7)))
+            })
+            .collect();
+        let cpu_b: Vec<EF> = (0..n)
+            .map(|i| {
+                EF::from_basis_coefficients_fn(|j| {
+                    KoalaBear::new((i as u32).wrapping_mul(0x85ebca6b) ^ (j as u32 * 11))
+                })
+            })
+            .collect();
+        let cpu_out: Vec<EF> = cpu_a.iter().zip(cpu_b.iter()).map(|(&a, &b)| a * b).collect();
+
+        // Cast to u32 (Montgomery form, since KoalaBear is repr(transparent) over u32
+        // and EF is repr(transparent) over [KoalaBear; 5]).
+        let a_u32: &[u32] = unsafe { std::slice::from_raw_parts(cpu_a.as_ptr() as *const u32, n * 5) };
+        let b_u32: &[u32] = unsafe { std::slice::from_raw_parts(cpu_b.as_ptr() as *const u32, n * 5) };
+        let cpu_u32: &[u32] = unsafe { std::slice::from_raw_parts(cpu_out.as_ptr() as *const u32, n * 5) };
+
+        let mut gpu_u32 = vec![0u32; n * 5];
+        ef_mul_many_gpu(a_u32, b_u32, &mut gpu_u32);
+
+        for i in 0..n * 5 {
+            assert_eq!(
+                cpu_u32[i],
+                gpu_u32[i],
+                "mismatch at coord {} (pair {}, coeff {})",
+                i,
+                i / 5,
+                i % 5
+            );
+        }
     }
 }
