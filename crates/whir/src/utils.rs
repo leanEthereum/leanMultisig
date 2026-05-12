@@ -125,7 +125,7 @@ fn prepare_evals_for_fft<EF: ExtensionField<PF<EF>>>(
 }
 
 #[instrument(skip_all)]
-fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
+fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync + 'static>(
     evals: &[A],
     folding_factor: usize,
     log_inv_rate: usize,
@@ -138,6 +138,60 @@ fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
     let log_block_size = log2_strict_usize(block_size);
     let out_len = block_size * dft_n_cols;
 
+    // GPU path: this is purely a scatter — gather pattern (no compute), so it's
+    // entirely memory-bandwidth bound. On unified-memory Apple Silicon the GPU
+    // achieves close to peak DRAM bandwidth here while the CPU version is gated
+    // by gather-from-non-contiguous-indices and rayon `.collect()` overhead.
+    //
+    // Only activated when:
+    //   - the GPU runtime is enabled,
+    //   - the element type is `KoalaBear` (elem_size = 1) or its quintic extension
+    //     (elem_size = 5) — these are the only types this prove pipeline ever
+    //     instantiates `A` with — , and
+    //   - the output is large enough to amortize the GPU dispatch (~1 MiB).
+    if gpu_poseidon::gpu_enabled() && gpu_poseidon::metal_available() && out_len * std::mem::size_of::<A>() >= 1 << 20 {
+        let kb_id = TypeId::of::<koala_bear::KoalaBear>();
+        let kbe_id = TypeId::of::<koala_bear::QuinticExtensionFieldKB>();
+        let a_id = TypeId::of::<A>();
+        let elem_size: Option<usize> = if a_id == kb_id {
+            Some(1)
+        } else if a_id == kbe_id {
+            Some(5)
+        } else {
+            None
+        };
+        if let Some(elem_size) = elem_size {
+            // Allocate output (page-aligned via zk-alloc) and let the GPU kernel
+            // fill it via no_copy. Cast both sides to `u32` slices — `KoalaBear` is
+            // `#[repr(transparent)]` over a Montgomery-form `u32`; the quintic
+            // extension is `#[repr(transparent)]` over `[KoalaBear; 5]`.
+            // Avoid touching every element on the CPU (~25 ms wasted just zero-ing
+            // for the big FFT). The GPU kernel writes every byte before we read it
+            // back; we use `MaybeUninit` to keep the allocation cheap and skip
+            // initialization.
+            let mut out: Vec<std::mem::MaybeUninit<A>> = Vec::with_capacity(out_len);
+            // SAFETY: we are about to overwrite the entire buffer via the GPU
+            // kernel; the caller never observes the uninitialized region.
+            unsafe { out.set_len(out_len) };
+            let mut out: Vec<A> = unsafe { std::mem::transmute::<Vec<std::mem::MaybeUninit<A>>, Vec<A>>(out) };
+            let evals_u32: &[u32] =
+                unsafe { std::slice::from_raw_parts(evals.as_ptr() as *const u32, evals.len() * elem_size) };
+            let out_u32: &mut [u32] =
+                unsafe { std::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u32, out_len * elem_size) };
+            tracing::info_span!("prepare_evals_for_fft_unpacked (GPU)").in_scope(|| {
+                gpu_poseidon::prepare_evals_for_fft_gpu(
+                    evals_u32,
+                    out_u32,
+                    dft_n_cols,
+                    log_block_size,
+                    log_inv_rate,
+                    elem_size,
+                );
+            });
+            return out;
+        }
+    }
+
     (0..out_len)
         .into_par_iter()
         .map(|i| {
@@ -149,6 +203,7 @@ fn prepare_evals_for_fft_unpacked<A: Copy + Send + Sync>(
         .collect()
 }
 
+#[instrument(skip_all)]
 fn prepare_evals_for_fft_packed_extension<EF: ExtensionField<PF<EF>>>(
     evals: &[EFPacking<EF>],
     folding_factor: usize,
