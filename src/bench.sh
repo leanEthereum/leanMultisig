@@ -7,6 +7,7 @@
 OUTPUT_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/new_tables.md"
 
 N_SIGNATURES=1550
+REPEAT=5
 
 set -euo pipefail
 
@@ -23,15 +24,15 @@ run_bench() {
     shift
     local cmd
     if [[ -n "$features" ]]; then
-        cmd="cargo run --release --features $features -- $* --json"
+        cmd="cargo run --release --features $features -- $* --json --repeat $REPEAT"
     else
-        cmd="cargo run --release -- $* --json"
+        cmd="cargo run --release -- $* --json --repeat $REPEAT"
     fi
     echo -e "\033[32m$cmd\033[0m" >&2
     if [[ -n "$features" ]]; then
-        cargo run --release --features "$features" -q -- "$@" --json
+        cargo run --release --features "$features" -q -- "$@" --json --repeat "$REPEAT"
     else
-        cargo run --release -q -- "$@" --json
+        cargo run --release -q -- "$@" --json --repeat "$REPEAT"
     fi | grep -E '^\{' | tail -n 1
 }
 
