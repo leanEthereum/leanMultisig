@@ -429,6 +429,302 @@ kernel void hash_leaves_no_initial(
 
     for (int i = 0; i < 8; i++) digests[tid * 8u + (uint)i] = state[i];
 }
+
+// =========================================================================
+// FFT support: prepare-evals reshape + radix-2 in-place butterfly layer.
+//
+// The CPU runs the equivalent of:
+//   output = (0..out_len).into_par_iter().map(|i| {
+//       let block_index    = i % dft_n_cols;
+//       let offset_in_block = i / dft_n_cols;
+//       let src = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+//       evals[src]
+//   }).collect();
+// followed by a Stockham-style in-place radix-2 evals-DFT whose butterfly is:
+//   t        = (x_2 - x_1) * twiddle
+//   x_1_new  = x_1 + t
+//   x_2_new  = x_1 - t
+// (twiddle-free at offset 0: returns (x_2, 2*x_1 - x_2)).
+// =========================================================================
+
+struct PrepareParams {
+    uint dft_n_cols;       // = 1 << log_dft_n_cols (power of two when packing aligns)
+    uint log_block_size;
+    uint log_inv_rate;
+    uint elem_size;        // 1 for KoalaBear, 5 for quintic extension
+    uint out_len;          // = dft_n_cols * block_size (in elements, not u32s)
+};
+
+// One thread per output element. Each element is `elem_size` u32s (1 for F, 5 for EF).
+kernel void prepare_evals(
+    device const uint *input  [[buffer(0)]],
+    device uint       *output [[buffer(1)]],
+    constant PrepareParams &p [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= p.out_len) return;
+    uint block_index    = tid % p.dft_n_cols;
+    uint offset_in_block = tid / p.dft_n_cols;
+    uint src_index = ((block_index << p.log_block_size) + offset_in_block) >> p.log_inv_rate;
+    uint src_off = src_index * p.elem_size;
+    uint dst_off = tid * p.elem_size;
+    for (uint k = 0; k < p.elem_size; k++) {
+        output[dst_off + k] = input[src_off + k];
+    }
+}
+
+struct FftLayerParams {
+    uint log_stride;       // butterfly stride = 1 << log_stride
+    uint width;            // batch width (number of u32 cols per FFT-row)
+    uint half_height;      // grid extent in pair_idx (for explicit bounds check)
+};
+
+struct FftRadix4Params {
+    uint log_s;             // small stride = 1 << log_s   (layer L)
+    uint width;             // batch width
+    uint quarter_height;    // grid extent (height / 4)
+};
+
+struct FftRadix8Params {
+    uint log_s;             // smallest stride (layer L)
+    uint width;
+    uint eighth_height;     // grid extent (height / 8)
+};
+
+// One thread per (column, pair_idx). tid.x = col, tid.y = pair_idx.
+// Layout: matrix[row * width + col], row in 0..height, col in 0..width.
+// At this layer, pair_idx = block_idx * stride + i_off where:
+//   row_a = block_idx * 2 * stride + i_off
+//   row_b = row_a + stride
+// Stride is a power of two so block_idx and i_off are extracted by shift/mask.
+kernel void fft_evals_layer(
+    device uint *matrix          [[buffer(0)]],
+    constant uint *twiddles      [[buffer(1)]],  // twiddles[0..stride]; [0] is unused (twiddle-free)
+    constant FftLayerParams &p   [[buffer(2)]],
+    uint2 tid [[thread_position_in_grid]]
+) {
+    uint col      = tid.x;
+    uint pair_idx = tid.y;
+    // Metal's dispatch_threads can launch padded threads beyond the requested
+    // grid when the grid isn't a multiple of the threadgroup size, so guard
+    // against out-of-range coordinates explicitly.
+    if (col >= p.width || pair_idx >= p.half_height) return;
+
+    uint stride   = 1u << p.log_stride;
+    uint mask     = stride - 1u;
+    uint i_off    = pair_idx & mask;
+    uint block_idx = pair_idx >> p.log_stride;
+
+    uint row_a = (block_idx << (p.log_stride + 1u)) + i_off;
+    uint row_b = row_a + stride;
+
+    uint idx_a = row_a * p.width + col;
+    uint idx_b = row_b * p.width + col;
+
+    uint a = matrix[idx_a];
+    uint b = matrix[idx_b];
+
+    if (i_off == 0u) {
+        // Twiddle-free: (a, b) -> (b, 2a - b)
+        matrix[idx_a] = b;
+        matrix[idx_b] = kb_sub(kb_add(a, a), b);
+    } else {
+        uint tw = twiddles[i_off];
+        // t = (b - a) * tw; (a, b) -> (a + t, a - t)
+        uint t = kb_mul(kb_sub(b, a), tw);
+        matrix[idx_a] = kb_add(a, t);
+        matrix[idx_b] = kb_sub(a, t);
+    }
+}
+
+// Radix-4 evals-DFT step: one thread does TWO butterfly layers (stride s and 2s)
+// on 4 elements, halving the device-memory passes vs. running two radix-2 layers.
+// The decisive win: each radix-2 layer reads/writes the full matrix (~500 GB/s
+// memory bandwidth bound on M4 Max). A radix-4 pass moves the same 4 elements
+// in/out only once for two layers' worth of butterfly work, ~2× less I/O.
+//
+// Element layout within a stride-4s block at base address `block_base`:
+//   r0 = block_base + i_off        r2 = block_base + 2s + i_off
+//   r1 = block_base + s + i_off    r3 = block_base + 3s + i_off
+// where i_off in [0, s).
+//
+// Layer L (stride s) butterflies:  (r0, r1) and (r2, r3) -- both with twiddle
+// `twiddles_s[i_off]`. Layer L+1 (stride 2s) butterflies after layer L:
+// (r0', r2') with `twiddles_2s[i_off]` and (r1', r3') with `twiddles_2s[i_off+s]`.
+kernel void fft_evals_radix4(
+    device uint   *matrix       [[buffer(0)]],
+    constant uint *twiddles_s   [[buffer(1)]],   // length = s = 1 << log_s
+    constant uint *twiddles_2s  [[buffer(2)]],   // length = 2s
+    constant FftRadix4Params &p [[buffer(3)]],
+    uint2 tid [[thread_position_in_grid]]
+) {
+    if (tid.x >= p.width || tid.y >= p.quarter_height) return;
+    uint col      = tid.x;
+    uint pair_idx = tid.y;        // 0 .. height/4
+
+    uint s         = 1u << p.log_s;
+    uint mask_s    = s - 1u;
+    uint i_off     = pair_idx & mask_s;
+    uint block_idx = pair_idx >> p.log_s;
+    uint block_base = block_idx << (p.log_s + 2u);  // base of 4s-block
+
+    uint r0 = block_base + i_off;
+    uint r1 = r0 + s;
+    uint r2 = r0 + (s << 1u);
+    uint r3 = r2 + s;
+
+    uint idx0 = r0 * p.width + col;
+    uint idx1 = r1 * p.width + col;
+    uint idx2 = r2 * p.width + col;
+    uint idx3 = r3 * p.width + col;
+
+    uint e0 = matrix[idx0];
+    uint e1 = matrix[idx1];
+    uint e2 = matrix[idx2];
+    uint e3 = matrix[idx3];
+
+    // --- Layer L: stride s ---  butterflies on (e0,e1) and (e2,e3), shared twiddle.
+    uint t01, t23;
+    if (i_off == 0u) {
+        t01 = kb_sub(e1, e0);
+        t23 = kb_sub(e3, e2);
+    } else {
+        uint tw1 = twiddles_s[i_off];
+        t01 = kb_mul(kb_sub(e1, e0), tw1);
+        t23 = kb_mul(kb_sub(e3, e2), tw1);
+    }
+    uint e0p = kb_add(e0, t01);
+    uint e1p = kb_sub(e0, t01);
+    uint e2p = kb_add(e2, t23);
+    uint e3p = kb_sub(e2, t23);
+
+    // --- Layer L+1: stride 2s ---  butterflies on (e0', e2') and (e1', e3').
+    // Pair (e0', e2') is at offset i_off in the 2s-block: twiddle = twiddles_2s[i_off].
+    uint t02;
+    if (i_off == 0u) {
+        t02 = kb_sub(e2p, e0p);
+    } else {
+        uint tw2a = twiddles_2s[i_off];
+        t02 = kb_mul(kb_sub(e2p, e0p), tw2a);
+    }
+    uint e0pp = kb_add(e0p, t02);
+    uint e2pp = kb_sub(e0p, t02);
+
+    // Pair (e1', e3') is at offset i_off+s in the 2s-block; this is always > 0
+    // (we have s >= 1 here), so it always uses a twiddle.
+    uint tw2b = twiddles_2s[i_off + s];
+    uint t13  = kb_mul(kb_sub(e3p, e1p), tw2b);
+    uint e1pp = kb_add(e1p, t13);
+    uint e3pp = kb_sub(e1p, t13);
+
+    matrix[idx0] = e0pp;
+    matrix[idx1] = e1pp;
+    matrix[idx2] = e2pp;
+    matrix[idx3] = e3pp;
+}
+
+// Radix-8 evals-DFT step: one thread does THREE butterfly layers (strides
+// s, 2s, 4s) on 8 elements at positions {0, s, 2s, ..., 7s} within an 8s block.
+// Cuts device-memory traffic in 3 vs. three radix-2 passes — for an h=2^19,
+// w=224 FFT this brings 19 passes worth of memory traffic down to 7 passes
+// (6 radix-8 + 1 radix-2), which moves us from being memory-bandwidth-bound
+// at 19 layers to comfortably below the CPU's multi-layer time.
+//
+// Twiddle access: each subsequent layer doubles the stride, so layer L uses
+// `tw_s[i_off]`, layer L+1 uses `tw_2s[i_off + j*s]` for j in {0, 1}, layer
+// L+2 uses `tw_4s[i_off + j*s]` for j in {0, 1, 2, 3}. The twiddle-free
+// shortcut only kicks in at `i_off == 0` for the first pair in each layer.
+kernel void fft_evals_radix8(
+    device uint   *matrix    [[buffer(0)]],
+    constant uint *tw_s      [[buffer(1)]],   // length = s
+    constant uint *tw_2s     [[buffer(2)]],   // length = 2s
+    constant uint *tw_4s     [[buffer(3)]],   // length = 4s
+    constant FftRadix8Params &p [[buffer(4)]],
+    uint2 tid [[thread_position_in_grid]]
+) {
+    if (tid.x >= p.width || tid.y >= p.eighth_height) return;
+    uint col      = tid.x;
+    uint pair_idx = tid.y;
+
+    uint s          = 1u << p.log_s;
+    uint i_off      = pair_idx & (s - 1u);
+    uint block_idx  = pair_idx >> p.log_s;
+    uint block_base = block_idx << (p.log_s + 3u);  // 8 * s
+
+    uint stride_w = p.width;
+    uint i0 = (block_base + i_off          ) * stride_w + col;
+    uint i1 = (block_base + i_off + 1u * s ) * stride_w + col;
+    uint i2 = (block_base + i_off + 2u * s ) * stride_w + col;
+    uint i3 = (block_base + i_off + 3u * s ) * stride_w + col;
+    uint i4 = (block_base + i_off + 4u * s ) * stride_w + col;
+    uint i5 = (block_base + i_off + 5u * s ) * stride_w + col;
+    uint i6 = (block_base + i_off + 6u * s ) * stride_w + col;
+    uint i7 = (block_base + i_off + 7u * s ) * stride_w + col;
+
+    uint e0 = matrix[i0]; uint e1 = matrix[i1];
+    uint e2 = matrix[i2]; uint e3 = matrix[i3];
+    uint e4 = matrix[i4]; uint e5 = matrix[i5];
+    uint e6 = matrix[i6]; uint e7 = matrix[i7];
+
+    // --- Layer L: stride s, pairs (0,1),(2,3),(4,5),(6,7), shared twiddle tw_s[i_off]
+    uint t01, t23, t45, t67;
+    if (i_off == 0u) {
+        t01 = kb_sub(e1, e0); t23 = kb_sub(e3, e2);
+        t45 = kb_sub(e5, e4); t67 = kb_sub(e7, e6);
+    } else {
+        uint tw = tw_s[i_off];
+        t01 = kb_mul(kb_sub(e1, e0), tw);
+        t23 = kb_mul(kb_sub(e3, e2), tw);
+        t45 = kb_mul(kb_sub(e5, e4), tw);
+        t67 = kb_mul(kb_sub(e7, e6), tw);
+    }
+    uint e0p = kb_add(e0, t01); uint e1p = kb_sub(e0, t01);
+    uint e2p = kb_add(e2, t23); uint e3p = kb_sub(e2, t23);
+    uint e4p = kb_add(e4, t45); uint e5p = kb_sub(e4, t45);
+    uint e6p = kb_add(e6, t67); uint e7p = kb_sub(e6, t67);
+
+    // --- Layer L+1: stride 2s
+    // Pairs (0,2),(4,6): twiddle tw_2s[i_off]; pairs (1,3),(5,7): twiddle tw_2s[i_off+s]
+    uint t02, t46;
+    if (i_off == 0u) {
+        t02 = kb_sub(e2p, e0p);
+        t46 = kb_sub(e6p, e4p);
+    } else {
+        uint tw_a = tw_2s[i_off];
+        t02 = kb_mul(kb_sub(e2p, e0p), tw_a);
+        t46 = kb_mul(kb_sub(e6p, e4p), tw_a);
+    }
+    {
+        uint tw_b = tw_2s[i_off + s];
+        uint t13 = kb_mul(kb_sub(e3p, e1p), tw_b);
+        uint t57 = kb_mul(kb_sub(e7p, e5p), tw_b);
+        uint e0pp = kb_add(e0p, t02); uint e2pp = kb_sub(e0p, t02);
+        uint e1pp = kb_add(e1p, t13); uint e3pp = kb_sub(e1p, t13);
+        uint e4pp = kb_add(e4p, t46); uint e6pp = kb_sub(e4p, t46);
+        uint e5pp = kb_add(e5p, t57); uint e7pp = kb_sub(e5p, t57);
+
+        // --- Layer L+2: stride 4s
+        // Pairs (0,4),(1,5),(2,6),(3,7) with tw_4s at offsets i_off, i_off+s, i_off+2s, i_off+3s
+        uint t04;
+        if (i_off == 0u) {
+            t04 = kb_sub(e4pp, e0pp);
+        } else {
+            uint tw0 = tw_4s[i_off];
+            t04 = kb_mul(kb_sub(e4pp, e0pp), tw0);
+        }
+        uint tw1 = tw_4s[i_off + s];
+        uint tw2 = tw_4s[i_off + 2u * s];
+        uint tw3 = tw_4s[i_off + 3u * s];
+        uint t15 = kb_mul(kb_sub(e5pp, e1pp), tw1);
+        uint t26 = kb_mul(kb_sub(e6pp, e2pp), tw2);
+        uint t37 = kb_mul(kb_sub(e7pp, e3pp), tw3);
+
+        matrix[i0] = kb_add(e0pp, t04); matrix[i4] = kb_sub(e0pp, t04);
+        matrix[i1] = kb_add(e1pp, t15); matrix[i5] = kb_sub(e1pp, t15);
+        matrix[i2] = kb_add(e2pp, t26); matrix[i6] = kb_sub(e2pp, t26);
+        matrix[i3] = kb_add(e3pp, t37); matrix[i7] = kb_sub(e3pp, t37);
+    }
+}
 "#;
 
 // =========================================================================
@@ -443,6 +739,10 @@ pub struct MetalCtx {
     pub compress_pairs_pipeline: ComputePipelineState,
     pub hash_leaves_pipeline: ComputePipelineState,
     pub hash_leaves_no_initial_pipeline: ComputePipelineState,
+    pub prepare_evals_pipeline: ComputePipelineState,
+    pub fft_evals_layer_pipeline: ComputePipelineState,
+    pub fft_evals_radix4_pipeline: ComputePipelineState,
+    pub fft_evals_radix8_pipeline: ComputePipelineState,
 }
 
 // SAFETY: Metal handles are inherently Send/Sync; the metal-rs crate marks them
@@ -478,6 +778,10 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
     let compress_pairs_pipeline = mk("compress_pairs")?;
     let hash_leaves_pipeline = mk("hash_leaves")?;
     let hash_leaves_no_initial_pipeline = mk("hash_leaves_no_initial")?;
+    let prepare_evals_pipeline = mk("prepare_evals")?;
+    let fft_evals_layer_pipeline = mk("fft_evals_layer")?;
+    let fft_evals_radix4_pipeline = mk("fft_evals_radix4")?;
+    let fft_evals_radix8_pipeline = mk("fft_evals_radix8")?;
     Ok(MetalCtx {
         device,
         queue,
@@ -486,6 +790,10 @@ fn try_init_ctx() -> Result<MetalCtx, String> {
         compress_pairs_pipeline,
         hash_leaves_pipeline,
         hash_leaves_no_initial_pipeline,
+        prepare_evals_pipeline,
+        fft_evals_layer_pipeline,
+        fft_evals_radix4_pipeline,
+        fft_evals_radix8_pipeline,
     })
 }
 
@@ -927,12 +1235,322 @@ pub fn build_merkle_tree_full_no_initial(
     layers
 }
 
+// =========================================================================
+// FFT GPU dispatch
+// =========================================================================
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct PrepareParams {
+    dft_n_cols: u32,
+    log_block_size: u32,
+    log_inv_rate: u32,
+    elem_size: u32,
+    out_len: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct FftLayerParams {
+    log_stride: u32,
+    width: u32,
+    half_height: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct FftRadix4Params {
+    log_s: u32,
+    width: u32,
+    quarter_height: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct FftRadix8Params {
+    log_s: u32,
+    width: u32,
+    eighth_height: u32,
+}
+
+/// Wrap a `&[u32]` as a Metal buffer with zero copy when page-aligned, else
+/// fall back to the copying `with_data` constructor. The second return value
+/// is `true` when the buffer aliases the input — i.e. kernel writes to it
+/// will land back in the original slice with no readback step needed.
+fn buf_from_slice(ctx: &MetalCtx, data: &[u32]) -> (metal::Buffer, bool) {
+    let bytes = (data.len() * 4) as NSUInteger;
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+    let ptr_addr = data.as_ptr() as usize;
+    let no_copy = page_size > 0 && ptr_addr.is_multiple_of(page_size) && (bytes as usize).is_multiple_of(page_size);
+    let buf = if no_copy {
+        ctx.device.new_buffer_with_bytes_no_copy(
+            data.as_ptr() as *const _,
+            bytes,
+            MTLResourceOptions::StorageModeShared,
+            None,
+        )
+    } else {
+        ctx.device
+            .new_buffer_with_data(data.as_ptr() as *const _, bytes, MTLResourceOptions::StorageModeShared)
+    };
+    (buf, no_copy)
+}
+
+/// Reshape `evals` for the batched FFT, mirroring `prepare_evals_for_fft_unpacked`.
+///
+/// `evals_u32` is the input slice (length = `evals_count * elem_size`).
+/// `out_u32` is the output slice (length = `out_count * elem_size`) — must be
+/// pre-allocated. `elem_size` is 1 for `KoalaBear` and 5 for the quintic
+/// extension; the kernel copies that many u32s per logical element.
+pub fn prepare_evals_for_fft_gpu(
+    evals_u32: &[u32],
+    out_u32: &mut [u32],
+    dft_n_cols: usize,
+    log_block_size: usize,
+    log_inv_rate: usize,
+    elem_size: usize,
+) {
+    let ctx = ctx().expect("Metal context unavailable");
+    let out_len = out_u32.len() / elem_size;
+    assert_eq!(
+        out_len * elem_size,
+        out_u32.len(),
+        "out length must be a multiple of elem_size"
+    );
+
+    let params = PrepareParams {
+        dft_n_cols: dft_n_cols as u32,
+        log_block_size: log_block_size as u32,
+        log_inv_rate: log_inv_rate as u32,
+        elem_size: elem_size as u32,
+        out_len: out_len as u32,
+    };
+
+    let (in_buf, _) = buf_from_slice(ctx, evals_u32);
+    let (out_buf, out_no_copy) = buf_from_slice(ctx, out_u32);
+
+    let cmd = ctx.queue.new_command_buffer();
+    let enc = cmd.new_compute_command_encoder();
+    enc.set_compute_pipeline_state(&ctx.prepare_evals_pipeline);
+    enc.set_buffer(0, Some(&in_buf), 0);
+    enc.set_buffer(1, Some(&out_buf), 0);
+    enc.set_bytes(
+        2,
+        std::mem::size_of::<PrepareParams>() as NSUInteger,
+        (&params as *const PrepareParams) as *const _,
+    );
+    let tg = ctx.prepare_evals_pipeline.max_total_threads_per_threadgroup();
+    enc.dispatch_threads(
+        MTLSize::new(out_len as NSUInteger, 1, 1),
+        MTLSize::new(tg.min(out_len as NSUInteger).max(1), 1, 1),
+    );
+    enc.end_encoding();
+    cmd.commit();
+    cmd.wait_until_completed();
+
+    if !out_no_copy {
+        // The output buffer is a fresh allocation; copy its contents back.
+        unsafe {
+            std::ptr::copy_nonoverlapping(out_buf.contents() as *const u32, out_u32.as_mut_ptr(), out_u32.len());
+        }
+    }
+}
+
+/// In-place radix-2 evals-DFT on a base-field matrix laid out row-major as
+/// `Vec<u32>`. `height` must be a power of two; `width` is the batch dimension
+/// (number of independent FFTs run in parallel, one per column).
+///
+/// `twiddles[layer]` (length `2^layer`) holds the layer's twiddles in Montgomery
+/// form. Borrowed as `&[&[u32]]` to avoid per-call cloning of the cached table.
+///
+/// The data must already be page-aligned so the kernel can write back without
+/// a memcpy (this is the case for buffers allocated through `zk-alloc`).
+pub fn fft_evals_in_place_gpu(matrix: &mut [u32], height: usize, width: usize, twiddles: &[&[u32]]) {
+    let ctx = ctx().expect("Metal context unavailable");
+    assert_eq!(matrix.len(), height * width);
+    assert!(height.is_power_of_two() && height >= 2);
+    let log_h = height.trailing_zeros() as usize;
+    assert_eq!(twiddles.len(), log_h, "need one twiddle table per layer");
+
+    let (matrix_buf, matrix_no_copy) = buf_from_slice(ctx, matrix);
+
+    // Upload all twiddle layers once, indexed by layer.
+    let twiddle_bufs: Vec<metal::Buffer> = twiddles.iter().map(|t| buf_from_slice(ctx, t).0).collect();
+
+    let cmd = ctx.queue.new_command_buffer();
+
+    // Run layers in radix-4 pairs when possible (one kernel pass per pair of
+    // consecutive layers), falling back to radix-2 for the leftover layer
+    // when `log_h` is odd. Radix-4 cuts device-memory traffic in half — each
+    // group of 4 elements is read once and written once for two layers' worth
+    // of butterfly work — which is decisive on memory-bandwidth-bound FFTs.
+    //
+    // All passes share one compute encoder with a `memory_barrier_with_resources`
+    // between them. Splitting layers across encoders adds ~2 ms of pipeline
+    // stall per boundary on Apple GPU, which dwarfs the actual butterfly time.
+    let w = width as NSUInteger;
+    let max_tg = ctx.fft_evals_layer_pipeline.max_total_threads_per_threadgroup();
+    let matrix_resources: [&metal::ResourceRef; 1] = [&matrix_buf];
+
+    let enc = cmd.new_compute_command_encoder();
+    enc.set_buffer(0, Some(&matrix_buf), 0);
+
+    let mut layer = 0;
+    let mut pass = 0;
+    while layer < log_h {
+        let remaining = log_h - layer;
+        if pass > 0 {
+            enc.memory_barrier_with_resources(&matrix_resources);
+        }
+        if remaining >= 3 {
+            // Radix-8: process 3 consecutive layers in one pass.
+            enc.set_compute_pipeline_state(&ctx.fft_evals_radix8_pipeline);
+            let log_s = layer;
+            let tw_s_idx = log_h - 1 - layer;
+            let tw_2s_idx = log_h - 1 - (layer + 1);
+            let tw_4s_idx = log_h - 1 - (layer + 2);
+            let eighth_h = (height / 8) as NSUInteger;
+            let params = FftRadix8Params {
+                log_s: log_s as u32,
+                width: width as u32,
+                eighth_height: eighth_h as u32,
+            };
+            enc.set_buffer(1, Some(&twiddle_bufs[tw_s_idx]), 0);
+            enc.set_buffer(2, Some(&twiddle_bufs[tw_2s_idx]), 0);
+            enc.set_buffer(3, Some(&twiddle_bufs[tw_4s_idx]), 0);
+            enc.set_bytes(
+                4,
+                std::mem::size_of::<FftRadix8Params>() as NSUInteger,
+                (&params as *const FftRadix8Params) as *const _,
+            );
+            let tg_x = w.min(max_tg).max(1);
+            let tg_y = ((max_tg / tg_x).max(1)).min(eighth_h);
+            enc.dispatch_threads(MTLSize::new(w, eighth_h, 1), MTLSize::new(tg_x, tg_y, 1));
+            layer += 3;
+        } else if remaining == 2 {
+            // Radix-4: 2 consecutive layers in one pass.
+            enc.set_compute_pipeline_state(&ctx.fft_evals_radix4_pipeline);
+            let log_s = layer;
+            let tw_s_idx = log_h - 1 - layer;
+            let tw_2s_idx = log_h - 1 - (layer + 1);
+            let quarter_h = (height / 4) as NSUInteger;
+            let params = FftRadix4Params {
+                log_s: log_s as u32,
+                width: width as u32,
+                quarter_height: quarter_h as u32,
+            };
+            enc.set_buffer(1, Some(&twiddle_bufs[tw_s_idx]), 0);
+            enc.set_buffer(2, Some(&twiddle_bufs[tw_2s_idx]), 0);
+            enc.set_bytes(
+                3,
+                std::mem::size_of::<FftRadix4Params>() as NSUInteger,
+                (&params as *const FftRadix4Params) as *const _,
+            );
+            let tg_x = w.min(max_tg).max(1);
+            let tg_y = ((max_tg / tg_x).max(1)).min(quarter_h);
+            enc.dispatch_threads(MTLSize::new(w, quarter_h, 1), MTLSize::new(tg_x, tg_y, 1));
+            layer += 2;
+        } else {
+            // Radix-2: one layer.
+            enc.set_compute_pipeline_state(&ctx.fft_evals_layer_pipeline);
+            let tw_idx = log_h - 1 - layer;
+            let half_h = (height / 2) as NSUInteger;
+            let params = FftLayerParams {
+                log_stride: layer as u32,
+                width: width as u32,
+                half_height: half_h as u32,
+            };
+            enc.set_buffer(1, Some(&twiddle_bufs[tw_idx]), 0);
+            enc.set_bytes(
+                2,
+                std::mem::size_of::<FftLayerParams>() as NSUInteger,
+                (&params as *const FftLayerParams) as *const _,
+            );
+            let tg_x = w.min(max_tg).max(1);
+            let tg_y = ((max_tg / tg_x).max(1)).min(half_h);
+            enc.dispatch_threads(MTLSize::new(w, half_h, 1), MTLSize::new(tg_x, tg_y, 1));
+            layer += 1;
+        }
+        pass += 1;
+    }
+    enc.end_encoding();
+
+    cmd.commit();
+    cmd.wait_until_completed();
+
+    if !matrix_no_copy {
+        unsafe {
+            std::ptr::copy_nonoverlapping(matrix_buf.contents() as *const u32, matrix.as_mut_ptr(), matrix.len());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use field::PrimeCharacteristicRing;
+    use field::{PrimeCharacteristicRing, TwoAdicField};
     use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
     use symetric::{Compression, precompute_zero_suffix_state};
+
+    /// CPU reference of the same evals-DFT the GPU runs: in-place radix-2
+    /// butterflies where layer `k` uses stride `2^k`. The butterfly is
+    ///   t = (b - a) * twiddle
+    ///   (a, b) -> (a + t, a - t)
+    /// with a twiddle-free shortcut at offset 0 in each block.
+    fn cpu_evals_fft_reference(matrix: &mut [KoalaBear], height: usize, width: usize) {
+        assert_eq!(matrix.len(), height * width);
+        let log_h = height.trailing_zeros() as usize;
+        let generator = KoalaBear::two_adic_generator(log_h);
+        // Build the same twiddle tables as EvalsDft::roots_of_unity_table.
+        let half_n = height / 2;
+        let mut nth_roots = Vec::with_capacity(half_n);
+        let mut acc = KoalaBear::ONE;
+        for _ in 0..half_n {
+            nth_roots.push(acc);
+            acc *= generator;
+        }
+        let twiddle_tables: Vec<Vec<KoalaBear>> = (0..log_h)
+            .map(|i| nth_roots.iter().step_by(1 << i).copied().collect())
+            .collect();
+
+        for layer in 0..log_h {
+            let stride = 1usize << layer;
+            let twiddles = &twiddle_tables[log_h - 1 - layer];
+            assert_eq!(twiddles.len(), stride);
+            let block = 2 * stride;
+            let n_blocks = height / block;
+            for blk in 0..n_blocks {
+                let base = blk * block;
+                for i_off in 0..stride {
+                    let row_a = base + i_off;
+                    let row_b = row_a + stride;
+                    let tw = twiddles[i_off];
+                    for col in 0..width {
+                        let a = matrix[row_a * width + col];
+                        let b = matrix[row_b * width + col];
+                        let t = if i_off == 0 { b - a } else { (b - a) * tw };
+                        matrix[row_a * width + col] = a + t;
+                        matrix[row_b * width + col] = a - t;
+                    }
+                }
+            }
+        }
+    }
+
+    fn make_twiddles_u32(height: usize) -> Vec<Vec<u32>> {
+        let log_h = height.trailing_zeros() as usize;
+        let generator = KoalaBear::two_adic_generator(log_h);
+        let half_n = height / 2;
+        let mut nth_roots = Vec::with_capacity(half_n);
+        let mut acc = KoalaBear::ONE;
+        for _ in 0..half_n {
+            nth_roots.push(acc);
+            acc *= generator;
+        }
+        (0..log_h)
+            .map(|i| nth_roots.iter().step_by(1 << i).map(|x| kb_to_monty_u32(*x)).collect())
+            .collect()
+    }
 
     fn kb_arr_to_monty<const N: usize>(arr: [KoalaBear; N]) -> [u32; N] {
         arr.map(kb_to_monty_u32)
@@ -1058,5 +1676,84 @@ mod tests {
             let gpu_kb = monty_to_kb_arr(*gpu);
             assert_eq!(cpu_kb, gpu_kb, "leaf row {i} mismatch");
         }
+    }
+
+    #[test]
+    fn fft_evals_in_place_parity_vs_cpu() {
+        for &(log_h, width) in &[(1usize, 1usize), (2, 1), (3, 1), (5, 3), (8, 4), (10, 7)] {
+            let height = 1usize << log_h;
+            let mut cpu_mat: Vec<KoalaBear> = (0..height * width)
+                .map(|i| KoalaBear::new((i as u32).wrapping_mul(0x9e3779b1) ^ 0xDEADu32))
+                .collect();
+            let mut gpu_mat_u32: Vec<u32> = cpu_mat.iter().copied().map(kb_to_monty_u32).collect();
+
+            cpu_evals_fft_reference(&mut cpu_mat, height, width);
+
+            let twiddles_owned = make_twiddles_u32(height);
+            let twiddles: Vec<&[u32]> = twiddles_owned.iter().map(|v| v.as_slice()).collect();
+            fft_evals_in_place_gpu(&mut gpu_mat_u32, height, width, &twiddles);
+
+            for (i, (c, g)) in cpu_mat.iter().zip(gpu_mat_u32.iter()).enumerate() {
+                let c_monty = kb_to_monty_u32(*c);
+                if c_monty != *g {
+                    eprintln!(
+                        "log_h={log_h} w={width}: idx {i}: cpu={c_monty:#x} gpu={g:#x} (input was {:#x})",
+                        kb_to_monty_u32(KoalaBear::new((i as u32).wrapping_mul(0x9e3779b1) ^ 0xDEADu32))
+                    );
+                }
+                assert_eq!(c_monty, *g, "mismatch at idx {i} (log_h={log_h}, w={width})");
+            }
+        }
+    }
+
+    #[test]
+    fn prepare_evals_parity_vs_cpu() {
+        // Mirrors `prepare_evals_for_fft_unpacked`. We test the F (elem_size = 1) path.
+        let log_block_size = 4;
+        let block_size = 1usize << log_block_size;
+        let log_inv_rate = 1;
+        let n_blocks: usize = 4;
+        let dft_n_cols = n_blocks; // dft_n_cols typically ≤ n_blocks
+        let evals_len = (block_size * n_blocks) >> log_inv_rate;
+        let evals: Vec<u32> = (0..evals_len as u32).map(|i| i.wrapping_mul(0x9e3779b1)).collect();
+        let out_len = block_size * dft_n_cols;
+
+        // CPU reference
+        let cpu_out: Vec<u32> = (0..out_len)
+            .map(|i| {
+                let block_index = i % dft_n_cols;
+                let offset_in_block = i / dft_n_cols;
+                let src = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+                evals[src]
+            })
+            .collect();
+
+        let mut gpu_out = vec![0u32; out_len];
+        prepare_evals_for_fft_gpu(&evals, &mut gpu_out, dft_n_cols, log_block_size, log_inv_rate, 1);
+        assert_eq!(cpu_out, gpu_out);
+
+        // Test EF case (elem_size = 5) by tripling the data and prepending a tag.
+        let elem_size = 5usize;
+        let evals_ef: Vec<u32> = (0..evals_len * elem_size)
+            .map(|i| (i as u32).wrapping_mul(0x85ebca6bu32))
+            .collect();
+        let cpu_out_ef: Vec<u32> = (0..out_len)
+            .flat_map(|i| {
+                let block_index = i % dft_n_cols;
+                let offset_in_block = i / dft_n_cols;
+                let src = ((block_index << log_block_size) + offset_in_block) >> log_inv_rate;
+                evals_ef[src * elem_size..(src + 1) * elem_size].to_vec()
+            })
+            .collect();
+        let mut gpu_out_ef = vec![0u32; out_len * elem_size];
+        prepare_evals_for_fft_gpu(
+            &evals_ef,
+            &mut gpu_out_ef,
+            dft_n_cols,
+            log_block_size,
+            log_inv_rate,
+            elem_size,
+        );
+        assert_eq!(cpu_out_ef, gpu_out_ef);
     }
 }

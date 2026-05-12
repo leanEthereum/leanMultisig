@@ -82,6 +82,52 @@ where
         let log_h = log2_strict_usize(h);
 
         self.update_twiddles(h);
+
+        // GPU path: in-place radix-2 evals-DFT on the GPU via Metal compute. The
+        // kernel exists and is parity-tested against the CPU reference, but it
+        // is *disabled by default* because the CPU implementation in this crate
+        // does multi-layer butterflies (LAYERS_PER_GROUP=3, effectively radix-8)
+        // which reduces memory traffic 3× by keeping intermediates in L1. The
+        // GPU kernel is plain radix-2, so it must move the full matrix in/out
+        // of unified memory each of the log_h layers and ends up bandwidth-bound
+        // even when the kernel itself saturates the bus (we measured ~445 GB/s
+        // on M4 Max, ~81% of the 546 GB/s memory peak, but CPU still wins because
+        // its multi-layer passes do ~1/3 the I/O).
+        //
+        // To make the GPU FFT a net win we'd need to port the radix-4/radix-8
+        // multi-layer butterfly. See `bench_fft_cpu_vs_gpu` for direct numbers.
+        // Empirical threshold: the GPU FFT (radix-8 + radix-4 + radix-2 cascade)
+        // beats the CPU multi-layer butterfly only at `h * w >= ~100M`, where
+        // memory bandwidth dominates over the GPU's per-dispatch overhead.
+        // For smaller FFTs the CPU's L1-resident multi-layer pass is faster.
+        fn gpu_fft_threshold() -> usize {
+            1 << 26
+        }
+        if gpu_poseidon::gpu_enabled()
+            && gpu_poseidon::metal_available()
+            && std::any::TypeId::of::<F>() == std::any::TypeId::of::<koala_bear::KoalaBear>()
+            && h >= 2
+            && h * w >= gpu_fft_threshold()
+        {
+            let root_table = self.twiddles.read().unwrap();
+            let len = root_table.len();
+            let table_slice = &root_table[len - log_h..];
+            // SAFETY: F = KoalaBear; KoalaBear is #[repr(transparent)] over a
+            // Montgomery-form u32. Each `Vec<F>` aliases a `Vec<u32>` bit-for-bit,
+            // so we borrow into the cached table without cloning.
+            let twiddles_u32: Vec<&[u32]> = table_slice
+                .iter()
+                .map(|layer| unsafe { std::slice::from_raw_parts(layer.as_ptr() as *const u32, layer.len()) })
+                .collect();
+            let matrix_u32: &mut [u32] =
+                unsafe { std::slice::from_raw_parts_mut(mat.values.as_mut_ptr() as *mut u32, mat.values.len()) };
+            tracing::info_span!("dft_batch_by_evals (GPU)").in_scope(|| {
+                gpu_poseidon::fft_evals_in_place_gpu(matrix_u32, h, w, &twiddles_u32);
+            });
+            drop(root_table);
+            return mat;
+        }
+
         let root_table = self.twiddles.read().unwrap();
         let len = root_table.len();
         let root_table = &root_table[len - log_h..];
@@ -569,6 +615,9 @@ impl<F: Field> Butterfly<F> for EvalsButterfly<F> {
 
 #[cfg(test)]
 mod tests {
+    use std::hint::black_box;
+    use std::time::Instant;
+
     use field::{PrimeCharacteristicRing, TwoAdicField};
     use koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use poly::*;
@@ -578,6 +627,97 @@ mod tests {
 
     type F = KoalaBear;
     type EF = QuinticExtensionFieldKB;
+
+    /// Side-by-side CPU vs Metal-GPU benchmark of `dft_batch_by_evals` on the
+    /// matrix dimensions that the prove pipeline actually hits: the commit-time
+    /// FFT (h = 2^19, base width ≈ 224) plus three smaller WHIR-round FFTs.
+    /// CPU path uses the existing rayon+SIMD implementation; GPU path uses the
+    /// in-place butterfly kernel via the same `EvalsDft` entry point.
+    ///
+    ///   cargo test --release --package mt-whir --lib -- \
+    ///     dft::tests::bench_fft_cpu_vs_gpu --exact --nocapture --ignored
+    #[test]
+    #[ignore]
+    fn bench_fft_cpu_vs_gpu() {
+        // The four matrix shapes observed in `xmss --n-signatures 1550 --log-inv-rate 1`,
+        // post-`flatten_to_base` (base-field u32 entries).
+        let shapes: &[(usize, usize)] = &[
+            (1 << 19, 224), // commit FFT      (469 MiB,  ~93 ms CPU)
+            (1 << 17, 224), // WHIR round 1   (~115 MiB,  ~9 ms CPU)
+            (1 << 16, 160), // WHIR round 2
+            (1 << 15, 160), // WHIR round 3
+        ];
+
+        eprintln!(
+            "{:>10} {:>8} {:>14} {:>14} {:>10}",
+            "height", "width", "CPU (ms)", "GPU (ms)", "speedup"
+        );
+        eprintln!("{:->62}", "");
+
+        for &(h, w) in shapes {
+            let mut rng = StdRng::seed_from_u64(42 ^ (h as u64) ^ (w as u64));
+            let n_elems = h * w;
+            let base: Vec<F> = (0..n_elems).map(|_| F::new(rng.random::<u32>())).collect();
+
+            // Warm-up + steady-state CPU
+            let cpu_t = {
+                let dft = EvalsDft::<F>::default();
+                let mut mat = RowMajorMatrix::new(base.clone(), w);
+                // warm-up: ensure twiddle table is built and caches primed
+                let _ = dft.dft_batch_by_evals(mat);
+                let mat2 = RowMajorMatrix::new(base.clone(), w);
+                let t = Instant::now();
+                mat = dft.dft_batch_by_evals(mat2);
+                let elapsed = t.elapsed();
+                let _ = black_box(mat);
+                elapsed
+            };
+
+            // GPU run: drive the kernel directly so the size threshold inside
+            // `dft_batch_by_evals` doesn't gate us out on the smaller shapes.
+            let gpu_t = {
+                let dft = EvalsDft::<F>::default();
+                dft.update_twiddles(h);
+                let log_h = h.trailing_zeros() as usize;
+                let table = dft.twiddles.read().unwrap();
+                let len = table.len();
+                let table_slice = &table[len - log_h..];
+                let twiddles_u32: Vec<&[u32]> = table_slice
+                    .iter()
+                    .map(|layer| unsafe { std::slice::from_raw_parts(layer.as_ptr() as *const u32, layer.len()) })
+                    .collect();
+
+                // Warm-up so MSL compile / pipeline / twiddle upload are paid once.
+                let mut warm: Vec<u32> = base
+                    .iter()
+                    .map(|x| unsafe { std::mem::transmute::<F, u32>(*x) })
+                    .collect();
+                gpu_poseidon::fft_evals_in_place_gpu(&mut warm, h, w, &twiddles_u32);
+                let _ = black_box(warm);
+
+                let mut measured: Vec<u32> = base
+                    .iter()
+                    .map(|x| unsafe { std::mem::transmute::<F, u32>(*x) })
+                    .collect();
+                let t = Instant::now();
+                gpu_poseidon::fft_evals_in_place_gpu(&mut measured, h, w, &twiddles_u32);
+                let elapsed = t.elapsed();
+                let _ = black_box(measured);
+                drop(table);
+                elapsed
+            };
+
+            let speedup = cpu_t.as_secs_f64() / gpu_t.as_secs_f64();
+            eprintln!(
+                "{:>10} {:>8} {:>14.2} {:>14.2} {:>9.2}x",
+                h,
+                w,
+                cpu_t.as_secs_f64() * 1000.0,
+                gpu_t.as_secs_f64() * 1000.0,
+                speedup,
+            );
+        }
+    }
 
     #[test]
     fn test_eval_dft() {
