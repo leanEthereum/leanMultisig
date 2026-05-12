@@ -30,6 +30,31 @@ const SLACK: usize = 4; // SLACK absorbs the main thread and any non-rayon helpe
 const MAX_THREADS: usize = NUM_THREADS + SLACK;
 const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 
+/// Allocations of at least this size are bumped to a page boundary so callers
+/// (e.g. the Metal GPU backend) can wrap them in `newBufferWithBytesNoCopy:`
+/// without an intermediate memcpy. The wasted padding is at most `PAGE_SIZE - 1`
+/// per large allocation — invisible against an 8 GiB slab and against
+/// allocations of this size — and page-aligned data is TLB-friendly so there's
+/// no measurable CPU cost.
+const LARGE_ALLOC_THRESHOLD: usize = 1 << 20; // 1 MiB
+
+/// Page size used for the large-allocation bump-align. macOS arm64 uses 16 KiB
+/// pages; everything else we care about uses 4 KiB. Over-aligning by 4x on x86
+/// is harmless given the threshold above.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const PAGE_SIZE: usize = 16 * 1024;
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+const PAGE_SIZE: usize = 4 * 1024;
+
+#[inline(always)]
+const fn effective_align(size: usize, align: usize) -> usize {
+    if size >= LARGE_ALLOC_THRESHOLD && align < PAGE_SIZE {
+        PAGE_SIZE
+    } else {
+        align
+    }
+}
+
 #[derive(Debug)]
 pub struct ZkAllocator;
 
@@ -133,7 +158,8 @@ unsafe fn arena_alloc_cold(size: usize, align: usize) -> *mut u8 {
         }
         ARENA_PTR.set(base);
         ARENA_GEN.set(generation);
-        let aligned = base.next_multiple_of(align);
+        let eff = effective_align(size, align);
+        let aligned = base.next_multiple_of(eff);
         let new_ptr = aligned + size;
         if new_ptr <= ARENA_END.get() {
             ARENA_PTR.set(new_ptr);
@@ -154,7 +180,7 @@ unsafe impl GlobalAlloc for ZkAllocator {
         if ARENA_ACTIVE.load(Ordering::Relaxed) {
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
-                let align = layout.align();
+                let align = effective_align(layout.size(), layout.align());
                 let aligned = (ARENA_PTR.get() + align - 1) & !(align - 1);
                 let new_ptr = aligned + layout.size();
                 if new_ptr <= ARENA_END.get() {
