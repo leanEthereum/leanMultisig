@@ -62,8 +62,12 @@ pub trait MemoryAccess {
     }
 }
 
+/// Write-once VM memory.
 #[derive(Debug, Clone, Default)]
-pub struct Memory(pub Vec<Option<F>>);
+pub struct Memory {
+    pub values: Vec<F>,
+    pub written: Vec<bool>,
+}
 
 impl MemoryAccess for Memory {
     fn get(&self, index: usize) -> Result<F, RunnerError> {
@@ -77,36 +81,59 @@ impl MemoryAccess for Memory {
 
 impl Memory {
     pub fn new(public_memory: Vec<F>) -> Self {
-        Self(public_memory.into_par_iter().map(Some).collect())
+        let written = vec![true; public_memory.len()];
+        Self {
+            values: public_memory,
+            written,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn resize(&mut self, new_len: usize) {
+        self.values.resize(new_len, F::ZERO);
+        self.written.resize(new_len, false);
+    }
+
+    pub fn is_set(&self, index: usize) -> bool {
+        index < self.written.len() && self.written[index]
     }
 
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.0
-            .get(index)
-            .copied()
-            .flatten()
-            .ok_or(RunnerError::UndefinedMemory(index))
+        if index < self.written.len() && self.written[index] {
+            Ok(self.values[index])
+        } else {
+            Err(RunnerError::UndefinedMemory(index))
+        }
     }
 
     pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
-        if index >= self.0.len() {
+        if index >= self.values.len() {
             if index >= 1 << MAX_LOG_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
-            self.0.resize(index + 1, None);
+            self.resize(index + 1);
         }
-        if let Some(existing) = &mut self.0[index] {
-            if *existing != value {
+        if self.written[index] {
+            let existing = self.values[index];
+            if existing != value {
                 return Err(RunnerError::MemoryAlreadySet {
                     address: index,
-                    prev_value: *existing,
+                    prev_value: existing,
                     new_value: value,
                 });
             }
         } else {
-            self.0[index] = Some(value);
+            self.values[index] = value;
+            self.written[index] = true;
         }
         Ok(())
+    }
+
+    pub fn num_cells_used(&self) -> usize {
+        self.written.par_iter().filter(|&&w| w).count()
     }
 }
 
@@ -125,17 +152,29 @@ impl Memory {
 /// - Writes outside `segment` → deferred, applied sequentially after the parallel phase.
 #[derive(Debug)]
 pub struct SegmentMemory<'a> {
-    shared: &'a [Option<F>],
-    segment: &'a mut [Option<F>],
+    shared_values: &'a [F],
+    shared_written: &'a [bool],
+    segment_values: &'a mut [F],
+    segment_written: &'a mut [bool],
     segment_start: usize,
     deferred_writes: Vec<(usize, F)>,
 }
 
 impl<'a> SegmentMemory<'a> {
-    pub fn new(shared: &'a [Option<F>], segment: &'a mut [Option<F>], segment_start: usize) -> Self {
+    pub fn new(
+        shared_values: &'a [F],
+        shared_written: &'a [bool],
+        segment_values: &'a mut [F],
+        segment_written: &'a mut [bool],
+        segment_start: usize,
+    ) -> Self {
+        debug_assert_eq!(shared_values.len(), shared_written.len());
+        debug_assert_eq!(segment_values.len(), segment_written.len());
         Self {
-            shared,
-            segment,
+            shared_values,
+            shared_written,
+            segment_values,
+            segment_written,
             segment_start,
             deferred_writes: Vec::new(),
         }
@@ -149,15 +188,15 @@ impl<'a> SegmentMemory<'a> {
 impl MemoryAccess for SegmentMemory<'_> {
     fn get(&self, index: usize) -> Result<F, RunnerError> {
         if index < self.segment_start {
-            self.shared
-                .get(index)
-                .copied()
-                .flatten()
-                .ok_or(RunnerError::UndefinedMemory(index))
+            if index < self.shared_written.len() && self.shared_written[index] {
+                Ok(self.shared_values[index])
+            } else {
+                Err(RunnerError::UndefinedMemory(index))
+            }
         } else {
             let offset = index - self.segment_start;
-            if offset < self.segment.len() {
-                self.segment[offset].ok_or(RunnerError::UndefinedMemory(index))
+            if offset < self.segment_written.len() && self.segment_written[offset] {
+                Ok(self.segment_values[offset])
             } else {
                 Err(RunnerError::UndefinedMemory(index))
             }
@@ -165,25 +204,26 @@ impl MemoryAccess for SegmentMemory<'_> {
     }
 
     fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
-        let in_segment = index >= self.segment_start && (index - self.segment_start) < self.segment.len();
-        if !in_segment {
+        let Some(offset) = index
+            .checked_sub(self.segment_start)
+            .filter(|&o| o < self.segment_values.len())
+        else {
             self.deferred_writes.push((index, value));
             return Ok(());
-        }
-        {
-            let offset = index - self.segment_start;
-            if let Some(existing) = self.segment[offset] {
-                if existing != value {
-                    return Err(RunnerError::MemoryAlreadySet {
-                        address: index,
-                        prev_value: existing,
-                        new_value: value,
-                    });
-                }
-            } else {
-                self.segment[offset] = Some(value);
+        };
+        if self.segment_written[offset] {
+            let existing = self.segment_values[offset];
+            if existing != value {
+                return Err(RunnerError::MemoryAlreadySet {
+                    address: index,
+                    prev_value: existing,
+                    new_value: value,
+                });
             }
-            Ok(())
+        } else {
+            self.segment_values[offset] = value;
+            self.segment_written[offset] = true;
         }
+        Ok(())
     }
 }

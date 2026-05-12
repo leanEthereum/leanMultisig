@@ -214,10 +214,12 @@ fn resolve_deref_hints(memory: &mut Memory, pending: &[(usize, usize)]) {
             if resolved.contains(&target_addr) {
                 continue;
             }
-            let addr = memory.0[src_addr].unwrap();
-            let Some(value) = memory.0.get(addr.to_usize()).copied().flatten() else {
+            let addr = memory.values[src_addr];
+            let addr_usize = addr.to_usize();
+            if !memory.is_set(addr_usize) {
                 continue;
-            };
+            }
+            let value = memory.values[addr_usize];
             memory.set(target_addr, value).unwrap();
             resolved.insert(target_addr);
             made_progress = true;
@@ -325,17 +327,17 @@ fn execute_bytecode_helper(
     } else {
         None
     };
-    let runtime_memory_size = memory.0.len() - public_memory_size - witness.preamble_memory_len;
-    let used_memory_cells = memory.0.par_iter().filter(|&&x| x.is_some()).count();
+    let runtime_memory_size = memory.len() - public_memory_size - witness.preamble_memory_len;
+    let used_memory_cells = memory.num_cells_used();
     let metadata = ExecutionMetadata {
         cycles: trace.pcs.len(),
-        memory: memory.0.len(),
+        memory: memory.len(),
         n_poseidons: trace.tables[&Table::poseidon16()].columns[0].len(),
         n_extension_ops: trace.tables[&Table::extension_op()].columns[0].len(),
         bytecode_size: bytecode.code.len(),
         public_input_size: public_input.len(),
         runtime_memory: runtime_memory_size,
-        memory_usage_percent: used_memory_cells as f64 / memory.0.len() as f64 * 100.0,
+        memory_usage_percent: used_memory_cells as f64 / memory.len() as f64 * 100.0,
         stdout: std::mem::take(std_out),
         profiling_report,
     };
@@ -411,8 +413,8 @@ fn handle_parallel_batch(
     }
 
     let max_addr = batch.batch_fp + (n_iters + 1) * stride;
-    if max_addr > memory.0.len() {
-        memory.0.resize(max_addr, None);
+    if max_addr > memory.len() {
+        memory.resize(max_addr);
     }
 
     let n_par = n_iters - 1;
@@ -421,17 +423,21 @@ fn handle_parallel_batch(
     // Iteration 0 has already been executed and wrote into [batch_fp, batch_fp + stride).
     // Iterations 1..n_par each get their own [batch_fp + (i+1)*stride, batch_fp + (i+2)*stride).
     let split_at = batch.batch_fp + stride; // end of iteration 0's frame
-    let (left, right) = memory.0.split_at_mut(split_at);
-    let shared: &[Option<F>] = &*left;
-    let segment_slices: Vec<&mut [Option<F>]> = right.chunks_mut(stride).take(n_par).collect();
+    let (left_values, right_values) = memory.values.split_at_mut(split_at);
+    let (left_written, right_written) = memory.written.split_at_mut(split_at);
+    let shared_values: &[F] = &*left_values;
+    let shared_written: &[bool] = &*left_written;
+    let segment_value_slices: Vec<&mut [F]> = right_values.chunks_mut(stride).take(n_par).collect();
+    let segment_written_slices: Vec<&mut [bool]> = right_written.chunks_mut(stride).take(n_par).collect();
 
     type SegResult = Result<(Trace, Vec<(usize, F)>), RunnerError>;
-    let results: Vec<SegResult> = segment_slices
+    let results: Vec<SegResult> = segment_value_slices
         .into_par_iter()
+        .zip(segment_written_slices.into_par_iter())
         .enumerate()
-        .map(|(i, seg_slice)| {
+        .map(|(i, (seg_values, seg_written))| {
             let seg_start = split_at + i * stride;
-            let mut seg_mem = SegmentMemory::new(shared, seg_slice, seg_start);
+            let mut seg_mem = SegmentMemory::new(shared_values, shared_written, seg_values, seg_written, seg_start);
             let fp_i = batch.batch_fp + (i + 1) * stride;
             let mut seg_trace = Trace::new();
             let mut seg_pc = batch.batch_pc;

@@ -14,8 +14,17 @@ pub struct ExecutionTrace {
 pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResult) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
 
-    let n_cycles = execution_result.pcs.len();
-    let memory = &execution_result.memory;
+    let ExecutionResult {
+        memory,
+        pcs,
+        fps,
+        mut traces,
+        public_memory_size,
+        metadata,
+        ..
+    } = execution_result;
+
+    let n_cycles = pcs.len();
     let mut main_trace: [Vec<F>; N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS] =
         array::from_fn(|_| F::zero_vec(n_cycles.next_power_of_two()));
     for col in &mut main_trace {
@@ -25,8 +34,8 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 
     transposed_par_iter_mut(&mut main_trace)
-        .zip(execution_result.pcs.par_iter())
-        .zip(execution_result.fps.par_iter())
+        .zip(&pcs)
+        .zip(&fps)
         .for_each(|((trace_row, &pc), &fp)| {
             let instruction = &bytecode.code[pc].instruction;
             let field_repr = &bytecode.instructions_multilinear[pc * N_INSTRUCTION_COLUMNS.next_power_of_two()..]
@@ -44,7 +53,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             if flag_a.is_zero() && flag_ab_fp.is_zero() {
                 addr_a = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_A)];
             }
-            let value_a = memory.0.get(addr_a.to_usize()).copied().flatten().unwrap_or_default();
+            let value_a = memory.get(addr_a.to_usize()).unwrap_or(F::ZERO);
 
             let mut addr_b = F::ZERO;
             if flag_b.is_zero() && flag_ab_fp.is_zero() {
@@ -53,13 +62,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
                 // DEREF: addr_B = value_A + operand_B
                 addr_b = value_a + field_repr[instr_idx(COL_OPERAND_B)];
             }
-            let value_b = memory.0.get(addr_b.to_usize()).copied().flatten().unwrap_or_default();
+            let value_b = memory.get(addr_b.to_usize()).unwrap_or(F::ZERO);
 
             let mut addr_c = F::ZERO;
             if flag_c.is_zero() && flag_c_fp.is_zero() {
                 addr_c = F::from_usize(fp) + field_repr[instr_idx(COL_OPERAND_C)];
             }
-            let value_c = memory.0.get(addr_c.to_usize()).copied().flatten().unwrap_or_default();
+            let value_c = memory.get(addr_c.to_usize()).unwrap_or(F::ZERO);
 
             for (j, field) in field_repr.iter().enumerate() {
                 *trace_row[j + N_RUNTIME_COLUMNS] = *field;
@@ -91,7 +100,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
             *trace_row[COL_MEM_ADDRESS_C] = addr_c;
         });
 
-    let mut memory_padded = memory.0.par_iter().map(|&v| v.unwrap_or(F::ZERO)).collect::<Vec<F>>();
+    let mut memory_padded = memory.values;
 
     // Write [0000000000000000 | poseidon_compress(0000000000000000)] (to make lookups work on padding-rows).
     let padding_zero_vec_ptr = memory_padded.len();
@@ -102,8 +111,6 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     // IMPORTANT: memory size should always be >= number of VM cycles
     let padded_memory_len = (memory_padded.len().max(n_cycles).max(1 << MIN_LOG_N_ROWS_PER_TABLE)).next_power_of_two();
     memory_padded.resize(padded_memory_len, F::ZERO);
-
-    let ExecutionResult { mut traces, .. } = execution_result;
 
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
     fill_trace_poseidon_16(&mut poseidon_trace.columns);
@@ -147,9 +154,9 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
 
     ExecutionTrace {
         traces,
-        public_memory_size: execution_result.public_memory_size,
+        public_memory_size,
         memory: memory_padded,
-        metadata: execution_result.metadata,
+        metadata,
     }
 }
 
