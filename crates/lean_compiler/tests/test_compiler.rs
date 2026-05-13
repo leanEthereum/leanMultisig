@@ -265,8 +265,6 @@ def factorial(n):
 #[test]
 fn debug_str_program() {
     let program = r#"
-BIG_ENDIAN = 0
-
 def main():
     a = 10
     bits = checked_decompose_bits_small_value_const(a, 4)
@@ -278,7 +276,7 @@ def main():
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
-    hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
+    hint_decompose_bits(to_decompose, bits, n_bits)
     sum: Mut = bits[n_bits - 1]
     assert sum * (1 - sum) == 0
     for i in unroll(1, n_bits):
