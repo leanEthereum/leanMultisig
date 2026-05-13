@@ -1259,6 +1259,30 @@ pub fn hash_leaves_with_initial_state(
     out
 }
 
+/// Encode all parent-layer compressions for an already-prepared `layer_buffers`,
+/// where `layer_buffers[0]` holds the leaf digests. One `compress_pairs` dispatch
+/// per Merkle layer.
+///
+/// An earlier revision fused two consecutive layers in a single kernel (3
+/// Poseidon compressions per thread, L1 mid-digest re-used from registers).
+/// Benched at 0.72–0.83x — Poseidon1-16's permutation is too register-heavy
+/// for three sequential unrolled compressions per thread on Apple GPU; the
+/// spill cost outweighed the saved device-memory round-trip and dispatch.
+fn encode_parent_layers(ctx: &MetalCtx, cmd: &metal::CommandBufferRef, layer_buffers: &[metal::Buffer], height: usize) {
+    let n_compress = layer_buffers.len().saturating_sub(1);
+    let max_tg = ctx.compress_pairs_pipeline.max_total_threads_per_threadgroup();
+    for k in 0..n_compress {
+        let n_out = height >> (k + 1);
+        let enc = cmd.new_compute_command_encoder();
+        enc.set_compute_pipeline_state(&ctx.compress_pairs_pipeline);
+        enc.set_buffer(0, Some(&layer_buffers[k]), 0);
+        enc.set_buffer(1, Some(&layer_buffers[k + 1]), 0);
+        let tg = max_tg.min(n_out as NSUInteger).max(1);
+        enc.dispatch_threads(MTLSize::new(n_out as NSUInteger, 1, 1), MTLSize::new(tg, 1, 1));
+        enc.end_encoding();
+    }
+}
+
 /// Hash all leaves AND build all parent Merkle layers entirely on the GPU.
 ///
 /// Returns `digest_layers[k]` of length `height >> k`, with `digest_layers[0]`
@@ -1352,19 +1376,7 @@ pub fn build_merkle_tree_full(
         enc.end_encoding();
     }
 
-    for (k, pair) in layer_buffers.windows(2).enumerate() {
-        let n = height >> (k + 1);
-        let enc = cmd.new_compute_command_encoder();
-        enc.set_compute_pipeline_state(&ctx.compress_pairs_pipeline);
-        enc.set_buffer(0, Some(&pair[0]), 0);
-        enc.set_buffer(1, Some(&pair[1]), 0);
-        let tg = ctx
-            .compress_pairs_pipeline
-            .max_total_threads_per_threadgroup()
-            .min(n as NSUInteger);
-        enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg.max(1), 1, 1));
-        enc.end_encoding();
-    }
+    encode_parent_layers(ctx, cmd, &layer_buffers, height);
 
     cmd.commit();
     cmd.wait_until_completed();
@@ -1475,19 +1487,7 @@ pub fn build_merkle_tree_full_no_initial(
         enc.end_encoding();
     }
 
-    for (k, pair) in layer_buffers.windows(2).enumerate() {
-        let n = height >> (k + 1);
-        let enc = cmd.new_compute_command_encoder();
-        enc.set_compute_pipeline_state(&ctx.compress_pairs_pipeline);
-        enc.set_buffer(0, Some(&pair[0]), 0);
-        enc.set_buffer(1, Some(&pair[1]), 0);
-        let tg = ctx
-            .compress_pairs_pipeline
-            .max_total_threads_per_threadgroup()
-            .min(n as NSUInteger);
-        enc.dispatch_threads(MTLSize::new(n as NSUInteger, 1, 1), MTLSize::new(tg.max(1), 1, 1));
-        enc.end_encoding();
-    }
+    encode_parent_layers(ctx, cmd, &layer_buffers, height);
 
     cmd.commit();
     cmd.wait_until_completed();
@@ -2020,6 +2020,40 @@ mod tests {
             let cpu_kb = monty_to_kb_arr(*cpu);
             let gpu_kb = monty_to_kb_arr(*gpu);
             assert_eq!(cpu_kb, gpu_kb, "leaf row {i} mismatch");
+        }
+
+        // Verify every internal Merkle layer matches a CPU reference. With
+        // height=16 this means 4 parent layers, exercising the compress_pairs
+        // dispatch chain end-to-end.
+        let cpu_layers_kb: Vec<Vec<[KoalaBear; 8]>> = {
+            let mut layers: Vec<Vec<[KoalaBear; 8]>> = Vec::new();
+            let leaves: Vec<[KoalaBear; 8]> = cpu_digests.iter().copied().map(monty_to_kb_arr).collect();
+            layers.push(leaves);
+            while layers.last().unwrap().len() > 1 {
+                let prev = layers.last().unwrap();
+                let next: Vec<[KoalaBear; 8]> = prev
+                    .chunks_exact(2)
+                    .map(|pair| {
+                        let mut state = [KoalaBear::ZERO; 16];
+                        state[..8].copy_from_slice(&pair[0]);
+                        state[8..].copy_from_slice(&pair[1]);
+                        p1.compress_mut(&mut state);
+                        let mut digest = [KoalaBear::ZERO; 8];
+                        digest.copy_from_slice(&state[..8]);
+                        digest
+                    })
+                    .collect();
+                layers.push(next);
+            }
+            layers
+        };
+        assert_eq!(cpu_layers_kb.len(), gpu_layers.len(), "layer count mismatch");
+        for (k, (cpu_layer, gpu_layer)) in cpu_layers_kb.iter().zip(gpu_layers.iter()).enumerate() {
+            assert_eq!(cpu_layer.len(), gpu_layer.len(), "layer {k} length mismatch");
+            for (i, (cpu, gpu)) in cpu_layer.iter().zip(gpu_layer.iter()).enumerate() {
+                let gpu_kb = monty_to_kb_arr(*gpu);
+                assert_eq!(*cpu, gpu_kb, "layer {k} row {i} mismatch");
+            }
         }
     }
 
