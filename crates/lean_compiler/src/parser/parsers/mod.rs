@@ -100,19 +100,24 @@ pub struct ParseContext {
     pub next_file_id: usize,
     /// Compilation flags
     pub flags: CompilationFlags,
+    /// If `Some`, imports resolve against this embedded directory instead of the filesystem.
+    pub embedded_dir: Option<&'static include_dir::Dir<'static>>,
 }
 
 impl ParseContext {
     pub fn new(input: &ProgramSource, flags: CompilationFlags) -> Result<Self, SemanticError> {
-        let current_source_code = input.get_content(&flags).unwrap();
-        let (current_filepath, imported_filepaths) = match input {
-            ProgramSource::Raw(_) => ("<raw_input>".to_string(), BTreeSet::new()),
+        let current_source_code = input.get_content(&flags).map_err(SemanticError::new)?;
+        let (current_filepath, imported_filepaths, embedded_dir) = match input {
+            ProgramSource::Raw(_) => ("<raw_input>".to_string(), BTreeSet::new(), None),
             ProgramSource::Filepath(fp) => {
                 let canonical = std::fs::canonicalize(fp)
                     .map_err(|e| SemanticError::new(format!("Cannot resolve filepath '{}': {}", fp, e)))?
                     .to_string_lossy()
                     .to_string();
-                (canonical.clone(), [canonical].into_iter().collect())
+                (canonical.clone(), [canonical].into_iter().collect(), None)
+            }
+            ProgramSource::Embedded { entry, dir } => {
+                (entry.clone(), [entry.clone()].into_iter().collect(), Some(*dir))
             }
         };
         let import_stack = vec![current_filepath.clone()];
@@ -132,6 +137,7 @@ impl ParseContext {
             current_source_code,
             next_file_id: 1,
             flags,
+            embedded_dir,
         })
     }
 

@@ -93,7 +93,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let is_precompile = -(add + mul + deref + jump - AB::F::ONE);
 
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 is_precompile,
                 &[precompile_data, nu_a, nu_b, nu_c],

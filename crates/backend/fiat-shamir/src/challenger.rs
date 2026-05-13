@@ -43,7 +43,7 @@ impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
     }
 
     pub fn sample_many(&mut self, n: usize) -> Vec<[F; RATE]> {
-        let mut sampled = Vec::with_capacity(n);
+        let mut sampled = Vec::with_capacity(n + 1);
         for i in 0..n + 1 {
             let mut domain_sep = [F::ZERO; RATE];
             domain_sep[0] = F::from_usize(i);

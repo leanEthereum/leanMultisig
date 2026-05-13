@@ -443,13 +443,9 @@ fn fft_triple_layer_quad_twiddle<F: Field, Fly: Butterfly<F>>(
 }
 
 /// Estimates the optimal workload size for `T` to fit in L1 cache.
-///
-/// Approximates the size of the L1 cache by 32 KB. Used to determine the number of
-/// chunks to process in parallel.
 #[must_use]
 const fn workload_size<T: Sized>() -> usize {
-    const L1_CACHE_SIZE: usize = 1 << 15; // 32 KB
-    L1_CACHE_SIZE / size_of::<T>()
+    system_info::L1_CACHE_SIZE / size_of::<T>()
 }
 
 /// Estimates the optimal number of rows of a `RowMajorMatrix<T>` to take in each parallel chunk.

@@ -38,6 +38,12 @@ pub struct SparseStatement<EF> {
 
 impl<EF> SparseStatement<EF> {
     pub fn new(total_num_variables: usize, point: MultilinearPoint<EF>, values: Vec<SparseValue<EF>>) -> Self {
+        assert!(
+            total_num_variables >= point.len(),
+            "total_num_variables ({}) must be >= point.len() ({})",
+            total_num_variables,
+            point.len()
+        );
         Self {
             total_num_variables,
             point,
@@ -47,6 +53,12 @@ impl<EF> SparseStatement<EF> {
     }
 
     pub fn new_next(total_num_variables: usize, point: MultilinearPoint<EF>, values: Vec<SparseValue<EF>>) -> Self {
+        assert!(
+            total_num_variables >= point.len(),
+            "total_num_variables ({}) must be >= point.len() ({})",
+            total_num_variables,
+            point.len()
+        );
         Self {
             total_num_variables,
             point,
@@ -74,7 +86,9 @@ impl<EF> SparseStatement<EF> {
     }
 
     pub fn selector_num_variables(&self) -> usize {
-        self.total_num_variables - self.inner_num_variables()
+        self.total_num_variables
+            .checked_sub(self.inner_num_variables())
+            .expect("invariant violated: total_num_variables < point.len()")
     }
 
     pub fn inner_num_variables(&self) -> usize {

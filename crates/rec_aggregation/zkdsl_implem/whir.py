@@ -173,7 +173,7 @@ def sumcheck_verify(fs: Mut, n_steps, claimed_sum, degree: Const):
 def sumcheck_verify_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        polynomial_sum_at_0_and_1_to(poly, degree, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + sc_round * DIM)
@@ -187,10 +187,19 @@ def sumcheck_verify_reversed(fs: Mut, n_steps, claimed_sum: Mut, degree: Const):
     return fs, challenges, new_claimed_sum
 
 
-def sumcheck_verify_reversed_helper(fs: Mut, n_steps, claimed_sum: Mut, degree: Const, challenges):
-    for sc_round in range(0, n_steps):
+def sumcheck_verify_reversed_helper(fs, n_steps, claimed_sum, degree: Const, challenges):
+    debug_assert(n_steps < 32)
+    new_fd, final_sum = match_range(
+        n_steps,
+        range(0, 32),
+        lambda s: sumcheck_verify_reversed_helper_const(fs, s, claimed_sum, degree, challenges),
+    )
+    return new_fd, final_sum
+
+def sumcheck_verify_reversed_helper_const(fs: Mut, n_steps: Const, claimed_sum: Mut, degree: Const, challenges):
+    for sc_round in unroll(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        polynomial_sum_at_0_and_1_to(poly, degree, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
         copy_5(rand, challenges + (n_steps - 1 - sc_round) * DIM)
@@ -202,7 +211,7 @@ def sumcheck_verify_with_grinding(fs: Mut, n_steps, claimed_sum: Mut, degree: Co
     challenges = Array(n_steps * DIM)
     for sc_round in range(0, n_steps):
         fs, poly = fs_receive_ef_inlined(fs, degree + 1)
-        polynomial_sum_at_0_and_1_to(poly, degree, claimed_sum)
+        polynomial_sum_at_0_and_1(poly, degree, claimed_sum)
         fs = fs_grinding(fs, folding_grinding_bits)
         fs, rand = fs_sample_ef(fs)
         claimed_sum = univariate_polynomial_eval(poly, rand, degree)
@@ -358,9 +367,7 @@ def whir_round(
     )
 
 @inline
-def polynomial_sum_at_0_and_1_to(coeffs, degree, dst):
-    # Equivalent to `copy_5(polynomial_sum_at_0_and_1(coeffs, degree), dst)` but
-    # writes the final extension-field add directly into `dst`, saving the trailing copy.
+def polynomial_sum_at_0_and_1(coeffs, degree, dst):
     debug_assert(1 < degree)
     add_ee(sum_continuous_ef(coeffs, degree + 1), coeffs, dst)
     return

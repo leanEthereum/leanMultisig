@@ -8,7 +8,7 @@ use crate::{
         grammar::{ParsePair, Rule},
     },
 };
-use lean_vm::{CUSTOM_HINTS, ExtensionOpMode, POSEIDON16_NAME};
+use lean_vm::{ALL_POSEIDON16_NAMES, CUSTOM_HINTS, ExtensionOpMode};
 
 /// Reserved function names that users cannot define.
 pub const RESERVED_FUNCTION_NAMES: &[&str] = &[
@@ -33,8 +33,7 @@ fn is_reserved_function_name(name: &str) -> bool {
     if RESERVED_FUNCTION_NAMES.contains(&name) || CUSTOM_HINTS.iter().any(|hint| hint.name() == name) {
         return true;
     }
-    // Check precompile names (poseidon16, extension_op functions)
-    if name == POSEIDON16_NAME {
+    if ALL_POSEIDON16_NAMES.contains(&name) {
         return true;
     }
     if ExtensionOpMode::from_name(name).is_some() {
