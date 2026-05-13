@@ -1948,19 +1948,30 @@ impl MutableVarTracker {
                 }
                 self.versions.insert(var.clone(), branch_v);
             } else {
-                // Versions differ among continuing branches - need to unify
-                let max_version = continuing_versions.iter().copied().max().unwrap();
-                let unified_version = max_version + 1;
+                // Versions differ among continuing branches - need to unify.
+                // Pick the highest existing version as the unified version so the
+                // branches already at that version don't need an extra copy.
+                let unified_version = continuing_versions.iter().copied().max().unwrap();
                 let unified_var = format!("@mut_{var}_{unified_version}");
 
                 forward_decls.push(SimpleLine::ForwardDeclaration {
                     var: unified_var.clone(),
                 });
+                // Branches whose own SSA name is the unified one already declared
+                // it locally; lift that declaration out so the slot is shared.
+                for branch in branches.iter_mut() {
+                    remove_forward_declarations(branch, &unified_var);
+                }
 
-                // Add equality assignment at the end of each branch that doesn't exit early
+                // Add equality assignment at the end of each branch that doesn't
+                // already produce the unified version (and doesn't exit early).
                 for (branch_idx, branch_v) in versions.iter().enumerate() {
                     if branch_exits_early[branch_idx] {
                         // Skip branches that exit early - they never reach code after the if/match
+                        continue;
+                    }
+                    if *branch_v == unified_version {
+                        // Already writes to the unified slot - no copy needed.
                         continue;
                     }
                     let branch_var_name: Var = format!("@mut_{var}_{branch_v}");
