@@ -151,9 +151,16 @@ def expand_from_univariate_base_const(alpha, n: Const):
 
 
 def expand_from_univariate_ext(alpha, n):
+    debug_assert(0 < n)
+    debug_assert(n < 31)
+    res = match_range(n, range(1, 31), lambda nv: expand_from_univariate_ext_const(alpha, nv))
+    return res
+
+
+def expand_from_univariate_ext_const(alpha, n: Const):
     res = Array(n * DIM)
     copy_5(alpha, res)
-    for i in range(0, n - 1):
+    for i in unroll(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
 
