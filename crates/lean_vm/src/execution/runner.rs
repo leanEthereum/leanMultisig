@@ -388,6 +388,7 @@ fn handle_parallel_batch(
 
     let stride = *fp - batch.batch_fp;
     let return_pc = memory.get(*fp)?.to_usize();
+    let saved_fp = memory.get(*fp + 1)?.to_usize();
     let args: Vec<F> = (0..batch.n_args)
         .map(|i| memory.get(batch.batch_fp + 2 + i).unwrap())
         .collect();
@@ -404,7 +405,7 @@ fn handle_parallel_batch(
             memory,
             batch.batch_fp + i * stride,
             return_pc,
-            batch.batch_fp + (i - 1) * stride,
+            saved_fp,
             iter_val,
             &args,
         )?;
