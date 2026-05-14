@@ -49,6 +49,7 @@ where
     pub fn into_proof(self) -> Proof<PF<EF>> {
         Proof {
             transcript: self.transcript,
+            commitments: Vec::new(),
             merkle_paths: self.merkle_paths,
         }
     }
@@ -204,6 +205,7 @@ where
     pub fn into_proof(self) -> Proof<PF<EF>, Sha256Digest> {
         Proof {
             transcript: self.transcript,
+            commitments: self.commitments,
             merkle_paths: self.merkle_paths,
         }
     }

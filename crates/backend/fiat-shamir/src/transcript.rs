@@ -32,6 +32,8 @@ pub struct MerklePaths<Data, Digest>(pub(crate) Vec<MerklePath<Data, Digest>>);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proof<F, Digest = [F; DIGEST_LEN_FE]> {
     pub(crate) transcript: Vec<F>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) commitments: Vec<Digest>,
     pub(crate) merkle_paths: Vec<PrunedMerklePaths<F, Digest>>,
 }
 
