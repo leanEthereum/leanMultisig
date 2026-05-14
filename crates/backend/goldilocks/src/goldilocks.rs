@@ -221,7 +221,11 @@ impl PrimeCharacteristicRing for Goldilocks {
     fn div_2exp_u64(&self, mut exp: u64) -> Self {
         // 2^{-n} = 2^{192 - n} mod P.
         exp %= 192;
-        self.mul_2exp_u64(192 - exp)
+        match exp {
+            0 => *self,
+            1 => self.halve(),
+            _ => self.mul_2exp_u64(192 - exp),
+        }
     }
 
     #[inline]
