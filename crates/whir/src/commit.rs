@@ -1,8 +1,9 @@
 // Credits: whir-p3 (https://github.com/tcoratger/whir-p3) (MIT and Apache-2.0 licenses).
 
 use fiat_shamir::FSProver;
-use field::{ExtensionField, TwoAdicField};
+use field::{ExtensionField, PrimeField32, TwoAdicField};
 use poly::*;
+use symetric::merkle::Sha256Digest;
 use tracing::{info_span, instrument};
 
 use crate::*;
@@ -49,6 +50,42 @@ impl<EF: ExtensionField<PF<EF>>> MerkleData<EF> {
             }
         }
     }
+}
+
+impl<EF: ExtensionField<PF<EF>>> MerkleData2<EF> {
+    pub(crate) fn build(matrix: DftOutput<EF>, full_n_cols: usize, effective_n_cols: usize) -> (Self, Sha256Digest) {
+        match matrix {
+            DftOutput::Base(m) => {
+                let (root, prover_data) = merkle_commit_sha2::<PF<EF>, PF<EF>>(m, full_n_cols, effective_n_cols);
+                (MerkleData2::Base(prover_data), root)
+            }
+            DftOutput::Extension(m) => {
+                let (root, prover_data) = merkle_commit_sha2::<PF<EF>, EF>(m, full_n_cols, effective_n_cols);
+                (MerkleData2::Extension(prover_data), root)
+            }
+        }
+    }
+
+    pub(crate) fn open(&self, index: usize) -> (MleOwned<EF>, Vec<Sha256Digest>) {
+        match self {
+            MerkleData2::Base(prover_data) => {
+                let (leaf, proof) = merkle_open_sha2::<PF<EF>, PF<EF>>(prover_data, index);
+                (MleOwned::Base(leaf), proof)
+            }
+            MerkleData2::Extension(prover_data) => {
+                let (leaf, proof) = merkle_open_sha2::<PF<EF>, EF>(prover_data, index);
+                (MleOwned::Extension(leaf), proof)
+            }
+        }
+    }
+}
+
+fn sha256_digest_to_scalars<F: PrimeField32>(digest: &Sha256Digest) -> [F; 4] {
+    std::array::from_fn(|i| {
+        let offset = i * 4;
+        let word = u32::from_le_bytes(digest[offset..offset + 4].try_into().unwrap());
+        F::from_int(word)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -138,14 +175,14 @@ where
 
         let (prover_data, root) = MerkleData2::build(folded_matrix, n_blocks, effective_n_cols);
 
-        prover_state.add_base_scalars(&root);
+        prover_state.add_base_scalars(&sha256_digest_to_scalars(&root));
 
         let (ood_points, ood_answers) =
             sample_ood_points::<EF, _>(prover_state, self.commitment_ood_samples, self.num_variables, |point| {
                 polynomial.evaluate(point)
             });
 
-        Witness {
+        Witness2 {
             prover_data,
             ood_points,
             ood_answers,

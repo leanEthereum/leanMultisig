@@ -34,6 +34,7 @@ Stacking of various (multilinear) polynomials into a single -big- (multilinear) 
 pub struct StackedPcsWitness {
     pub stacked_n_vars: VarCount,
     pub inner_witness: Witness<EF>,
+    pub inner_witness2: Witness2<EF>,
     pub global_polynomial: MleOwned<EF>,
 }
 
@@ -97,6 +98,7 @@ pub fn stacked_pcs_global_statements(
 #[instrument(skip_all)]
 pub fn stack_polynomials_and_commit(
     prover_state: &mut impl FSProver<EF>,
+    prover_state2: &mut impl FSProver<EF>,
     whir_config_builder: &WhirConfigBuilder,
     memory: &[F],
     memory_acc: &[F],
@@ -146,11 +148,13 @@ pub fn stack_polynomials_and_commit(
 
     let global_polynomial = MleOwned::Base(global_polynomial);
 
-    let inner_witness =
-        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial, offset);
+    let whir_config = WhirConfig::new(whir_config_builder, stacked_n_vars);
+    let inner_witness = whir_config.commit(prover_state, &global_polynomial, offset);
+    let inner_witness2 = whir_config.commit2(prover_state2, &global_polynomial, offset);
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,
+        inner_witness2,
         global_polynomial,
     }
 }
