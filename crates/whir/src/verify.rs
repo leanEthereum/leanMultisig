@@ -19,7 +19,7 @@ pub struct ParsedCommitment<F: Field, EF: ExtensionField<F>> {
 
 impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
     pub fn parse(
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<Self>
@@ -28,7 +28,7 @@ impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
         EF: ExtensionField<F> + TwoAdicField,
         EF: ExtensionField<PF<EF>>,
     {
-        let root = verifier_state.next_base_scalars_vec(DIGEST_ELEMS)?.try_into().unwrap();
+        let root = verifier_state.next_commitment()?;
         let mut ood_points = vec![];
         let ood_answers = if ood_samples > 0 {
             ood_points = verifier_state.sample_vec(ood_samples);
@@ -65,7 +65,7 @@ where
 {
     pub fn parse_commitment<F: TwoAdicField>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
     ) -> ProofResult<ParsedCommitment<F, EF>>
     where
         EF: ExtensionField<F>,
@@ -82,7 +82,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn verify<F>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
         parsed_commitment: &ParsedCommitment<F, EF>,
         statement: Vec<SparseStatement<EF>>,
     ) -> ProofResult<MultilinearPoint<EF>>

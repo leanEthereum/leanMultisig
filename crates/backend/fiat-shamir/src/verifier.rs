@@ -26,6 +26,10 @@ where
     PF<EF>: PrimeField64,
 {
     pub fn new(proof: Proof<PF<EF>>, compressor: C) -> Result<Self, ProofError> {
+        if !proof.commitments.is_empty() {
+            return Err(ProofError::InvalidProof);
+        }
+
         let mut merkle_openings = Vec::new();
         for paths in proof.merkle_paths {
             let restored = Self::restore_merkle_paths(paths).ok_or(ProofError::InvalidProof)?;
@@ -108,6 +112,8 @@ impl<EF: ExtensionField<PF<EF>>, C: Compression<[PF<EF>; WIDTH]>> FSVerifier<EF>
 where
     PF<EF>: PrimeField64,
 {
+    type Digest = [PF<EF>; DIGEST_LEN_FE];
+
     fn state(&self) -> String {
         format!(
             "state {} (offset: {}, merkle_idx: {})",
@@ -130,6 +136,11 @@ where
         let scalars = self.read_transcript(n)?;
         self.absorb_and_record(&scalars);
         Ok(scalars)
+    }
+
+    fn next_commitment(&mut self) -> Result<Self::Digest, ProofError> {
+        self.next_base_scalars_vec(DIGEST_LEN_FE)
+            .map(|scalars| scalars.try_into().unwrap())
     }
 
     fn next_merkle_opening(&mut self) -> Result<MerkleOpening<PF<EF>>, ProofError> {

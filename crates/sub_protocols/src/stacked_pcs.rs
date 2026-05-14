@@ -162,7 +162,7 @@ pub fn stack_polynomials_and_commit(
 
 pub fn stacked_pcs_parse_commitment(
     whir_config_builder: &WhirConfigBuilder,
-    verifier_state: &mut impl FSVerifier<EF>,
+    verifier_state: &mut impl FSVerifier<EF, Digest = [F; DIGEST_ELEMS]>,
     log_memory: usize,
     log_bytecode: usize,
     tables_heights: &BTreeMap<Table, VarCount>,
