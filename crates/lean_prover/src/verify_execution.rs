@@ -432,7 +432,7 @@ pub fn verify_execution_sha2(
     let num_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum::<usize>();
     assert_eq!(num_whir_statements, total_whir_statements());
 
-    WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify2(
+    WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
         &mut verifier_state,
         &parsed_commitment,
         global_statements_base,
