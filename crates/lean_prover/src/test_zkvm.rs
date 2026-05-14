@@ -239,9 +239,10 @@ def fibonacci_const(a, b, n: Const):
 fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     utils::init_tracing();
     let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
-    let time = std::time::Instant::now();
     let starting_log_inv_rate = 1;
     let witness = ExecutionWitness::default();
+
+    let time = std::time::Instant::now();
     let proof = prove_execution(
         &bytecode,
         public_input,
@@ -250,6 +251,13 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
         false,
     )
     .unwrap();
+    let poseidon_proof_time = time.elapsed();
+
+    println!("Poseidon proof");
+    println!("{}", proof.metadata.as_ref().unwrap().display());
+    println!("Proof time: {:.3} s", poseidon_proof_time.as_secs_f32());
+
+    let time = std::time::Instant::now();
     let proof2 = prove_execution_sha2(
         &bytecode,
         public_input,
@@ -258,11 +266,14 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
         false,
     )
     .unwrap();
-    let proof_time = time.elapsed();
+    let sha2_proof_time = time.elapsed();
+
+    println!("SHA2 proof");
+    println!("{}", proof2.metadata.as_ref().unwrap().display());
+    println!("Proof time: {:.3} s", sha2_proof_time.as_secs_f32());
+
     let mut verifier_state = VerifierState::<EF, _>::new(proof.proof, get_poseidon16().clone()).unwrap();
     verify(&bytecode, public_input, &mut verifier_state).unwrap();
     let mut verifier_state2 = VerifierStateSha2::<EF>::new(proof2.proof).unwrap();
     verify(&bytecode, public_input, &mut verifier_state2).unwrap();
-    println!("{}", proof.metadata.as_ref().unwrap().display());
-    println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }
