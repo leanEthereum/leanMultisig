@@ -16,6 +16,12 @@ pub struct MerkleTree<F, const DIGEST_ELEMS: usize> {
     pub digest_layers: Vec<Vec<[F; DIGEST_ELEMS]>>,
 }
 
+/// A Merkle tree storing only the digest layers (no leaf data).
+#[derive(Debug, Clone)]
+pub struct MerkleTree2<F, const DIGEST_ELEMS: usize> {
+    pub digest_layers: Vec<Vec<[F; DIGEST_ELEMS]>>,
+}
+
 impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleTree<F, DIGEST_ELEMS> {
     /// Build a Merkle tree from a pre-computed first digest layer.
     pub fn from_first_layer<P, Comp, const WIDTH: usize>(comp: &Comp, first_layer: Vec<[F; DIGEST_ELEMS]>) -> Self

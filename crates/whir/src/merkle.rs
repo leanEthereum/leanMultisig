@@ -8,6 +8,7 @@ use field::BasedVectorSpace;
 use field::ExtensionField;
 use field::Field;
 use field::PackedValue;
+use field::PrimeField32;
 use koala_bear::{KoalaBear, QuinticExtensionFieldKB, default_koalabear_poseidon1_16};
 use poly::*;
 
@@ -245,6 +246,31 @@ where
         });
 
     digests
+}
+
+type Sha256Digest = [u8; 16];
+use sha2::{Digest, Sha256};
+#[instrument(name = "first digest layer", level = "debug", skip_all)]
+fn sha2_first_digest_layer<P, M>(h: &Sha256, matrix: &M, _full_width: usize) -> Vec<Sha256Digest>
+where
+    P: PrimeField32,
+    M: Matrix<P>,
+{
+    let height = matrix.height();
+    let matrix_width = matrix.width();
+    assert!(matrix_width <= full_width);
+
+    (0..height)
+        .into_par_iter()
+        .map(|r| {
+            let mut hasher = h.clone();
+            for value in matrix.row(r).unwrap() {
+                hasher.update(value.as_canonical_u32().to_le_bytes());
+            }
+            let digest = hasher.finalize();
+            digest[..16].try_into().unwrap()
+        })
+        .collect()
 }
 
 #[instrument(skip_all)]
