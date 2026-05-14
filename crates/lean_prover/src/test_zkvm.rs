@@ -1,4 +1,8 @@
-use crate::{default_whir_config, prove_execution::prove_execution, verify_execution::verify};
+use crate::{
+    default_whir_config,
+    prove_execution::{prove_execution, prove_execution_sha2},
+    verify_execution::verify,
+};
 use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
@@ -246,10 +250,18 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
         false,
     )
     .unwrap();
+    let proof2 = prove_execution_sha2(
+        &bytecode,
+        public_input,
+        &witness,
+        &default_whir_config(starting_log_inv_rate),
+        false,
+    )
+    .unwrap();
     let proof_time = time.elapsed();
     let mut verifier_state = VerifierState::<EF, _>::new(proof.proof, get_poseidon16().clone()).unwrap();
     verify(&bytecode, public_input, &mut verifier_state).unwrap();
-    let mut verifier_state2 = VerifierStateSha2::<EF>::new(proof.proof2).unwrap();
+    let mut verifier_state2 = VerifierStateSha2::<EF>::new(proof2.proof).unwrap();
     verify(&bytecode, public_input, &mut verifier_state2).unwrap();
     println!("{}", proof.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());

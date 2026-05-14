@@ -32,10 +32,9 @@ Stacking of various (multilinear) polynomials into a single -big- (multilinear) 
 */
 
 #[derive(Debug)]
-pub struct StackedPcsWitness {
+pub struct StackedPcsWitness<InnerWitness> {
     pub stacked_n_vars: VarCount,
-    pub inner_witness: Witness<EF>,
-    pub inner_witness2: Witness2<EF>,
+    pub inner_witness: InnerWitness,
     pub global_polynomial: MleOwned<EF>,
 }
 
@@ -99,13 +98,48 @@ pub fn stacked_pcs_global_statements(
 #[instrument(skip_all)]
 pub fn stack_polynomials_and_commit(
     prover_state: &mut impl FSProver<EF, Digest = [F; DIGEST_ELEMS]>,
-    prover_state2: &mut impl FSProver<EF, Digest = Sha256Digest>,
     whir_config_builder: &WhirConfigBuilder,
     memory: &[F],
     memory_acc: &[F],
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
-) -> StackedPcsWitness {
+) -> StackedPcsWitness<Witness<EF>> {
+    stack_polynomials_and_commit_with(
+        whir_config_builder,
+        memory,
+        memory_acc,
+        bytecode_acc,
+        traces,
+        |whir_config, global_polynomial, offset| whir_config.commit(prover_state, global_polynomial, offset),
+    )
+}
+
+pub fn stack_polynomials_and_commit_sha2(
+    prover_state: &mut impl FSProver<EF, Digest = Sha256Digest>,
+    whir_config_builder: &WhirConfigBuilder,
+    memory: &[F],
+    memory_acc: &[F],
+    bytecode_acc: &[F],
+    traces: &BTreeMap<Table, TableTrace>,
+) -> StackedPcsWitness<Witness2<EF>> {
+    stack_polynomials_and_commit_with(
+        whir_config_builder,
+        memory,
+        memory_acc,
+        bytecode_acc,
+        traces,
+        |whir_config, global_polynomial, offset| whir_config.commit2(prover_state, global_polynomial, offset),
+    )
+}
+
+fn stack_polynomials_and_commit_with<InnerWitness>(
+    whir_config_builder: &WhirConfigBuilder,
+    memory: &[F],
+    memory_acc: &[F],
+    bytecode_acc: &[F],
+    traces: &BTreeMap<Table, TableTrace>,
+    commit: impl FnOnce(&WhirConfig<EF>, &MleOwned<EF>, usize) -> InnerWitness,
+) -> StackedPcsWitness<InnerWitness> {
     assert_eq!(memory.len(), memory_acc.len());
     let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_heights_sorted = sort_tables_by_height(&tables_heights);
@@ -150,12 +184,10 @@ pub fn stack_polynomials_and_commit(
     let global_polynomial = MleOwned::Base(global_polynomial);
 
     let whir_config = WhirConfig::new(whir_config_builder, stacked_n_vars);
-    let inner_witness = whir_config.commit(prover_state, &global_polynomial, offset);
-    let inner_witness2 = whir_config.commit2(prover_state2, &global_polynomial, offset);
+    let inner_witness = commit(&whir_config, &global_polynomial, offset);
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,
-        inner_witness2,
         global_polynomial,
     }
 }

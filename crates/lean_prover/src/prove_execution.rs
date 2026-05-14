@@ -11,12 +11,99 @@ use utils::ansi::Colorize;
 use utils::{build_prover_state, build_prover_state_sha2, from_end};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionProof {
-    pub proof: Proof<F>,
-    pub proof2: Proof<F, Sha256Digest>,
+#[serde(bound(
+    serialize = "Proof<F, Digest>: Serialize",
+    deserialize = "Proof<F, Digest>: Deserialize<'de>"
+))]
+pub struct ExecutionProof<Digest = [F; DIGEST_ELEMS]> {
+    pub proof: Proof<F, Digest>,
     // benchmark / debug purpose
     #[serde(skip, default)]
     pub metadata: Option<ExecutionMetadata>,
+}
+
+trait ExecutionProverBackend<P>
+where
+    P: FSProver<EF>,
+{
+    type InnerWitness;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness>;
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    );
+}
+
+struct PoseidonExecutionBackend;
+
+impl<P> ExecutionProverBackend<P> for PoseidonExecutionBackend
+where
+    P: FSProver<EF, Digest = [F; DIGEST_ELEMS]>,
+{
+    type InnerWitness = Witness<EF>;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness> {
+        stack_polynomials_and_commit(prover_state, whir_config, memory, memory_acc, bytecode_acc, traces)
+    }
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    ) {
+        whir_config.prove(prover_state, statements, witness, polynomial);
+    }
+}
+
+struct Sha2ExecutionBackend;
+
+impl<P> ExecutionProverBackend<P> for Sha2ExecutionBackend
+where
+    P: FSProver<EF, Digest = Sha256Digest>,
+{
+    type InnerWitness = Witness2<EF>;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness> {
+        stack_polynomials_and_commit_sha2(prover_state, whir_config, memory, memory_acc, bytecode_acc, traces)
+    }
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    ) {
+        whir_config.prove2(prover_state, statements, witness, polynomial);
+    }
 }
 
 pub fn prove_execution(
@@ -26,6 +113,49 @@ pub fn prove_execution(
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> Result<ExecutionProof, ProverError> {
+    prove_execution_with::<_, PoseidonExecutionBackend, _>(
+        bytecode,
+        public_input,
+        witness,
+        whir_config,
+        vm_profiler,
+        build_prover_state(),
+        |prover_state| prover_state.into_proof(),
+    )
+}
+
+pub fn prove_execution_sha2(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    witness: &ExecutionWitness,
+    whir_config: &WhirConfigBuilder,
+    vm_profiler: bool,
+) -> Result<ExecutionProof<Sha256Digest>, ProverError> {
+    prove_execution_with::<_, Sha2ExecutionBackend, _>(
+        bytecode,
+        public_input,
+        witness,
+        whir_config,
+        vm_profiler,
+        build_prover_state_sha2(),
+        |prover_state| prover_state.into_proof(),
+    )
+}
+
+fn prove_execution_with<P, B, IntoProof>(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    witness: &ExecutionWitness,
+    whir_config: &WhirConfigBuilder,
+    vm_profiler: bool,
+    mut prover_state: P,
+    into_proof: IntoProof,
+) -> Result<ExecutionProof<P::Digest>, ProverError>
+where
+    P: FSProver<EF>,
+    B: ExecutionProverBackend<P>,
+    IntoProof: FnOnce(P) -> Proof<F, P::Digest>,
+{
     check_rate(whir_config.starting_log_inv_rate)
         .map_err(|err| panic!("{err}"))
         .unwrap();
@@ -46,13 +176,9 @@ pub fn prove_execution(
     if memory.len() < min_memory_size {
         memory.resize(min_memory_size, F::ZERO);
     }
-    let mut prover_state = build_prover_state();
-    let mut prover_state2 = build_prover_state_sha2();
     prover_state.observe_scalars(public_input);
-    prover_state2.observe_scalars(public_input);
     let bytecode_hash_with_domain_sep = poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP);
     prover_state.observe_scalars(&bytecode_hash_with_domain_sep);
-    prover_state2.observe_scalars(&bytecode_hash_with_domain_sep);
     let execution_metadata_scalars = [
         vec![
             whir_config.starting_log_inv_rate,
@@ -66,7 +192,6 @@ pub fn prove_execution(
     .map(F::from_usize)
     .collect::<Vec<_>>();
     prover_state.add_base_scalars(&execution_metadata_scalars);
-    prover_state2.add_base_scalars(&execution_metadata_scalars);
     for (table, table_trace) in &traces {
         let log_n_rows = table_trace.log_n_rows;
         assert!(log_n_rows >= MIN_LOG_N_ROWS_PER_TABLE, "missing padding");
@@ -116,9 +241,8 @@ pub fn prove_execution(
     });
 
     // 1st Commitment
-    let stacked_pcs_witness = stack_polynomials_and_commit(
+    let stacked_pcs_witness = B::stack_polynomials_and_commit(
         &mut prover_state,
-        &mut prover_state2,
         whir_config,
         &memory,
         &memory_acc,
@@ -141,24 +265,8 @@ pub fn prove_execution(
         &bytecode_acc,
         &traces,
     );
-    let logup_c2 = prover_state2.sample();
-    let logup_alphas2 = prover_state2.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
-    let logup_alphas_eq_poly2 = eval_eq(&logup_alphas2);
-
-    let logup_statements2 = prove_generic_logup(
-        &mut prover_state2,
-        logup_c2,
-        &logup_alphas_eq_poly2,
-        &memory,
-        &memory_acc,
-        &bytecode.instructions_multilinear,
-        &bytecode_acc,
-        &traces,
-    );
     let gkr_point = &logup_statements.gkr_point;
-    let gkr_point2 = &logup_statements2.gkr_point;
     let mut committed_statements: CommittedStatements = Default::default();
-    let mut committed_statements2: CommittedStatements = Default::default();
     for table in ALL_TABLES {
         let log_n_rows = traces[&table].log_n_rows;
         committed_statements.insert(
@@ -169,24 +277,12 @@ pub fn prove_execution(
                 BTreeMap::new(),
             )],
         );
-        committed_statements2.insert(
-            table,
-            vec![(
-                MultilinearPoint(from_end(gkr_point2, log_n_rows).to_vec()),
-                logup_statements2.columns_values[&table].clone(),
-                BTreeMap::new(),
-            )],
-        );
     }
 
     let bus_beta = prover_state.sample();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
     let air_eta: EF = prover_state.sample();
-    let bus_beta2 = prover_state2.sample();
-    let air_alpha2 = prover_state2.sample();
-    let air_alpha_powers2: Vec<EF> = air_alpha2.powers().collect_n(max_air_constraints() + 1);
-    let air_eta2: EF = prover_state2.sample();
 
     let tables_log_heights: BTreeMap<Table, VarCount> =
         traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
@@ -209,7 +305,6 @@ pub fn prove_execution(
         .collect();
     std::mem::drop(_span);
     let mut sessions = Vec::with_capacity(tables_sorted.len());
-    let mut sessions2 = Vec::with_capacity(tables_sorted.len());
     for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
         let bus_denominator_value = logup_statements.bus_denominators_values[table];
@@ -237,44 +332,10 @@ pub fn prove_execution(
             }};
         }
         sessions.push(delegate_to_inner!(table => make_session));
-
-        let bus_numerator_value2 = logup_statements2.bus_numerators_values[table];
-        let bus_denominator_value2 = logup_statements2.bus_denominators_values[table];
-        let bus_final_value2 = bus_numerator_value2
-            * match table.bus().direction {
-                BusDirection::Pull => EF::NEG_ONE,
-                BusDirection::Push => EF::ONE,
-            }
-            + bus_beta2 * (bus_denominator_value2 - logup_c2);
-
-        let eq_suffix2 = from_end(gkr_point2, *log_n_rows).to_vec();
-
-        let extra_data2 = ExtraDataForBuses::new(logup_alphas_eq_poly2.clone(), bus_beta2, air_alpha_powers2.clone());
-
-        let mut up_down2: Vec<&[PF<EF>]> = column_refs[idx].to_vec();
-        up_down2.extend(shifted_rows[idx].iter().map(Vec::as_slice));
-        let packed2 = MleGroupRef::<EF>::Base(up_down2).pack();
-
-        macro_rules! make_session2 {
-            ($t:expr) => {{
-                let session = AirSumcheckSession::new(
-                    packed2,
-                    eq_suffix2,
-                    bus_final_value2,
-                    *$t,
-                    extra_data2,
-                    non_padded,
-                );
-                Box::new(session) as Box<dyn OuterSumcheckSession<EF> + '_>
-            }};
-        }
-        sessions2.push(delegate_to_inner!(table => make_session2));
     }
 
     let sumcheck_air_point = info_span!("batched AIR sumcheck")
         .in_scope(|| prove_batched_air_sumcheck(&mut prover_state, &mut sessions, air_eta));
-    let sumcheck_air_point2 = info_span!("batched AIR sumcheck sha2")
-        .in_scope(|| prove_batched_air_sumcheck(&mut prover_state2, &mut sessions2, air_eta2));
 
     for (idx, (table, _)) in tables_sorted.iter().enumerate() {
         let col_evals = sessions[idx].final_column_evals();
@@ -287,23 +348,10 @@ pub fn prove_execution(
         }
         let claim = delegate_to_inner!(table => split);
         committed_statements.get_mut(table).unwrap().push(claim);
-
-        let col_evals2 = sessions2[idx].final_column_evals();
-        prover_state2.add_extension_scalars(&col_evals2);
-
-        let natural_ordering_point2 =
-            natural_ordering_point_for_session(&sumcheck_air_point2.0, traces[table].log_n_rows);
-        macro_rules! split2 {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals2, &natural_ordering_point2) }};
-        }
-        let claim2 = delegate_to_inner!(table => split2);
-        committed_statements2.get_mut(table).unwrap().push(claim2);
     }
 
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
-    let public_memory_random_point2 = MultilinearPoint(prover_state2.sample_vec(log2_strict_usize(public_memory_size)));
-    let public_memory_eval2 = (&memory[..public_memory_size]).evaluate(&public_memory_random_point2);
 
     let previous_statements = vec![
         SparseStatement::new(
@@ -328,30 +376,6 @@ pub fn prove_execution(
             )],
         ),
     ];
-    let previous_statements2 = vec![
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            logup_statements2.memory_and_acc_point,
-            vec![
-                SparseValue::new(0, logup_statements2.value_memory),
-                SparseValue::new(1, logup_statements2.value_memory_acc),
-            ],
-        ),
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            public_memory_random_point2,
-            vec![SparseValue::new(0, public_memory_eval2)],
-        ),
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            logup_statements2.bytecode_and_acc_point,
-            vec![SparseValue::new(
-                (2 * memory.len()) >> bytecode.log_size(),
-                logup_statements2.value_bytecode_acc,
-            )],
-        ),
-    ];
-
     let global_statements_base = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
@@ -360,26 +384,12 @@ pub fn prove_execution(
         &tables_log_heights,
         &committed_statements,
     );
-    let global_statements_base2 = stacked_pcs_global_statements(
-        stacked_pcs_witness.stacked_n_vars,
-        log2_strict_usize(memory.len()),
-        bytecode.log_size(),
-        previous_statements2,
-        &tables_log_heights,
-        &committed_statements2,
-    );
 
-    WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove(
+    B::prove_whir(
+        &WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()),
         &mut prover_state,
         global_statements_base,
         stacked_pcs_witness.inner_witness,
-        &stacked_pcs_witness.global_polynomial.by_ref(),
-    );
-
-    WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove2(
-        &mut prover_state2,
-        global_statements_base2,
-        stacked_pcs_witness.inner_witness2,
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
@@ -387,8 +397,7 @@ pub fn prove_execution(
     reset_pow_grinding_time();
 
     Ok(ExecutionProof {
-        proof: prover_state.into_proof(),
-        proof2: prover_state2.into_proof(),
+        proof: into_proof(prover_state),
         metadata: Some(metadata),
     })
 }
