@@ -286,3 +286,147 @@ where
 
     digests
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use field::PrimeField32;
+    use field::integers::QuotientMap;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+
+    type Sha256Digest = [u8; 16];
+
+    #[derive(Debug)]
+    struct Sha256MerkleTree {
+        digest_layers: Vec<Vec<Sha256Digest>>,
+    }
+
+    fn pseudo_random_koalabear(index: usize) -> KoalaBear {
+        let mut x = index as u64;
+        x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        KoalaBear::from_int(x ^ (x >> 31))
+    }
+
+    fn sha256_truncated(hasher: Sha256) -> Sha256Digest {
+        let digest = hasher.finalize();
+        digest[..16].try_into().unwrap()
+    }
+
+    fn sha256_hash_row(row: &[KoalaBear]) -> Sha256Digest {
+        let mut hasher = Sha256::new();
+        for value in row {
+            hasher.update(value.as_canonical_u32().to_le_bytes());
+        }
+        sha256_truncated(hasher)
+    }
+
+    fn sha256_hash_pair(left: &Sha256Digest, right: &Sha256Digest) -> Sha256Digest {
+        let mut hasher = Sha256::new();
+        hasher.update(left);
+        hasher.update(right);
+        sha256_truncated(hasher)
+    }
+
+    #[tracing::instrument(name = "sha256 merkle commit", skip_all)]
+    fn sha256_merkle_commit(matrix: DenseMatrix<KoalaBear>) -> (Sha256Digest, Sha256MerkleTree) {
+        let width = matrix.width();
+        let height = matrix.height();
+        assert!(height.is_power_of_two());
+
+        let first_layer: Vec<_> = tracing::info_span!("leafs")
+            .in_scope(|| matrix.values.par_chunks_exact(width).map(sha256_hash_row).collect());
+        let mut digest_layers = vec![first_layer];
+
+        tracing::info_span!("asc").in_scope(|| {
+            while digest_layers.last().unwrap().len() > 1 {
+                let prev_layer = digest_layers.last().unwrap();
+                assert!(prev_layer.len().is_multiple_of(2));
+                let next_layer = prev_layer
+                    .par_chunks_exact(2)
+                    .map(|pair| sha256_hash_pair(&pair[0], &pair[1]))
+                    .collect();
+                digest_layers.push(next_layer);
+            }
+        });
+
+        let root = digest_layers.last().unwrap()[0];
+        (root, Sha256MerkleTree { digest_layers })
+    }
+
+    use tracing_forest::{ForestLayer, util::LevelFilter};
+    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+
+    pub fn init_tracing() {
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        let _ = Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .try_init();
+    }
+
+    #[test]
+    fn bench_merkle_commit_koalabear_width_32_log_sizes() {
+        let folding_factor = 7;
+        let width = 1usize << folding_factor;
+
+        init_tracing();
+
+        for log_size in 20..=26 {
+            let n_values = 1usize << log_size;
+            let height = n_values / width;
+            let values: Vec<_> = (0..n_values).map(pseudo_random_koalabear).collect();
+            let matrix = DenseMatrix::new(values, width);
+
+            assert_eq!(matrix.width(), width);
+            assert_eq!(matrix.height(), height);
+
+            let start = Instant::now();
+            let (root, prover_data) = merkle_commit::<KoalaBear, KoalaBear>(matrix, width, width);
+            let elapsed = start.elapsed();
+
+            assert_eq!(prover_data.leaf.width(), width);
+            assert_eq!(prover_data.leaf.height(), height);
+            assert_eq!(prover_data.full_leaf_base_width, width);
+
+            let log_height = log2_ceil_usize(height);
+            println!("poseidon log_size={log_size}, log_height={log_height}, width={width}, time={elapsed:?}",);
+        }
+    }
+
+    #[test]
+    fn bench_sha256_merkle_commit_koalabear_width_32_log_sizes() {
+        let folding_factor = 7;
+        let width = 1usize << folding_factor;
+
+        init_tracing();
+
+        for log_size in 20..=26 {
+            let n_values = 1usize << log_size;
+            let height = n_values / width;
+            let values: Vec<_> = (0..n_values).map(pseudo_random_koalabear).collect();
+            let matrix = DenseMatrix::new(values, width);
+
+            assert_eq!(matrix.width(), width);
+            assert_eq!(matrix.height(), height);
+
+            let start = Instant::now();
+            let (root, tree) = sha256_merkle_commit(matrix);
+            let elapsed = start.elapsed();
+
+            assert_eq!(tree.digest_layers[0].len(), height);
+            assert_eq!(tree.digest_layers.last().unwrap()[0], root);
+
+            let log_height = log2_ceil_usize(height);
+            println!("sha256 log={log_size}, log_height={log_height}, width={width}, time={elapsed:?}",);
+        }
+    }
+}

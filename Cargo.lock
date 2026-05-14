@@ -710,6 +710,7 @@ dependencies = [
  "mt-utils",
  "rand",
  "rayon",
+ "sha2",
  "system-info",
  "tracing",
  "tracing-forest",
