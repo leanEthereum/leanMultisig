@@ -107,6 +107,10 @@ impl<F: PrimeField32> ChallengerSha2<F> {
         }
     }
 
+    pub fn observe_bytes(&mut self, bytes: &[u8]) {
+        self.sha2.update(bytes);
+    }
+
     pub fn sample_many(&mut self, n: usize) -> Vec<[F; RATE]> {
         let mut sampled = Vec::with_capacity(n + 1);
         for i in 0..n + 1 {

@@ -1,3 +1,4 @@
+use backend::merkle::Sha256Digest;
 use backend::*;
 use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
@@ -97,8 +98,8 @@ pub fn stacked_pcs_global_statements(
 
 #[instrument(skip_all)]
 pub fn stack_polynomials_and_commit(
-    prover_state: &mut impl FSProver<EF>,
-    prover_state2: &mut impl FSProver<EF>,
+    prover_state: &mut impl FSProver<EF, Digest = [F; DIGEST_ELEMS]>,
+    prover_state2: &mut impl FSProver<EF, Digest = Sha256Digest>,
     whir_config_builder: &WhirConfigBuilder,
     memory: &[F],
     memory_acc: &[F],

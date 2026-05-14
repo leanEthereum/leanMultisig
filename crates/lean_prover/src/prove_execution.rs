@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::*;
+use backend::merkle::Sha256Digest;
 use lean_vm::*;
 
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ use utils::{build_prover_state, build_prover_state_sha2, from_end};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionProof {
     pub proof: Proof<F>,
+    pub proof2: Proof<F, Sha256Digest>,
     // benchmark / debug purpose
     #[serde(skip, default)]
     pub metadata: Option<ExecutionMetadata>,
@@ -358,7 +360,7 @@ pub fn prove_execution(
         &tables_log_heights,
         &committed_statements,
     );
-    let _global_statements_base2 = stacked_pcs_global_statements(
+    let global_statements_base2 = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
         bytecode.log_size(),
@@ -374,11 +376,19 @@ pub fn prove_execution(
         &stacked_pcs_witness.global_polynomial.by_ref(),
     );
 
+    WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove2(
+        &mut prover_state2,
+        global_statements_base2,
+        stacked_pcs_witness.inner_witness2,
+        &stacked_pcs_witness.global_polynomial.by_ref(),
+    );
+
     tracing::info!("total pow_grinding time: {} ms", pow_grinding_time().as_millis());
     reset_pow_grinding_time();
 
     Ok(ExecutionProof {
         proof: prover_state.into_proof(),
+        proof2: prover_state2.into_proof(),
         metadata: Some(metadata),
     })
 }

@@ -19,20 +19,20 @@ pub struct RawProof<F> {
 }
 
 #[derive(Debug, Clone)]
-pub struct MerklePath<Data, F> {
+pub struct MerklePath<Data, Digest> {
     pub leaf_data: Vec<Data>,
-    pub sibling_hashes: Vec<[F; DIGEST_LEN_FE]>,
+    pub sibling_hashes: Vec<Digest>,
     // does not appear in the proof itself, but useful for Merkle pruning
     pub leaf_index: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct MerklePaths<Data, F>(pub(crate) Vec<MerklePath<Data, F>>);
+pub struct MerklePaths<Data, Digest>(pub(crate) Vec<MerklePath<Data, Digest>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Proof<F> {
+pub struct Proof<F, Digest = [F; DIGEST_LEN_FE]> {
     pub(crate) transcript: Vec<F>,
-    pub(crate) merkle_paths: Vec<PrunedMerklePaths<F, F>>,
+    pub(crate) merkle_paths: Vec<PrunedMerklePaths<F, Digest>>,
 }
 
 impl<F: Field> Proof<F> {

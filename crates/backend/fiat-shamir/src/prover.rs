@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::{fmt::Debug, sync::Mutex, time::Instant};
 use symetric::Compression;
+use symetric::merkle::Sha256Digest;
 
 static POW_GRINDING_NANOS: AtomicU64 = AtomicU64::new(0);
 
@@ -28,7 +29,7 @@ pub fn reset_pow_grinding_time() {
 pub struct ProverState<EF: ExtensionField<PF<EF>>, P> {
     challenger: Challenger<PF<EF>, P>,
     transcript: Vec<PF<EF>>,
-    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, PF<EF>>>,
+    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, [PF<EF>; DIGEST_LEN_FE]>>,
 }
 
 impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]>> ProverState<EF, P>
@@ -71,9 +72,15 @@ impl<EF: ExtensionField<PF<EF>>, P: Compression<[PF<EF>; WIDTH]> + Compression<[
 where
     PF<EF>: PrimeField64,
 {
+    type Digest = [PF<EF>; DIGEST_LEN_FE];
+
     fn add_base_scalars(&mut self, scalars: &[PF<EF>]) {
         self.challenger.observe_scalars(scalars);
         self.transcript.extend_from_slice(scalars);
+    }
+
+    fn add_commitment(&mut self, commitment: &Self::Digest) {
+        self.add_base_scalars(commitment);
     }
 
     fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
@@ -109,7 +116,7 @@ where
         }
     }
 
-    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>) {
+    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, Self::Digest>>) {
         self.merkle_paths.push(MerklePaths(paths).prune());
     }
 
@@ -175,7 +182,8 @@ where
 pub struct ProverStateSha2<EF: ExtensionField<PF<EF>>> {
     challenger: ChallengerSha2<PF<EF>>,
     transcript: Vec<PF<EF>>,
-    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, PF<EF>>>,
+    commitments: Vec<Sha256Digest>,
+    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, Sha256Digest>>,
 }
 
 impl<EF: ExtensionField<PF<EF>>> ProverStateSha2<EF>
@@ -188,11 +196,12 @@ where
         Self {
             challenger: ChallengerSha2::new(),
             transcript: Vec::new(),
+            commitments: Vec::new(),
             merkle_paths: Vec::new(),
         }
     }
 
-    pub fn into_proof(self) -> Proof<PF<EF>> {
+    pub fn into_proof(self) -> Proof<PF<EF>, Sha256Digest> {
         Proof {
             transcript: self.transcript,
             merkle_paths: self.merkle_paths,
@@ -224,9 +233,16 @@ impl<EF: ExtensionField<PF<EF>>> FSProver<EF> for ProverStateSha2<EF>
 where
     PF<EF>: PrimeField32,
 {
+    type Digest = Sha256Digest;
+
     fn add_base_scalars(&mut self, scalars: &[PF<EF>]) {
         self.challenger.observe_scalars(scalars);
         self.transcript.extend_from_slice(scalars);
+    }
+
+    fn add_commitment(&mut self, commitment: &Self::Digest) {
+        self.challenger.observe_bytes(commitment);
+        self.commitments.push(*commitment);
     }
 
     fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
@@ -253,7 +269,7 @@ where
         }
     }
 
-    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>) {
+    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, Self::Digest>>) {
         self.merkle_paths.push(MerklePaths(paths).prune());
     }
 

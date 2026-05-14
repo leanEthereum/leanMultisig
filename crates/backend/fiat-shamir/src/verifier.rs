@@ -67,16 +67,18 @@ where
     }
 
     #[allow(clippy::missing_transmute_annotations)]
-    fn restore_merkle_paths(paths: PrunedMerklePaths<PF<EF>, PF<EF>>) -> Option<Vec<MerkleOpening<PF<EF>>>> {
+    fn restore_merkle_paths(
+        paths: PrunedMerklePaths<PF<EF>, [PF<EF>; DIGEST_LEN_FE]>,
+    ) -> Option<Vec<MerkleOpening<PF<EF>>>> {
         assert_eq!(TypeId::of::<PF<EF>>(), TypeId::of::<KoalaBear>());
         // SAFETY: We've confirmed PF<EF> == KoalaBear
-        let paths: PrunedMerklePaths<KoalaBear, KoalaBear> = unsafe { std::mem::transmute(paths) };
+        let paths: PrunedMerklePaths<KoalaBear, [KoalaBear; DIGEST_LEN_FE]> = unsafe { std::mem::transmute(paths) };
         let perm = default_koalabear_poseidon1_16();
         let hash_fn = |data: &[KoalaBear]| symetric::hash_slice::<_, _, 16, 8, DIGEST_LEN_FE>(&perm, data);
         let combine_fn = |left: &[KoalaBear; DIGEST_LEN_FE], right: &[KoalaBear; DIGEST_LEN_FE]| {
             symetric::compress(&perm, [*left, *right])
         };
-        let restored: MerklePaths<KoalaBear, KoalaBear> = paths.restore(&hash_fn, &combine_fn)?;
+        let restored: MerklePaths<KoalaBear, [KoalaBear; DIGEST_LEN_FE]> = paths.restore(&hash_fn, &combine_fn)?;
         let openings: Vec<MerkleOpening<KoalaBear>> = restored
             .0
             .into_iter()

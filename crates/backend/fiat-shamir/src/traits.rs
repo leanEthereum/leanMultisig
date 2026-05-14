@@ -13,11 +13,14 @@ pub trait ChallengeSampler<EF> {
 }
 
 pub trait FSProver<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
+    type Digest: Clone;
+
     fn state(&self) -> String;
     fn add_base_scalars(&mut self, scalars: &[PF<EF>]);
+    fn add_commitment(&mut self, commitment: &Self::Digest);
     fn observe_scalars(&mut self, scalars: &[PF<EF>]);
     fn pow_grinding(&mut self, bits: usize);
-    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>);
+    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, Self::Digest>>);
     fn add_sumcheck_polynomial(&mut self, coeffs: &[EF], eq_alpha: Option<EF>);
 
     fn add_extension_scalars(&mut self, scalars: &[EF]) {
@@ -28,7 +31,7 @@ pub trait FSProver<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
         self.add_extension_scalars(&[scalar]);
     }
 
-    fn hint_merkle_paths_extension(&mut self, paths: Vec<MerklePath<EF, PF<EF>>>) {
+    fn hint_merkle_paths_extension(&mut self, paths: Vec<MerklePath<EF, Self::Digest>>) {
         self.hint_merkle_paths_base(
             paths
                 .into_iter()

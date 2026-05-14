@@ -1,7 +1,7 @@
 // Credits: whir-p3 (https://github.com/tcoratger/whir-p3) (MIT and Apache-2.0 licenses).
 
 use fiat_shamir::FSProver;
-use field::{ExtensionField, PrimeField32, TwoAdicField};
+use field::{ExtensionField, TwoAdicField};
 use poly::*;
 use symetric::merkle::Sha256Digest;
 use tracing::{info_span, instrument};
@@ -80,14 +80,6 @@ impl<EF: ExtensionField<PF<EF>>> MerkleData2<EF> {
     }
 }
 
-fn sha256_digest_to_scalars<F: PrimeField32>(digest: &Sha256Digest) -> [F; 4] {
-    std::array::from_fn(|i| {
-        let offset = i * 4;
-        let word = u32::from_le_bytes(digest[offset..offset + 4].try_into().unwrap());
-        F::from_int(word)
-    })
-}
-
 #[derive(Debug, Clone)]
 pub struct Witness<EF>
 where
@@ -116,7 +108,7 @@ where
     #[instrument(skip_all)]
     pub fn commit(
         &self,
-        prover_state: &mut impl FSProver<EF>,
+        prover_state: &mut impl FSProver<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
         polynomial: &MleOwned<EF>,
         actual_data_len: usize, // polynomial[actual_data_len..] is zero
     ) -> Witness<EF> {
@@ -137,7 +129,7 @@ where
 
         let (prover_data, root) = MerkleData::build(folded_matrix, n_blocks, effective_n_cols);
 
-        prover_state.add_base_scalars(&root);
+        prover_state.add_commitment(&root);
 
         let (ood_points, ood_answers) =
             sample_ood_points::<EF, _>(prover_state, self.commitment_ood_samples, self.num_variables, |point| {
@@ -154,7 +146,7 @@ where
     #[instrument(skip_all)]
     pub fn commit2(
         &self,
-        prover_state: &mut impl FSProver<EF>,
+        prover_state: &mut impl FSProver<EF, Digest = Sha256Digest>,
         polynomial: &MleOwned<EF>,
         actual_data_len: usize, // polynomial[actual_data_len..] is zero
     ) -> Witness2<EF> {
@@ -175,7 +167,7 @@ where
 
         let (prover_data, root) = MerkleData2::build(folded_matrix, n_blocks, effective_n_cols);
 
-        prover_state.add_base_scalars(&sha256_digest_to_scalars(&root));
+        prover_state.add_commitment(&root);
 
         let (ood_points, ood_answers) =
             sample_ood_points::<EF, _>(prover_state, self.commitment_ood_samples, self.num_variables, |point| {
