@@ -133,13 +133,23 @@ impl<F: PrimeField32> ChallengerSha2<F> {
         res
     }
 
+    pub fn pow_grinding_sample_matches(&self, bits: usize) -> bool {
+        assert!(bits < F::bits());
+        let sample = self.sample_first_word(0, 0);
+        let rand_usize = sample.as_canonical_u64() as usize;
+        (rand_usize & ((1 << bits) - 1)) == 0
+    }
+
+    pub fn pow_grinding_witness_matches(&self, witness: F, bits: usize) -> bool {
+        let mut challenger = self.clone();
+        challenger.observe_scalars(&[witness]);
+        challenger.pow_grinding_sample_matches(bits)
+    }
+
     fn sample_chunk(&self, domain_sep: usize) -> [F; RATE] {
         let mut words = Vec::with_capacity(RATE);
         for block_idx in 0u64.. {
-            let mut hasher = self.sha2.clone();
-            hasher.update((domain_sep as u64).to_le_bytes());
-            hasher.update(block_idx.to_le_bytes());
-            let digest = hasher.finalize();
+            let digest = self.sample_digest(domain_sep, block_idx);
             for word in digest.chunks_exact(size_of::<u32>()) {
                 let word = u32::from_le_bytes(word.try_into().unwrap());
                 words.push(F::from_int(word));
@@ -150,10 +160,57 @@ impl<F: PrimeField32> ChallengerSha2<F> {
         }
         unreachable!()
     }
+
+    fn sample_first_word(&self, domain_sep: usize, block_idx: u64) -> F {
+        let digest = self.sample_digest(domain_sep, block_idx);
+        let word = u32::from_le_bytes(digest[..size_of::<u32>()].try_into().unwrap());
+        F::from_int(word)
+    }
+
+    fn sample_digest(&self, domain_sep: usize, block_idx: u64) -> sha2::digest::Output<Sha256> {
+        let mut hasher = self.sha2.clone();
+        hasher.update((domain_sep as u64).to_le_bytes());
+        hasher.update(block_idx.to_le_bytes());
+        hasher.finalize()
+    }
 }
 
 impl<F: PrimeField32> Default for ChallengerSha2<F> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use field::PrimeCharacteristicRing;
+    use koala_bear::KoalaBear;
+
+    use super::ChallengerSha2;
+
+    #[test]
+    fn sha2_pow_grinding_direct_predicate_matches_sampling_path() {
+        let transcript_prefixes = [
+            vec![],
+            vec![KoalaBear::ONE],
+            (0..17).map(KoalaBear::from_usize).collect::<Vec<_>>(),
+            (100..141).map(KoalaBear::from_usize).collect::<Vec<_>>(),
+        ];
+
+        for prefix in transcript_prefixes {
+            let mut challenger = ChallengerSha2::new();
+            challenger.observe_scalars(&prefix);
+
+            for bits in 1..=20 {
+                for candidate in [0, 1, 2, 3, 5, 8, 13, 21, 55, 89, 144, 233, 377, 610] {
+                    let witness = KoalaBear::from_usize(candidate);
+                    let mut sampling_path = challenger.clone();
+                    sampling_path.observe_scalars(&[witness]);
+                    let expected = sampling_path.sample_in_range(bits, 1)[0] == 0;
+                    let actual = challenger.pow_grinding_witness_matches(witness, bits);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
     }
 }

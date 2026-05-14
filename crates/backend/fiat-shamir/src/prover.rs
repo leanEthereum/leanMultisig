@@ -283,12 +283,14 @@ where
         }
 
         let time = Instant::now();
+        let challenger = self.challenger.clone();
         let witness = (0..PF::<EF>::ORDER_U32)
-            .find_map(|candidate| {
+            .into_par_iter()
+            .find_map_any(|candidate| {
                 let witness = unsafe { PF::<EF>::from_canonical_unchecked(candidate) };
-                let mut challenger = self.challenger.clone();
-                challenger.observe_scalars(&[witness]);
-                (challenger.sample_in_range(bits, 1)[0] == 0).then_some(witness)
+                challenger
+                    .pow_grinding_witness_matches(witness, bits)
+                    .then_some(witness)
             })
             .expect("failed to find witness");
 

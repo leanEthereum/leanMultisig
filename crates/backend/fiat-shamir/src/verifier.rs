@@ -348,8 +348,7 @@ where
         }
         let witness = self.read_transcript(1)?[0];
         self.challenger.observe_scalars(&[witness]);
-        let mut challenger = self.challenger.clone();
-        if challenger.sample_in_range(bits, 1)[0] != 0 {
+        if !self.challenger.pow_grinding_sample_matches(bits) {
             return Err(ProofError::InvalidGrindingWitness);
         }
         Ok(())
