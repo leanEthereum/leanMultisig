@@ -1,22 +1,24 @@
 use std::collections::BTreeMap;
 
 use crate::*;
-use backend::{Proof, RawProof, VerifierState};
 use lean_vm::*;
 use sub_protocols::*;
-use utils::{ToUsize, from_end, get_poseidon16};
+use utils::{ToUsize, from_end};
 
 #[derive(Debug, Clone)]
 pub struct ProofVerificationDetails {
     pub bytecode_evaluation: Evaluation<EF>,
 }
 
-pub fn verify_execution(
+pub fn verify<V>(
     bytecode: &Bytecode,
     public_input: &[F],
-    proof: Proof<F>,
-) -> Result<(ProofVerificationDetails, RawProof<F>), ProofError> {
-    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone())?;
+    verifier_state: &mut V,
+) -> Result<ProofVerificationDetails, ProofError>
+where
+    V: FSVerifier<EF>,
+    V::Digest: WhirVerifierDigest<F, EF>,
+{
     verifier_state.observe_scalars(public_input);
     verifier_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     let dims = verifier_state
@@ -26,7 +28,7 @@ pub fn verify_execution(
         .collect::<Vec<_>>();
     let log_inv_rate = dims[0];
     let log_memory = dims[1];
-    let public_input_len = dims[2]; // enforce the exact length of the public input to pass through Fiat Shamir (otherwise we could have 2 public inputs, only differing by a few (<8) zeros in the end, leading to the same fiat shamir state: tipically giving the advseary 2 or 3 bits of advantage in the subsequent part where the public input is evaluated as a multilinear polynomial)
+    let public_input_len = dims[2];
     if public_input_len != public_input.len() {
         return Err(ProofError::InvalidProof);
     }
@@ -47,7 +49,6 @@ pub fn verify_execution(
             .into());
         }
     }
-    // check memory is bigger than any other table
     if log_memory < (*table_n_vars.values().max().unwrap()).max(bytecode.log_size()) {
         return Err(ProofError::InvalidProof);
     }
@@ -62,9 +63,9 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let parsed_commitment = stacked_pcs_parse_commitment(
+    let parsed_commitment = stacked_pcs_parse_commitment_generic(
         &whir_config,
-        &mut verifier_state,
+        verifier_state,
         log_memory,
         bytecode.log_size(),
         &table_n_vars,
@@ -75,7 +76,7 @@ pub fn verify_execution(
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
     let logup_statements = verify_generic_logup(
-        &mut verifier_state,
+        verifier_state,
         logup_c,
         &logup_alphas,
         &logup_alphas_eq_poly,
@@ -100,7 +101,7 @@ pub fn verify_execution(
     let bus_beta = verifier_state.sample();
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
-    let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
+    let eta: EF = verifier_state.sample();
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
 
@@ -140,7 +141,7 @@ pub fn verify_execution(
     let Evaluation {
         point: sumcheck_air_point,
         value: claimed_air_final_value,
-    } = sumcheck_verify(&mut verifier_state, n_max, max_full_degree, initial_sum, None)?;
+    } = sumcheck_verify(verifier_state, n_max, max_full_degree, initial_sum, None)?;
 
     let mut my_air_final_value = EF::ZERO;
     for vd in &verify_data {
@@ -211,22 +212,18 @@ pub fn verify_execution(
         &committed_statements,
     );
 
-    // sanity check (not necessary for soundness)
     let num_whir_statements = global_statements_base.iter().map(|s| s.values.len()).sum::<usize>();
     assert_eq!(num_whir_statements, total_whir_statements());
 
     WhirConfig::new(&whir_config, parsed_commitment.num_variables).verify(
-        &mut verifier_state,
+        verifier_state,
         &parsed_commitment,
         global_statements_base,
     )?;
 
-    Ok((
-        ProofVerificationDetails {
-            bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
-        },
-        verifier_state.into_raw_proof(),
-    ))
+    Ok(ProofVerificationDetails {
+        bytecode_evaluation: logup_statements.bytecode_evaluation.unwrap(),
+    })
 }
 
 fn back_loaded_table_contribution<EF: ExtensionField<PF<EF>>>(

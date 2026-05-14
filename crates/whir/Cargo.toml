@@ -17,6 +17,7 @@ itertools.workspace = true
 rayon.workspace = true
 rand.workspace = true
 tracing.workspace = true
+sha2 = "0.10.9"
 
 [dev-dependencies]
 tracing-forest.workspace = true

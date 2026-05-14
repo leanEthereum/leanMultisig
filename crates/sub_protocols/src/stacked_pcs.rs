@@ -1,3 +1,4 @@
+use backend::merkle::Sha256Digest;
 use backend::*;
 use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
@@ -31,9 +32,9 @@ Stacking of various (multilinear) polynomials into a single -big- (multilinear) 
 */
 
 #[derive(Debug)]
-pub struct StackedPcsWitness {
+pub struct StackedPcsWitness<InnerWitness> {
     pub stacked_n_vars: VarCount,
-    pub inner_witness: Witness<EF>,
+    pub inner_witness: InnerWitness,
     pub global_polynomial: MleOwned<EF>,
 }
 
@@ -96,13 +97,49 @@ pub fn stacked_pcs_global_statements(
 
 #[instrument(skip_all)]
 pub fn stack_polynomials_and_commit(
-    prover_state: &mut impl FSProver<EF>,
+    prover_state: &mut impl FSProver<EF, Digest = [F; DIGEST_ELEMS]>,
     whir_config_builder: &WhirConfigBuilder,
     memory: &[F],
     memory_acc: &[F],
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
-) -> StackedPcsWitness {
+) -> StackedPcsWitness<Witness<EF>> {
+    stack_polynomials_and_commit_with(
+        whir_config_builder,
+        memory,
+        memory_acc,
+        bytecode_acc,
+        traces,
+        |whir_config, global_polynomial, offset| whir_config.commit(prover_state, global_polynomial, offset),
+    )
+}
+
+pub fn stack_polynomials_and_commit_sha2(
+    prover_state: &mut impl FSProver<EF, Digest = Sha256Digest>,
+    whir_config_builder: &WhirConfigBuilder,
+    memory: &[F],
+    memory_acc: &[F],
+    bytecode_acc: &[F],
+    traces: &BTreeMap<Table, TableTrace>,
+) -> StackedPcsWitness<Witness2<EF>> {
+    stack_polynomials_and_commit_with(
+        whir_config_builder,
+        memory,
+        memory_acc,
+        bytecode_acc,
+        traces,
+        |whir_config, global_polynomial, offset| whir_config.commit2(prover_state, global_polynomial, offset),
+    )
+}
+
+fn stack_polynomials_and_commit_with<InnerWitness>(
+    whir_config_builder: &WhirConfigBuilder,
+    memory: &[F],
+    memory_acc: &[F],
+    bytecode_acc: &[F],
+    traces: &BTreeMap<Table, TableTrace>,
+    commit: impl FnOnce(&WhirConfig<EF>, &MleOwned<EF>, usize) -> InnerWitness,
+) -> StackedPcsWitness<InnerWitness> {
     assert_eq!(memory.len(), memory_acc.len());
     let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_heights_sorted = sort_tables_by_height(&tables_heights);
@@ -146,8 +183,8 @@ pub fn stack_polynomials_and_commit(
 
     let global_polynomial = MleOwned::Base(global_polynomial);
 
-    let inner_witness =
-        WhirConfig::new(whir_config_builder, stacked_n_vars).commit(prover_state, &global_polynomial, offset);
+    let whir_config = WhirConfig::new(whir_config_builder, stacked_n_vars);
+    let inner_witness = commit(&whir_config, &global_polynomial, offset);
     StackedPcsWitness {
         stacked_n_vars,
         inner_witness,
@@ -157,11 +194,43 @@ pub fn stack_polynomials_and_commit(
 
 pub fn stacked_pcs_parse_commitment(
     whir_config_builder: &WhirConfigBuilder,
-    verifier_state: &mut impl FSVerifier<EF>,
+    verifier_state: &mut impl FSVerifier<EF, Digest = [F; DIGEST_ELEMS]>,
     log_memory: usize,
     log_bytecode: usize,
     tables_heights: &BTreeMap<Table, VarCount>,
 ) -> Result<ParsedCommitment<F, EF>, ProofError> {
+    stacked_pcs_parse_commitment_generic(
+        whir_config_builder,
+        verifier_state,
+        log_memory,
+        log_bytecode,
+        tables_heights,
+    )
+}
+
+pub fn stacked_pcs_parse_commitment_sha2(
+    whir_config_builder: &WhirConfigBuilder,
+    verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights: &BTreeMap<Table, VarCount>,
+) -> Result<ParsedCommitment<F, EF, Sha256Digest>, ProofError> {
+    stacked_pcs_parse_commitment_generic(
+        whir_config_builder,
+        verifier_state,
+        log_memory,
+        log_bytecode,
+        tables_heights,
+    )
+}
+
+pub fn stacked_pcs_parse_commitment_generic<Digest: Clone>(
+    whir_config_builder: &WhirConfigBuilder,
+    verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights: &BTreeMap<Table, VarCount>,
+) -> Result<ParsedCommitment<F, EF, Digest>, ProofError> {
     if log_memory < tables_heights[&Table::execution()]
         || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
     {
@@ -176,7 +245,7 @@ pub fn stacked_pcs_parse_commitment(
     {
         return Err(ProofError::InvalidProof);
     }
-    WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment(verifier_state)
+    WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment_generic(verifier_state)
 }
 
 fn compute_stacked_n_vars(

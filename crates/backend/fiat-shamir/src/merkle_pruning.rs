@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DIGEST_LEN_FE, MerklePath, MerklePaths};
+use crate::{MerklePath, MerklePaths};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PrunedMerklePaths<Data, F> {
+pub struct PrunedMerklePaths<Data, Digest> {
     pub merkle_height: usize,
     pub original_order: Vec<usize>,
     pub leaf_data: Vec<Vec<Data>>,
-    pub paths: Vec<(usize, Vec<[F; DIGEST_LEN_FE]>)>,
+    pub paths: Vec<(usize, Vec<Digest>)>,
     pub n_trailing_zeros: usize,
 }
 
@@ -15,8 +15,8 @@ fn lca_level(a: usize, b: usize) -> usize {
     (usize::BITS - (a ^ b).leading_zeros()) as usize
 }
 
-impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
-    pub fn prune(self) -> PrunedMerklePaths<Data, F>
+impl<Data: Clone, Digest: Clone> MerklePaths<Data, Digest> {
+    pub fn prune(self) -> PrunedMerklePaths<Data, Digest>
     where
         Data: Default + PartialEq,
     {
@@ -27,7 +27,7 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
         indexed.sort_by_key(|(_, p)| p.leaf_index);
 
         let mut original_order = vec![0; indexed.len()];
-        let mut deduped = Vec::<MerklePath<Data, F>>::new();
+        let mut deduped = Vec::<MerklePath<Data, Digest>>::new();
 
         for (orig_idx, path) in indexed {
             if deduped.last().map(|p| p.leaf_index) == Some(path.leaf_index) {
@@ -83,12 +83,12 @@ impl<Data: Clone, F: Clone> MerklePaths<Data, F> {
     }
 }
 
-impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
+impl<Data: Clone, Digest: Clone> PrunedMerklePaths<Data, Digest> {
     pub fn restore(
         mut self,
-        hash_leaf: &impl Fn(&[Data]) -> [F; DIGEST_LEN_FE],
-        hash_combine: &impl Fn(&[F; DIGEST_LEN_FE], &[F; DIGEST_LEN_FE]) -> [F; DIGEST_LEN_FE],
-    ) -> Option<MerklePaths<Data, F>>
+        hash_leaf: &impl Fn(&[Data]) -> Digest,
+        hash_combine: &impl Fn(&Digest, &Digest) -> Digest,
+    ) -> Option<MerklePaths<Data, Digest>>
     where
         Data: Default,
     {
@@ -112,7 +112,7 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
         let skip = |i: usize| self.paths.get(i + 1).map(|p| lca_level(self.paths[i].0, p.0) - 1);
 
         // Backward pass: compute subtree hashes needed to restore skipped siblings
-        let mut subtree_hashes: Vec<Vec<[F; DIGEST_LEN_FE]>> = vec![vec![]; n];
+        let mut subtree_hashes: Vec<Vec<Digest>> = vec![vec![]; n];
 
         for i in (0..n).rev() {
             let (leaf_idx, ref stored) = self.paths[i];
@@ -139,7 +139,7 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
         }
 
         // Forward pass: build full sibling arrays
-        let mut restored: Vec<MerklePath<Data, F>> = Vec::with_capacity(n);
+        let mut restored: Vec<MerklePath<Data, Digest>> = Vec::with_capacity(n);
 
         for i in 0..n {
             let (leaf_idx, ref stored) = self.paths[i];
@@ -178,6 +178,7 @@ impl<Data: Clone, F: Clone> PrunedMerklePaths<Data, F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DIGEST_LEN_FE;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -231,7 +232,7 @@ mod tests {
         leaf_data: Vec<u8>,
         leaf_index: usize,
         tree: &[Vec<[u8; DIGEST_LEN_FE]>],
-    ) -> MerklePath<u8, u8> {
+    ) -> MerklePath<u8, [u8; DIGEST_LEN_FE]> {
         let height = tree.len() - 1;
         let mut sibling_hashes = Vec::with_capacity(height);
 

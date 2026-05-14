@@ -59,6 +59,7 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                         + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * flag_left
                         + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val
                 }
+                PrecompileCompTimeArgs::Sha256Compress => SHA256_PRECOMPILE_DATA,
                 PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                     assert!(*size >= 1, "invalid extension_op size={size}");
                     mode.flag_encoding() + EXT_OP_LEN_MULTIPLIER * size

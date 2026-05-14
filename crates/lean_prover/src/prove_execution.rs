@@ -1,20 +1,109 @@
 use std::collections::BTreeMap;
 
 use crate::*;
+use backend::merkle::Sha256Digest;
 use lean_vm::*;
 
 use serde::{Deserialize, Serialize};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
-use utils::{build_prover_state, from_end};
+use utils::{build_prover_state, build_prover_state_sha2, from_end};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionProof {
-    pub proof: Proof<F>,
+#[serde(bound(
+    serialize = "Proof<F, Digest>: Serialize",
+    deserialize = "Proof<F, Digest>: Deserialize<'de>"
+))]
+pub struct ExecutionProof<Digest = [F; DIGEST_ELEMS]> {
+    pub proof: Proof<F, Digest>,
     // benchmark / debug purpose
     #[serde(skip, default)]
     pub metadata: Option<ExecutionMetadata>,
+}
+
+trait ExecutionProverBackend<P>
+where
+    P: FSProver<EF>,
+{
+    type InnerWitness;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness>;
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    );
+}
+
+struct PoseidonExecutionBackend;
+
+impl<P> ExecutionProverBackend<P> for PoseidonExecutionBackend
+where
+    P: FSProver<EF, Digest = [F; DIGEST_ELEMS]>,
+{
+    type InnerWitness = Witness<EF>;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness> {
+        stack_polynomials_and_commit(prover_state, whir_config, memory, memory_acc, bytecode_acc, traces)
+    }
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    ) {
+        whir_config.prove(prover_state, statements, witness, polynomial);
+    }
+}
+
+struct Sha2ExecutionBackend;
+
+impl<P> ExecutionProverBackend<P> for Sha2ExecutionBackend
+where
+    P: FSProver<EF, Digest = Sha256Digest>,
+{
+    type InnerWitness = Witness2<EF>;
+
+    fn stack_polynomials_and_commit(
+        prover_state: &mut P,
+        whir_config: &WhirConfigBuilder,
+        memory: &[F],
+        memory_acc: &[F],
+        bytecode_acc: &[F],
+        traces: &BTreeMap<Table, TableTrace>,
+    ) -> StackedPcsWitness<Self::InnerWitness> {
+        stack_polynomials_and_commit_sha2(prover_state, whir_config, memory, memory_acc, bytecode_acc, traces)
+    }
+
+    fn prove_whir(
+        whir_config: &WhirConfig<EF>,
+        prover_state: &mut P,
+        statements: Vec<SparseStatement<EF>>,
+        witness: Self::InnerWitness,
+        polynomial: &MleRef<'_, EF>,
+    ) {
+        whir_config.prove2(prover_state, statements, witness, polynomial);
+    }
 }
 
 pub fn prove_execution(
@@ -24,6 +113,49 @@ pub fn prove_execution(
     whir_config: &WhirConfigBuilder,
     vm_profiler: bool,
 ) -> Result<ExecutionProof, ProverError> {
+    prove_execution_with::<_, PoseidonExecutionBackend, _>(
+        bytecode,
+        public_input,
+        witness,
+        whir_config,
+        vm_profiler,
+        build_prover_state(),
+        |prover_state| prover_state.into_proof(),
+    )
+}
+
+pub fn prove_execution_sha2(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    witness: &ExecutionWitness,
+    whir_config: &WhirConfigBuilder,
+    vm_profiler: bool,
+) -> Result<ExecutionProof<Sha256Digest>, ProverError> {
+    prove_execution_with::<_, Sha2ExecutionBackend, _>(
+        bytecode,
+        public_input,
+        witness,
+        whir_config,
+        vm_profiler,
+        build_prover_state_sha2(),
+        |prover_state| prover_state.into_proof(),
+    )
+}
+
+fn prove_execution_with<P, B, IntoProof>(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    witness: &ExecutionWitness,
+    whir_config: &WhirConfigBuilder,
+    vm_profiler: bool,
+    mut prover_state: P,
+    into_proof: IntoProof,
+) -> Result<ExecutionProof<P::Digest>, ProverError>
+where
+    P: FSProver<EF>,
+    B: ExecutionProverBackend<P>,
+    IntoProof: FnOnce(P) -> Proof<F, P::Digest>,
+{
     check_rate(whir_config.starting_log_inv_rate)
         .map_err(|err| panic!("{err}"))
         .unwrap();
@@ -44,23 +176,22 @@ pub fn prove_execution(
     if memory.len() < min_memory_size {
         memory.resize(min_memory_size, F::ZERO);
     }
-    let mut prover_state = build_prover_state();
     prover_state.observe_scalars(public_input);
-    prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
-    prover_state.add_base_scalars(
-        &[
-            vec![
-                whir_config.starting_log_inv_rate,
-                log2_strict_usize(memory.len()),
-                public_input.len(),
-            ],
-            traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
-        ]
-        .concat()
-        .into_iter()
-        .map(F::from_usize)
-        .collect::<Vec<_>>(),
-    );
+    let bytecode_hash_with_domain_sep = poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP);
+    prover_state.observe_scalars(&bytecode_hash_with_domain_sep);
+    let execution_metadata_scalars = [
+        vec![
+            whir_config.starting_log_inv_rate,
+            log2_strict_usize(memory.len()),
+            public_input.len(),
+        ],
+        traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
+    ]
+    .concat()
+    .into_iter()
+    .map(F::from_usize)
+    .collect::<Vec<_>>();
+    prover_state.add_base_scalars(&execution_metadata_scalars);
     for (table, table_trace) in &traces {
         let log_n_rows = table_trace.log_n_rows;
         assert!(log_n_rows >= MIN_LOG_N_ROWS_PER_TABLE, "missing padding");
@@ -110,7 +241,7 @@ pub fn prove_execution(
     });
 
     // 1st Commitment
-    let stacked_pcs_witness = stack_polynomials_and_commit(
+    let stacked_pcs_witness = B::stack_polynomials_and_commit(
         &mut prover_state,
         whir_config,
         &memory,
@@ -245,7 +376,6 @@ pub fn prove_execution(
             )],
         ),
     ];
-
     let global_statements_base = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
@@ -255,7 +385,8 @@ pub fn prove_execution(
         &committed_statements,
     );
 
-    WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()).prove(
+    B::prove_whir(
+        &WhirConfig::new(whir_config, stacked_pcs_witness.global_polynomial.by_ref().n_vars()),
         &mut prover_state,
         global_statements_base,
         stacked_pcs_witness.inner_witness,
@@ -266,7 +397,7 @@ pub fn prove_execution(
     reset_pow_grinding_time();
 
     Ok(ExecutionProof {
-        proof: prover_state.into_proof(),
+        proof: into_proof(prover_state),
         metadata: Some(metadata),
     })
 }

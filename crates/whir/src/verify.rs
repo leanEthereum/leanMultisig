@@ -5,21 +5,22 @@ use std::{fmt::Debug, marker::PhantomData};
 use fiat_shamir::{FSVerifier, ProofError, ProofResult, pack_scalars_to_extension};
 use field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
 use poly::*;
+use symetric::merkle::Sha256Digest;
 
 use crate::*;
 
 #[derive(Debug, Clone)]
-pub struct ParsedCommitment<F: Field, EF: ExtensionField<F>> {
+pub struct ParsedCommitment<F: Field, EF: ExtensionField<F>, Digest = [PF<EF>; DIGEST_ELEMS]> {
     pub num_variables: usize,
-    pub root: [PF<EF>; DIGEST_ELEMS],
+    pub root: Digest,
     pub ood_points: Vec<EF>,
     pub ood_answers: Vec<EF>,
     pub base_field: PhantomData<F>,
 }
 
-impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
+impl<F: Field, EF: ExtensionField<F>, Digest: Clone> ParsedCommitment<F, EF, Digest> {
     pub fn parse(
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<Self>
@@ -28,7 +29,7 @@ impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
         EF: ExtensionField<F> + TwoAdicField,
         EF: ExtensionField<PF<EF>>,
     {
-        let root = verifier_state.next_base_scalars_vec(DIGEST_ELEMS)?.try_into().unwrap();
+        let root = verifier_state.next_commitment()?;
         let mut ood_points = vec![];
         let ood_answers = if ood_samples > 0 {
             ood_points = verifier_state.sample_vec(ood_samples);
@@ -59,18 +60,101 @@ impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
     }
 }
 
+pub trait WhirVerifierDigest<F, EF>: Clone + Sized
+where
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
+    PF<EF>: TwoAdicField,
+    F: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<F>,
+{
+    fn verify_stir_challenges<V>(
+        config: &WhirConfig<EF>,
+        verifier_state: &mut V,
+        params: &RoundConfig<EF>,
+        commitment: &ParsedCommitment<F, EF, Self>,
+        folding_randomness: &MultilinearPoint<EF>,
+        round_index: usize,
+    ) -> ProofResult<Vec<SparseStatement<EF>>>
+    where
+        V: FSVerifier<EF, Digest = Self>;
+}
+
+impl<F, EF> WhirVerifierDigest<F, EF> for [PF<EF>; DIGEST_ELEMS]
+where
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
+    PF<EF>: TwoAdicField,
+    F: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<F>,
+{
+    fn verify_stir_challenges<V>(
+        config: &WhirConfig<EF>,
+        verifier_state: &mut V,
+        params: &RoundConfig<EF>,
+        commitment: &ParsedCommitment<F, EF, Self>,
+        folding_randomness: &MultilinearPoint<EF>,
+        round_index: usize,
+    ) -> ProofResult<Vec<SparseStatement<EF>>>
+    where
+        V: FSVerifier<EF, Digest = Self>,
+    {
+        config.verify_stir_challenges(verifier_state, params, commitment, folding_randomness, round_index)
+    }
+}
+
+impl<F, EF> WhirVerifierDigest<F, EF> for Sha256Digest
+where
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
+    PF<EF>: TwoAdicField,
+    F: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<F>,
+{
+    fn verify_stir_challenges<V>(
+        config: &WhirConfig<EF>,
+        verifier_state: &mut V,
+        params: &RoundConfig<EF>,
+        commitment: &ParsedCommitment<F, EF, Self>,
+        folding_randomness: &MultilinearPoint<EF>,
+        round_index: usize,
+    ) -> ProofResult<Vec<SparseStatement<EF>>>
+    where
+        V: FSVerifier<EF, Digest = Self>,
+    {
+        config.verify_stir_challenges2(verifier_state, params, commitment, folding_randomness, round_index)
+    }
+}
+
 impl<EF> WhirConfig<EF>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>>,
 {
     pub fn parse_commitment<F: TwoAdicField>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
     ) -> ProofResult<ParsedCommitment<F, EF>>
     where
         EF: ExtensionField<F>,
     {
         ParsedCommitment::<F, EF>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
+    }
+
+    pub fn parse_commitment_generic<F: TwoAdicField, Digest: Clone>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
+    ) -> ProofResult<ParsedCommitment<F, EF, Digest>>
+    where
+        EF: ExtensionField<F>,
+    {
+        ParsedCommitment::<F, EF, Digest>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
+    }
+
+    pub fn parse_commitment2<F: TwoAdicField>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+    ) -> ProofResult<ParsedCommitment<F, EF, Sha256Digest>>
+    where
+        EF: ExtensionField<F>,
+    {
+        self.parse_commitment_generic(verifier_state)
     }
 }
 
@@ -80,28 +164,27 @@ where
     PF<EF>: TwoAdicField,
 {
     #[allow(clippy::too_many_lines)]
-    pub fn verify<F>(
+    pub fn verify<F, Digest, V>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
-        parsed_commitment: &ParsedCommitment<F, EF>,
+        verifier_state: &mut V,
+        parsed_commitment: &ParsedCommitment<F, EF, Digest>,
         statement: Vec<SparseStatement<EF>>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
         F: TwoAdicField + ExtensionField<PF<EF>>,
         EF: ExtensionField<F>,
+        Digest: WhirVerifierDigest<F, EF>,
+        V: FSVerifier<EF, Digest = Digest>,
     {
         statement
             .iter()
             .for_each(|c| assert_eq!(c.total_num_variables, parsed_commitment.num_variables));
 
-        // During the rounds we collect constraints, combination randomness, folding randomness
-        // and we update the claimed sum of constraint evaluation.
         let mut round_constraints = Vec::new();
         let mut round_folding_randomness = Vec::new();
         let mut claimed_sum = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        // Combine OODS and statement constraints to claimed_sum
         let constraints: Vec<_> = prev_commitment
             .oods_constraints()
             .into_iter()
@@ -110,7 +193,6 @@ where
         let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
         round_constraints.push((combination_randomness, constraints));
 
-        // Initial sumcheck
         let folding_randomness = verify_sumcheck_rounds::<F, EF>(
             verifier_state,
             &mut claimed_sum,
@@ -120,15 +202,15 @@ where
         round_folding_randomness.push(folding_randomness);
 
         for round_index in 0..self.n_rounds() {
-            // Fetch round parameters from config
             let round_params = &self.round_parameters[round_index];
+            let new_commitment = ParsedCommitment::<F, EF, Digest>::parse(
+                verifier_state,
+                round_params.num_variables,
+                round_params.ood_samples,
+            )?;
 
-            // Receive commitment to the folded polynomial (likely encoded at higher expansion)
-            let new_commitment =
-                ParsedCommitment::<F, EF>::parse(verifier_state, round_params.num_variables, round_params.ood_samples)?;
-
-            // Verify in-domain challenges on the previous commitment.
-            let stir_constraints = self.verify_stir_challenges(
+            let stir_constraints = Digest::verify_stir_challenges(
+                self,
                 verifier_state,
                 round_params,
                 &prev_commitment,
@@ -136,7 +218,6 @@ where
                 round_index,
             )?;
 
-            // Add out-of-domain and in-domain constraints to claimed_sum
             let constraints: Vec<SparseStatement<EF>> = new_commitment
                 .oods_constraints()
                 .into_iter()
@@ -154,17 +235,14 @@ where
             )?;
 
             round_folding_randomness.push(folding_randomness);
-
-            // Update round parameters
             prev_commitment = new_commitment;
         }
 
-        // In the final round we receive the full polynomial instead of a commitment.
         let n_final_coeffs = 1 << self.n_vars_of_final_polynomial();
         let final_coefficients = verifier_state.next_extension_scalars_vec(n_final_coeffs)?;
 
-        // Verify in-domain challenges on the previous commitment.
-        let stir_constraints = self.verify_stir_challenges(
+        let stir_constraints = Digest::verify_stir_challenges(
+            self,
             verifier_state,
             &self.final_round_config(),
             &prev_commitment,
@@ -172,7 +250,6 @@ where
             self.n_rounds(),
         )?;
 
-        // Verify stir constraints directly on final polynomial
         stir_constraints
             .iter()
             .all(|c| verify_constraint_coeffs(c, &final_coefficients))
@@ -183,7 +260,6 @@ where
             verify_sumcheck_rounds::<F, EF>(verifier_state, &mut claimed_sum, self.final_sumcheck_rounds, 0)?;
         round_folding_randomness.push(final_sumcheck_randomness.clone());
 
-        // Compute folding randomness across all rounds.
         let folding_randomness = MultilinearPoint(
             round_folding_randomness
                 .into_iter()
@@ -193,7 +269,6 @@ where
 
         let evaluation_of_weights = self.eval_constraints_poly(&round_constraints, folding_randomness.clone());
 
-        // Check the final sumcheck evaluation (coefficient form, reversed point)
         let mut reversed_point = final_sumcheck_randomness.0.clone();
         reversed_point.reverse();
         let final_value = eval_multilinear_coeffs(&final_coefficients, &reversed_point);
@@ -226,7 +301,7 @@ where
 
     fn verify_stir_challenges<F>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
         params: &RoundConfig<EF>,
         commitment: &ParsedCommitment<F, EF>,
         folding_randomness: &MultilinearPoint<EF>,
@@ -284,10 +359,64 @@ where
         Ok(stir_constraints)
     }
 
+    fn verify_stir_challenges2<F>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+        params: &RoundConfig<EF>,
+        commitment: &ParsedCommitment<F, EF, Sha256Digest>,
+        folding_randomness: &MultilinearPoint<EF>,
+        round_index: usize,
+    ) -> ProofResult<Vec<SparseStatement<EF>>>
+    where
+        F: Field + ExtensionField<PF<EF>>,
+        EF: ExtensionField<F>,
+    {
+        let leafs_base_field = round_index == 0;
+
+        verifier_state.check_pow_grinding(params.query_pow_bits)?;
+
+        let stir_challenges_indexes = get_challenge_stir_queries(
+            params.domain_size >> params.folding_factor,
+            params.num_queries,
+            verifier_state,
+        );
+
+        let dimensions = vec![Dimensions {
+            height: params.domain_size >> params.folding_factor,
+            width: 1 << params.folding_factor,
+        }];
+        let answers = self.verify_merkle_proof2::<F>(
+            verifier_state,
+            &commitment.root,
+            &stir_challenges_indexes,
+            &dimensions,
+            leafs_base_field,
+        )?;
+
+        let folds: Vec<_> = answers
+            .into_iter()
+            .map(|answers| answers.evaluate(folding_randomness))
+            .collect();
+
+        let stir_constraints = stir_challenges_indexes
+            .iter()
+            .map(|&index| params.folded_domain_gen.exp_u64(index as u64))
+            .zip(&folds)
+            .map(|(point, &value)| {
+                SparseStatement::dense(
+                    MultilinearPoint::expand_from_univariate(EF::from(point), params.num_variables),
+                    value,
+                )
+            })
+            .collect();
+
+        Ok(stir_constraints)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn verify_merkle_proof<F>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
         root: &[PF<EF>; DIGEST_ELEMS],
         indices: &[usize],
         dimensions: &[Dimensions],
@@ -331,6 +460,62 @@ where
 
             for (i, &index) in indices.iter().enumerate() {
                 if !merkle_verify::<PF<EF>, EF>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i]) {
+                    return Err(ProofError::InvalidProof);
+                }
+            }
+
+            answers
+        };
+
+        Ok(res)
+    }
+
+    fn verify_merkle_proof2<F>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+        root: &Sha256Digest,
+        indices: &[usize],
+        dimensions: &[Dimensions],
+        leafs_base_field: bool,
+    ) -> ProofResult<Vec<Vec<EF>>>
+    where
+        F: Field + ExtensionField<PF<EF>>,
+        EF: ExtensionField<F>,
+    {
+        let res = if leafs_base_field {
+            let mut answers = Vec::<Vec<F>>::new();
+            let mut merkle_proofs = Vec::new();
+
+            for _ in 0..indices.len() {
+                let opening = verifier_state.next_merkle_opening()?;
+                answers.push(pack_scalars_to_extension::<PF<EF>, F>(&opening.leaf_data));
+                merkle_proofs.push(opening.path);
+            }
+
+            for (i, &index) in indices.iter().enumerate() {
+                if !merkle_verify_sha2::<PF<EF>, F>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i])
+                {
+                    return Err(ProofError::InvalidProof);
+                }
+            }
+
+            answers
+                .into_iter()
+                .map(|inner| inner.iter().map(|&f_el| f_el.into()).collect())
+                .collect()
+        } else {
+            let mut answers = vec![];
+            let mut merkle_proofs = Vec::new();
+
+            for _ in 0..indices.len() {
+                let opening = verifier_state.next_merkle_opening()?;
+                answers.push(pack_scalars_to_extension::<PF<EF>, EF>(&opening.leaf_data));
+                merkle_proofs.push(opening.path);
+            }
+
+            for (i, &index) in indices.iter().enumerate() {
+                if !merkle_verify_sha2::<PF<EF>, EF>(*root, index, dimensions[0], answers[i].clone(), &merkle_proofs[i])
+                {
                     return Err(ProofError::InvalidProof);
                 }
             }

@@ -16,6 +16,13 @@ pub struct MerkleTree<F, const DIGEST_ELEMS: usize> {
     pub digest_layers: Vec<Vec<[F; DIGEST_ELEMS]>>,
 }
 
+pub type Sha256Digest = [u8; 16];
+/// A Merkle tree storing only the digest layers (no leaf data).
+#[derive(Debug, Clone)]
+pub struct MerkleTreeSha2 {
+    pub digest_layers: Vec<Vec<Sha256Digest>>,
+}
+
 impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleTree<F, DIGEST_ELEMS> {
     /// Build a Merkle tree from a pre-computed first digest layer.
     pub fn from_first_layer<P, Comp, const WIDTH: usize>(comp: &Comp, first_layer: Vec<[F; DIGEST_ELEMS]>) -> Self
@@ -41,6 +48,19 @@ impl<F: Clone + Copy + Default + Send + Sync, const DIGEST_ELEMS: usize> MerkleT
 
     /// Returns the sibling digests along the path from leaf to root.
     pub fn open_siblings(&self, index: usize, log_height: usize) -> Vec<[F; DIGEST_ELEMS]> {
+        (0..log_height)
+            .map(|i| self.digest_layers[i][(index >> i) ^ 1])
+            .collect()
+    }
+}
+
+impl MerkleTreeSha2 {
+    #[must_use]
+    pub fn root(&self) -> Sha256Digest {
+        self.digest_layers.last().unwrap()[0]
+    }
+
+    pub fn open_siblings(&self, index: usize, log_height: usize) -> Vec<Sha256Digest> {
         (0..log_height)
             .map(|i| self.digest_layers[i][(index >> i) ^ 1])
             .collect()

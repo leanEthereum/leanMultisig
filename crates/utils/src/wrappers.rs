@@ -9,6 +9,10 @@ pub fn build_prover_state() -> ProverState<QuinticExtensionFieldKB, Poseidon16> 
     ProverState::new(get_poseidon16().clone())
 }
 
+pub fn build_prover_state_sha2() -> ProverStateSha2<QuinticExtensionFieldKB> {
+    ProverStateSha2::new()
+}
+
 pub fn build_verifier_state(
     prover_state: ProverState<QuinticExtensionFieldKB, Poseidon16>,
 ) -> Result<VerifierState<QuinticExtensionFieldKB, Poseidon16>, ProofError> {
