@@ -23,6 +23,7 @@ pub enum RunnerError {
         range: usize,
     },
     InvalidExtensionOp,
+    InvalidSha256Input,
     ParallelSegmentFailed(usize, Box<RunnerError>),
 }
 
@@ -55,6 +56,7 @@ impl Display for RunnerError {
                 )
             }
             Self::InvalidExtensionOp => write!(f, "invalid extension op"),
+            Self::InvalidSha256Input => write!(f, "invalid sha256 input"),
             Self::ParallelSegmentFailed(id, err) => {
                 write!(f, "parallel segment {id} failed: {err}")
             }

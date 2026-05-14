@@ -2,12 +2,11 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFpOrConstant};
-use crate::POSEIDON16_NAME;
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
 use crate::tables::TableT;
-use crate::{ExtensionOpMode, Table, TableTrace};
+use crate::{ExtensionOpMode, POSEIDON16_NAME, SHA256_COMPRESS_NAME, Table, TableTrace};
 use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -69,6 +68,7 @@ pub enum PrecompileCompTimeArgs<S> {
         //   hardcoded_offset_left = Some(offset_left): left_input = m[offset_left..offset_left+4] | m[arg_a..arg_a+4] (arg_a is the first runtime parameter)
         hardcoded_offset_left: Option<S>,
     },
+    Sha256Compress,
     ExtensionOp {
         size: S,
         mode: ExtensionOpMode,
@@ -79,6 +79,7 @@ impl<S> PrecompileCompTimeArgs<S> {
     pub fn table(&self) -> Table {
         match self {
             Self::Poseidon16 { .. } => Table::poseidon16(),
+            Self::Sha256Compress => Table::sha256_compress(),
             Self::ExtensionOp { .. } => Table::extension_op(),
         }
     }
@@ -92,6 +93,7 @@ impl<S> PrecompileCompTimeArgs<S> {
                 half_output,
                 hardcoded_offset_left: hardcoded_left_4.map(&mut f),
             },
+            Self::Sha256Compress => PrecompileCompTimeArgs::Sha256Compress,
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
     }
@@ -262,6 +264,9 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
                     "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
                 ),
             },
+            PrecompileCompTimeArgs::Sha256Compress => {
+                write!(f, "{SHA256_COMPRESS_NAME}({arg_0}, {arg_1}, {res})")
+            }
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
             }

@@ -10,6 +10,49 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 use utils::{get_poseidon16, init_tracing, poseidon16_compress};
 
 #[test]
+#[ignore = "benchmark; run with `cargo test --release -p lean_prover bench_sha256_compress -- --ignored --nocapture`"]
+fn bench_sha256_compress() {
+    utils::init_tracing();
+    let n_sha_calls = std::env::var("SHA256_BENCH_CALLS")
+        .ok()
+        .map(|raw| raw.parse::<usize>().expect("SHA256_BENCH_CALLS must be a usize"))
+        .unwrap_or(1);
+    const SHA_FIXTURE_STRIDE: usize = SHA256_STATE_LIMBS + SHA256_BLOCK_LIMBS + SHA256_STATE_LIMBS;
+    let program_str = format!(
+        r#"
+N_SHA_CALLS = {n_sha_calls}
+SHA_FIXTURE_STRIDE = 64
+
+def main():
+    for j in unroll(0, N_SHA_CALLS):
+        base = j * SHA_FIXTURE_STRIDE
+        state = base
+        block = base + 16
+        expected = base + 48
+        out = Array(16)
+        sha256_compress(state, block, out)
+
+        for i in unroll(0, 16):
+            assert out[i] == expected[i]
+    return
+"#
+    );
+
+    let mut public_input = vec![F::ZERO; n_sha_calls * SHA_FIXTURE_STRIDE];
+    let expected = words_to_field_limbs_le(sha256_compress_words(SHA256_IV, SHA256_ABC_BLOCK));
+    for j in 0..n_sha_calls {
+        let base = j * SHA_FIXTURE_STRIDE;
+        public_input[base..base + SHA256_STATE_LIMBS].copy_from_slice(&words_to_field_limbs_le(SHA256_IV));
+        public_input[base + SHA256_STATE_LIMBS..base + SHA256_STATE_LIMBS + SHA256_BLOCK_LIMBS]
+            .copy_from_slice(&words_to_field_limbs_le(SHA256_ABC_BLOCK));
+        public_input[base + SHA256_STATE_LIMBS + SHA256_BLOCK_LIMBS..base + SHA_FIXTURE_STRIDE]
+            .copy_from_slice(&expected);
+    }
+
+    test_zk_vm_helper(&program_str, &public_input);
+}
+
+#[test]
 fn test_zk_vm_all_precompiles() {
     let program_str = r#"
 DIM = 5
@@ -21,6 +64,15 @@ HALF_DIGEST_LEN = 4
 def main():
     pub_start = 0
     poseidon16_compress(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, pub_start + 6 * DIGEST_LEN)
+
+    # Keep the SHA fixture away from the extension-op fixture ranges below.
+    sha_state = pub_start + 1400
+    sha_block = sha_state + 16
+    sha_expected = sha_block + 32
+    sha_out = Array(16)
+    sha256_compress(sha_state, sha_block, sha_out)
+    for i in unroll(0, 16):
+        assert sha_out[i] == sha_expected[i]
 
     # poseidon16_compress_half: only first 4 FE constrained
     full_out = pub_start + 6 * DIGEST_LEN
@@ -106,6 +158,17 @@ def main():
         F::from_usize(333),
         F::from_usize(444),
     ]);
+
+    // SHA256 compression test data: IV + padded "abc" block.
+    let sha_state_ptr = 1400;
+    let sha_block_ptr = sha_state_ptr + SHA256_STATE_LIMBS;
+    let sha_expected_ptr = sha_block_ptr + SHA256_BLOCK_LIMBS;
+    public_input[sha_state_ptr..sha_state_ptr + SHA256_STATE_LIMBS]
+        .copy_from_slice(&words_to_field_limbs_le(SHA256_IV));
+    public_input[sha_block_ptr..sha_block_ptr + SHA256_BLOCK_LIMBS]
+        .copy_from_slice(&words_to_field_limbs_le(SHA256_ABC_BLOCK));
+    let sha_expected = words_to_field_limbs_le(sha256_compress_words(SHA256_IV, SHA256_ABC_BLOCK));
+    public_input[sha_expected_ptr..sha_expected_ptr + SHA256_STATE_LIMBS].copy_from_slice(&sha_expected);
 
     let hardcoded_data: [F; 4] = rng.random();
     let hardcoded_prefix: [F; 4] = rng.random();
@@ -239,12 +302,30 @@ def fibonacci_const(a, b, n: Const):
 fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     utils::init_tracing();
     let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
+
+    test_zk_vm_bytecode_helper_poseidon(&bytecode, public_input);
+    test_zk_vm_bytecode_helper_sha2(&bytecode, public_input);
+}
+
+fn test_zk_vm_helper_poseidon(program_str: &str, public_input: &[F]) {
+    utils::init_tracing();
+    let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
+    test_zk_vm_bytecode_helper_poseidon(&bytecode, public_input);
+}
+
+fn test_zk_vm_helper_sha2(program_str: &str, public_input: &[F]) {
+    utils::init_tracing();
+    let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
+    test_zk_vm_bytecode_helper_sha2(&bytecode, public_input);
+}
+
+fn test_zk_vm_bytecode_helper_poseidon(bytecode: &Bytecode, public_input: &[F]) {
     let starting_log_inv_rate = 1;
     let witness = ExecutionWitness::default();
 
     let time = std::time::Instant::now();
     let proof = prove_execution(
-        &bytecode,
+        bytecode,
         public_input,
         &witness,
         &default_whir_config(starting_log_inv_rate),
@@ -257,9 +338,17 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     println!("{}", proof.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", poseidon_proof_time.as_secs_f32());
 
+    let mut verifier_state = VerifierState::<EF, _>::new(proof.proof, get_poseidon16().clone()).unwrap();
+    verify(bytecode, public_input, &mut verifier_state).unwrap();
+}
+
+fn test_zk_vm_bytecode_helper_sha2(bytecode: &Bytecode, public_input: &[F]) {
+    let starting_log_inv_rate = 1;
+    let witness = ExecutionWitness::default();
+
     let time = std::time::Instant::now();
     let proof2 = prove_execution_sha2(
-        &bytecode,
+        bytecode,
         public_input,
         &witness,
         &default_whir_config(starting_log_inv_rate),
@@ -272,8 +361,6 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     println!("{}", proof2.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", sha2_proof_time.as_secs_f32());
 
-    let mut verifier_state = VerifierState::<EF, _>::new(proof.proof, get_poseidon16().clone()).unwrap();
-    verify(&bytecode, public_input, &mut verifier_state).unwrap();
     let mut verifier_state2 = VerifierStateSha2::<EF>::new(proof2.proof).unwrap();
-    verify(&bytecode, public_input, &mut verifier_state2).unwrap();
+    verify(bytecode, public_input, &mut verifier_state2).unwrap();
 }

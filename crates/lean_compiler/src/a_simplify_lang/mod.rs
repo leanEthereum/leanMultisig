@@ -8,7 +8,7 @@ use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
     POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
-    PrecompileCompTimeArgs, SourceLocation,
+    PrecompileCompTimeArgs, SHA256_COMPRESS_NAME, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2304,6 +2304,32 @@ fn simplify_lines(
                                     half_output,
                                     hardcoded_offset_left,
                                 },
+                            }));
+                            continue;
+                        }
+
+                        // Special handling for SHA256 compression precompile
+                        if function_name == SHA256_COMPRESS_NAME {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
+                            }
+                            if args.len() != 3 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 3 arguments (state_ptr, block_ptr, out_ptr), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let simplified_args = args
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::Sha256Compress,
                             }));
                             continue;
                         }

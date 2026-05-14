@@ -46,6 +46,15 @@ pub struct Bus {
     pub data: Vec<BusData>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaddingMemory {
+    pub zero_vec_ptr: usize,
+    pub null_poseidon_16_hash_ptr: usize,
+    pub sha256_state_ptr: usize,
+    pub sha256_block_ptr: usize,
+    pub sha256_out_ptr: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct TableTrace {
     pub columns: Vec<Vec<F>>,
@@ -126,7 +135,7 @@ pub trait TableT: Air {
     fn table(&self) -> Table;
     fn lookups(&self) -> Vec<LookupIntoMemory>;
     fn bus(&self) -> Bus;
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F>;
+    fn padding_row(&self, padding: &PaddingMemory) -> Vec<F>;
     fn execute<M: MemoryAccess>(
         &self,
         arg_a: F,
