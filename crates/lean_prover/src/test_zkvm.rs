@@ -1,13 +1,9 @@
-use crate::{
-    default_whir_config,
-    prove_execution::prove_execution,
-    verify_execution::{verify_execution, verify_execution_sha2},
-};
+use crate::{default_whir_config, prove_execution::prove_execution, verify_execution::verify};
 use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{get_poseidon16, init_tracing, poseidon16_compress};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -251,8 +247,10 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     )
     .unwrap();
     let proof_time = time.elapsed();
-    verify_execution(&bytecode, public_input, proof.proof).unwrap();
-    verify_execution_sha2(&bytecode, public_input, proof.proof2).unwrap();
+    let mut verifier_state = VerifierState::<EF, _>::new(proof.proof, get_poseidon16().clone()).unwrap();
+    verify(&bytecode, public_input, &mut verifier_state).unwrap();
+    let mut verifier_state2 = VerifierStateSha2::<EF>::new(proof.proof2).unwrap();
+    verify(&bytecode, public_input, &mut verifier_state2).unwrap();
     println!("{}", proof.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }

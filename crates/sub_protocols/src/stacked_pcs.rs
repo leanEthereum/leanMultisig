@@ -192,7 +192,7 @@ pub fn stacked_pcs_parse_commitment_sha2(
     )
 }
 
-fn stacked_pcs_parse_commitment_generic<Digest: Clone>(
+pub fn stacked_pcs_parse_commitment_generic<Digest: Clone>(
     whir_config_builder: &WhirConfigBuilder,
     verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
     log_memory: usize,

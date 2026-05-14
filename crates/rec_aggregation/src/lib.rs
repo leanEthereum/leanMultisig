@@ -5,18 +5,18 @@ mod compilation;
 mod type_1_aggregation;
 mod type_2_aggregation;
 
-use backend::{Evaluation, Proof, ProofError, RawProof};
+use backend::{Evaluation, Proof, ProofError, RawProof, VerifierState};
 pub use compilation::{
     MAX_RECURSIONS, MAX_XMSS_AGGREGATED, MAX_XMSS_DUPLICATES, NUM_REPEATED_ONES, PREAMBLE_MEMORY_LEN, ZERO_VEC_LEN,
     get_aggregation_bytecode, init_aggregation_bytecode,
 };
-use lean_prover::verify_execution::verify_execution;
+use lean_prover::verify_execution::verify;
 use lean_vm::{DIGEST_LEN, EF, F};
 pub use type_1_aggregation::{TypeOneInfo, TypeOneMultiSignature, aggregate_type_1, verify_type_1};
 pub use type_2_aggregation::{
     TypeTwoMultiSignature, merge_many_type_1, split_type_2, split_type_2_by_msg, verify_type_2,
 };
-use utils::poseidon_compress_slice;
+use utils::{get_poseidon16, poseidon_compress_slice};
 
 #[allow(missing_debug_implementations)]
 pub struct InnerVerified {
@@ -29,7 +29,9 @@ pub struct InnerVerified {
 pub(crate) fn verify_inner(input_data: Vec<F>, proof: Proof<F>) -> Result<InnerVerified, ProofError> {
     let input_data_hash = poseidon_compress_slice(&input_data, true);
     let bytecode = get_aggregation_bytecode();
-    let (verif, raw_proof) = verify_execution(bytecode, &input_data_hash, proof)?;
+    let mut verifier_state = VerifierState::<EF, _>::new(proof, get_poseidon16().clone())?;
+    let verif = verify(bytecode, &input_data_hash, &mut verifier_state)?;
+    let raw_proof = verifier_state.into_raw_proof();
     Ok(InnerVerified {
         input_data,
         input_data_hash,
