@@ -45,6 +45,7 @@ pub fn prove_execution(
         memory.resize(min_memory_size, F::ZERO);
     }
     let mut prover_state = build_prover_state();
+    let mut prover_state2 = build_prover_state_sha2();
     prover_state.observe_scalars(public_input);
     prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
     prover_state.add_base_scalars(

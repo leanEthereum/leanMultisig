@@ -1,13 +1,13 @@
 use crate::{
     MerklePaths, PrunedMerklePaths,
-    challenger::{Challenger, RATE, WIDTH},
+    challenger::{Challenger, ChallengerSha2, RATE, WIDTH},
     *,
 };
 use field::Field;
 use field::PackedValue;
 use field::PrimeCharacteristicRing;
 use field::integers::QuotientMap;
-use field::{ExtensionField, PrimeField64};
+use field::{ExtensionField, PrimeField32, PrimeField64};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -164,6 +164,117 @@ where
 
         self.challenger.observe_scalars(&[witness]);
         assert!(self.challenger.state[0].as_canonical_u64() & ((1 << bits) - 1) == 0);
+        self.transcript.push(witness);
+
+        let elapsed = time.elapsed();
+        POW_GRINDING_NANOS.fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug)]
+pub struct ProverStateSha2<EF: ExtensionField<PF<EF>>> {
+    challenger: ChallengerSha2<PF<EF>>,
+    transcript: Vec<PF<EF>>,
+    merkle_paths: Vec<PrunedMerklePaths<PF<EF>, PF<EF>>>,
+}
+
+impl<EF: ExtensionField<PF<EF>>> ProverStateSha2<EF>
+where
+    PF<EF>: PrimeField32,
+{
+    #[must_use]
+    pub fn new() -> Self {
+        assert!(EF::DIMENSION <= RATE);
+        Self {
+            challenger: ChallengerSha2::new(),
+            transcript: Vec::new(),
+            merkle_paths: Vec::new(),
+        }
+    }
+
+    pub fn into_proof(self) -> Proof<PF<EF>> {
+        Proof {
+            transcript: self.transcript,
+            merkle_paths: self.merkle_paths,
+        }
+    }
+}
+
+impl<EF: ExtensionField<PF<EF>>> ChallengeSampler<EF> for ProverStateSha2<EF>
+where
+    PF<EF>: PrimeField32,
+{
+    fn sample_vec(&mut self, len: usize) -> Vec<EF> {
+        let sampled_fe = self
+            .challenger
+            .sample_many((len * EF::DIMENSION).div_ceil(RATE))
+            .into_iter()
+            .flatten()
+            .take(len * EF::DIMENSION)
+            .collect::<Vec<PF<EF>>>();
+        pack_scalars_to_extension(&sampled_fe)
+    }
+
+    fn sample_in_range(&mut self, bits: usize, n_samples: usize) -> Vec<usize> {
+        self.challenger.sample_in_range(bits, n_samples)
+    }
+}
+
+impl<EF: ExtensionField<PF<EF>>> FSProver<EF> for ProverStateSha2<EF>
+where
+    PF<EF>: PrimeField32,
+{
+    fn add_base_scalars(&mut self, scalars: &[PF<EF>]) {
+        self.challenger.observe_scalars(scalars);
+        self.transcript.extend_from_slice(scalars);
+    }
+
+    fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
+        self.challenger.observe_scalars(scalars);
+    }
+
+    fn state(&self) -> String {
+        format!("sha2 transcript (n_items: {})", self.transcript.len())
+    }
+
+    fn add_sumcheck_polynomial(&mut self, coeffs: &[EF], eq_alpha: Option<EF>) {
+        match eq_alpha {
+            None => {
+                let scalars = flatten_scalars_to_base(coeffs);
+                self.challenger.observe_scalars(&scalars);
+                self.transcript.extend_from_slice(&scalars[EF::DIMENSION..]);
+            }
+            Some(alpha) => {
+                let bare_scalars = flatten_scalars_to_base(coeffs);
+                let full_scalars = flatten_scalars_to_base(&expand_bare_to_full(coeffs, alpha));
+                self.challenger.observe_scalars(&full_scalars);
+                self.transcript.extend_from_slice(&bare_scalars[EF::DIMENSION..]);
+            }
+        }
+    }
+
+    fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>) {
+        self.merkle_paths.push(MerklePaths(paths).prune());
+    }
+
+    fn pow_grinding(&mut self, bits: usize) {
+        assert!(bits < PF::<EF>::bits());
+
+        if bits == 0 {
+            return;
+        }
+
+        let time = Instant::now();
+        let witness = (0..PF::<EF>::ORDER_U32)
+            .find_map(|candidate| {
+                let witness = unsafe { PF::<EF>::from_canonical_unchecked(candidate) };
+                let mut challenger = self.challenger.clone();
+                challenger.observe_scalars(&[witness]);
+                (challenger.sample_in_range(bits, 1)[0] == 0).then_some(witness)
+            })
+            .expect("failed to find witness");
+
+        self.challenger.observe_scalars(&[witness]);
         self.transcript.push(witness);
 
         let elapsed = time.elapsed();
