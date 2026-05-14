@@ -6,9 +6,9 @@ use crate::PrunedMerklePaths;
 pub const DIGEST_LEN_FE: usize = 8;
 
 #[derive(Debug, Clone)]
-pub struct MerkleOpening<F> {
+pub struct MerkleOpening<F, Digest = [F; DIGEST_LEN_FE]> {
     pub leaf_data: Vec<F>,
-    pub path: Vec<[F; DIGEST_LEN_FE]>,
+    pub path: Vec<Digest>,
 }
 
 /// "RawProof": the format which is used in the zkVM recursion program (no Merkle pruning, no sumcheck optimization to send less data, etc)

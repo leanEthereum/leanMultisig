@@ -384,12 +384,14 @@ where
 }
 
 #[instrument(name = "first digest layer", level = "debug", skip_all)]
-fn sha2_first_digest_layer<F, M>(h: &Sha256, matrix: &M, _full_width: usize) -> Vec<Sha256Digest>
+fn sha2_first_digest_layer<F, M>(h: &Sha256, matrix: &M, full_width: usize) -> Vec<Sha256Digest>
 where
     F: PrimeField32,
     M: Matrix<F>,
 {
     let height = matrix.height();
+    let matrix_width = matrix.width();
+    let n_trailing_zeros = full_width - matrix_width;
 
     (0..height)
         .into_par_iter()
@@ -397,6 +399,9 @@ where
             let mut hasher = h.clone();
             for value in matrix.row(r).unwrap() {
                 hasher.update(value.as_canonical_u32().to_le_bytes());
+            }
+            for _ in 0..n_trailing_zeros {
+                hasher.update(F::ZERO.as_canonical_u32().to_le_bytes());
             }
             let digest = hasher.finalize();
             digest[..16].try_into().unwrap()

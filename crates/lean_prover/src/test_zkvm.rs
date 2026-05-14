@@ -1,4 +1,8 @@
-use crate::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
+use crate::{
+    default_whir_config,
+    prove_execution::prove_execution,
+    verify_execution::{verify_execution, verify_execution_sha2},
+};
 use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
@@ -248,6 +252,7 @@ fn test_zk_vm_helper(program_str: &str, public_input: &[F]) {
     .unwrap();
     let proof_time = time.elapsed();
     verify_execution(&bytecode, public_input, proof.proof).unwrap();
+    verify_execution_sha2(&bytecode, public_input, proof.proof2).unwrap();
     println!("{}", proof.metadata.as_ref().unwrap().display());
     println!("Proof time: {:.3} s", proof_time.as_secs_f32());
 }
