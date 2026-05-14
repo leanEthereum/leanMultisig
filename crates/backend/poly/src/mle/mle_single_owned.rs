@@ -154,6 +154,13 @@ impl<EF: ExtensionField<PF<EF>>> MleOwned<EF> {
     }
 
     pub fn as_constant(&self) -> EF {
+        // When the MLE is still in packed form, unpack first then recurse.
+        // The end of sumcheck folding can leave a polynomial in
+        // BasePacked / ExtensionPacked state even after it has been reduced
+        // to a single value, which would otherwise hit `unreachable!()` below.
+        if self.is_packed() {
+            return self.unpack().by_ref().clone_to_owned().as_constant();
+        }
         assert_eq!(self.n_vars(), 0);
         match self {
             Self::Base(v) => EF::from(v[0]),
