@@ -12,6 +12,36 @@ use tracing::{info_span, instrument};
 
 use crate::{config::WhirConfig, *};
 
+#[instrument(
+    skip_all,
+    fields(hash = "poseidon", round = round_index)
+)]
+fn merkle_data_build<EF>(
+    folded_matrix: DftOutput<EF>,
+    full_n_cols: usize,
+    round_index: usize,
+) -> (MerkleData<EF>, [PF<EF>; DIGEST_ELEMS])
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    MerkleData::build(folded_matrix, full_n_cols, full_n_cols)
+}
+
+#[instrument(
+    skip_all,
+    fields(hash = "sha2", round = round_index)
+)]
+fn merkle_data_build_sha2<EF>(
+    folded_matrix: DftOutput<EF>,
+    full_n_cols: usize,
+    round_index: usize,
+) -> (MerkleData2<EF>, Sha256Digest)
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    MerkleData2::build(folded_matrix, full_n_cols, full_n_cols)
+}
+
 impl<EF> WhirConfig<EF>
 where
     EF: ExtensionField<PF<EF>>,
@@ -111,7 +141,7 @@ where
         });
 
         let full = 1 << folding_factor_next;
-        let (prover_data, root) = MerkleData::build(folded_matrix, full, full);
+        let (prover_data, root) = merkle_data_build(folded_matrix, full, round_index);
 
         prover_state.add_commitment(&root);
 
@@ -234,7 +264,7 @@ where
         });
 
         let full = 1 << folding_factor_next;
-        let (prover_data, root) = MerkleData2::build(folded_matrix, full, full);
+        let (prover_data, root) = merkle_data_build_sha2(folded_matrix, full, round_index);
 
         prover_state.add_commitment(&root);
 
