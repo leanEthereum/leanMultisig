@@ -10,68 +10,17 @@ use symetric::merkle::Sha256Digest;
 use crate::*;
 
 #[derive(Debug, Clone)]
-pub struct ParsedCommitment<F: Field, EF: ExtensionField<F>> {
+pub struct ParsedCommitment<F: Field, EF: ExtensionField<F>, Digest = [PF<EF>; DIGEST_ELEMS]> {
     pub num_variables: usize,
-    pub root: [PF<EF>; DIGEST_ELEMS],
+    pub root: Digest,
     pub ood_points: Vec<EF>,
     pub ood_answers: Vec<EF>,
     pub base_field: PhantomData<F>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParsedCommitment2<F: Field, EF: ExtensionField<F>> {
-    pub num_variables: usize,
-    pub root: Sha256Digest,
-    pub ood_points: Vec<EF>,
-    pub ood_answers: Vec<EF>,
-    pub base_field: PhantomData<F>,
-}
-
-impl<F: Field, EF: ExtensionField<F>> ParsedCommitment<F, EF> {
+impl<F: Field, EF: ExtensionField<F>, Digest: Clone> ParsedCommitment<F, EF, Digest> {
     pub fn parse(
-        verifier_state: &mut impl FSVerifier<EF, Digest = [PF<EF>; DIGEST_ELEMS]>,
-        num_variables: usize,
-        ood_samples: usize,
-    ) -> ProofResult<Self>
-    where
-        F: TwoAdicField,
-        EF: ExtensionField<F> + TwoAdicField,
-        EF: ExtensionField<PF<EF>>,
-    {
-        let root = verifier_state.next_commitment()?;
-        let mut ood_points = vec![];
-        let ood_answers = if ood_samples > 0 {
-            ood_points = verifier_state.sample_vec(ood_samples);
-            verifier_state.next_extension_scalars_vec(ood_samples)?
-        } else {
-            Vec::new()
-        };
-        Ok(Self {
-            num_variables,
-            root,
-            ood_points,
-            ood_answers,
-            base_field: PhantomData,
-        })
-    }
-
-    pub fn oods_constraints(&self) -> Vec<SparseStatement<EF>> {
-        self.ood_points
-            .iter()
-            .zip(&self.ood_answers)
-            .map(|(&point, &eval)| {
-                SparseStatement::dense(
-                    MultilinearPoint::expand_from_univariate(point, self.num_variables),
-                    eval,
-                )
-            })
-            .collect()
-    }
-}
-
-impl<F: Field, EF: ExtensionField<F>> ParsedCommitment2<F, EF> {
-    pub fn parse(
-        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
         num_variables: usize,
         ood_samples: usize,
     ) -> ProofResult<Self>
@@ -125,14 +74,24 @@ where
         ParsedCommitment::<F, EF>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
     }
 
-    pub fn parse_commitment2<F: TwoAdicField>(
+    pub fn parse_commitment_generic<F: TwoAdicField, Digest: Clone>(
         &self,
-        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
-    ) -> ProofResult<ParsedCommitment2<F, EF>>
+        verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
+    ) -> ProofResult<ParsedCommitment<F, EF, Digest>>
     where
         EF: ExtensionField<F>,
     {
-        ParsedCommitment2::<F, EF>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
+        ParsedCommitment::<F, EF, Digest>::parse(verifier_state, self.num_variables, self.commitment_ood_samples)
+    }
+
+    pub fn parse_commitment2<F: TwoAdicField>(
+        &self,
+        verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+    ) -> ProofResult<ParsedCommitment<F, EF, Sha256Digest>>
+    where
+        EF: ExtensionField<F>,
+    {
+        self.parse_commitment_generic(verifier_state)
     }
 }
 
@@ -270,7 +229,7 @@ where
     pub fn verify2<F>(
         &self,
         verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
-        parsed_commitment: &ParsedCommitment2<F, EF>,
+        parsed_commitment: &ParsedCommitment<F, EF, Sha256Digest>,
         statement: Vec<SparseStatement<EF>>,
     ) -> ProofResult<MultilinearPoint<EF>>
     where
@@ -304,7 +263,7 @@ where
 
         for round_index in 0..self.n_rounds() {
             let round_params = &self.round_parameters[round_index];
-            let new_commitment = ParsedCommitment2::<F, EF>::parse(
+            let new_commitment = ParsedCommitment::<F, EF, Sha256Digest>::parse(
                 verifier_state,
                 round_params.num_variables,
                 round_params.ood_samples,
@@ -462,7 +421,7 @@ where
         &self,
         verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
         params: &RoundConfig<EF>,
-        commitment: &ParsedCommitment2<F, EF>,
+        commitment: &ParsedCommitment<F, EF, Sha256Digest>,
         folding_randomness: &MultilinearPoint<EF>,
         round_index: usize,
     ) -> ProofResult<Vec<SparseStatement<EF>>>

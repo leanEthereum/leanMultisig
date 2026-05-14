@@ -167,6 +167,38 @@ pub fn stacked_pcs_parse_commitment(
     log_bytecode: usize,
     tables_heights: &BTreeMap<Table, VarCount>,
 ) -> Result<ParsedCommitment<F, EF>, ProofError> {
+    stacked_pcs_parse_commitment_generic(
+        whir_config_builder,
+        verifier_state,
+        log_memory,
+        log_bytecode,
+        tables_heights,
+    )
+}
+
+pub fn stacked_pcs_parse_commitment_sha2(
+    whir_config_builder: &WhirConfigBuilder,
+    verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights: &BTreeMap<Table, VarCount>,
+) -> Result<ParsedCommitment<F, EF, Sha256Digest>, ProofError> {
+    stacked_pcs_parse_commitment_generic(
+        whir_config_builder,
+        verifier_state,
+        log_memory,
+        log_bytecode,
+        tables_heights,
+    )
+}
+
+fn stacked_pcs_parse_commitment_generic<Digest: Clone>(
+    whir_config_builder: &WhirConfigBuilder,
+    verifier_state: &mut impl FSVerifier<EF, Digest = Digest>,
+    log_memory: usize,
+    log_bytecode: usize,
+    tables_heights: &BTreeMap<Table, VarCount>,
+) -> Result<ParsedCommitment<F, EF, Digest>, ProofError> {
     if log_memory < tables_heights[&Table::execution()]
         || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
     {
@@ -181,29 +213,7 @@ pub fn stacked_pcs_parse_commitment(
     {
         return Err(ProofError::InvalidProof);
     }
-    WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment(verifier_state)
-}
-
-pub fn stacked_pcs_parse_commitment_sha2(
-    whir_config_builder: &WhirConfigBuilder,
-    verifier_state: &mut impl FSVerifier<EF, Digest = Sha256Digest>,
-    log_memory: usize,
-    log_bytecode: usize,
-    tables_heights: &BTreeMap<Table, VarCount>,
-) -> Result<ParsedCommitment2<F, EF>, ProofError> {
-    if log_memory < tables_heights[&Table::execution()]
-        || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
-    {
-        return Err(ProofError::InvalidProof);
-    }
-
-    let stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode, tables_heights);
-    if stacked_n_vars
-        > F::TWO_ADICITY + whir_config_builder.folding_factor.at_round(0) - whir_config_builder.starting_log_inv_rate
-    {
-        return Err(ProofError::InvalidProof);
-    }
-    WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment2(verifier_state)
+    WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment_generic(verifier_state)
 }
 
 fn compute_stacked_n_vars(
