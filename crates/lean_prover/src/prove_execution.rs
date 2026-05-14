@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sub_protocols::*;
 use tracing::info_span;
 use utils::ansi::Colorize;
-use utils::{build_prover_state, from_end};
+use utils::{build_prover_state, build_prover_state_sha2, from_end};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionProof {
@@ -47,21 +47,24 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state();
     let mut prover_state2 = build_prover_state_sha2();
     prover_state.observe_scalars(public_input);
-    prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
-    prover_state.add_base_scalars(
-        &[
-            vec![
-                whir_config.starting_log_inv_rate,
-                log2_strict_usize(memory.len()),
-                public_input.len(),
-            ],
-            traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
-        ]
-        .concat()
-        .into_iter()
-        .map(F::from_usize)
-        .collect::<Vec<_>>(),
-    );
+    prover_state2.observe_scalars(public_input);
+    let bytecode_hash_with_domain_sep = poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP);
+    prover_state.observe_scalars(&bytecode_hash_with_domain_sep);
+    prover_state2.observe_scalars(&bytecode_hash_with_domain_sep);
+    let execution_metadata_scalars = [
+        vec![
+            whir_config.starting_log_inv_rate,
+            log2_strict_usize(memory.len()),
+            public_input.len(),
+        ],
+        traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
+    ]
+    .concat()
+    .into_iter()
+    .map(F::from_usize)
+    .collect::<Vec<_>>();
+    prover_state.add_base_scalars(&execution_metadata_scalars);
+    prover_state2.add_base_scalars(&execution_metadata_scalars);
     for (table, table_trace) in &traces {
         let log_n_rows = table_trace.log_n_rows;
         assert!(log_n_rows >= MIN_LOG_N_ROWS_PER_TABLE, "missing padding");
