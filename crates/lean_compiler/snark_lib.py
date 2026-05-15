@@ -89,6 +89,12 @@ def poseidon16_compress_half_hardcoded_left(left, right, output, offset):
     _ = left, right, output, offset
 
 
+def poseidon16_permute(left, right, output):
+    """Raw Poseidon1 permutation (no feed-forward). Writes the 16-cell result in natural order:
+        m[output .. output + 16] = poseidon(left || right)"""
+    _ = left, right, output
+
+
 def add_be(a, b, result, length=None):
     _ = a, b, result, length
 

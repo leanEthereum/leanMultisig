@@ -142,6 +142,7 @@ where
         };
 
         // Randomness for combination
+        prover_state.duplex();
         let combination_randomness_gen: EF = prover_state.sample();
         let ood_combination_randomness: Vec<_> = combination_randomness_gen.powers().collect_n(ood_challenges.len());
         round_state
@@ -484,6 +485,7 @@ where
 
         statement.splice(0..0, ood_statements);
 
+        prover_state.duplex();
         let combination_randomness_gen: EF = prover_state.sample();
 
         let (sumcheck_prover, folding_randomness) = SumcheckSingle::run_initial_sumcheck_rounds(

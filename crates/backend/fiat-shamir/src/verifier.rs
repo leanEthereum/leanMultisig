@@ -3,14 +3,14 @@ use std::iter::repeat_n;
 
 use crate::{
     MerkleOpening, MerklePaths, PrunedMerklePaths, RawProof,
-    challenger::{Challenger, RATE, WIDTH},
+    challenger::{CAPACITY, Challenger, RATE, WIDTH},
     transcript::{DIGEST_LEN_FE, Proof},
     *,
 };
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, PrimeField64};
+use koala_bear::symmetric::Permutation;
 use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
-use symetric::Compression;
 
 pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
     challenger: Challenger<PF<EF>, P>,
@@ -21,11 +21,11 @@ pub struct VerifierState<EF: ExtensionField<PF<EF>>, P> {
     raw_transcript: Vec<PF<EF>>, // reconstructed during the proof verification, it's the format that the zkVM recursion program expects (no Merkle pruning, no sumcheck optimization to send less data, etc)
 }
 
-impl<EF: ExtensionField<PF<EF>>, C: Compression<[PF<EF>; WIDTH]>> VerifierState<EF, C>
+impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
-    pub fn new(proof: Proof<PF<EF>>, compressor: C) -> Result<Self, ProofError> {
+    pub fn new(proof: Proof<PF<EF>>, permutation: P) -> Result<Self, ProofError> {
         let mut merkle_openings = Vec::new();
         for paths in proof.merkle_paths {
             let restored = Self::restore_merkle_paths(paths).ok_or(ProofError::InvalidProof)?;
@@ -33,7 +33,7 @@ where
         }
 
         Ok(Self {
-            challenger: Challenger::new(compressor),
+            challenger: Challenger::new(permutation),
             transcript: proof.transcript,
             transcript_offset: 0,
             merkle_openings,
@@ -50,7 +50,7 @@ where
     }
 
     fn absorb_and_record(&mut self, scalars: &[PF<EF>]) {
-        self.challenger.observe_scalars(scalars);
+        self.challenger.observe_many(scalars);
         let total_padded = scalars.len().next_multiple_of(RATE);
         self.raw_transcript.extend_from_slice(scalars);
         self.raw_transcript
@@ -90,7 +90,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, C: Compression<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for VerifierState<EF, C>
+impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> ChallengeSampler<EF> for VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>, C: Compression<[PF<EF>; WIDTH]>> FSVerifier<EF> for VerifierState<EF, C>
+impl<EF: ExtensionField<PF<EF>>, P: Permutation<[PF<EF>; WIDTH]>> FSVerifier<EF> for VerifierState<EF, P>
 where
     PF<EF>: PrimeField64,
 {
@@ -121,7 +121,11 @@ where
     }
 
     fn observe_scalars(&mut self, scalars: &[PF<EF>]) {
-        self.challenger.observe_scalars(scalars);
+        self.challenger.observe_many(scalars);
+    }
+
+    fn duplex(&mut self) {
+        self.challenger.duplex();
     }
 
     fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError> {
@@ -144,8 +148,8 @@ where
             return Ok(());
         }
         let witness = self.read_transcript(1)?[0];
-        self.challenger.observe_scalars(&[witness]);
-        if self.challenger.state[0].as_canonical_u64() & ((1 << bits) - 1) != 0 {
+        self.challenger.observe_many(&[witness]);
+        if self.challenger.state[CAPACITY].as_canonical_u64() & ((1 << bits) - 1) != 0 {
             return Err(ProofError::InvalidGrindingWitness);
         }
         self.raw_transcript.push(witness);

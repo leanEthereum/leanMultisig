@@ -3,7 +3,7 @@ use backend::*;
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use utils::{init_tracing, poseidon16_compress};
+use utils::{init_tracing, poseidon16_compress, poseidon16_permute};
 
 #[test]
 fn test_zk_vm_all_precompiles() {
@@ -48,6 +48,11 @@ def main():
     )
     for i in unroll(0, HALF_DIGEST_LEN):
         assert hardcoded_full_out[i] == hardcoded_half_out[i]
+
+    # poseidon16_permute: full 16-element permutation (no feed-forward), written in natural order:
+    #   m[res .. res + 16] = poseidon(left || right)
+    permute_out = pub_start + 1600
+    poseidon16_permute(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, permute_out)
 
     base_ptr = pub_start + 88
     ext_a_ptr = pub_start + 88 + N
@@ -122,6 +127,10 @@ def main():
         F::from_usize(777),
         F::from_usize(888),
     ]);
+
+    // poseidon16_permute output at 1600..1616: raw permutation result.
+    let permute_output = poseidon16_permute(poseidon_16_compress_input);
+    public_input[1600..1616].copy_from_slice(&permute_output);
 
     // Extension op operands: base[N], ext_a[N], ext_b[N]
     let base_slice: [F; N] = rng.random();

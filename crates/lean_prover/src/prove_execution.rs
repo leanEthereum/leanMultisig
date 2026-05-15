@@ -121,6 +121,7 @@ pub fn prove_execution(
 
     // logup (GKR)
     let logup_c = prover_state.sample();
+    prover_state.duplex();
     let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
@@ -149,8 +150,10 @@ pub fn prove_execution(
     }
 
     let bus_beta = prover_state.sample();
+    prover_state.duplex();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    prover_state.duplex();
     let air_eta: EF = prover_state.sample();
 
     let tables_log_heights: BTreeMap<Table, VarCount> =
