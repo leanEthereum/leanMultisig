@@ -88,9 +88,12 @@ impl<F: TwoAdicField> EvalsDft<F> {
             nth_root.extend(generator.shifted_powers(base).take(nb_steps));
         }
 
-        *guard = (0..lg_n)
-            .map(|i| nth_root.iter().step_by(1 << i).copied().collect())
-            .collect();
+        let old_twiddles = std::mem::take(&mut *guard);
+        let mut twiddles = Vec::with_capacity(diff_log + old_twiddles.len());
+        twiddles.extend((0..diff_log).map(|i| nth_root.iter().step_by(1 << i).copied().collect::<Vec<_>>()));
+        twiddles.extend(old_twiddles);
+
+        *guard = twiddles;
     }
 }
 
@@ -406,8 +409,8 @@ fn fft_double_layer_single_twiddle<F: Field, Fly: Butterfly<F>>(
     block: &mut DoubleLayerBlockDecomposition<'_, F>,
     butterfly: Fly,
 ) {
-    butterfly.apply_to_rows(block.0.0, block.0.1);
-    butterfly.apply_to_rows(block.1.0, block.1.1);
+    butterfly.apply_to_rows(block.0 .0, block.0 .1);
+    butterfly.apply_to_rows(block.1 .0, block.1 .1);
 }
 
 #[inline]
@@ -416,8 +419,8 @@ fn fft_double_layer_double_twiddle<F: Field, Fly0: Butterfly<F>, Fly1: Butterfly
     fly0: Fly0,
     fly1: Fly1,
 ) {
-    fly0.apply_to_rows(block.0.0, block.1.0);
-    fly1.apply_to_rows(block.0.1, block.1.1);
+    fly0.apply_to_rows(block.0 .0, block.1 .0);
+    fly1.apply_to_rows(block.0 .1, block.1 .1);
 }
 
 /// A type representing a decomposition of an FFT block into eight sub-blocks.
@@ -432,10 +435,10 @@ fn fft_triple_layer_single_twiddle<F: Field, Fly: Butterfly<F>>(
     block: &mut TripleLayerBlockDecomposition<'_, F>,
     butterfly: Fly,
 ) {
-    butterfly.apply_to_rows(block.0.0.0, block.0.0.1);
-    butterfly.apply_to_rows(block.0.1.0, block.0.1.1);
-    butterfly.apply_to_rows(block.1.0.0, block.1.0.1);
-    butterfly.apply_to_rows(block.1.1.0, block.1.1.1);
+    butterfly.apply_to_rows(block.0 .0 .0, block.0 .0 .1);
+    butterfly.apply_to_rows(block.0 .1 .0, block.0 .1 .1);
+    butterfly.apply_to_rows(block.1 .0 .0, block.1 .0 .1);
+    butterfly.apply_to_rows(block.1 .1 .0, block.1 .1 .1);
 }
 
 #[inline]
@@ -444,10 +447,10 @@ fn fft_triple_layer_double_twiddle<F: Field, Fly0: Butterfly<F>, Fly1: Butterfly
     fly0: Fly0,
     fly1: Fly1,
 ) {
-    fly0.apply_to_rows(block.0.0.0, block.0.1.0);
-    fly1.apply_to_rows(block.0.0.1, block.0.1.1);
-    fly0.apply_to_rows(block.1.0.0, block.1.1.0);
-    fly1.apply_to_rows(block.1.0.1, block.1.1.1);
+    fly0.apply_to_rows(block.0 .0 .0, block.0 .1 .0);
+    fly1.apply_to_rows(block.0 .0 .1, block.0 .1 .1);
+    fly0.apply_to_rows(block.1 .0 .0, block.1 .1 .0);
+    fly1.apply_to_rows(block.1 .0 .1, block.1 .1 .1);
 }
 
 #[inline]
@@ -458,10 +461,10 @@ fn fft_triple_layer_quad_twiddle<F: Field, Fly: Butterfly<F>>(
     fly2: Fly,
     fly3: Fly,
 ) {
-    fly0.apply_to_rows(block.0.0.0, block.1.0.0);
-    fly1.apply_to_rows(block.0.0.1, block.1.0.1);
-    fly2.apply_to_rows(block.0.1.0, block.1.1.0);
-    fly3.apply_to_rows(block.0.1.1, block.1.1.1);
+    fly0.apply_to_rows(block.0 .0 .0, block.1 .0 .0);
+    fly1.apply_to_rows(block.0 .0 .1, block.1 .0 .1);
+    fly2.apply_to_rows(block.0 .1 .0, block.1 .1 .0);
+    fly3.apply_to_rows(block.0 .1 .1, block.1 .1 .1);
 }
 
 /// Estimates the optimal workload size for `T` to fit in L1 cache.
@@ -594,7 +597,7 @@ mod tests {
     use field::{PrimeCharacteristicRing, TwoAdicField};
     use koala_bear::{KoalaBear, QuinticExtensionFieldKB};
     use poly::*;
-    use rand::{RngExt, SeedableRng, rngs::StdRng};
+    use rand::{rngs::StdRng, RngExt, SeedableRng};
 
     use crate::*;
 
