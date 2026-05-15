@@ -49,10 +49,8 @@ def main():
     for i in unroll(0, HALF_DIGEST_LEN):
         assert hardcoded_full_out[i] == hardcoded_half_out[i]
 
-    # poseidon16_permute: full 16-element permutation (no feed-forward). The two halves are
-    # swapped in memory so the sponge's rate output lands first:
-    #   m[res .. res + 8]      = poseidon(left || right)[8..16]
-    #   m[res + 8 .. res + 16] = poseidon(left || right)[0..8]
+    # poseidon16_permute: full 16-element permutation (no feed-forward), written in natural order:
+    #   m[res .. res + 16] = poseidon(left || right)
     permute_out = pub_start + 1600
     poseidon16_permute(pub_start + 4 * DIGEST_LEN, pub_start + 5 * DIGEST_LEN, permute_out)
 

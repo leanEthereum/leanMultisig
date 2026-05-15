@@ -109,7 +109,7 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     fill_trace_poseidon_16(&mut poseidon_trace.columns);
 
     // For permute=0 rows, override unconstrained output columns with memory values
-    // so the lookup matchess. same when half_output=1
+    // so the lookup matches. Same when half_output=1.
     {
         let split = POSEIDON_16_COL_OUTPUT_LEFT + HALF_DIGEST_LEN;
         let (left, right) = poseidon_trace.columns.split_at_mut(split);
