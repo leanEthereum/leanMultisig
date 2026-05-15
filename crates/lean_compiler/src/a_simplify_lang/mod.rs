@@ -541,6 +541,7 @@ fn compile_time_transform_in_program(
                 func.name
             ));
         }
+        check_inline_returns(&func.body, &func.name)?;
     }
 
     // Process all functions, including newly created specialized ones
@@ -3452,6 +3453,32 @@ fn inline_lines(
 
     transform_vars_in_lines(lines, &transform);
     replace_function_ret_in_lines(lines, res);
+}
+
+fn check_inline_returns(body: &[Line], func_name: &str) -> Result<(), String> {
+    fn count_returns(lines: &[Line]) -> usize {
+        lines
+            .iter()
+            .map(|line| {
+                usize::from(matches!(line, Line::FunctionRet { .. }))
+                    + line.nested_blocks().iter().map(|b| count_returns(b)).sum::<usize>()
+            })
+            .sum()
+    }
+
+    let nested_returns: usize = body
+        .iter()
+        .flat_map(Line::nested_blocks)
+        .map(|b| count_returns(b))
+        .sum();
+
+    if nested_returns > 0 || count_returns(body) > 1 {
+        return Err(format!(
+            "Inline function `{func_name}` has an unsupported `return`. Inline functions support \
+             exactly one `return`, placed at the end of the function's body"
+        ));
+    }
+    Ok(())
 }
 
 fn replace_function_ret_in_lines(lines: &mut Vec<Line>, res: &[AssignmentTarget]) {

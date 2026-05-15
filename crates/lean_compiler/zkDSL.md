@@ -118,6 +118,13 @@ def square(x):
 ```
 **Note:** Inline functions cannot have `: Mut` parameters.
 
+**Note:** Inline functions support at most one `return`, and it must be at the
+top level of the body — never nested inside an `if`, loop, or `match`. Early or
+conditional returns are rejected by the compiler, because inlining expands each
+`return` into a plain assignment with no control flow. Use a regular (non-inline)
+function — with `: Const` parameters if you need compile-time specialization —
+when you need a conditional return.
+
 ## Variables
 
 | Declaration   | Mutability | Notes                                          |

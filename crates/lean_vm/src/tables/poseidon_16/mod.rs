@@ -252,8 +252,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
-        trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT].push(if flag_hardcoded { F::ONE } else { F::ZERO });
+        trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(F::from_bool(half_output));
+        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT].push(F::from_bool(flag_hardcoded));
         trace.columns[POSEIDON_16_COL_OFFSET_LEFT_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
