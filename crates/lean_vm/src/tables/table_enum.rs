@@ -5,7 +5,7 @@ use crate::*;
 
 pub const N_TABLES: usize = 3;
 pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
-pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
+pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]

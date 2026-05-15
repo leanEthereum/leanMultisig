@@ -44,8 +44,9 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
 
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
+        let mut data = Vec::with_capacity(5);
         data.push(BusData::Column(COL_PRECOMPILE_DATA));
+        data.push(BusData::Column(COL_PRECOMPILE_EXTRA));
         data.push(BusData::Column(COL_EXEC_NU_A));
         data.push(BusData::Column(COL_EXEC_NU_B));
         data.push(BusData::Column(COL_EXEC_NU_C));

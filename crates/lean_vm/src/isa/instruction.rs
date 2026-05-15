@@ -73,6 +73,7 @@ pub enum PrecompileCompTimeArgs<S> {
     ExtensionOp {
         size: S,
         mode: ExtensionOpMode,
+        stride_a: Option<S>,
     },
 }
 
@@ -93,7 +94,11 @@ impl<S> PrecompileCompTimeArgs<S> {
                 half_output,
                 hardcoded_offset_left: hardcoded_left_4.map(&mut f),
             },
-            Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
+            Self::ExtensionOp { size, mode, stride_a } => PrecompileCompTimeArgs::ExtensionOp {
+                size: f(size),
+                mode,
+                stride_a: stride_a.map(&mut f),
+            },
         }
     }
 }
@@ -263,8 +268,16 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
                     "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
                 ),
             },
-            PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
-                write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
+            PrecompileCompTimeArgs::ExtensionOp { size, mode, stride_a } => {
+                if let Some(stride_a) = stride_a {
+                    write!(
+                        f,
+                        "{}_strided_a({arg_0}, {arg_1}, {res}, {size}, {stride_a})",
+                        mode.name()
+                    )
+                } else {
+                    write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
+                }
             }
         }
     }

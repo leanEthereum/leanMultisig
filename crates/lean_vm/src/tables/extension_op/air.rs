@@ -15,19 +15,20 @@ pub(super) const COL_LEN: usize = 5;
 pub(super) const COL_IDX_A: usize = 6;
 pub(super) const COL_IDX_B: usize = 7;
 pub(super) const COL_IDX_RES: usize = 8;
+pub(super) const COL_STRIDE_A: usize = 9;
 
 /// value_a coordinates (5 columns)
-pub(super) const COL_VA: usize = 9;
+pub(super) const COL_VA: usize = 10;
 /// value_b coordinates (5 columns)
-pub(super) const COL_VB: usize = 14;
+pub(super) const COL_VB: usize = 15;
 /// result coordinates (5 columns).
-pub(super) const COL_VRES: usize = 19;
+pub(super) const COL_VRES: usize = 20;
 /// computation coordinates (5 columns)
-pub(super) const COL_COMP: usize = 24;
+pub(super) const COL_COMP: usize = 25;
 
 // Virtual columns (not explicitely in AIR)
-pub(super) const COL_ACTIVATION_FLAG: usize = 29;
-pub(super) const COL_AUX_EXTENSION_OP: usize = 30;
+pub(super) const COL_ACTIVATION_FLAG: usize = 30;
+pub(super) const COL_AUX_EXTENSION_OP: usize = 31;
 
 use backend::quintic_extension::extension::quintic_mul;
 
@@ -42,13 +43,13 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
 
     fn n_columns(&self) -> usize {
-        29
+        30
     }
     fn degree_air(&self) -> usize {
         6
     }
     fn n_constraints(&self) -> usize {
-        33
+        34
     }
     fn down_column_indexes(&self) -> Vec<usize> {
         vec![
@@ -60,6 +61,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             COL_FLAG_POLY_EQ,
             COL_IDX_A,
             COL_IDX_B,
+            COL_STRIDE_A,
             COL_COMP,
             COL_COMP + 1,
             COL_COMP + 2,
@@ -81,6 +83,7 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let len = up[COL_LEN];
         let idx_a = up[COL_IDX_A];
         let idx_b = up[COL_IDX_B];
+        let stride_a = up[COL_STRIDE_A];
 
         let va: [AB::IF; 5] = std::array::from_fn(|k| up[COL_VA + k]);
         let vb: [AB::IF; 5] = std::array::from_fn(|k| up[COL_VB + k]);
@@ -95,7 +98,8 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         let flag_poly_eq_down = down[5]; // COL_FLAG_POLY_EQ
         let idx_a_down = down[6]; // COL_IDX_A
         let idx_b_down = down[7]; // COL_IDX_B
-        let comp_down: [AB::IF; 5] = std::array::from_fn(|k| down[8 + k]); // COL_COMP+0..5
+        let stride_a_down = down[8]; // COL_STRIDE_A
+        let comp_down: [AB::IF; 5] = std::array::from_fn(|k| down[9 + k]); // COL_COMP+0..5
 
         let active = flag_add + flag_mul + flag_poly_eq;
         let activation_flag = start * active;
@@ -112,11 +116,11 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 activation_flag,
-                &[aux, idx_a, idx_b, idx_r],
+                &[aux, stride_a, idx_a, idx_b, idx_r],
             ));
         } else {
             builder.declare_values(&[activation_flag]);
-            builder.declare_values(&[aux, idx_a, idx_b, idx_r]);
+            builder.declare_values(&[aux, stride_a, idx_a, idx_b, idx_r]);
         }
 
         let is_ee = -(is_be - AB::F::ONE);
@@ -167,8 +171,8 @@ impl<const BUS: bool> Air for ExtensionOpPrecompile<BUS> {
         builder.assert_zero(not_start_down * (flag_add - flag_add_down));
         builder.assert_zero(not_start_down * (flag_mul - flag_mul_down));
         builder.assert_zero(not_start_down * (flag_poly_eq - flag_poly_eq_down));
-        let a_increment = is_be + is_ee * AB::F::from_usize(crate::DIMENSION);
-        builder.assert_zero(not_start_down * (idx_a_down - idx_a - a_increment));
+        builder.assert_zero(not_start_down * (stride_a - stride_a_down));
+        builder.assert_zero(not_start_down * (idx_a_down - idx_a - stride_a));
         builder.assert_zero(not_start_down * (idx_b_down - idx_b - AB::F::from_usize(crate::DIMENSION)));
 
         builder.assert_zero(start_down * (len - AB::F::ONE));

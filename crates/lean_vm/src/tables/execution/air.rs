@@ -2,7 +2,7 @@ use crate::{EF, ExecutionTable, ExtraDataForBuses, eval_virtual_bus_column};
 use backend::*;
 
 pub const N_RUNTIME_COLUMNS: usize = 8;
-pub const N_INSTRUCTION_COLUMNS: usize = 12;
+pub const N_INSTRUCTION_COLUMNS: usize = 13;
 pub const N_TOTAL_EXECUTION_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_RUNTIME_COLUMNS;
 
 // Committed columns (IMPORTANT: they must be the first columns)
@@ -28,13 +28,14 @@ pub const COL_MUL: usize = 16;
 pub const COL_JUMP: usize = 17;
 pub const COL_AUX: usize = 18;
 pub const COL_PRECOMPILE_DATA: usize = 19;
+pub const COL_PRECOMPILE_EXTRA: usize = 20;
 
 // Temporary columns (stored to avoid duplicate computations)
 pub const N_TEMPORARY_EXEC_COLUMNS: usize = 4;
-pub const COL_IS_PRECOMPILE: usize = 20;
-pub const COL_EXEC_NU_A: usize = 21;
-pub const COL_EXEC_NU_B: usize = 22;
-pub const COL_EXEC_NU_C: usize = 23;
+pub const COL_IS_PRECOMPILE: usize = 21;
+pub const COL_EXEC_NU_A: usize = 22;
+pub const COL_EXEC_NU_B: usize = 23;
+pub const COL_EXEC_NU_C: usize = 24;
 
 impl<const BUS: bool> Air for ExecutionTable<BUS> {
     type ExtraData = ExtraDataForBuses<EF>;
@@ -68,6 +69,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let jump = up[COL_JUMP];
         let aux = up[COL_AUX];
         let precompile_data = up[COL_PRECOMPILE_DATA];
+        let precompile_extra = up[COL_PRECOMPILE_EXTRA];
 
         let (value_a, value_b, value_c) = (up[COL_MEM_VALUE_A], up[COL_MEM_VALUE_B], up[COL_MEM_VALUE_C]);
         let pc = up[COL_PC];
@@ -96,11 +98,11 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 is_precompile,
-                &[precompile_data, nu_a, nu_b, nu_c],
+                &[precompile_data, precompile_extra, nu_a, nu_b, nu_c],
             ));
         } else {
             builder.declare_values(&[is_precompile]);
-            builder.declare_values(&[precompile_data, nu_a, nu_b, nu_c]);
+            builder.declare_values(&[precompile_data, precompile_extra, nu_a, nu_b, nu_c]);
         }
 
         builder.assert_zero(one_minus_flag_a_and_flag_ab_fp * (addr_a - fp_plus_operand_a));

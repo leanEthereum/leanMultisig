@@ -98,6 +98,7 @@ pub(super) fn exec_multi_row(
     size: usize,
     is_be: bool,
     op: ExtensionOp,
+    stride_a: usize,
     memory: &mut impl MemoryAccess,
     trace: &mut TableTrace,
 ) -> Result<(), RunnerError> {
@@ -107,8 +108,6 @@ pub(super) fn exec_multi_row(
         solve_unknowns(ptr_a, ptr_b, ptr_res, is_be, op, memory)?;
     }
 
-    let a_stride = if is_be { 1 } else { DIMENSION };
-
     // 1. Read all operands and compute elem values
     let mut elems = Vec::with_capacity(size);
     let mut v_bs = Vec::with_capacity(size);
@@ -116,7 +115,7 @@ pub(super) fn exec_multi_row(
     let mut idx_bs = Vec::with_capacity(size);
 
     for i in 0..size {
-        let addr_a = ptr_a.to_usize() + i * a_stride;
+        let addr_a = ptr_a.to_usize() + i * stride_a;
         let addr_b = ptr_b.to_usize() + i * DIMENSION;
         let idx_a_f = F::from_usize(addr_a);
         let idx_b_f = F::from_usize(addr_b);
@@ -164,6 +163,7 @@ pub(super) fn exec_multi_row(
         trace.columns[COL_FLAG_MUL].push(flag_mul_f);
         trace.columns[COL_FLAG_POLY_EQ].push(flag_poly_eq_f);
         trace.columns[COL_LEN].push(F::from_usize(current_len));
+        trace.columns[COL_STRIDE_A].push(F::from_usize(stride_a));
         trace.columns[COL_IDX_A].push(idx_as[i]);
         trace.columns[COL_IDX_B].push(idx_bs[i]);
         trace.columns[COL_IDX_RES].push(ptr_res);

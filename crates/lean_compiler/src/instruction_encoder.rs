@@ -59,12 +59,18 @@ pub fn field_representation(instr: &Instruction) -> [F; N_INSTRUCTION_COLUMNS] {
                         + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * flag_left
                         + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val
                 }
-                PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
+                PrecompileCompTimeArgs::ExtensionOp { size, mode, .. } => {
                     assert!(*size >= 1, "invalid extension_op size={size}");
                     mode.flag_encoding() + EXT_OP_LEN_MULTIPLIER * size
                 }
             };
             fields[instr_idx(COL_PRECOMPILE_DATA)] = F::from_usize(precompile_data);
+            fields[instr_idx(COL_PRECOMPILE_EXTRA)] = match &precompile.data {
+                PrecompileCompTimeArgs::ExtensionOp { mode, stride_a, .. } => {
+                    F::from_usize(stride_a.unwrap_or_else(|| mode.default_stride_a()))
+                }
+                PrecompileCompTimeArgs::Poseidon16 { .. } => F::ZERO,
+            };
             match (precompile.arg_0, precompile.arg_1) {
                 (MemOrFpOrConstant::FpRelative { offset: off_a }, MemOrFpOrConstant::FpRelative { offset: off_b }) => {
                     fields[instr_idx(COL_FLAG_AB_FP)] = F::ONE;

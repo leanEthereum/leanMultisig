@@ -64,6 +64,10 @@ impl ExtensionOpMode {
         self.op.flag() + self.is_be as usize * EXT_OP_FLAG_IS_BE
     }
 
+    pub const fn default_stride_a(self) -> usize {
+        if self.is_be { 1 } else { DIMENSION }
+    }
+
     pub const fn name(self) -> &'static str {
         match (self.op, self.is_be) {
             (ExtensionOp::Add, false) => "add_ee",
@@ -107,8 +111,9 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
 
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
+        let mut data = Vec::with_capacity(5);
         data.push(BusData::Column(COL_AUX_EXTENSION_OP));
+        data.push(BusData::Column(COL_STRIDE_A));
         data.push(BusData::Column(COL_IDX_A));
         data.push(BusData::Column(COL_IDX_B));
         data.push(BusData::Column(COL_IDX_RES));
@@ -127,6 +132,7 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         let mut row = vec![F::ZERO; self.n_columns_total()];
         row[COL_START] = F::ONE;
         row[COL_LEN] = F::ONE;
+        row[COL_STRIDE_A] = F::from_usize(DIMENSION);
         row[COL_AUX_EXTENSION_OP] = F::from_usize(EXT_OP_LEN_MULTIPLIER);
         row[COL_IDX_A] = F::from_usize(zero_vec_ptr);
         row[COL_IDX_B] = F::from_usize(zero_vec_ptr);
@@ -143,10 +149,20 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         args: PrecompileCompTimeArgs<usize>,
         ctx: &mut InstructionContext<'_, M>,
     ) -> Result<(), RunnerError> {
-        let PrecompileCompTimeArgs::ExtensionOp { size, mode } = args else {
+        let PrecompileCompTimeArgs::ExtensionOp { size, mode, stride_a } = args else {
             unreachable!("ExtensionOp table called with non-ExtensionOp args");
         };
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
-        exec_multi_row(arg_a, arg_b, arg_c, size, mode.is_be, mode.op, ctx.memory, trace)
+        exec_multi_row(
+            arg_a,
+            arg_b,
+            arg_c,
+            size,
+            mode.is_be,
+            mode.op,
+            stride_a.unwrap_or_else(|| mode.default_stride_a()),
+            ctx.memory,
+            trace,
+        )
     }
 }

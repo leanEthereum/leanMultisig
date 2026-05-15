@@ -105,6 +105,10 @@ def dot_product_ee(a, b, result, length=None):
     _ = a, b, result, length
 
 
+def dot_product_ee_strided_a(a, b, result, length, stride_a):
+    _ = a, b, result, length, stride_a
+
+
 def poly_eq_be(a, b, result, length=None):
     _ = a, b, result, length
 
