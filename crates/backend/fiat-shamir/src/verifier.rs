@@ -1,13 +1,11 @@
 use std::any::TypeId;
-use std::iter::repeat_n;
 
 use crate::{
     MerkleOpening, MerklePaths, PrunedMerklePaths, RawProof,
-    challenger::{Challenger, RATE, WIDTH},
+    challenger::{Challenger, WIDTH},
     transcript::{DIGEST_LEN_FE, Proof},
     *,
 };
-use field::PrimeCharacteristicRing;
 use field::{ExtensionField, PrimeField64};
 use koala_bear::{KoalaBear, default_koalabear_poseidon1_16};
 use symetric::Compression;
@@ -51,10 +49,9 @@ where
 
     fn absorb_and_record(&mut self, scalars: &[PF<EF>]) {
         self.challenger.observe_scalars(scalars);
-        let total_padded = scalars.len().next_multiple_of(RATE);
+        // The transcript stays continuous: the 7-by-7 `-1`-prefixed chunking
+        // happens inside the absorb (here and in the zkVM), not in the layout.
         self.raw_transcript.extend_from_slice(scalars);
-        self.raw_transcript
-            .extend(repeat_n(PF::<EF>::ZERO, total_padded - scalars.len()));
     }
 
     fn read_transcript(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError> {
@@ -149,7 +146,6 @@ where
             return Err(ProofError::InvalidGrindingWitness);
         }
         self.raw_transcript.push(witness);
-        self.raw_transcript.extend(repeat_n(PF::<EF>::ZERO, RATE - 1));
         Ok(())
     }
 

@@ -55,11 +55,8 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
     fs = fs_observe(fs, inner_public_memory, PUB_INPUT_SIZE)  # observe public input (the data digest)
     fs = fs_observe(fs, bytecode_hash_domsep, DIGEST_LEN)  # observe hash(bytecode hash, domain sep)
 
-    # table dims
-    debug_assert(N_TABLES + 1 < DIGEST_LEN)
-    fs, dims = fs_receive_chunks(fs, 1)
-    for i in unroll(N_TABLES + 3, 8):
-        assert dims[i] == 0
+    # table dims: 3 scalars (log_inv_rate, log_memory, public_input_len) + one log-height per table
+    fs, dims = fs_receive(fs, N_TABLES + 3)
     whir_log_inv_rate = dims[0]
     log_memory = dims[1]
     public_input_len = dims[2]

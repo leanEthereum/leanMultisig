@@ -140,11 +140,13 @@ where
                 });
 
                 let mut packed_state = [Packed::<EF>::ZERO; WIDTH];
-                packed_state[..RATE]
+                // Mirror `Challenger::observe_scalars`: input is `[-1, witness, 0..] || state`.
+                packed_state[0] = Packed::<EF>::from(-PF::<EF>::ONE);
+                packed_state[1] = packed_witnesses;
+                packed_state[RATE..]
                     .iter_mut()
                     .zip(&self.challenger.state)
                     .for_each(|(val, state)| *val = Packed::<EF>::from(*state));
-                packed_state[RATE] = packed_witnesses;
 
                 self.challenger.compressor.compress_mut(&mut packed_state);
 

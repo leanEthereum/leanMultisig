@@ -13,49 +13,53 @@ def fs_new(transcript_ptr):
     return fs_state
 
 
-@inline
-def fs_observe_chunks(fs, data, n_chunks):
-    result: Mut = Array(9)
-    poseidon16_compress(fs, data, result)
-    for i in unroll(1, n_chunks):
-        new_result = Array(9)
-        poseidon16_compress(result, data + i * DIGEST_LEN, new_result)
-        result = new_result
-    result[8] = fs[8]  # preserve transcript pointer
-    return result
+def fs_absorb(fs, data, length: Const):
+    # Absorb `length` continuous field elements into the sponge, 7 per Poseidon
+    # permutation. Permutation k compresses [-1, data[7k .. 7k+7]] with the
+    # running state (last permutation zero-padded). The leading -1 domain-
+    # separates absorption from fs_sample_*, which use separators 0..=n in that
+    # same slot. `data` itself is left untouched and continuous; we copy it
+    # 7-by-7 into fresh `-1`-prefixed scratch chunks.
+    debug_assert(length != 0)
+    n_perms = div_ceil(length, 7)
+    chunks = Array(8 * n_perms)
+    for k in unroll(0, n_perms):
+        chunks[8 * k] = 0 - 1
+    for i in unroll(0, length):
+        chunks[8 * div_floor(i, 7) + 1 + (i % 7)] = data[i]
+    for i in unroll(length, 7 * n_perms):
+        chunks[8 * div_floor(i, 7) + 1 + (i % 7)] = 0
+    # Chain the permutations: states[8k .. 8k+8] is the state after permutation k.
+    states = Array(8 * n_perms + 1)
+    poseidon16_compress(chunks, fs, states)
+    for k in unroll(1, n_perms):
+        poseidon16_compress(chunks + 8 * k, states + 8 * (k - 1), states + 8 * k)
+    return states + 8 * (n_perms - 1)
 
 
 def fs_observe(fs, data, length: Const):
-    n_full_chunks = (length - (length % DIGEST_LEN)) / DIGEST_LEN
-    remainder = length % DIGEST_LEN
-    if remainder == 0:
-        return fs_observe_chunks(fs, data, n_full_chunks)
-    intermediate = fs_observe_chunks(fs, data, n_full_chunks)
-    padded = Array(DIGEST_LEN)
-    for j in unroll(0, remainder):
-        padded[j] = data[n_full_chunks * DIGEST_LEN + j]
-    for j in unroll(remainder, DIGEST_LEN):
-        padded[j] = 0
-    final_result = Array(9)
-    poseidon16_compress(intermediate, padded, final_result)
-    final_result[8] = fs[8]  # preserve transcript pointer
-    return final_result
+    new_fs = fs_absorb(fs, data, length)
+    new_fs[8] = fs[8]  # preserve transcript pointer
+    return new_fs
+
+
+def fs_receive(fs, length: Const):
+    # Absorb `length` continuous elements from the transcript and advance the
+    # transcript pointer past them. Returns the updated fs and a pointer to the
+    # (continuous, untouched) received data.
+    transcript_ptr = fs[8]
+    new_fs = fs_absorb(fs, transcript_ptr, length)
+    new_fs[8] = transcript_ptr + length
+    return new_fs, transcript_ptr
 
 
 def fs_grinding(fs, bits):
     if bits == 0:
         return fs  # no grinding
-    transcript_ptr = fs[8]
-    set_to_7_zeros(transcript_ptr + 1)
-
-    new_fs = Array(9)
-    poseidon16_compress(fs, transcript_ptr, new_fs)
-    new_fs[8] = transcript_ptr + 8
-
+    new_fs, _ = fs_receive(fs, 1)  # absorb the grinding witness (1 field element)
     sampled = new_fs[0]
     debug_assert(bits <= 24)
     match_range(bits, range(0, 25), lambda b: assert_trailing_bits_are_zeros(sampled, b))
-
     return new_fs
 
 def assert_trailing_bits_are_zeros(value, bits: Const):
@@ -143,26 +147,14 @@ def fs_hint(fs, n):
 
 
 def fs_receive_chunks(fs, n_chunks: Const):
-    # each chunk = 8 field elements
-    new_fs = Array(1 + 8 * n_chunks)
-    transcript_ptr = fs[8]
-    new_fs[8 * n_chunks] = transcript_ptr + 8 * n_chunks  # advance transcript pointer
-
-    poseidon16_compress(fs, transcript_ptr, new_fs)
-    for i in unroll(1, n_chunks):
-        poseidon16_compress(
-            new_fs + ((i - 1) * 8),
-            transcript_ptr + i * 8,
-            new_fs + i * 8,
-        )
-    return new_fs + 8 * (n_chunks - 1), transcript_ptr
+    # each chunk = 8 field elements (e.g. a digest)
+    new_fs, transcript_ptr = fs_receive(fs, 8 * n_chunks)
+    return new_fs, transcript_ptr
 
 
 @inline
 def fs_receive_ef_inlined(fs, n):
-    new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
-    for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
-        assert ef_ptr[i] == 0
+    new_fs, ef_ptr = fs_receive(fs, n * DIM)
     return new_fs, ef_ptr
 
 
@@ -176,9 +168,7 @@ def fs_receive_ef_by_log_dynamic(fs, log_n, min_value: Const, max_value: Const):
 
 
 def fs_receive_ef(fs, n: Const):
-    new_fs, ef_ptr = fs_receive_chunks(fs, div_ceil(n * DIM, 8))
-    for i in unroll(n * DIM, next_multiple_of(n * DIM, 8)):
-        assert ef_ptr[i] == 0
+    new_fs, ef_ptr = fs_receive(fs, n * DIM)
     return new_fs, ef_ptr
 
 

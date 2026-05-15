@@ -131,6 +131,8 @@ pub(crate) fn hash_bytecode_claims(claims: &[Evaluation<EF>]) -> [F; DIGEST_LEN]
 }
 
 pub(crate) fn bytecode_reduction_sumcheck_proof_size(bytecode_point_n_vars: usize) -> usize {
-    let per_round = (3 * DIMENSION).next_multiple_of(DIGEST_LEN);
+    // Leading DIGEST_LEN: the observed claims hash. Each degree-2 round absorbs
+    // 3 EF coefficients; the transcript is continuous (no per-round padding).
+    let per_round = 3 * DIMENSION;
     DIGEST_LEN + bytecode_point_n_vars * per_round
 }

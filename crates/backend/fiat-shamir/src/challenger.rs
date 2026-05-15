@@ -21,24 +21,19 @@ impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
         }
     }
 
-    pub fn observe(&mut self, value: [F; RATE]) {
-        self.state = self.compressor.compress({
-            let mut concat = [F::ZERO; WIDTH];
-            concat[..RATE].copy_from_slice(&self.state);
-            concat[RATE..].copy_from_slice(&value);
-            concat
-        })[..RATE]
-            .try_into()
-            .unwrap();
-    }
-
+    /// Absorbs scalars into the sponge, `RATE - 1` (= 7) per permutation.
+    ///
+    /// Each permutation compresses `[-1, <=7 scalars] || state`: the leading `-1`
+    /// in the first slot is a domain separator. `sample_many` puts separators
+    /// `0..=n` in that same slot, so an observe input can never collide with a
+    /// sample input.
     pub fn observe_scalars(&mut self, scalars: &[F]) {
-        for chunk in scalars.chunks(RATE) {
-            let mut buffer = [F::ZERO; RATE];
-            for (i, val) in chunk.iter().enumerate() {
-                buffer[i] = *val;
-            }
-            self.observe(buffer);
+        for chunk in scalars.chunks(RATE - 1) {
+            let mut input = [F::ZERO; WIDTH];
+            input[0] = -F::ONE;
+            input[1..1 + chunk.len()].copy_from_slice(chunk);
+            input[RATE..].copy_from_slice(&self.state);
+            self.state = self.compressor.compress(input)[..RATE].try_into().unwrap();
         }
     }
 
