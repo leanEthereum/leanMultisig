@@ -6,11 +6,10 @@ from ood_barycentric import *
 #
 # Each blob witness is a length-2M Reed-Solomon codeword in natural evaluation
 # order: C_i[j] = P_i(w^j).  The public input commits to each systematic prefix
-# d_i = H(C_i[0..M)), then to D = H(d_0, ..., d_{n-1}).  The row challenge z is
-# derived from D, and the OOD row is the column-wise row-domain evaluation
-#   OOD[j] = sum_i ((z^n - 1) / (z*h^{-i} - 1)) * C_i[j].
-# The 1/n Lagrange factor is intentionally omitted: it scales the whole OOD row
-# by a nonzero public constant and does not affect the parity identity.
+# d_i = H(C_i[0..M)), then to D = H(d_0, ..., d_{n-1}).  Each row coordinate
+# x_i is derived from D, d_i, and i.  The OOD challenge z is derived from D,
+# and the OOD row is the hash-domain column evaluation
+#   OOD[j] = sum_i L_i(z) * C_i[j], where L_i is over the points x_i.
 #
 # The canonical witness layout is:
 #   all_codewords[j][i] = C_i[j]
@@ -27,14 +26,11 @@ M = 2 ** LOG_M
 DIM = 5
 
 N_BLOBS = N_BLOBS_PLACEHOLDER
-LOG_N_BLOBS = LOG_N_BLOBS_PLACEHOLDER
 
 W = ROOT_24**(2**(TWO_ADDICITY - LOG_M - 1))  # primitive 2M-th root of unity
 U = W * W
 U_INV = U ** (M - 1)
 W_INV = W ** (2 * M - 1)
-ROW_W = ROOT_24**(2**(TWO_ADDICITY - LOG_N_BLOBS))  # primitive N_BLOBS-th root
-ROW_W_INV = ROW_W ** (N_BLOBS - 1)
 
 DIGEST_LEN = 8
 LOG_LEAF_LEN_EXT = 4
@@ -71,7 +67,7 @@ def main():
     z_digest = Array(DIGEST_LEN)
     derive_z(D, z_digest)
     assert_eq_ext(z_digest, PUB_Z)
-    verify_row_coeffs(PUB_Z, PUB_ROW_COEFFS)
+    verify_row_coeffs(D, row_digests, PUB_Z, PUB_ROW_COEFFS)
 
     ood_row = compute_ood_row_column_major(all_codewords, PUB_ROW_COEFFS)
     ood_root = merkle_root_from_data(ood_row)
@@ -253,35 +249,69 @@ def compute_ood_row_column_major(codewords_base, row_coeffs):
     return ood_row
 
 
-def verify_row_coeffs(z, row_coeffs):
-    z_pow_log = Array((LOG_N_BLOBS + 1) * DIM)
-    copy_ext(z, z_pow_log)
-    for k in unroll(1, LOG_N_BLOBS + 1):
-        dot_product_ee(z_pow_log + (k - 1) * DIM,
-                       z_pow_log + (k - 1) * DIM,
-                       z_pow_log + k * DIM)
-    zn = z_pow_log + LOG_N_BLOBS * DIM
+def verify_row_coeffs(D, row_digests, z, row_coeffs):
+    row_points = Array(N_BLOBS * DIM)
+    derive_row_points(D, row_digests, row_points)
 
-    numerator = Array(DIM)
-    numerator[0] = zn[0] - 1
-    for d in unroll(1, DIM):
-        numerator[d] = zn[d]
-
-    row_w_inv_ext = Array(DIM)
-    row_w_inv_ext[0] = ROW_W_INV
-    for d in unroll(1, DIM):
-        row_w_inv_ext[d] = 0
-    points = Array(N_BLOBS * DIM)
-    copy_ext(z, points)
-    for i in unroll(1, N_BLOBS):
-        dot_product_ee(row_w_inv_ext, points + (i - 1) * DIM, points + i * DIM)
-
-    dens = Array(N_BLOBS * DIM)
     for i in unroll(0, N_BLOBS):
-        dens[i * DIM] = points[i * DIM] - 1
-        for d in unroll(1, DIM):
-            dens[i * DIM + d] = points[i * DIM + d]
-        dot_product_ee(dens + i * DIM, row_coeffs + i * DIM, numerator)
+        numerator: Mut = one_ext()
+        denominator: Mut = one_ext()
+        for k in unroll(0, N_BLOBS):
+            if k != i:
+                z_minus_x = Array(DIM)
+                sub_ext(z, row_points + k * DIM, z_minus_x)
+                new_numerator = Array(DIM)
+                dot_product_ee(numerator, z_minus_x, new_numerator)
+                numerator = new_numerator
+
+                x_i_minus_x_k = Array(DIM)
+                sub_ext(row_points + i * DIM, row_points + k * DIM, x_i_minus_x_k)
+                new_denominator = Array(DIM)
+                dot_product_ee(denominator, x_i_minus_x_k, new_denominator)
+                denominator = new_denominator
+
+        lhs = Array(DIM)
+        dot_product_ee(denominator, row_coeffs + i * DIM, lhs)
+        assert_eq_ext(lhs, numerator)
+    return
+
+
+def derive_row_points(D, row_digests, row_points):
+    for i in unroll(0, N_BLOBS):
+        derive_row_point(D, row_digests + i * DIGEST_LEN, i, row_points + i * DIM)
+    return
+
+
+def derive_row_point(D, row_digest, row_idx: Const, dest):
+    tag_row_x = domain_tag(3)
+    state = Array(DIGEST_LEN)
+    poseidon16_compress(D, tag_row_x, state)
+
+    state_2 = Array(DIGEST_LEN)
+    poseidon16_compress(state, row_digest, state_2)
+
+    tag_idx = domain_tag(1000 + row_idx)
+    point_digest = Array(DIGEST_LEN)
+    poseidon16_compress(state_2, tag_idx, point_digest)
+
+    for d in unroll(0, DIM):
+        dest[d] = point_digest[d]
+    return
+
+
+@inline
+def one_ext():
+    one = Array(DIM)
+    one[0] = 1
+    for d in unroll(1, DIM):
+        one[d] = 0
+    return one
+
+
+@inline
+def sub_ext(a, b, dest):
+    for d in unroll(0, DIM):
+        dest[d] = a[d] - b[d]
     return
 
 

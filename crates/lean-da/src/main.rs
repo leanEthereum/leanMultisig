@@ -3,7 +3,7 @@ mod cache;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
-use backend::{Algebra, BasedVectorSpace, Field, PrimeCharacteristicRing, Proof, TwoAdicField};
+use backend::{Algebra, BasedVectorSpace, PrimeCharacteristicRing, Proof, TwoAdicField};
 use clap::{Parser, ValueEnum};
 use lean_compiler::{CompilationFlags, ProgramSource, compile_program_with_flags};
 use lean_prover::{
@@ -75,16 +75,6 @@ fn main() {
 
 pub fn compile_lean_da_bytecode(n_blobs: usize, construction: Construction) -> Bytecode {
     assert!(n_blobs > 0, "n_blobs must be nonzero");
-    if matches!(
-        construction,
-        Construction::OodRow | Construction::OodRowColumnMajor | Construction::OodRowTiled
-    ) {
-        assert!(
-            n_blobs.is_power_of_two(),
-            "ood-row constructions require n_blobs to be a power of two"
-        );
-    }
-
     let mut replacements = BTreeMap::new();
     replacements.insert("LEAN_DA_ENTRY".to_string(), construction.entry().to_string());
     replacements.insert("LOG_M_PLACEHOLDER".to_string(), LOG_M.to_string());
@@ -311,7 +301,7 @@ fn build_ood_public_input(codewords: &[Vec<EF>]) -> Vec<F> {
     public_input.extend_from_slice(&z_digest[..dim]);
     let z = EF::from_basis_coefficients_slice(&z_digest[..dim]).unwrap();
 
-    let row_coeffs = build_scaled_ood_coeffs(n_blobs, z);
+    let row_coeffs = build_hash_domain_ood_coeffs(&row_digests, &chain_digest, z);
     public_input.extend(serialize_ext_vec(&row_coeffs));
 
     let ood_row = build_scaled_ood_row(codewords, &row_coeffs);
@@ -339,17 +329,43 @@ fn derive_z_digest(chain_digest: &[F; 8]) -> [F; 8] {
     utils::poseidon16_compress_pair(chain_digest, &tag_digest(1))
 }
 
-fn build_scaled_ood_coeffs(n_blobs: usize, z: EF) -> Vec<EF> {
-    let log_n_blobs = log2_exact_power_of_two(n_blobs);
-    let row_root_inv = EF::from(F::two_adic_generator(log_n_blobs).inverse());
-    let numerator = z.exp_u64(n_blobs as u64) - EF::ONE;
+fn build_hash_domain_ood_coeffs(row_digests: &[[F; 8]], chain_digest: &[F; 8], z: EF) -> Vec<EF> {
+    let row_points = build_hash_domain_row_points(row_digests, chain_digest);
+    build_lagrange_coeffs_at_z(&row_points, z)
+}
 
-    let mut row_coeffs = Vec::with_capacity(n_blobs);
-    let mut point = EF::ONE;
-    for _ in 0..n_blobs {
-        let denominator = z * point - EF::ONE;
+fn build_hash_domain_row_points(row_digests: &[[F; 8]], chain_digest: &[F; 8]) -> Vec<EF> {
+    row_digests
+        .iter()
+        .enumerate()
+        .map(|(row_idx, digest)| digest_to_ext(&derive_row_point_digest(chain_digest, digest, row_idx)))
+        .collect()
+}
+
+fn derive_row_point_digest(chain_digest: &[F; 8], row_digest: &[F; 8], row_idx: usize) -> [F; 8] {
+    let state = utils::poseidon16_compress_pair(chain_digest, &tag_digest(3));
+    let state = utils::poseidon16_compress_pair(&state, row_digest);
+    utils::poseidon16_compress_pair(&state, &tag_digest(1_000 + row_idx as u64))
+}
+
+fn digest_to_ext(digest: &[F; 8]) -> EF {
+    let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
+    EF::from_basis_coefficients_slice(&digest[..dim]).unwrap()
+}
+
+fn build_lagrange_coeffs_at_z(row_points: &[EF], z: EF) -> Vec<EF> {
+    let mut row_coeffs = Vec::with_capacity(row_points.len());
+    for (i, &x_i) in row_points.iter().enumerate() {
+        let mut numerator = EF::ONE;
+        let mut denominator = EF::ONE;
+        for (k, &x_k) in row_points.iter().enumerate() {
+            if k == i {
+                continue;
+            }
+            numerator *= z - x_k;
+            denominator *= x_i - x_k;
+        }
         row_coeffs.push(numerator / denominator);
-        point *= row_root_inv;
     }
     row_coeffs
 }
@@ -473,6 +489,41 @@ mod tests {
 
         let (_witness, public_input) = build_instance(DEFAULT_N_BLOBS, Construction::OodRowTiled);
         assert_eq!(public_input.len(), expected_len);
+    }
+
+    #[test]
+    fn test_hash_domain_ood_coeffs_are_lagrange() {
+        let n_blobs = 3;
+        let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
+        let m = 1 << LOG_M;
+        let codewords = generate_codewords(n_blobs);
+
+        let mut row_digests = Vec::with_capacity(n_blobs);
+        for codeword in &codewords {
+            let mut systematic = Vec::with_capacity(m * dim);
+            for value in codeword.iter().take(m) {
+                push_ext(&mut systematic, value);
+            }
+            row_digests.push(utils::poseidon_compress_slice(&systematic, false));
+        }
+
+        let chain_digest = chain_digest_array(&row_digests);
+        let z = digest_to_ext(&derive_z_digest(&chain_digest));
+        let row_points = build_hash_domain_row_points(&row_digests, &chain_digest);
+        let row_coeffs = build_hash_domain_ood_coeffs(&row_digests, &chain_digest, z);
+
+        for (i, &x_i) in row_points.iter().enumerate() {
+            let mut numerator = EF::ONE;
+            let mut denominator = EF::ONE;
+            for (k, &x_k) in row_points.iter().enumerate() {
+                if k == i {
+                    continue;
+                }
+                numerator *= z - x_k;
+                denominator *= x_i - x_k;
+            }
+            assert_eq!(row_coeffs[i] * denominator, numerator);
+        }
     }
 
     #[test]
