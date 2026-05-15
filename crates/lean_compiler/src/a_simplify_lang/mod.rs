@@ -7,8 +7,8 @@ use crate::{
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
-    PrecompileCompTimeArgs, SourceLocation,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME,
+    PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2238,6 +2238,45 @@ fn simplify_lines(
                             continue;
                         }
 
+                        // Special handling for strided extension_op precompile
+                        // Signature: func_strided_a(ptr_a, ptr_b, ptr_res, length, stride_a)
+                        if let Some(stripped_name) = function_name.strip_suffix("_strided_a")
+                            && let Some(mode) = ExtensionOpMode::from_name(stripped_name)
+                        {
+                            if !targets.is_empty() {
+                                return Err(format!(
+                                    "Precompile {function_name} should not return values, at {location}"
+                                ));
+                            }
+                            if args.len() != 5 {
+                                return Err(format!(
+                                    "Precompile {function_name} expects 5 arguments (a, b, result, length, stride_a), got {}, at {location}",
+                                    args.len()
+                                ));
+                            }
+                            let simplified_args = args[..3]
+                                .iter()
+                                .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let size = simplify_expr(ctx, state, const_malloc, &args[3], &mut res)?
+                                .as_constant()
+                                .expect("extension op size must be a constant");
+                            let stride_a = simplify_expr(ctx, state, const_malloc, &args[4], &mut res)?
+                                .as_constant()
+                                .expect("extension op stride_a must be a constant");
+                            res.push(SimpleLine::Precompile(PrecompileArgs {
+                                arg_0: simplified_args[0].clone(),
+                                arg_1: simplified_args[1].clone(),
+                                res: simplified_args[2].clone(),
+                                data: PrecompileCompTimeArgs::ExtensionOp {
+                                    size,
+                                    mode,
+                                    stride_a: Some(stride_a),
+                                },
+                            }));
+                            continue;
+                        }
+
                         // Special handling for extension_op precompile
                         // Signature: func(ptr_a, ptr_b, ptr_res) or func(ptr_a, ptr_b, ptr_res, length)
                         if let Some(mode) = ExtensionOpMode::from_name(function_name) {
@@ -2268,7 +2307,11 @@ fn simplify_lines(
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::ExtensionOp { size, mode },
+                                data: PrecompileCompTimeArgs::ExtensionOp {
+                                    size,
+                                    mode,
+                                    stride_a: None,
+                                },
                             }));
                             continue;
                         }

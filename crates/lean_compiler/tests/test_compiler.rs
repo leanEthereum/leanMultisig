@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use backend::BasedVectorSpace;
+use backend::{BasedVectorSpace, PrimeCharacteristicRing};
 use lean_compiler::*;
 use lean_vm::*;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -65,6 +65,39 @@ def div_ext_2(n, d):
     public_input.extend(n.as_basis_coefficients_slice());
     public_input.extend(d.as_basis_coefficients_slice());
     public_input.extend(q.as_basis_coefficients_slice());
+    compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
+}
+
+#[test]
+fn test_strided_dot_product_ee() {
+    let program = r#"
+DIM = 5
+N = 3
+STRIDE = 2 * DIM
+
+def main():
+    a = 0
+    b = N * STRIDE
+    expected = b + N * DIM
+    dot_product_ee_strided_a(a, b, expected, N, STRIDE)
+    return
+    "#;
+
+    let mut rng = StdRng::seed_from_u64(11);
+    let a_values: Vec<EF> = (0..3).map(|_| rng.random()).collect();
+    let b_values: Vec<EF> = (0..3).map(|_| rng.random()).collect();
+    let expected: EF = a_values.iter().zip(&b_values).map(|(&a, &b)| a * b).sum();
+
+    let mut public_input = vec![];
+    for value in &a_values {
+        public_input.extend(value.as_basis_coefficients_slice());
+        public_input.extend(EF::ZERO.as_basis_coefficients_slice());
+    }
+    for value in &b_values {
+        public_input.extend(value.as_basis_coefficients_slice());
+    }
+    public_input.extend(expected.as_basis_coefficients_slice());
+
     compile_and_run(&ProgramSource::Raw(program.to_string()), &public_input, false);
 }
 

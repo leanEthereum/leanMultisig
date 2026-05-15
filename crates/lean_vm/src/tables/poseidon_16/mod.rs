@@ -108,6 +108,7 @@ pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
 /// Non-committed columns ("virtual"):
 pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = num_cols_poseidon_16();
 pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16() + 1;
+pub const POSEIDON_16_COL_PRECOMPILE_EXTRA: ColIndex = num_cols_poseidon_16() + 2;
 
 pub const POSEIDON16_NAME: &str = "poseidon16_compress";
 pub const POSEIDON16_HALF_NAME: &str = "poseidon16_compress_half";
@@ -162,8 +163,9 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
 
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
     fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
+        let mut data = Vec::with_capacity(5);
         data.push(BusData::Column(POSEIDON_16_COL_PRECOMPILE_DATA));
+        data.push(BusData::Column(POSEIDON_16_COL_PRECOMPILE_EXTRA));
         data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT));
         data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT));
         data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES));
@@ -193,6 +195,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         // Non-committed columns
         row[POSEIDON_16_COL_INDEX_INPUT_LEFT] = F::from_usize(zero_vec_ptr);
         row[POSEIDON_16_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_PRECOMPILE_DATA);
+        row[POSEIDON_16_COL_PRECOMPILE_EXTRA] = F::ZERO;
 
         generate_trace_rows_for_perm(perm);
         row
@@ -267,6 +270,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * (flag_hardcoded as usize)
             + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val;
         trace.columns[POSEIDON_16_COL_PRECOMPILE_DATA].push(F::from_usize(precompile_data));
+        trace.columns[POSEIDON_16_COL_PRECOMPILE_EXTRA].push(F::ZERO);
 
         // the rest of the trace is filled at the end of the execution (to get parallelism + SIMD)
 
@@ -314,16 +318,30 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         let index_a =
             cols.effective_index_left_second - one_minus_flag_hardcoded_left * AB::F::from_usize(HALF_DIGEST_LEN);
 
-        // Bus data: [precompile_data, a, b, res]
+        let precompile_extra = AB::IF::ZERO;
+
+        // Bus data: [precompile_data, extra, a, b, res]
         if BUS {
             builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 cols.flag_active,
-                &[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res],
+                &[
+                    precompile_data_reconstructed,
+                    precompile_extra,
+                    index_a,
+                    cols.index_b,
+                    cols.index_res,
+                ],
             ));
         } else {
             builder.declare_values(std::slice::from_ref(&cols.flag_active));
-            builder.declare_values(&[precompile_data_reconstructed, index_a, cols.index_b, cols.index_res]);
+            builder.declare_values(&[
+                precompile_data_reconstructed,
+                precompile_extra,
+                index_a,
+                cols.index_b,
+                cols.index_res,
+            ]);
         }
 
         builder.assert_bool(cols.flag_active);
@@ -425,8 +443,8 @@ pub const fn num_cols_poseidon_16() -> usize {
 }
 
 pub const fn num_cols_total_poseidon_16() -> usize {
-    // +2 for non-committed columns: POSEIDON_16_COL_INDEX_INPUT_LEFT, POSEIDON_16_COL_PRECOMPILE_DATA
-    num_cols_poseidon_16() + 2
+    // +3 for non-committed columns: input-left index, precompile data, precompile extra.
+    num_cols_poseidon_16() + 3
 }
 
 #[inline]
