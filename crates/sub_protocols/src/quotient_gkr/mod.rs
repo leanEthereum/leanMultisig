@@ -84,6 +84,7 @@ fn prove_gkr_layer<EF: ExtensionField<PF<EF>>>(
     claim_num: EF,
     claim_den: EF,
 ) -> (MultilinearPoint<EF>, EF, EF) {
+    prover_state.duplex();
     let alpha = prover_state.sample();
     let expected_sum = claim_num + alpha * claim_den;
 
@@ -168,6 +169,7 @@ fn verify_gkr_quotient_step<EF: ExtensionField<PF<EF>>>(
     claims_num: EF,
     claims_den: EF,
 ) -> Result<(MultilinearPoint<EF>, EF, EF), ProofError> {
+    verifier_state.duplex();
     let alpha = verifier_state.sample();
     let expected_sum = claims_num + alpha * claims_den;
     let eq_alphas_rev: Vec<EF> = point.0.iter().rev().copied().collect();

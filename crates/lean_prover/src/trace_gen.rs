@@ -108,23 +108,31 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     let poseidon_trace = traces.get_mut(&Table::poseidon16()).unwrap();
     fill_trace_poseidon_16(&mut poseidon_trace.columns);
 
-    // For half_output rows, override last 4 output columns with actual memory values
-    // (the AIR doesn't constrain them, but the lookup checks against memory).
+    // For permute=0 rows, override unconstrained output columns with memory values
+    // so the lookup matchess. same when half_output=1
     {
-        let split = POSEIDON_16_COL_OUTPUT_START + HALF_DIGEST_LEN;
+        let split = POSEIDON_16_COL_OUTPUT_LEFT + HALF_DIGEST_LEN;
         let (left, right) = poseidon_trace.columns.split_at_mut(split);
         let half_output_col = &left[POSEIDON_16_COL_FLAG_HALF_OUTPUT];
+        let permute_col = &left[POSEIDON_16_COL_FLAG_PERMUTE];
         let res_col = &left[POSEIDON_16_COL_INDEX_INPUT_RES];
-        let output_cols: &mut [Vec<F>; HALF_DIGEST_LEN] = (&mut right[..HALF_DIGEST_LEN]).try_into().unwrap();
+        const N: usize = HALF_DIGEST_LEN + DIGEST_LEN;
+        let cols: &mut [Vec<F>; N] = (&mut right[..N]).try_into().unwrap();
 
-        transposed_par_iter_mut(output_cols)
+        transposed_par_iter_mut(cols)
             .zip(half_output_col)
+            .zip(permute_col)
             .zip(res_col)
-            .for_each(|((row, &half), &res)| {
-                if half == F::ONE {
-                    let base = res.to_usize() + HALF_DIGEST_LEN;
-                    for j in 0..HALF_DIGEST_LEN {
-                        *row[j] = memory_padded[base + j];
+            .for_each(|(((row, &half), &permute), &res)| {
+                if permute == F::ZERO {
+                    let base = res.to_usize();
+                    if half == F::ONE {
+                        for j in 0..HALF_DIGEST_LEN {
+                            *row[j] = memory_padded[base + HALF_DIGEST_LEN + j];
+                        }
+                    }
+                    for j in 0..DIGEST_LEN {
+                        *row[HALF_DIGEST_LEN + j] = memory_padded[base + DIGEST_LEN + j];
                     }
                 }
             });

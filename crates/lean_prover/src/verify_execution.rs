@@ -71,6 +71,7 @@ pub fn verify_execution(
     )?;
 
     let logup_c = verifier_state.sample();
+    verifier_state.duplex();
     let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
@@ -98,8 +99,10 @@ pub fn verify_execution(
     }
 
     let bus_beta = verifier_state.sample();
+    verifier_state.duplex();
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    verifier_state.duplex();
     let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
