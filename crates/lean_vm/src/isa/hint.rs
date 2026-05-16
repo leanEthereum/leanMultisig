@@ -190,7 +190,7 @@ impl CustomHint {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;
                 let b = args[1].read_value(ctx.memory, ctx.fp)?;
                 let res_ptr = args[2].memory_address(ctx.fp)?;
-                let result = if a.to_usize() < b.to_usize() { F::ONE } else { F::ZERO };
+                let result = F::from_bool(a.to_usize() < b.to_usize());
                 ctx.memory.set(res_ptr, result)?;
             }
             Self::Log2Ceil => {

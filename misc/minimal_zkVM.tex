@@ -215,15 +215,22 @@ $\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, wit
 
 \subsubsection{POSEIDON}
 
-Compression (feed-forward) of 16 field elements (two blocks of 8) into 8 field elements.
+Two sub-modes are supported, selected by a compile-time \texttt{flag\_permute} bit:
+
+\textbf{Compression mode} (default, \texttt{flag\_permute} $= 0$): feed-forward compression of 16 field elements (two blocks of 8) into 8 field elements.
 
 $$
 \textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
 $$
 
+\textbf{Permute mode} (\texttt{flag\_permute} $= 1$): the raw Poseidon permutation (no feed-forward), with the 16-element output written into memory in natural order:
+$$
+\textbf{m}[\nu_C..\nu_C + 16] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])
+$$
+
+
 \vspace{2mm}
 
-\texttt{PRECOMPILE\_DATA} $= 1$
 
 Recently some additonal paramters were introduced (see \ref{efficiently_verrifying_hash-based_signatures} for details), allowing more granular input / output.
 
@@ -502,12 +509,32 @@ TODO: Verify and (formally) prove soundness.
 
 \subsection{Poseidon table}
 
-We use poseidon \cite{poseidon1} over 16 field elements, in compression mode, i.e. for $\texttt{input} \in \Fp^{16}$ and interpreting the addition as coordinate-wise in $\Fp^8$:
- $$\text{poseidon\_compress}(\texttt{input}) = \text{poseidon}(\texttt{input})[..8] + \texttt{input}[..8]$$.
+Poseidon \cite{poseidon1} is a permutation of $\Fp^{16}$. The table runs this permutation once per row, and the final part of the row, which is exposed to memory via lookup, is a function of a compile-time bit $\texttt{flag\_permute}$: we perform either a $16 \to 8$ \emph{compression} or a $16 \to 16$ \emph{permutation}.
 
-The Poseidon precompile receives 3 runtime arguments: $\nu_A$, $\nu_B$, $\nu_C$ interpreted as memory pointers. 3 lookups (each of size 8) into the memory are used to fetch $\texttt{left}$ = $\textbf{m}[\nu_A..\nu_A + 8] \in \Fp^8$, $\texttt{right}$ = $\textbf{m}[\nu_B..\nu_B + 8] \in \Fp^8$, and $\texttt{res}$ = $\textbf{m}[\nu_C..\nu_C + 8] \in \Fp^8$. AIR constraints, of degree 9, assert that $\texttt{res} = \text{poseidon\_compress}(\texttt{left} \;\|\; \texttt{right})$. Degree 3 is also an alternative, at the cost of more committed columns ($\approx 160$ vs. $\approx 100$).
+The execution table hands the precompile three pointers $\nu_A$, $\nu_B$, $\nu_C$ over the precompile bus, and the precompile fetches the two input halves
+$$\texttt{left} = \textbf{m}[\nu_A..\nu_A + 8], \qquad \texttt{right} = \textbf{m}[\nu_B..\nu_B + 8].$$
+Write $s = \text{poseidon}(\texttt{left} \;\|\; \texttt{right}) \in \Fp^{16}$ for the raw permutation output.
 
+\vspace{2mm}
+
+\paragraph{Compression mode} ($\texttt{flag\_permute} = 0$) Using pairwise addition in $\Fp$:
+
+$$\textbf{m}[\nu_C..\nu_C + 8] = s[0..8] + \texttt{left}$$
+
+
+\vspace{2mm}
+
+\paragraph{Permute mode} ($\texttt{flag\_permute} = 1$). 
+
+$$\textbf{m}[\nu_C..\nu_C + 16] = s.$$
+
+
+\vspace{2mm}
+
+The AIR has degree 10 and $\approx 100$ committed columns; a degree-3 variant exists at the cost of $\approx 160$ columns.
 \subsubsection{Efficiently verrifying hash-based signatures}\label{efficiently_verrifying_hash-based_signatures}
+
+The following optimizes the $\emph{compression}$ mode, and is incompatible with the $\emph{permutation}$ mode.
 
 Hash-based signatures often rely on tweaks and public parameters (see \cite{ethereum_signatures}).
 
@@ -531,7 +558,7 @@ $$\texttt{left} = \begin{cases} \textbf{m}[\nu_A..\nu_A + 8] & \text{if } \textt
 Both optimizations can be implemented (together), at the cost of 4 additional columns, and incrementing the degree of the constraints by 1.
 
 Both flags ($\texttt{flag\_short}$ and $\texttt{flag\_left}$) and the offset ($\texttt{offset\_left}$) can be encoded in a single (compile-time) parameter, as follows:
-$$\texttt{AUX} = 1 + 2 \cdot \texttt{flag\_short} + 4 \cdot \texttt{flag\_left} + 8 \cdot \texttt{offset\_left} \cdot  \texttt{flag\_left}$$
+$$\texttt{AUX} = 1 + 2 \cdot \texttt{flag\_permute} + 4 \cdot \texttt{flag\_short} + 8 \cdot \texttt{flag\_left} + 16 \cdot \texttt{offset\_left} \cdot  \texttt{flag\_left}$$
 
 Soundness of this encoding (encoding multiple data into a single field element requires care, to avoid overflows that would break injectivity):
 \begin{itemize}

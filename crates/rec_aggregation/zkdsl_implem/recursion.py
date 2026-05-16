@@ -95,6 +95,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     fs, logup_c = fs_sample_ef(fs)
 
+    fs = fs_duplex(fs)
     fs, logup_alphas = fs_sample_many_ef(fs, log2_ceil(MAX_BUS_WIDTH))
 
     logup_alphas_eq_poly = compute_eq_mle_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
@@ -382,8 +383,10 @@ def continue_recursion_ordered(
     # VERIFY BUS AND AIR — back-loaded batched sumcheck (see https://hackmd.io/s/HyxaupAAA)
 
     fs, bus_beta = fs_sample_ef(fs)
+    fs = fs_duplex(fs)
     fs, air_alpha = fs_sample_ef(fs)
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
+    fs = fs_duplex(fs)
     fs, eta = fs_sample_ef(fs)
     eta_powers = powers_const(eta, N_TABLES)
 
@@ -464,6 +467,7 @@ def continue_recursion_ordered(
     dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
     # WHIR BASE
+    fs = fs_duplex(fs)
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
     combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS)
@@ -717,6 +721,7 @@ def verify_gkr_quotient(fs: Mut, n_vars):
 
 
 def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
+    fs = fs_duplex(fs)
     fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)
