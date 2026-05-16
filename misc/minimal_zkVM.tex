@@ -50,11 +50,11 @@
 \section{Introduction}
 Ethereum's cryptography currently relies on elliptic curves, which are known to be vulnerable to quantum computers \cite{shor}.
 
-LeanVM is a verifiable Virtual Machine (also called zkVM for "zero knowledge VM"). It is inspired by Cairo \cite{cairo}: it uses a minimal ISA (Intruction Set Architecture) that operates on a read-only memory where each word is field element.
+LeanVM is a verifiable Virtual Machine (also called zkVM for "zero knowledge VM"). It uses a minimal ISA (Intruction Set Architecture) inspired by Cairo \cite{cairo}.
 \begin{itemize}
     \item It's hash-based (WHIR \cite{whir}): plausibly post-quantum, conceptually simple
     \item It's multilinear: the trace is committed as a single multilinear polynomial (reducing proof size), and constraints are proven via sumcheck \cite{sumcheck}
-    \item It uses the Poseidon \cite{poseidon1} permutation as a hashing primitive
+    \item It uses the Poseidon \cite{poseidon1} permutation as a snark-friendly hashing primitive
 \end{itemize}
 
 \section{Use-cases}
@@ -87,93 +87,75 @@ See \ref{sec:signature-aggregation} for more details.
 \section{VM specification}
 \subsection{Field}
 
-\fbox{KoalaBear prime: $p = 2^{31} - 2^{24} + 1$}
-
-\vspace{3mm}
-
-Advantages:
-\begin{itemize}
-    \item small field $\xrightarrow{}$ less Poseidon rounds
-    \item $x \xrightarrow{} x^3$ is an automorphism of $\Fp^*$, meaning efficient S-box for Poseidon (in BabyBear, it's degree $7$)
-    \item $< 2^{31}$ $\xrightarrow{}$ the sum of 2 field elements can be stored in an u32
-\end{itemize}
-
-The small 2-addicity (24) is not a limiting factor in WHIR, thanks to the use of an interleaved Reed Solomon code (example: with an initial folding of 7, and rate $1/2$, we can commit up to $2^{30}$ field elements).
-
-\vspace{3mm}
-
-\fbox{Extension field: $\Fq$, with $q = p^5$} : the degree-5 extension enables 128 bits of security in WHIR, with the Johnson bound, thanks to the latest result of \cite{proximity_gaps_rs_codes_2}.
+The base field is $\Fp$, with $p = 2^{31} - 2^{24} + 1$ (KoalaBear prime). The extension field is $\Fq$, with $q = p^5$ (degree 5 extension).
 
 \subsection{Memory}
 
-\begin{itemize}
-    \item Read-Only Memory
-    \item Word = KoalaBear field element
-    \item Memory size: $M = 2^m$ with $16 \leq m \leq 26$ ($m$ depends on the execution and is communicated at the beginning of the proof).
-    \item The first $M' = 2^{m'}$ memory cells hold the "public input", on which both prover and verifier must agree.
-    This enables to pass the arguments that the leanISA program receives as input (in our case: message to sign and XMSS public keys).
-\end{itemize}
-
-% \begin{figure}[h]
-% \caption{Memory structure}
-% \centering
-% \label{memory}
-% \includegraphics[scale=0.7]{images/memory.png}
-% \end{figure}
+We use a read-only memory (also called write-once memory). Each memory word is a base field element. The memory is a 1D array of $M$ words. The size of the memory, is attached to each execution of the VM. Valid sizes are $M_\text{min} \leq M \leq M_\text{max}$, with $M_\text{min} = 2^{16}$ and $M_\text{max} = 2^{26}$. The first $M_{\text{public}} \leq M$ memory cells hold the "public input", which informally represents the part of the memory "controlled" by the verifier of an execution proof. Both $M$ and $M_{\text{public}}$ must be powers of 2.
 
 \subsection{Registers}
 
-% As in Cairo:
 \begin{itemize}
-    \item \fbox{\textbf{pc}: program counter} : points to the current instruction
-    % \item \textbf{ap}: allocation pointer = Points to the first untouched memory cell
-    \item \fbox{\textbf{fp}: frame pointer} : points to the start of the current "stack frame" in memory
+    \item \textbf{pc}: program counter, points to the current instruction
+    \item \textbf{fp}: frame pointer, points to the start of the current "frame" in memory
 \end{itemize}
-
-
-Difference with Cairo: no \textbf{ap} register (allocation pointer).
 
 
 \subsection{Instruction Set Architecture}
 
 Notations:
 \begin{itemize}
-    \item $\alpha$, $\beta$ and $\gamma$ represent parameters of the instructions (immediate value operands)
-    \item $\textbf{m}[i]$ represents the value of the memory at index $i \in \Fp$, with $i < M$ ($M$: memory size). Any out-of-bound memory access ($i \geq M$) is invalid.
-    \item $\begin{cases} A \\ B \end{cases}$ When using the instruction, either $A$ or $B$ can be used, but not both simultaneously.
+    \item $(\alpha, \beta, \gamma) \in \Fp^3$ represent parameters of each instruction (operands)
+    \item $\textbf{m}[i]$ represents the value of the memory at index $i \in \Fp$, with $i < M$. Any out-of-bound memory access ($i \geq M$) is invalid.
+    \item The notation $\begin{cases} A \\ B \end{cases}$ is an exclusive "or". Either $A$ or $B$ can be used, but not both simultaneously.
+    \item The default update rule for the registers (valid for all instructions except JUMP) is: $\texttt{pc} \gets \texttt{pc} + 1$, $\texttt{fp} \gets \texttt{fp}$.
 \end{itemize}
 
 
-\subsubsection{ADD / MUL}
+\subsubsection{ADD}
 
-ADD: $\nu_a + \nu_c = \nu_b$ \hspace{3mm} and \hspace{3mm} MUL: $\nu_a \cdot \nu_c = \nu_b$ with: 
-
-\begin{align*}
-\nu_a &= 
-\begin{cases}
+$$\begin{cases}
 \alpha \\
 \textbf{m}[\textbf{fp} + \alpha]
-\end{cases}
-&
-\nu_b &= 
-\begin{cases}
-\beta \\
-\textbf{m}[\textbf{fp} + \beta]
-\end{cases}
-&
-\nu_c &= 
+\end{cases} 
+\textbf{+ }
 \begin{cases}
 \gamma \\
 \textbf{m}[\textbf{fp} + \gamma]  \\
 \textbf{fp} + \gamma
 \end{cases}
-\end{align*}
+\textbf{= }
+ \begin{cases}
+\beta \\
+\textbf{m}[\textbf{fp} + \beta]
+\end{cases}$$
+
+
+\subsubsection{MUL}
+
+$$\begin{cases}
+\alpha \\
+\textbf{m}[\textbf{fp} + \alpha]
+\end{cases} 
+\textbf{x }
+\begin{cases}
+\gamma \\
+\textbf{m}[\textbf{fp} + \gamma]  \\
+\textbf{fp} + \gamma
+\end{cases}
+\textbf{= }
+ \begin{cases}
+\beta \\
+\textbf{m}[\textbf{fp} + \beta]
+\end{cases}$$
+
 
 
 \subsubsection{DEREF}
 
+
 $$
-\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] = 
+\textbf{m}[\textbf{m}[\textbf{fp} + \alpha] + \beta] \textbf{ = } 
 \begin{cases}
 & \gamma \\
 & \textbf{m}[\textbf{fp} + \gamma]   \\
@@ -182,9 +164,18 @@ $$
 \end{cases}
 $$
 
-\subsubsection{JUMP (Conditional)}
+\subsubsection{JUMP}
 
-Using the following values:
+Conditional jump, that updates the registers as follows:
+
+$$(\textbf{pc}, \textbf{fp}) \gets 
+\begin{cases}
+(\text{updated\_dest}, \text{updated\_fp}) & \text{if condition} = 1 \\
+(\text{\textbf{pc}} + 1, \text{\textbf{fp}}) & \text{if condition} = 0
+\end{cases}
+$$
+
+where:
 
 \begin{align*}
 \text{condition} &= 
@@ -193,7 +184,7 @@ Using the following values:
 \textbf{m}[\textbf{fp} + \alpha]
 \end{cases} \in \{0, 1\}
 &
-\text{dest} &= 
+\text{updated\_dest} &= 
 \begin{cases}
 \beta \\
 \textbf{m}[\textbf{fp} + \beta]
@@ -206,21 +197,15 @@ Using the following values:
 \end{cases}
 \end{align*}
 
-... we have the following update rules:
+
+\subsubsection{POSEIDON}
+
+Compression (feed-forward) of 16 field elements (two blocks of 8) into 8 field elements.
 
 $$
-\text{next(\textbf{pc})} =
-\begin{cases}
-\text{dest} & \text{if condition} = 1 \\
-\text{\textbf{pc}} + 1 & \text{if condition} = 0
-\end{cases}
-\qquad
-\text{next(\textbf{fp})} =
-\begin{cases}
-\text{updated\_fp} & \text{if condition} = 1 \\
-\textbf{fp} & \text{if condition} = 0
-\end{cases}
+\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
 $$
+
 
 \subsection{Precompiles}
 
