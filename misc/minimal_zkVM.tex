@@ -84,6 +84,14 @@ See \ref{sec:signature-aggregation} for more details.
     \item \textbf{With LeanVM (post-quantum):} Read-Solomon encode and Merkle-commit the codeword, for each blob. Prove the claimed Merkle Root was correctly computed using leanVM.
 \end{itemize}
 
+\section{Notations and definitions}
+
+\begin{itemize}
+    \item $[a, b] = \{a, a + 1, \ldots, b\}$
+    \item $[a, b) = \{a, a + 1, \ldots, b-1\}$    \item $eq(x, y) = x y + (1 - x)(1 - y)$
+    \item $\Fq([x_1, x_2, x_3, x_4, x_5])$ represents an extension field element build from 5 base field elements: $x_1 + x_2 X + x_3 X^2 + x_4 X^3 + x_5 X^4$, using $X^5 + X^2 - 1$ as the irreducible polynomial defining the extension.
+\end{itemize}
+
 \section{VM specification}
 \subsection{Field}
 
@@ -100,15 +108,40 @@ We use a read-only memory (also called write-once memory). Each memory word is a
     \item \textbf{fp}: frame pointer, points to the start of the current "frame" in memory
 \end{itemize}
 
+\subsection{Poseidon specification}
+
+We use the Poseidon \cite{poseidon1} permutation, over a state of 16 (base) field elements: 
+
+$$\texttt{POSEIDON}^\pi: \Fp^{16} \to \Fp^{16}$$
+
+The MDS matrix is circulant, with first row $[1, 3, 13, 22, 67, 2, 15, 63, 101, 1, 2, 17, 11, 1, 51, 1]$.
+
+There are $N_\text{full} / 2 = 4$ initial full rounds, $N_\text{partial} = 20$ partial rounds, and $N_\text{full} / 2 = 4$ final full rounds.
+
+TODO explain how round constants were generated.
+
+\vspace{3mm}
+
+Poseidon can be used in "compression" mode (feed-forward):
+
+\begin{align*}
+\texttt{POSEIDON}^C: \Fp^{16} &\to \Fp^{8} \\
+x &\mapsto (\texttt{POSEIDON}^\pi(x) + x)[0..8]
+\end{align*}
+
+where $+$ represents field coordinate-wise addition, and $[0..8]$ represents the first 8 elements of the result.
+
 
 \subsection{Instruction Set Architecture}
 
 Notations:
 \begin{itemize}
-    \item $(\alpha, \beta, \gamma) \in \Fp^3$ represent parameters of each instruction (operands)
+    \item $(\alpha, \beta, \gamma, \delta) \in \Fp^4$ represent parameters of each instruction (operands, fixed at compile-time)
     \item $\textbf{m}[i]$ represents the value of the memory at index $i \in \Fp$, with $i < M$. Any out-of-bound memory access ($i \geq M$) is invalid.
+    \item $\textbf{m}[i..j]$ represents the slice in memory $(\textbf{m}[i], \textbf{m}[i+1], ..., \textbf{m}[j-1])$
     \item The notation $\begin{cases} A \\ B \end{cases}$ is an exclusive "or". Either $A$ or $B$ can be used, but not both simultaneously.
     \item The default update rule for the registers (valid for all instructions except JUMP) is: $\texttt{pc} \gets \texttt{pc} + 1$, $\texttt{fp} \gets \texttt{fp}$.
+    \item $||$ denotes concatenation
 \end{itemize}
 
 
@@ -198,85 +231,70 @@ where:
 \end{align*}
 
 
-\subsubsection{POSEIDON}
+\subsubsection{POSEIDON\_OP}
+
+Define the following parameters:
+
+\begin{align*}
+\nu_a &= 
+\begin{cases}
+\alpha \\
+\textbf{m}[\textbf{fp} + \alpha] \\
+\textbf{fp} + \alpha
+\end{cases}
+&
+\nu_b &= 
+\begin{cases}
+\beta \\
+\textbf{m}[\textbf{fp} + \beta] \\
+\textbf{fp} + \beta
+\end{cases}
+&
+\nu_c &= 
+\begin{cases}
+\gamma \\
+\textbf{m}[\textbf{fp} + \gamma]  \\
+\textbf{fp} + \gamma
+\end{cases}
+\end{align*}
+
+... with the following constraint: if $\nu_a$ has the form $\nu_a = \textbf{fp} + \alpha$, then $\nu_b$ must have the same form: $\nu_b = \textbf{fp} + \beta$, and vice versa.
 
 Compression (feed-forward) of 16 field elements (two blocks of 8) into 8 field elements.
 
-$$
-\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
-$$
+The POSEIDON\_OP instruction can be called in 5 ways:
+\begin{itemize}
+    \item permutation: $\textbf{m}[\nu_C..\nu_C + 16] = \texttt{POSEIDON}^\pi(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])$
+    \item compression: $\textbf{m}[\nu_C..\nu_C + 8] = \texttt{POSEIDON}^C(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])$
+    \item compression with small output: $\textbf{m}[\nu_C..\nu_C + 4] = \texttt{POSEIDON}^C(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])$
+    \item compression with hardcoded input: $$\textbf{m}[\nu_C..\nu_C + 8] = \texttt{POSEIDON}^C(\textbf{m}[\delta..\delta + 4] \;\|\; \textbf{m}[\nu_A..\nu_A + 4] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])$$ 
+    \item compression with small output and hardcoded input: $$\textbf{m}[\nu_C..\nu_C + 4] = \texttt{POSEIDON}^C(\textbf{m}[\delta..\delta + 4] \;\|\; \textbf{m}[\nu_A..\nu_A + 4] \;\|\; \textbf{m}[\nu_B..\nu_B + 4])$$ 
+\end{itemize}
 
-
-\subsection{Precompiles}
-
-There are two "precompile" instructions: EXTENSION\_OP and POSEIDON, used for special computation (extension field operations and hashing). Each precompile instruction has three (potentially runtime) parameters $\nu_A$, $\nu_B$, $\nu_C$, and a compile-time value \texttt{PRECOMPILE\_DATA}.
-
-$\nu_A$, $\nu_B$, $\nu_C$ are defined similarly to the ADD/MUL instructions, with the additional possibility of $\nu_A = \textbf{fp} + \alpha$ and $\nu_B = \textbf{fp} + \beta$, but these two must be used simultaneously (if $\nu_A$ is fp-relative, then $\nu_B$ must be fp-relative too, and vice versa).
-
-\subsubsection{POSEIDON}
-
-Two sub-modes are supported, selected by a compile-time \texttt{flag\_permute} bit:
-
-\textbf{Compression mode} (default, \texttt{flag\_permute} $= 0$): feed-forward compression of 16 field elements (two blocks of 8) into 8 field elements.
-
-$$
-\textbf{m}[\nu_C..\nu_C + 8] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8]) + \textbf{m}[\nu_A..\nu_A + 8]
-$$
-
-\textbf{Permute mode} (\texttt{flag\_permute} $= 1$): the raw Poseidon permutation (no feed-forward), with the 16-element output written into memory in natural order:
-$$
-\textbf{m}[\nu_C..\nu_C + 16] = \text{Poseidon}(\textbf{m}[\nu_A..\nu_A + 8] \;\|\; \textbf{m}[\nu_B..\nu_B + 8])
-$$
-
-
-\vspace{2mm}
-
-
-Recently some additonal paramters were introduced (see \ref{efficiently_verrifying_hash-based_signatures} for details), allowing more granular input / output.
 
 \subsubsection{EXTENSION\_OP}\label{extension_op_instruction}
 
-EXTENSION\_OP enables computations of one these 3 forms in the extension field $\Fq$:
+
+Define $\nu_A, \nu_B, \nu_C$ as in POSEIDON\_OP.
+
+The EXTENSION\_OP instruction enables computations of one these 3 forms:
 
 \[
-\sum_{i=0}^{N-1} (a_i + b_i), \qquad
-\sum_{i=0}^{N-1} (a_i \cdot b_i), \qquad
-\prod_{i=0}^{N-1} (a_i b_i + (1 - a_i)(1 - b_i))
+\sum_{i=0}^{\delta-1} (a_i + b_i), \qquad
+\sum_{i=0}^{\delta-1} (a_i \cdot b_i), \qquad
+\prod_{i=0}^{\delta-1} eq(a_i, b_i)
 \]
 
-\vspace{2mm}
-
-\underbar{Details}
-
-\vspace{2mm}
-
-For $i = 0, \ldots, N-1$, define:
-$$b_i = \textbf{m}[\nu_B + 5i \,..\, \nu_B + 5i + 5] \in \Fq$$
-and $a_i$ depends on the mode:
+Where $b_i = \Fq(\textbf{m}[\nu_B + 5i \,..\, \nu_B + 5i + 5])$, and $a_i$ depends on the mode:
 \begin{itemize}
-    \item \textbf{BE mode} (\texttt{is\_be} $= 1$): $a_i = \textbf{m}[\nu_A + i] \in \Fp$, embedded in $\Fq$ as $[a_i, 0, 0, 0, 0]$.
-    \item \textbf{EE mode} (\texttt{is\_be} $= 0$): $a_i = \textbf{m}[\nu_A + 5i \,..\, \nu_A + 5i + 5] \in \Fq$.
+    \item Base-Extension: $a_i = \textbf{m}[\nu_A + i] \in \Fp$
+    \item Extension-Extension: $a_i = \Fq(\textbf{m}[\nu_A + 5i \,..\, \nu_A + 5i + 5])$ 
 \end{itemize}
 
-(Chunks of 5 field elements $\textbf{m}[x..x+5]$ are interpreted as an extension field element ($\Fq = {\mathbb F_{p^5}}$)).
-
-\vspace{2mm}
-
-Three operation modes determine both the per-element computation $e_i$ and the accumulation method:
-\begin{itemize}
-    \item \textbf{ADD}: $e_i = a_i + b_i$, \quad $\text{result} = \displaystyle\sum_{i=0}^{N-1} e_i$ \hfill (additive accumulation)
-    \item \textbf{MUL}: $e_i = a_i \cdot b_i$, \quad $\text{result} = \displaystyle\sum_{i=0}^{N-1} e_i$ \hfill (additive accumulation = dot product)
-    \item \textbf{POLY\_EQ}: $e_i = a_i b_i + (1 - a_i)(1 - b_i)$, \quad $\text{result} = \displaystyle\prod_{i=0}^{N-1} e_i$ \hfill (multiplicative)
-\end{itemize}
 
 The result is stored at $\textbf{m}[\nu_C \,..\, \nu_C + 5] \in \Fq$.
 
 \vspace{2mm}
-
-\texttt{PRECOMPILE\_DATA} encodes the mode, the operand type, and the length:
-$$\texttt{PRECOMPILE\_DATA} = 2 \cdot \texttt{is\_be} + 4 \cdot \texttt{flag\_add} + 8 \cdot \texttt{flag\_mul} + 16 \cdot \texttt{flag\_poly\_eq} + 32 \cdot N$$
-where exactly one of \texttt{flag\_add}, \texttt{flag\_mul}, \texttt{flag\_poly\_eq} is 1, and $N \geq 1$. This encoding is injective and always disjoint from Poseidon ($= 1$) and no-precompile ($= 0$).
-
 
 \subsection{ISA programming}
 
