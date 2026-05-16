@@ -37,8 +37,8 @@
 
 \newtheorem{lemma}{Lemma}
 
-\title{Minimal zkVM for Lean Ethereum (draft 0.7.0)}
-\author{}
+\title{LeanVM}
+\author{draft 0.8.0}
 \date{}
 \begin{document}
 
@@ -47,82 +47,42 @@
 \tableofcontents
 \newpage
 
-\section{What is the goal of this zkVM?}
-Post-quantum signatures are at least an order of magnitude larger than their pre-quantum counterparts, but the migration is necessary to ensure Ethereum's security. Hash-based signatures offer strong security guarantees and conceptual simplicity, making them a promising candidate: leanXMSS at the consensus layer (where statefulness is not an issue, see \cite{ethereum_signatures}, \cite{top_hypercube}, and \cite{LeanSig}), and leanSPHINCS at the execution layer. A promising choice of hash function is Poseidon \cite{poseidon1}, for its snark-friendliness.
+\section{Introduction}
+Ethereum's cryptography currently relies on elliptic curves, which are known to be vulnerable to quantum computers \cite{shor}.
 
-Since post-quantum signatures are much larger, we need to aggregate them. However, they lack the algebraic structure that makes aggregation easy for elliptic-curve schemes like BLS. Instead, we can aggregate them using a snark---itself hash-based, keeping everything post-quantum.
-
-Concretely, we need to:
+LeanVM is a verifiable Virtual Machine (also called zkVM for "zero knowledge VM"). It is inspired by Cairo \cite{cairo}: it uses a minimal ISA (Intruction Set Architecture) that operates on a read-only memory where each word is field element.
 \begin{itemize}
-     \item \textbf{Aggregate} hash-based signatures (leanXMSS / leanSPHINCS)
-    \item \textbf{Merge} those aggregate signatures $\rightarrow$ recursive proof
+    \item It's hash-based (WHIR \cite{whir}): plausibly post-quantum, conceptually simple
+    \item It's multilinear: the trace is committed as a single multilinear polynomial (reducing proof size), and constraints are proven via sumcheck \cite{sumcheck}
+    \item It uses the Poseidon \cite{poseidon1} permutation as a hashing primitive
 \end{itemize}
 
-Both tasks mainly require proving a lot of hashes. A minimal zkVM (inspired by Cairo \cite{cairo}) is useful as glue to handle all the logic: leanVM.
+\section{Use-cases}
 
-Aggregation and merging are unified in a single program, that attests that a given set of signers have valid signatures for a given message. 
+LeanVM is optimized to provide a post-quantum alternative for each of the three layers of Ethereum:
 
-\begin{figure}[ht]
-\centering
-\begin{tikzpicture}[
-    proof/.style={draw, rounded corners=4pt, minimum width=2.6cm, minimum height=1cm, align=center, font=\small},
-    leaf/.style={proof},
-    merge/.style={proof, line width=0.8pt},
-    root/.style={proof, minimum width=3cm, line width=1.2pt},
-    xmss/.style={draw, dashed, rounded corners=2pt, minimum width=1.6cm, minimum height=0.7cm, align=center, font=\scriptsize},
-    attests/.style={font=\footnotesize, text=black!50},
-    arr/.style={-{Stealth[length=5pt]}, thick},
-    sigarr/.style={-{Stealth[length=4pt]}, densely dashed, thin},
-]
+\subsection{Consensus Layer}
+\begin{itemize}
+    \item \textbf{Currently (pre-quantum):} BLS \cite{bls}: lightweight signatures of 96 bytes, with native support for aggregation.
+    \item \textbf{With LeanVM (post-quantum):} Replace BLS by XMSS over poseidon \cite{ethereum_signatures} (leanXMSS). Aggregate those signatures using leanVM. Already aggregated signatures can be further merged, via recursion. XMSS is a statefull signature scheme, but Ethereum's slot can be used a nonce (double signing is already prevented).
+\end{itemize}
 
-% --- XMSS signature blocks (inputs) ---
-\node[xmss] (S1) at (0, -1.8) {signers $1$--$2500$};
-\node[xmss] (S2) at (3.5, -1.8) {signers $2501$--$5000$};
-\node[xmss] (S3) at (7, -1.8) {signers $5001$--$7500$};
-\node[xmss] (S4) at (10.5, -1.8) {signers $7501$--$10000$};
+See \ref{sec:signature-aggregation} for more details.
 
-% --- Leaf proofs ---
-\node[leaf] (L1) at (0, 0) {Proof $A$};
-\node[leaf] (L2) at (3.5, 0) {Proof $B$};
-\node[leaf] (L3) at (7, 0) {Proof $C$};
+\subsection{Execution Layer}
+\begin{itemize}
+    \item \textbf{Currently (pre-quantum):} ECDSA \cite{ecdsa}
+    \item \textbf{With LeanVM (post-quantum):} Replace ECDSA by a variant of SPHINCS+ \cite{sphincs_plus} over poseidon (leanSPHINCS). Aggregate all the signatures from one block using leanVM.
+\end{itemize}
 
-% XMSS -> leaf arrows
-\draw[sigarr] (S1) -- (L1);
-\draw[sigarr] (S2) -- (L2);
-\draw[sigarr] (S3) -- (L3);
+See \ref{sec:signature-aggregation} for more details.
 
-% --- Middle level ---
-\node[merge] (M1) at (1.75, 2.5) {Proof $D$};
-\node[merge] (M2) at (8.75, 2.5) {Proof $E$};
+\subsection{Data Availability Layer}
 
-% XMSS -> E (direct group)
-\draw[sigarr] (S4) -- (M2);
-
-% Recursive arrows: leaves -> middle
-\draw[arr] (L1) -- (M1);
-\draw[arr] (L2) -- (M1);
-\draw[arr] (L3) -- (M2);
-
-% --- Root ---
-\node[root] (R) at (5.25, 5) {Final proof};
-
-% Recursive arrows: middle -> root
-\draw[arr] (M1) -- (R);
-\draw[arr] (M2) -- (R);
-
-% --- Coverage annotations (above each proof) ---
-\node[attests, above=8pt of L1] {$1\text{--}2500$};
-\node[attests, above=8pt of L2] {$2501\text{--}5000$};
-\node[attests, above=8pt of L3] {$5001\text{--}7500$};
-\node[attests, above=8pt of M1] {$1\text{--}5000$};
-\node[attests, above=8pt of M2] {$5001\text{--}10000$};
-\node[attests, above=8pt of R] {$1\text{--}10000$};
-
-\end{tikzpicture}
-\caption{Example of recursive aggregation of 10000 signatures. (Note: overlapping sets of signers are possible.) }
-\label{fig:recursive-aggregation}
-\end{figure}
-
+\begin{itemize}
+    \item \textbf{Currently (pre-quantum):} KZG polynomial commitment scheme \cite{kzg}
+    \item \textbf{With LeanVM (post-quantum):} Read-Solomon encode and Merkle-commit the codeword, for each blob. Prove the claimed Merkle Root was correctly computed using leanVM.
+\end{itemize}
 
 \section{VM specification}
 \subsection{Field}
@@ -948,13 +908,88 @@ There are alterntive ways to handle the stacking of multiple multilinear polynom
 
 \textit{Note 3:} A meticulous implementation of WHIR could also take advantage of any potential repetitions in the committed polynomial, both at the FFT and the sumcheck level, leaving the Merklelisation as the main overhead.
 
-\section{Recursive Aggregation}\label{sec:recursive-aggregation}
+
+
+\section{Signature aggregation}\label{sec:signature-aggregation}
+
+
+We need to:
+\begin{itemize}
+     \item \textbf{Aggregate} hash-based signatures (leanXMSS / leanSPHINCS)
+    \item \textbf{Merge} those aggregate signatures $\rightarrow$ recursive proof
+\end{itemize}
+
+Aggregation and merging are unified in a single program, that attests knowledge of a list of signatures corresponding to a list of (message, publickey) pairs. In the case the consensus: a single message (block hash) is shared by all signers, at a given slot.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+    proof/.style={draw, rounded corners=4pt, minimum width=2.6cm, minimum height=1cm, align=center, font=\small},
+    leaf/.style={proof},
+    merge/.style={proof, line width=0.8pt},
+    root/.style={proof, minimum width=3cm, line width=1.2pt},
+    xmss/.style={draw, dashed, rounded corners=2pt, minimum width=1.6cm, minimum height=0.7cm, align=center, font=\scriptsize},
+    attests/.style={font=\footnotesize, text=black!50},
+    arr/.style={-{Stealth[length=5pt]}, thick},
+    sigarr/.style={-{Stealth[length=4pt]}, densely dashed, thin},
+]
+
+% --- XMSS signature blocks (inputs) ---
+\node[xmss] (S1) at (0, -1.8) {signers $1$--$2500$};
+\node[xmss] (S2) at (3.5, -1.8) {signers $2501$--$5000$};
+\node[xmss] (S3) at (7, -1.8) {signers $5001$--$7500$};
+\node[xmss] (S4) at (10.5, -1.8) {signers $7501$--$10000$};
+
+% --- Leaf proofs ---
+\node[leaf] (L1) at (0, 0) {Proof $A$};
+\node[leaf] (L2) at (3.5, 0) {Proof $B$};
+\node[leaf] (L3) at (7, 0) {Proof $C$};
+
+% XMSS -> leaf arrows
+\draw[sigarr] (S1) -- (L1);
+\draw[sigarr] (S2) -- (L2);
+\draw[sigarr] (S3) -- (L3);
+
+% --- Middle level ---
+\node[merge] (M1) at (1.75, 2.5) {Proof $D$};
+\node[merge] (M2) at (8.75, 2.5) {Proof $E$};
+
+% XMSS -> E (direct group)
+\draw[sigarr] (S4) -- (M2);
+
+% Recursive arrows: leaves -> middle
+\draw[arr] (L1) -- (M1);
+\draw[arr] (L2) -- (M1);
+\draw[arr] (L3) -- (M2);
+
+% --- Root ---
+\node[root] (R) at (5.25, 5) {Final proof};
+
+% Recursive arrows: middle -> root
+\draw[arr] (M1) -- (R);
+\draw[arr] (M2) -- (R);
+
+% --- Coverage annotations (above each proof) ---
+\node[attests, above=8pt of L1] {$1\text{--}2500$};
+\node[attests, above=8pt of L2] {$2501\text{--}5000$};
+\node[attests, above=8pt of L3] {$5001\text{--}7500$};
+\node[attests, above=8pt of M1] {$1\text{--}5000$};
+\node[attests, above=8pt of M2] {$5001\text{--}10000$};
+\node[attests, above=8pt of R] {$1\text{--}10000$};
+
+\end{tikzpicture}
+\caption{Example of recursive aggregation of 10000 XMSS, sharing a common message. (Note: overlapping sets of signers are possible.) }
+\label{fig:recursive-aggregation}
+\end{figure}
+
+
+\subsection{Recursive Aggregation}\label{sec:recursive-aggregation}
 
 The recursive aggregation program (see Figure~\ref{fig:recursive-aggregation}) attests that a set of public keys have valid signatures for a given message. It partitions the signers into $n_{\text{rec}} + 1$ sources: one \textbf{direct source} whose XMSS signatures are verified explicitly, and $n_{\text{rec}} \geq 0$ \textbf{recursive sources}, each accompanied by a sub-proof that is recursively verified.
 
 For each recursive source, the program runs the leanVM verifier on the provided sub-proof, confirming that the sub-proof itself is a valid recursive aggregation proof covering the source's signers. When $n_{\text{rec}} = 0$, the program simply verifies all signatures directly.
 
-\subsection{Bytecode evaluation claims}\label{sec:bytecode-reduction}
+\subsubsection{Bytecode evaluation claims}\label{sec:bytecode-reduction}
 
 A key subtlety arises from recursion. Every leanVM proof is tied to a specific \emph{bytecode} --- the program that was executed, represented as a multilinear polynomial. In our case, there is a single program (that both contain signature verification and recursion algorithms). The leanVM verification algorithm requires evaluating the bytecode polynomial at a random point.
 
@@ -973,7 +1008,7 @@ After verifying all $n_{\text{rec}}$ sub-proofs, a fresh Fiat--Shamir transcript
 When $n_{\text{rec}} = 0$ (no recursion), the bytecode claim in the public input is set to zero.
 
 
-\subsection{Signer partitioning}\label{sec:signer-partitioning}
+\subsubsection{Signer partitioning}\label{sec:signer-partitioning}
 
 \emph{
 In the following, we assume  the message being signed is common to all signers (typically the case at Ethereum's consensus layer), but the scheme can be naturally adapted to distinct messages.}
@@ -990,6 +1025,7 @@ Let $n_{\text{dup}}$ be the total number of duplicated public keys across source
     \item For each source $s$, for each signature index $i \in [0, n_{\text{total}})$ verified by $s$, write $B[i] \gets c$ and increment $c$.
     \item At the end, assert $c = n_{\text{total}}$.
 \end{itemize}
+
 
 \clearpage
 \bibliographystyle{IEEEtran}
