@@ -19,7 +19,11 @@ WHIR_INITIAL_FOLDING_FACTOR = 7
 WHIR_SUBSEQUENT_FOLDING_FACTOR = 5
 RS_DOMAIN_INITIAL_REDUCTION_FACTOR = 5
 
-# Poseidon16 duplex sponge parameters (challenger.rs).
+# Poseidon16 challenger parameters (challenger.rs).
+# Note: this branch uses the older "compression with domain separator" design.
+# The state is just the RATE-sized output of the last permute; sampling pulls
+# fresh hashes by re-permuting with a per-call domain separator. There is no
+# `rate_fresh` flag and no `duplex` call.
 RATE = 8
 WIDTH = 16
 CAPACITY = WIDTH - RATE
@@ -216,22 +220,22 @@ def hash_slice(data: Sequence[Fp]) -> list[Fp]:
 
 
 class Challenger:
-    """Poseidon16 duplex sponge.
+    """Poseidon16 challenger (old "compression + domain-separator" design).
 
-    Mirrors `fiat_shamir::challenger`: state is a length-WIDTH array, the rate
-    portion lives in `state[CAPACITY..]`. `observe` overwrites the rate, then
-    permutes. `sample` reads the rate and asserts `rate_fresh`.
+    Mirrors `fiat_shamir::challenger` on this branch:
+      - `state` is a length-RATE buffer (8 elements).
+      - `observe(value)`: `state = permute(state || value)[:RATE]`.
+      - `sample_many(n)`: hash `(domain_sep_i || state)` for `i ∈ 0..=n`;
+        return the first `n`, advance `state` to the last one.
     """
 
     def __init__(self) -> None:
-        self.state: list[Fp] = [Fp(0)] * WIDTH
-        self.rate_fresh: bool = False
+        self.state: list[Fp] = [Fp(0)] * RATE
 
     def observe(self, value: Sequence[Fp]) -> None:
         assert len(value) == RATE
-        self.state = self.state[:CAPACITY] + list(value)
-        self.state = poseidon16_permute(self.state)
-        self.rate_fresh = True
+        out = poseidon16_compress_in_place(list(self.state) + list(value))
+        self.state = out[:RATE]
 
     def observe_many(self, scalars: Sequence[Fp]) -> None:
         for i in range(0, len(scalars), RATE):
@@ -240,23 +244,22 @@ class Challenger:
                 chunk = chunk + [Fp(0)] * (RATE - len(chunk))
             self.observe(chunk)
 
-    def duplex(self) -> None:
-        self.observe([Fp(0)] * RATE)
-
-    def sample(self) -> list[Fp]:
-        assert self.rate_fresh, "stale rate — insert a duplex() before sampling"
-        out = list(self.state[CAPACITY:])
-        self.rate_fresh = False
-        return out
+    # Alias matching `Challenger::observe_scalars` on this branch.
+    observe_scalars = observe_many
 
     def sample_many(self, n: int) -> list[list[Fp]]:
-        if n == 0:
-            return []
-        out = [self.sample()]
-        for _ in range(1, n):
-            self.duplex()
-            out.append(self.sample())
-        return out
+        sampled: list[list[Fp]] = []
+        last: list[Fp] | None = None
+        for i in range(n + 1):
+            domain_sep = [Fp(i)] + [Fp(0)] * (RATE - 1)
+            hashed = poseidon16_compress_in_place(domain_sep + list(self.state))[:RATE]
+            if i < n:
+                sampled.append(hashed)
+            else:
+                last = hashed
+        if last is not None:
+            self.state = last
+        return sampled
 
     def sample_ef_vec(self, n: int) -> list[EF]:
         """Mirrors utils::sample_vec — pulls ceil(n*5/8) blocks, takes first n*5."""
@@ -338,7 +341,9 @@ class VerifierState:
         self.challenger.observe_many(list(scalars))
 
     def duplex(self) -> None:
-        self.challenger.duplex()
+        """No-op on this branch — the older challenger has no rate-staleness
+        notion, so duplex calls in the WHIR verifier are simply skipped."""
+        pass
 
     def next_base_scalars_vec(self, n: int) -> list[Fp]:
         scalars = self._read(n)
@@ -373,9 +378,9 @@ class VerifierState:
             return
         witness = self._read(1)
         self.challenger.observe_many(witness)
-        # Rust now reads state[CAPACITY] (= state[8], i.e. the first element of
-        # the rate portion) after the absorb-permute.
-        if int(self.challenger.state[CAPACITY].value) & ((1 << bits) - 1) != 0:
+        # OLD challenger: state is the RATE-sized output of the last permute;
+        # grinding checks state[0].
+        if int(self.challenger.state[0].value) & ((1 << bits) - 1) != 0:
             raise ProofError("InvalidGrindingWitness")
         self.raw_transcript.append(witness[0])
         self.raw_transcript.extend([Fp(0)] * (RATE - 1))
@@ -1293,16 +1298,126 @@ def stacked_pcs_parse_commitment(
 
 
 # ---------------------------------------------------------------------------
+# Generic sumcheck verifier (port of `backend/sumcheck/src/verify.rs`)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Evaluation:
+    """Pair (point, value): claim that a multilinear evaluates to `value` at
+    `point`. Mirrors `poly::Evaluation`.
+    """
+
+    point: list[EF]
+    value: EF
+
+
+def sumcheck_verify(
+    state: VerifierState,
+    n_vars: int,
+    degree: int,
+    expected_sum: EF,
+    eq_alphas: Sequence[EF] | None,
+) -> Evaluation:
+    """Mirror of `sumcheck::sumcheck_verify`.
+
+    Reads `n_vars` round polynomials, each of `degree + 1` coefficients (so the
+    bare polynomial is degree-`degree`; in the `eq_alphas` path the verifier
+    extracts the bare poly and re-expands with `eq(α_round, X)`).
+    Returns the final point + claimed value.
+    """
+    target = expected_sum
+    challenges: list[EF] = []
+    for round_idx in range(n_vars):
+        eq_alpha = eq_alphas[round_idx] if eq_alphas is not None else None
+        coeffs = state.next_sumcheck_polynomial(degree + 1, target, eq_alpha)
+        r = state.sample()
+        challenges.append(r)
+        target = _eval_univariate(coeffs, r)
+    return Evaluation(point=challenges, value=target)
+
+
+# ---------------------------------------------------------------------------
+# GKR-quotient verifier (port of `sub_protocols::quotient_gkr`)
+#
+# Verifies the protocol `Σ nᵢ/dᵢ` via a layered sumcheck.
+# ---------------------------------------------------------------------------
+
+
+N_VARS_TO_SEND_GKR_COEFFS = 5
+
+
+def verify_gkr_quotient(
+    state: VerifierState,
+    n_vars: int,
+) -> tuple[EF, list[EF], EF, EF]:
+    """Mirror of `verify_gkr_quotient`. Returns
+    `(quotient, gkr_point, claims_num, claims_den)`.
+    """
+    assert n_vars > N_VARS_TO_SEND_GKR_COEFFS
+    send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS
+
+    last_nums = state.next_extension_scalars_vec(send_len)
+    last_dens = state.next_extension_scalars_vec(send_len)
+    quotient = _quotient_sum(last_nums, last_dens)
+
+    point: list[EF] = state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS)
+    claims_num = eval_multilinear_evals(last_nums, point)
+    claims_den = eval_multilinear_evals(last_dens, point)
+
+    for i in range(N_VARS_TO_SEND_GKR_COEFFS, n_vars):
+        point, claims_num, claims_den = _verify_gkr_quotient_step(
+            state, i, point, claims_num, claims_den
+        )
+    return quotient, point, claims_num, claims_den
+
+
+def _verify_gkr_quotient_step(
+    state: VerifierState,
+    n_vars: int,
+    point: list[EF],
+    claims_num: EF,
+    claims_den: EF,
+) -> tuple[list[EF], EF, EF]:
+    alpha = state.sample()
+    expected_sum = claims_num + alpha * claims_den
+    eq_alphas_rev = list(reversed(point))
+    postponed = sumcheck_verify(state, n_vars, 3, expected_sum, eq_alphas_rev)
+    # Rust: postponed.point.0.reverse();
+    postponed_point = list(reversed(postponed.point))
+    inner_evals = state.next_extension_scalars_vec(4)
+
+    # constraints_eval = α · n_r · d_r + (n_l · d_r + n_r · d_l)
+    constraints_eval = (
+        alpha * inner_evals[2] * inner_evals[3]
+        + (inner_evals[0] * inner_evals[3] + inner_evals[1] * inner_evals[2])
+    )
+
+    if postponed.value != eq_poly_outside(point, postponed_point) * constraints_eval:
+        raise ProofError("GKR step: postponed value mismatch")
+
+    beta = state.sample()
+    one_minus_beta = EF.one() - beta
+    next_num = one_minus_beta * inner_evals[0] + beta * inner_evals[1]
+    next_den = one_minus_beta * inner_evals[2] + beta * inner_evals[3]
+    next_point = postponed_point + [beta]
+    return next_point, next_num, next_den
+
+
+def _quotient_sum(nums: Sequence[EF], dens: Sequence[EF]) -> EF:
+    acc = EF.zero()
+    for n, d in zip(nums, dens):
+        acc = acc + n * d.inv()
+    return acc
+
+
+# ---------------------------------------------------------------------------
 # Stubs still pending for the lean_prover verifier
 # ---------------------------------------------------------------------------
 
 
 def verify_generic_logup(*args, **kwargs):
     raise NotImplementedError("verify_generic_logup: port from sub_protocols/logup.rs")
-
-
-def sumcheck_verify(*args, **kwargs):
-    raise NotImplementedError("sumcheck_verify: port from sub_protocols/air_sumcheck.rs (or sumcheck crate)")
 
 
 # ---------------------------------------------------------------------------
