@@ -253,6 +253,7 @@ pub fn prove_execution(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
         bytecode.log_size(),
+        bytecode.ending_pc,
         previous_statements,
         &tables_log_heights,
         &committed_statements,

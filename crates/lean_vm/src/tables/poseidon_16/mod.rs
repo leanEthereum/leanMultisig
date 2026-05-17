@@ -179,7 +179,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         }
     }
 
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, _ending_pc: usize) -> Vec<F> {
         let mut row = vec![F::ZERO; num_cols_total_poseidon_16()];
         let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
             .map(|i| unsafe { row.as_mut_ptr().add(i) })

@@ -150,7 +150,13 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
         },
     );
     for table in traces.keys().copied().collect::<Vec<_>>() {
-        pad_table(&table, &mut traces, padding_zero_vec_ptr, null_poseidon_16_hash_ptr);
+        pad_table(
+            &table,
+            &mut traces,
+            padding_zero_vec_ptr,
+            null_poseidon_16_hash_ptr,
+            bytecode.ending_pc,
+        );
     }
 
     ExecutionTrace {
@@ -166,6 +172,7 @@ fn pad_table(
     traces: &mut BTreeMap<Table, TableTrace>,
     zero_vec_ptr: usize,
     null_poseidon_16_hash_ptr: usize,
+    ending_pc: usize,
 ) {
     let trace = traces.get_mut(table).unwrap();
     let h = trace.columns[0].len();
@@ -178,7 +185,7 @@ fn pad_table(
     trace.non_padded_n_rows = h;
     trace.log_n_rows = log2_ceil_usize(h + 1).max(MIN_LOG_N_ROWS_PER_TABLE);
     let n_rows = 1 << trace.log_n_rows;
-    let padding_row = table.padding_row(zero_vec_ptr, null_poseidon_16_hash_ptr);
+    let padding_row = table.padding_row(zero_vec_ptr, null_poseidon_16_hash_ptr, ending_pc);
     trace.columns.par_iter_mut().enumerate().for_each(|(i, col)| {
         assert!(col.len() <= h); // potentially some columns have not been filled (in Poseidon -> we fill it later with SIMD + parallelism), but the first one should always be representative
         col.resize(n_rows, padding_row[i]);
