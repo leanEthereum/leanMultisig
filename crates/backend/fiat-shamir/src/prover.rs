@@ -126,13 +126,11 @@ where
         let lanes = Packed::<EF>::WIDTH;
 
         let witness_found = Mutex::<Option<PF<EF>>>::new(None);
-        // each batch tests lanes witnesses simultaneously.
-        // NOTE: deliberately single-threaded so the resulting witness is
-        // deterministic across runs (the Python verifier port relies on bit-
-        // for-bit reproducibility of the dumped proof).
+        // each batch tests lanes witnesses simultaneously
         let num_batches = PF::<EF>::ORDER_U64.div_ceil(lanes as u64);
         (0..num_batches)
-            .find(|&batch| {
+            .into_par_iter()
+            .find_any(|&batch| {
                 let base = batch * lanes as u64;
 
                 let packed_witnesses = Packed::<EF>::from_fn(|lane| {
