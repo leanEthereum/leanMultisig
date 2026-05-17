@@ -1234,12 +1234,67 @@ def whir_verify(
 
 
 # ---------------------------------------------------------------------------
-# Stubs still pending for the lean_prover verifier
+# Stacked PCS — port of sub_protocols/stacked_pcs.rs
 # ---------------------------------------------------------------------------
 
 
-def stacked_pcs_parse_commitment(*args, **kwargs):
-    raise NotImplementedError("stacked_pcs_parse_commitment: port from sub_protocols/stacked_pcs.rs")
+def compute_stacked_n_vars(
+    log_memory: int,
+    log_bytecode: int,
+    table_log_heights: dict[str, int],
+    table_n_columns: dict[str, int],
+) -> int:
+    """Mirror of `stacked_pcs::compute_stacked_n_vars`.
+
+    The stacked polynomial concatenates:
+      - 2 copies of memory               -> 2 * 2^log_memory
+      - one bytecode accumulator padded  -> 2^max(log_bytecode, max_table_log_n_rows)
+      - per table: n_columns * 2^log_n_rows
+    """
+    max_table_log_n_rows = max(table_log_heights.values())
+    total_len = (2 << log_memory) + (
+        1 << max(log_bytecode, max_table_log_n_rows)
+    )
+    for name, log_n_rows in table_log_heights.items():
+        total_len += table_n_columns[name] << log_n_rows
+    return log2_ceil_usize(total_len)
+
+
+def stacked_pcs_parse_commitment(
+    state: VerifierState,
+    log_inv_rate: int,
+    log_memory: int,
+    log_bytecode: int,
+    table_log_heights: dict[str, int],
+    table_n_columns: dict[str, int],
+    execution_table_name: str = "execution",
+) -> ParsedCommitment:
+    """Port of `stacked_pcs_parse_commitment`.
+
+    - Memory must be at least as wide as the execution table.
+    - The execution table must be the tallest table.
+    - The stacked-poly size must fit within the WHIR domain bound.
+    The actual commitment parsing is then delegated to `parsed_commitment_parse`.
+    """
+    exec_log = table_log_heights[execution_table_name]
+    if log_memory < exec_log or exec_log < max(table_log_heights.values()):
+        raise ProofError("InvalidProof: memory or execution table size invariants broken")
+
+    stacked_n_vars = compute_stacked_n_vars(
+        log_memory, log_bytecode, table_log_heights, table_n_columns
+    )
+    # `WhirConfig::new` asserts stacked_n_vars + log_inv_rate - first_round <= F::TWO_ADICITY.
+    max_nv = BASE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate
+    if stacked_n_vars > max_nv:
+        raise ProofError("InvalidProof: stacked_n_vars exceeds WHIR domain bound")
+
+    cfg = whir_config(log_inv_rate, stacked_n_vars)
+    return parsed_commitment_parse(state, stacked_n_vars, cfg.commitment_ood_samples)
+
+
+# ---------------------------------------------------------------------------
+# Stubs still pending for the lean_prover verifier
+# ---------------------------------------------------------------------------
 
 
 def verify_generic_logup(*args, **kwargs):
@@ -1260,29 +1315,50 @@ class ProofVerificationDetails:
     bytecode_evaluation: object  # Evaluation<EF> — TODO
 
 
+@dataclass(frozen=True)
+class TableInfo:
+    """Minimal table metadata the verifier needs."""
+
+    name: str
+    n_columns: int
+
+
+@dataclass
+class VerifyExecutionPartial:
+    """What we can produce so far — extended as we port more sub-protocols."""
+
+    log_inv_rate: int
+    log_memory: int
+    public_input_len: int
+    table_log_heights: dict[str, int]
+    stacked_n_vars: int
+    parsed_commitment: ParsedCommitment
+
+
 def verify_execution(
     bytecode: Bytecode,
     public_input: Sequence[Fp],
     proof: Proof,
-    n_tables: int,
-) -> ProofVerificationDetails:
+    tables: Sequence[TableInfo],
+) -> VerifyExecutionPartial:
     """Port of `verify_execution` (lean_prover/src/verify_execution.rs).
 
-    Implements the prologue (dim/bound checks, transcript priming); calls into
-    stubs for the heavy sub-protocols.
+    Currently runs the prologue (dim/bound checks, transcript priming) and
+    parses the stacked-PCS WHIR commitment. Sub-protocols (logup, AIR sumcheck,
+    WHIR final verify) remain `NotImplementedError`.
 
-    NOTE: `n_tables` (= N_TABLES in lean_vm) is passed in until we port the
-    table enum here; same for the per-table size limits.
+    `tables` must be in canonical Rust order (`ALL_TABLES`) — `execution`
+    first, then `extension_op`, `poseidon16` — because the verifier reads
+    per-table `log_n_rows` in that same order from the transcript.
     """
 
     state = VerifierState(proof)
     state.observe_scalars(list(public_input))
     state.observe_scalars(poseidon16_compress_pair(bytecode.hash, SNARK_DOMAIN_SEP))
 
+    n_tables = len(tables)
     dims = [int(x.value) for x in state.next_base_scalars_vec(3 + n_tables)]
-    log_inv_rate = dims[0]
-    log_memory = dims[1]
-    public_input_len = dims[2]
+    log_inv_rate, log_memory, public_input_len = dims[0], dims[1], dims[2]
     table_log_n_rows = dims[3 : 3 + n_tables]
 
     if public_input_len != len(public_input):
@@ -1306,17 +1382,25 @@ def verify_execution(
     if bytecode.log_size < MIN_BYTECODE_LOG_SIZE:
         raise ProofError("InvalidProof: bytecode too small")
 
-    public_memory = padd_with_zero_to_next_power_of_two(public_input)  # noqa: F841 (used once WHIR is wired)
+    table_log_heights = {t.name: log_n_rows for t, log_n_rows in zip(tables, table_log_n_rows)}
+    table_n_columns = {t.name: t.n_columns for t in tables}
 
-    # ------------- below: not implemented yet -----------------
-    # parsed_commitment = stacked_pcs_parse_commitment(state, log_memory, bytecode.log_size, table_log_n_rows)
-    # logup_c = state.sample()
-    # logup_alphas = state.sample_vec(log2_ceil_usize(max_bus_width))
-    # logup_statements = verify_generic_logup(state, logup_c, logup_alphas, log_memory, ...)
-    # bus_beta = state.sample(); air_alpha = state.sample(); eta = state.sample()
-    # ... sumcheck_verify(...), per-table AIR eval, whir_verify(...) ...
-    raise NotImplementedError(
-        "verify_execution: sub-protocols (WHIR/logup/sumcheck/AIR) are not yet ported."
+    parsed_commitment = stacked_pcs_parse_commitment(
+        state,
+        log_inv_rate=log_inv_rate,
+        log_memory=log_memory,
+        log_bytecode=bytecode.log_size,
+        table_log_heights=table_log_heights,
+        table_n_columns=table_n_columns,
+    )
+
+    return VerifyExecutionPartial(
+        log_inv_rate=log_inv_rate,
+        log_memory=log_memory,
+        public_input_len=public_input_len,
+        table_log_heights=table_log_heights,
+        stacked_n_vars=parsed_commitment.num_variables,
+        parsed_commitment=parsed_commitment,
     )
 
 
@@ -1371,13 +1455,11 @@ def _smoke() -> None:
     chal = st.sample()
     print(f"VerifierState sample = {chal}")
 
-    # verify_execution prologue runs but bails at the first sub-protocol stub.
+    # verify_execution: dummy proof should hit a bound check, not crash.
     bc = Bytecode(hash=[Fp(0)] * 8, log_size=10)
     bad_proof = Proof(transcript=[Fp(0)] * 64)
     try:
-        verify_execution(bc, [Fp(0)] * 4, bad_proof, n_tables=0)
-    except NotImplementedError as e:
-        print(f"verify_execution prologue reached sub-protocol stub: {e}")
+        verify_execution(bc, [Fp(0)] * 4, bad_proof, tables=[])
     except ProofError as e:
         print(f"verify_execution failed bound check (expected with dummy proof): {e}")
 
