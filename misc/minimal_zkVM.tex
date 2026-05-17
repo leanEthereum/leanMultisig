@@ -84,19 +84,38 @@ See \ref{sec:signature-aggregation} for more details.
     \item \textbf{With LeanVM (post-quantum):} Read-Solomon encode and Merkle-commit the codeword, for each blob. Prove the claimed Merkle Root was correctly computed using leanVM.
 \end{itemize}
 
-\section{Notations}
+\section{Preliminaries}
+
+\subsection{Notations}
 
 \begin{itemize}
     \item $[a, b] = \{a, a + 1, \ldots, b\}$
     \item $[a, b) = \{a, a + 1, \ldots, b-1\}$    \item $eq(x, y) = x y + (1 - x)(1 - y)$
     \item $\mathsf{embed}(x_1, x_2, x_3, x_4, x_5)$ is the extension field element built from 5 base field elements: $x_1 + x_2 X + x_3 X^2 + x_4 X^3 + x_5 X^4$, using $X^5 + X^2 - 1$ as the irreducible polynomial defining the extension. By extension, $\mathsf{embed}$ is applied to any contiguous slice $\textbf{m}[i \,..\, i + 5]$ of 5 memory cells.
+    
     \item $M$ is the size of the (read-only) memory, which is a power of 2.
-    \item $M_\text{min} = 2^{16}$ (resp. $M_\text{max} = 2^{26}$): the minimum (resp. maximum) size of the memory.
-    \item $M_\text{public}$: size of the public memory, which is a power of 2.
     \item $\textbf{m}[i]$ is the value of the memory at index $i$. It is defined only for $0 \leq i < M$; any out-of-bound access ($i \geq M$) makes the execution \emph{invalid}.
     \item $\textbf{m}[i..j]$ is the memory slice $(\textbf{m}[i], \textbf{m}[i+1], \ldots, \textbf{m}[j-1])$.
     \item $||$ denotes concatenation of slices.
 \end{itemize}
+
+\subsection{Constants}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Value & Description \\
+\midrule
+$M_\text{min}$ & $2^{16}$ & minimum size of the memory \\
+$M_\text{max}$ & $2^{26}$ & maximum size of the memory \\
+$M_\text{public}$ & variable, power of $2$, $\leq M$ & size of the public memory \\
+$H^{min}$ & 8 & log2 of the minimum number of rows in any table \\
+$H^{max}_\text{execution}$ & 24 & log2 of the maximum of rows in the \texttt{execution} table \\
+$H^{max}_\text{poseidon}$ & 21 & log2 of the maximum of rows in the \texttt{poseidon} table \\
+$H^{max}_\text{extension}$ & 21 & log2 of the maximum of rows in the \texttt{extension} table \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \section{VM specification}
 \subsection{Field}
@@ -134,7 +153,7 @@ We use a read-only memory (also called write-once memory). Each memory word is a
 
 \subsection{Bytecode}
 
-The bytecode is also read-only, and also has a power of two size. It lives in a separate region than the memory (Harvard architecture). Both prover and verifier are expected to have access to the bytecode.
+The bytecode is also read-only, and also has a power of two size. It lives in a separate region than the memory (Harvard architecture). Both prover and verifier are expected to have access to the bytecode. Each bytecode contains the size of the public input. 
 
 \subsection{Registers}
 
@@ -333,89 +352,19 @@ a_i =
 \end{cases}
 \]
 
+\subsection{Program example}
+
+The following is a program that takes as public input ($n$, $r$) and proves that the $n$-th Fibonacci number, modulo $p$, is equal to $r$.
+
 
 \vspace{2mm}
 
-\subsection{ISA programming}
-
-\subsubsection{Functions}
-
-\begin{enumerate}
-    \item Each function has a deterministic memory footprint: the length of the continuous frame in memory that is allocated for each of the its calls.
-    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of \textbf{pc} / \textbf{fp} at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify \textbf{fp} with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
-\end{enumerate}
-
-
-\begin{figure}[h]
-\caption{Memory layout of a function call}
-\centering
-\includegraphics[scale=0.4]{images/memory_layout.png}
-\end{figure}
-
-\subsubsection{Loops}\label{loops}
-
-We suggest to unroll loops when the number of iterations is low, and known at compile time.
-The remaining loops are transformed into recursive functions (by the leanISA compiler).
-
-\subsubsection{Range checks}
-
-\fbox{It's possible to check that a memory cell is smaller than $t$ (for $t \leq 2^{16}$) in 3 cycles.}
-
-We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
-We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
-\begin{enumerate}
-    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
-    \item \textbf{m}[\textbf{fp} + $x$] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD, this computes $\textbf{m}[\textbf{fp} + $j$] = t - 1 - $ \textbf{m}[\textbf{fp} + $x$])
-        \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
-\end{enumerate}
-
-Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{26} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
-
-Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[\textbf{fp} + $i$] and \textbf{m}[\textbf{fp} + $k$] must be done at end of execution).
-
-This idea was pointed out by D. Khovratovich, and is an unplanned use of the DEREF instruction.
-
-\begin{exmp}
-	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[\textbf{fp} + 2] and $y = \textbf{m}$[\textbf{fp} + 3] ($\textbf{m}$[\textbf{fp} + 0] and $\textbf{m}$[\textbf{fp} + 1] are used, by convention, to store the caller's \textbf{pc} and \textbf{fp}, to return to the previous context at the end of the function), which perform the following:
-	
-	\begin{enumerate}
-		\item assert(x $<$ 10)
-		\item z := x*y + 100
-		\item assert(z $<$ 1000)
-	\end{enumerate}
-	
-	Which can be compiled to:
-	
-	\begin{enumerate}
-		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
-		\item \textbf{m}[\textbf{fp} + 2] + \textbf{m}[\textbf{fp} + 5] = 9 // compute $9 - x$
-		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
-		\item \textbf{m}[\textbf{fp} + 7] = \textbf{m}[\textbf{fp} + 2] * \textbf{m}[\textbf{fp} + 3] // compute $x.y$
-		\item \textbf{m}[\textbf{fp} + 8] = \textbf{m}[\textbf{fp} + 7] + 100 // compute $z = x.y + 100$
-		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
-		\item \textbf{m}[\textbf{fp} + 8] + \textbf{m}[\textbf{fp} + 10] = 999 // compute $999 - z$
-		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
-		\item JUMP with next(\textbf{pc}) = \textbf{m}[\textbf{fp} + 0], next(\textbf{fp}) = \textbf{m}[\textbf{fp} + 1], condition = 1 // return
-	\end{enumerate}
-	
-	 
-\end{exmp}
-
-
-\subsubsection{Switch statements}
-
-Suppose we want a different logic depending on the value $x$ of a given memory cell, where $x$ is known to be $< k$ (if the value $x$ comes from a "hint", don't forget to range-check it).
-
-Each of the $k$ different values leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
-One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to $a + b \cdot x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
-
-Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i$-th block of code we could jump to will execute $i$ times the hash function (unrolled loop).
-
 \section{Proving system}\label{sec:proving}
 
-\subsection{Table sizes}\label{sec:table-sizes}
+\subsection{Tables}\label{sec:table-sizes}
 
-Each table has a maximum number of rows (as a power of two):
+The trace is split accross 3 tables: execution, poseidon, and extension.
+Each table is a 2D matrix, filled by (base) field elements, committed at the beginning of the proof.
 
 \begin{center}
 \begin{tabular}{lc}
@@ -423,7 +372,7 @@ Each table has a maximum number of rows (as a power of two):
 Table & Max rows \\
 \midrule
 Execution & $2^{25}$ \\
-Extension op & $2^{20}$ \\
+Extension op & $2^{21}$ \\
 Poseidon & $2^{21}$ \\
 \bottomrule
 \end{tabular}
@@ -978,6 +927,82 @@ There are alterntive ways to handle the stacking of multiple multilinear polynom
 
 \textit{Note 3:} A meticulous implementation of WHIR could also take advantage of any potential repetitions in the committed polynomial, both at the FFT and the sumcheck level, leaving the Merklelisation as the main overhead.
 
+
+
+\subsection{ISA programming}
+
+\subsubsection{Functions}
+
+\begin{enumerate}
+    \item Each function has a deterministic memory footprint: the length of the continuous frame in memory that is allocated for each of the its calls.
+    \item At runtime, each time we call our function, we receive via a memory cell a hint pointing to a free range of memory. We then store the current values of \textbf{pc} / \textbf{fp} at the start of this newly allocated frame, alongside the function's arguments, we can then jump, to enter the function bytecode, and modify \textbf{fp} with the hinted value. The intuition here is that the verifier does not care where the new memory frame will be placed (we use a read-only memory, so we cannot overwrite previous frames). In practice, the prover that runs the program would need to keep the value of the allocation pointer "ap", in order to adequately allocate new memory frames, but there is no need to keep track of it from the versifier's perspective.
+\end{enumerate}
+
+
+\begin{figure}[h]
+\caption{Memory layout of a function call}
+\centering
+\includegraphics[scale=0.4]{images/memory_layout.png}
+\end{figure}
+
+\subsubsection{Loops}\label{loops}
+
+We suggest to unroll loops when the number of iterations is low, and known at compile time.
+The remaining loops are transformed into recursive functions (by the leanISA compiler).
+
+\subsubsection{Range checks}
+
+\fbox{It's possible to check that a memory cell is smaller than $t$ (for $t \leq 2^{16}$) in 3 cycles.}
+
+We denote by \textbf{m}[\textbf{fp} + $x$] the memory cell for which we want to ensure \textbf{m}[\textbf{fp} + $x$] $< t$.
+We also denote by \textbf{m}[\textbf{fp} + $i$], \textbf{m}[\textbf{fp} + $j$] and \textbf{m}[\textbf{fp} + $k$] 3 auxiliary memory cells (that have not been used yet).
+\begin{enumerate}
+    \item \textbf{m}[\textbf{m}[\textbf{fp} + $x$]] = \textbf{m}[\textbf{fp} + $i$] (using DEREF, this ensures \textbf{m}[\textbf{fp} + $x$] $ < M$, the memory size)
+    \item \textbf{m}[\textbf{fp} + $x$] + \textbf{m}[\textbf{fp} + $j$] = (t-1) (using ADD, this computes $\textbf{m}[\textbf{fp} + $j$] = t - 1 - $ \textbf{m}[\textbf{fp} + $x$])
+        \item \textbf{m}[\textbf{m}[\textbf{fp} + $j$]] = \textbf{m}[\textbf{fp} + $k$] (using DEREF, this ensures $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $ < M$)
+\end{enumerate}
+
+Given $t \leq 2^{16} \leq M$, \textbf{m}[\textbf{fp} + $x$] $ < M$, $t - 1 - $ \textbf{m}[\textbf{fp} + $x$] $< M$, and $M \leq 2^{26} < p / 2$, we have: \textbf{m}[\textbf{fp} + $x$] $ < t$.
+
+Note: From the point of view of the prover running the program, some hints are necessary (filling the values of \textbf{m}[\textbf{fp} + $i$] and \textbf{m}[\textbf{fp} + $k$] must be done at end of execution).
+
+This idea was pointed out by D. Khovratovich, and is an unplanned use of the DEREF instruction.
+
+\begin{exmp}
+	Let's say we want to write a function with 2 arguments $x = \textbf{m}$[\textbf{fp} + 2] and $y = \textbf{m}$[\textbf{fp} + 3] ($\textbf{m}$[\textbf{fp} + 0] and $\textbf{m}$[\textbf{fp} + 1] are used, by convention, to store the caller's \textbf{pc} and \textbf{fp}, to return to the previous context at the end of the function), which perform the following:
+	
+	\begin{enumerate}
+		\item assert(x $<$ 10)
+		\item z := x*y + 100
+		\item assert(z $<$ 1000)
+	\end{enumerate}
+	
+	Which can be compiled to:
+	
+	\begin{enumerate}
+		\item \textbf{m}[\textbf{fp} + 4] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 2$\big]$] // check that $x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 2] + \textbf{m}[\textbf{fp} + 5] = 9 // compute $9 - x$
+		\item \textbf{m}[\textbf{fp} + 6] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 5$\big]$] // check that $9 - x$ is "small"
+		\item \textbf{m}[\textbf{fp} + 7] = \textbf{m}[\textbf{fp} + 2] * \textbf{m}[\textbf{fp} + 3] // compute $x.y$
+		\item \textbf{m}[\textbf{fp} + 8] = \textbf{m}[\textbf{fp} + 7] + 100 // compute $z = x.y + 100$
+		\item \textbf{m}[\textbf{fp} + 9] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 8$\big]$] // check that $z$ is "small"
+		\item \textbf{m}[\textbf{fp} + 8] + \textbf{m}[\textbf{fp} + 10] = 999 // compute $999 - z$
+		\item \textbf{m}[\textbf{fp} + 11] = \textbf{m}[\textbf{m}$\big[$\textbf{fp} + 10$\big]$] // check that $999 - z$ is "small"
+		\item JUMP with next(\textbf{pc}) = \textbf{m}[\textbf{fp} + 0], next(\textbf{fp}) = \textbf{m}[\textbf{fp} + 1], condition = 1 // return
+	\end{enumerate}
+	
+	 
+\end{exmp}
+
+
+\subsubsection{Switch statements}
+
+Suppose we want a different logic depending on the value $x$ of a given memory cell, where $x$ is known to be $< k$ (if the value $x$ comes from a "hint", don't forget to range-check it).
+
+Each of the $k$ different values leads to a different branch at runtime, represented by a block of code. We want to jump to the correct block of code depending on $x$.
+One efficient implementation consists in placing our blocks of code at regular intervals, and to jump to $a + b \cdot x$, where $a$ is the offset of the first block of code (in case $x = 0$), and $b$ is the distance between two consecutive blocks.
+
+Example: During XMSS verification, for each of the $v$ chains, we need to hash a pre-image, a number of times depending on the encoding, but known to be $< w$. Here $k = w$, and the $i$-th block of code we could jump to will execute $i$ times the hash function (unrolled loop).
 
 
 \section{Signature aggregation}\label{sec:signature-aggregation}
