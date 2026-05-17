@@ -10,12 +10,11 @@
 use std::fs;
 use std::path::PathBuf;
 
-use backend::{Air, PrimeField32, PrunedMerklePaths};
+use backend::{Air, MerkleOpening, PrimeField32};
 use lean_vm::*;
 use rec_aggregation::{aggregate_type_1, get_aggregation_bytecode, init_aggregation_bytecode, verify_type_1};
 use serde::Serialize;
 use std::io::Write;
-use utils::poseidon_compress_slice;
 use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
 
 type F = lean_vm::F;
@@ -27,24 +26,19 @@ fn f_to_u32(x: F) -> u32 {
 }
 
 #[derive(Serialize)]
-struct PrunedPathJson {
-    leaf_index: usize,
-    siblings: Vec<[u32; DIGEST_ELEMS]>,
+struct MerkleOpeningJson {
+    leaf_data: Vec<u32>,
+    path: Vec<[u32; DIGEST_ELEMS]>,
 }
 
 #[derive(Serialize)]
-struct PrunedMerklePathsJson {
-    merkle_height: usize,
-    original_order: Vec<usize>,
-    leaf_data: Vec<Vec<u32>>,
-    paths: Vec<PrunedPathJson>,
-    n_trailing_zeros: usize,
-}
-
-#[derive(Serialize)]
-struct ProofJson {
+struct RawProofJson {
+    /// Flat raw transcript: every absorbed group is padded to a multiple of 8
+    /// (RATE) with zeros — the format the zkDSL recursion verifier reads.
     transcript: Vec<u32>,
-    merkle_paths: Vec<PrunedMerklePathsJson>,
+    /// Already-restored Merkle openings (no pruning) in the order the verifier
+    /// consumes them.
+    merkle_openings: Vec<MerkleOpeningJson>,
 }
 
 #[derive(Serialize)]
@@ -108,27 +102,13 @@ struct OutJson {
     constants: ConstantsJson,
     snark_domain_sep: [u32; DIGEST_ELEMS],
 
-    proof: ProofJson,
+    proof: RawProofJson,
 }
 
-fn convert_pruned(p: &PrunedMerklePaths<F, F>) -> PrunedMerklePathsJson {
-    PrunedMerklePathsJson {
-        merkle_height: p.merkle_height,
-        original_order: p.original_order.clone(),
-        leaf_data: p
-            .leaf_data
-            .iter()
-            .map(|v| v.iter().map(|&f| f_to_u32(f)).collect())
-            .collect(),
-        paths: p
-            .paths
-            .iter()
-            .map(|(idx, siblings)| PrunedPathJson {
-                leaf_index: *idx,
-                siblings: siblings.iter().map(|d| d.map(f_to_u32)).collect(),
-            })
-            .collect(),
-        n_trailing_zeros: p.n_trailing_zeros,
+fn convert_opening(o: &MerkleOpening<F>) -> MerkleOpeningJson {
+    MerkleOpeningJson {
+        leaf_data: o.leaf_data.iter().map(|&f| f_to_u32(f)).collect(),
+        path: o.path.iter().map(|d| d.map(f_to_u32)).collect(),
     }
 }
 
@@ -158,13 +138,13 @@ fn dump_zkvm_vector() {
         .expect("aggregate_type_1 failed")
     };
 
-    // `verify_type_1` rebuilds `input_data` from the public info and runs the
-    // Rust verifier as a self-check. We grab `input_data` from the returned
-    // `InnerVerified` and reuse `sig.proof.proof` for the serialized proof.
-    let proof = sig.proof.proof.clone();
+    // `verify_type_1` runs the Rust verifier (self-check) and returns the
+    // restored, padded raw transcript that the zkDSL recursion verifier
+    // expects — which is exactly what the Python verifier consumes.
     let verified = verify_type_1(&sig).expect("Rust verify_type_1 failed");
     let input_data = verified.input_data;
-    let public_input = poseidon_compress_slice(&input_data, true);
+    let public_input = verified.input_data_hash;
+    let raw_proof = verified.raw_proof;
 
     let convert_bus = |bus: Bus| BusJson {
         direction: match bus.direction {
@@ -226,9 +206,9 @@ fn dump_zkvm_vector() {
             ending_pc: ENDING_PC,
         },
         snark_domain_sep: lean_prover::SNARK_DOMAIN_SEP.map(f_to_u32),
-        proof: ProofJson {
-            transcript: proof.transcript.iter().map(|&f| f_to_u32(f)).collect(),
-            merkle_paths: proof.merkle_paths.iter().map(convert_pruned).collect(),
+        proof: RawProofJson {
+            transcript: raw_proof.transcript.iter().map(|&f| f_to_u32(f)).collect(),
+            merkle_openings: raw_proof.merkle_openings.iter().map(convert_opening).collect(),
         },
     };
 

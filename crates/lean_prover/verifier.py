@@ -36,9 +36,10 @@ WHIR_SUBSEQUENT_FOLDING_FACTOR = 5
 MAX_NUM_VARIABLES_TO_SEND_COEFFS = 8
 RS_DOMAIN_INITIAL_REDUCTION_FACTOR = 5
 
-# Poseidon16 sponge parameters. This branch uses the older compression-with-
-# domain-separator challenger (no `rate_fresh`/`duplex`); state is RATE-sized
-# and sampling re-permutes with a per-call domain separator.
+# Poseidon16 sponge parameters. The challenger uses the compression-with-
+# domain-separator design: `state` is a RATE-sized buffer; `observe(chunk)`
+# does `state ← permute(state || chunk)[:RATE]`; sampling re-permutes the
+# state with a per-call domain separator.
 RATE = 8
 WIDTH = 16
 CAPACITY = WIDTH - RATE
@@ -191,7 +192,7 @@ class EF:
 
 
 
-# ─── Poseidon16-based Challenger (duplex sponge) ──────────────────────────────────────────────────────────
+# ─── Poseidon16-based Challenger ──────────────────────────────────────────────────────────
 
 
 _POSEIDON16 = Poseidon1(PARAMS_16)
@@ -302,56 +303,57 @@ class MerkleOpening:
 
 @dataclass
 class Proof:
-    """Verifier-side proof: matches backend::Proof.
+    """Verifier-side raw proof: matches backend::RawProof.
 
-    `merkle_openings` is the RESTORED list of openings (post-pruning), in the
-    order the verifier consumes them.
+    `transcript` is the flat RAW transcript (every absorbed group padded to a
+    multiple of RATE with zeros — the format the zkDSL recursion verifier reads).
+    `merkle_openings` is the list of already-restored openings in the order the
+    verifier consumes them (no pruning machinery on the Python side).
     """
 
     transcript: list[Fp]
     merkle_openings: list[MerkleOpening] = field(default_factory=list)
 
 
+def _next_multiple_of(n: int, m: int) -> int:
+    return ((n + m - 1) // m) * m
+
+
 class VerifierState:
-    """Mirrors fiat_shamir::verifier::VerifierState exactly."""
+    """Drives the Fiat-Shamir transcript: reads scalars from `proof.transcript`,
+    samples challenges from the challenger, and yields restored Merkle openings.
+
+    Every read pads to RATE (the zkDSL recursion format) — `n` real scalars are
+    consumed as `next_multiple_of(n, RATE)` raw scalars, the trailing positions
+    must be zero, and the full RATE-aligned chunk is what the challenger absorbs.
+    """
 
     def __init__(self, proof: Proof) -> None:
         self.challenger = Challenger()
-        self.transcript: list[Fp] = list(proof.transcript)
+        self.transcript = list(proof.transcript)
+        self.merkle_openings = list(proof.merkle_openings)
         self.offset = 0
-        self.merkle_openings: list[MerkleOpening] = list(proof.merkle_openings)
         self.merkle_opening_index = 0
-        self.raw_transcript: list[Fp] = []
 
-    # ---- internal helpers ----------------------------------------------
-
-    def _read(self, n: int) -> list[Fp]:
-        if self.offset + n > len(self.transcript):
+    def _read_padded(self, n: int) -> list[Fp]:
+        """Read `next_multiple_of(n, RATE)` raw scalars, assert the trailing
+        positions are zero, observe the full padded chunk, return all of it."""
+        n_padded = _next_multiple_of(n, RATE)
+        if self.offset + n_padded > len(self.transcript):
             raise ProofError("ExceededTranscript")
-        out = self.transcript[self.offset : self.offset + n]
-        self.offset += n
-        return out
-
-    def _absorb_and_record(self, scalars: list[Fp]) -> None:
-        self.challenger.observe_many(scalars)
-        self.raw_transcript.extend(scalars)
-        padded = (len(scalars) + RATE - 1) // RATE * RATE
-        self.raw_transcript.extend([Fp(0)] * (padded - len(scalars)))
-
-    # ---- FSVerifier trait surface --------------------------------------
+        chunk = self.transcript[self.offset : self.offset + n_padded]
+        self.offset += n_padded
+        for i in range(n, n_padded):
+            if int(chunk[i].value) != 0:
+                raise ProofError("InvalidTranscript: non-zero padding")
+        self.challenger.observe_many(chunk)
+        return chunk
 
     def observe_scalars(self, scalars: Sequence[Fp]) -> None:
         self.challenger.observe_many(list(scalars))
 
-    def duplex(self) -> None:
-        """No-op on this branch — the older challenger has no rate-staleness
-        notion, so duplex calls in the WHIR verifier are simply skipped."""
-        pass
-
     def next_base_scalars_vec(self, n: int) -> list[Fp]:
-        scalars = self._read(n)
-        self._absorb_and_record(scalars)
-        return scalars
+        return self._read_padded(n)[:n]
 
     def next_extension_scalars_vec(self, n: int) -> list[EF]:
         flat = self.next_base_scalars_vec(n * EF.DIMENSION)
@@ -372,114 +374,35 @@ class VerifierState:
     def next_merkle_opening(self) -> MerkleOpening:
         if self.merkle_opening_index >= len(self.merkle_openings):
             raise ProofError("ExceededTranscript: no more Merkle openings")
-        op = self.merkle_openings[self.merkle_opening_index]
         self.merkle_opening_index += 1
-        return op
+        return self.merkle_openings[self.merkle_opening_index - 1]
 
     def check_pow_grinding(self, bits: int) -> None:
+        """Grinding witness is written as `[witness, 0, 0, 0, 0, 0, 0, 0]`."""
         if bits == 0:
             return
-        witness = self._read(1)
-        self.challenger.observe_many(witness)
-        # OLD challenger: state is the RATE-sized output of the last permute;
-        # grinding checks state[0].
+        chunk = self._read_padded(1)
         if int(self.challenger.state[0].value) & ((1 << bits) - 1) != 0:
             raise ProofError("InvalidGrindingWitness")
-        self.raw_transcript.append(witness[0])
-        self.raw_transcript.extend([Fp(0)] * (RATE - 1))
-
-    def next_sumcheck_polynomial(
-        self,
-        n_coeffs: int,
-        claimed_sum: EF,
-        eq_alpha: EF | None,
-    ) -> list[EF]:
-        """Mirrors `verifier::next_sumcheck_polynomial`.
-
-        With `eq_alpha=None`: prover sends h(X) of `n_coeffs` coeffs, omitting
-        `c0` (recovered from `claimed_sum = h(0) + h(1)`). We read
-        `(n_coeffs-1) * 5` base scalars, recover `c0`, and absorb the full
-        flattened polynomial.
-
-        With `eq_alpha=Some(α)`: prover sends a "bare" polynomial of
-        `n_coeffs - 1` coefficients; the verifier recovers `h0` and expands to
-        the full degree polynomial via `expand_bare_to_full`.
-        """
-        if eq_alpha is None:
-            rest = self.next_extension_scalars_vec_no_record(n_coeffs - 1)
-            c0 = _ef_halve(claimed_sum - _ef_sum(rest))
-            full = [c0] + rest
-            self._absorb_and_record(_flatten_ef_list(full))
-            return full
-
-        # eq_alpha path
-        rest_scalars = self._read((n_coeffs - 2) * EF.DIMENSION)
-        rest_bare = [
-            EF(rest_scalars[i : i + EF.DIMENSION])
-            for i in range(0, len(rest_scalars), EF.DIMENSION)
-        ]
-        h0 = claimed_sum - eq_alpha * _ef_sum(rest_bare)
-        bare = [h0] + rest_bare
-        full_coeffs = _expand_bare_to_full(bare, eq_alpha)
-        self._absorb_and_record(_flatten_ef_list(full_coeffs))
-        return full_coeffs
-
-    def next_extension_scalars_vec_no_record(self, n: int) -> list[EF]:
-        """Read `n` extension scalars but DON'T record/absorb yet — caller does."""
-        flat = self._read(n * EF.DIMENSION)
-        return [EF(flat[i : i + EF.DIMENSION]) for i in range(0, len(flat), EF.DIMENSION)]
 
 
 
-# ─── Bytecode (minimal placeholder) + helpers ──────────────────────────────────────────────────────────
+# ─── Small helpers (Bytecode metadata, EF utilities, log2, padding) ──────────────────────────────────────────────
 
 
 @dataclass
 class Bytecode:
-    """The bytecode metadata `verify_execution` needs (hash + log size)."""
-
+    """What `verify_execution` needs about a bytecode program."""
     hash: list[Fp]
     log_size: int
 
 
-# Multiplicative inverse of 2 mod P (KoalaBear). Used by halve operations.
-_HALVE_FP = Fp(pow(2, P - 2, P))
-
-
-def _ef_halve(x: EF) -> EF:
-    return EF([c * _HALVE_FP for c in x.c])
-
-
-def _ef_sum(xs: Sequence[EF]) -> EF:
-    acc = EF.zero()
-    for x in xs:
-        acc = acc + x
-    return acc
-
-
-def _flatten_ef_list(xs: Sequence[EF]) -> list[Fp]:
-    out: list[Fp] = []
-    for x in xs:
-        out.extend(x.c)
-    return out
-
-
-def _expand_bare_to_full(bare: list[EF], alpha: EF) -> list[EF]:
-    """utils::expand_bare_to_full: g(X) = eq(α, X) * h(X)."""
-    one_minus_alpha = EF.one() - alpha
-    two_alpha_minus_one = (alpha + alpha) - EF.one()
-    d = len(bare) - 1
-    full: list[EF] = [one_minus_alpha * bare[0]]
-    for k in range(1, d + 1):
-        full.append(one_minus_alpha * bare[k] + two_alpha_minus_one * bare[k - 1])
-    full.append(two_alpha_minus_one * bare[d])
-    return full
+# Multiplicative inverse of 2 in Fp (KoalaBear). Used to halve EF elements.
+_INV_TWO = Fp(pow(2, P - 2, P))
 
 
 def log2_ceil_usize(x: int) -> int:
-    if x <= 1:
-        return 0
-    return (x - 1).bit_length()
+    return 0 if x <= 1 else (x - 1).bit_length()
 
 
 def log2_strict_usize(x: int) -> int:
@@ -490,114 +413,11 @@ def log2_strict_usize(x: int) -> int:
 def padd_with_zero_to_next_power_of_two(values: Sequence[Fp]) -> list[Fp]:
     if not values:
         return [Fp(0)]
-    n = 1
-    while n < len(values):
-        n <<= 1
+    n = 1 << log2_ceil_usize(len(values))
     return list(values) + [Fp(0)] * (n - len(values))
 
 
-
-# Merkle: hashing primitives, pruned-paths restoration, Merkle verify.
-# Mirrors symetric::merkle + fiat_shamir::merkle_pruning.
-
-
-
-@dataclass
-class MerklePath:
-
-    leaf_data: list[Fp]
-    sibling_hashes: list[list[Fp]]  # each entry has DIGEST_ELEMS Fp
-    leaf_index: int
-
-
-@dataclass
-class PrunedMerklePaths:
-
-    merkle_height: int
-    original_order: list[int]
-    leaf_data: list[list[Fp]]
-    paths: list[tuple[int, list[list[Fp]]]]  # (leaf_index, siblings) with skips
-    n_trailing_zeros: int
-
-
-def _lca_level(a: int, b: int) -> int:
-    """Number of bits needed to differ — i.e., ceiling-LCA level over the tree."""
-    diff = a ^ b
-    return diff.bit_length()
-
-
-def restore_merkle_paths(p: PrunedMerklePaths) -> list[MerklePath]:
-    """Reconstructs full sibling arrays from the pruned form using leaf hashing
-    and 2:1 compression (Poseidon16). Raises ProofError on malformed inputs.
-    """
-
-    h = p.merkle_height
-    if h >= 32:
-        raise ProofError("Merkle height too large")
-    if p.n_trailing_zeros > 1024:
-        raise ProofError("Merkle leaf trailing-zero count too large")
-
-    leaf_data = [list(d) + [Fp(0)] * p.n_trailing_zeros for d in p.leaf_data]
-    n = len(p.paths)
-
-    def levels(i: int) -> int:
-        if i == 0:
-            return h
-        return _lca_level(p.paths[i - 1][0], p.paths[i][0])
-
-    def skip(i: int) -> int | None:
-        if i + 1 < n:
-            return _lca_level(p.paths[i][0], p.paths[i + 1][0]) - 1
-        return None
-
-    # Backward pass: build subtree hashes.
-    subtree_hashes: list[list[list[Fp]]] = [[] for _ in range(n)]
-    for i in range(n - 1, -1, -1):
-        leaf_idx, stored = p.paths[i]
-        if leaf_idx >= (1 << h):
-            raise ProofError("Merkle leaf index out of range")
-        stored_iter = iter(stored)
-        cur = hash_slice(leaf_data[i])
-        subtree_hashes[i].append(list(cur))
-        for lvl in range(levels(i)):
-            if skip(i) == lvl:
-                try:
-                    sibling = subtree_hashes[i + 1][lvl]
-                except IndexError as e:
-                    raise ProofError("Merkle restore: missing sibling") from e
-            else:
-                try:
-                    sibling = next(stored_iter)
-                except StopIteration as e:
-                    raise ProofError("Merkle restore: stored siblings exhausted") from e
-            if ((leaf_idx >> lvl) & 1) == 0:
-                cur = poseidon16_compress(cur, sibling)
-            else:
-                cur = poseidon16_compress(sibling, cur)
-            subtree_hashes[i].append(list(cur))
-
-    # Forward pass: build the full sibling lists.
-    restored: list[MerklePath] = []
-    for i in range(n):
-        leaf_idx, stored = p.paths[i]
-        stored_iter = iter(stored)
-        siblings: list[list[Fp]] = []
-        for lvl in range(levels(i)):
-            if skip(i) == lvl:
-                sibling = subtree_hashes[i + 1][lvl]
-            else:
-                try:
-                    sibling = next(stored_iter)
-                except StopIteration as e:
-                    raise ProofError("Merkle restore: stored siblings exhausted (fwd)") from e
-            siblings.append(list(sibling))
-        if restored:
-            # Reuse the previous restored path's siblings for the levels above.
-            siblings.extend(restored[-1].sibling_hashes[levels(i) :])
-        restored.append(MerklePath(leaf_data=leaf_data[i], sibling_hashes=siblings, leaf_index=leaf_idx))
-
-    # Reorder by original_order.
-    return [restored[idx] for idx in p.original_order]
+# ─── Merkle path verify ──────────────────────────────────
 
 
 def merkle_verify_path(
@@ -607,29 +427,14 @@ def merkle_verify_path(
     opened_values: Sequence[Fp],
     opening_proof: Sequence[list[Fp]],
 ) -> bool:
-
+    """Hash the leaf, walk up `log_height` siblings, compare to the commitment."""
     if len(opening_proof) != log_height:
         return False
     cur = hash_slice(list(opened_values))
-    idx = index
     for sibling in opening_proof:
-        if idx & 1 == 0:
-            cur = poseidon16_compress(cur, sibling)
-        else:
-            cur = poseidon16_compress(sibling, cur)
-        idx >>= 1
+        cur = poseidon16_compress(cur, sibling) if index & 1 == 0 else poseidon16_compress(sibling, cur)
+        index >>= 1
     return list(commit) == list(cur)
-
-
-def prunedpaths_from_json(obj: dict) -> PrunedMerklePaths:
-    """Helper for test vectors: parse the JSON shape dumped by Rust."""
-    return PrunedMerklePaths(
-        merkle_height=obj["merkle_height"],
-        original_order=list(obj["original_order"]),
-        leaf_data=[[Fp(v) for v in chunk] for chunk in obj["leaf_data"]],
-        paths=[(p["leaf_index"], [[Fp(v) for v in s] for s in p["siblings"]]) for p in obj["paths"]],
-        n_trailing_zeros=obj["n_trailing_zeros"],
-    )
 
 
 
@@ -732,21 +537,15 @@ class SparseStatement:
         return self.total_num_variables - self.inner_num_variables
 
     @staticmethod
-    def new_(total: int, point: list[EF], values: list[SparseValue]) -> "SparseStatement":
-        assert total >= len(point)
-        return SparseStatement(total, point, values, is_next=False)
-
-    @staticmethod
     def dense(point: list[EF], value: EF) -> "SparseStatement":
-        return SparseStatement(len(point), point, [SparseValue(0, value)], is_next=False)
+        return SparseStatement(len(point), point, [SparseValue(0, value)])
 
     @staticmethod
     def unique_value(total: int, index: int, value: EF) -> "SparseStatement":
-        return SparseStatement(total, [], [SparseValue(index, value)], is_next=False)
+        return SparseStatement(total, [], [SparseValue(index, value)])
 
     @staticmethod
     def new_next(total: int, point: list[EF], values: list[SparseValue]) -> "SparseStatement":
-        assert total >= len(point)
         return SparseStatement(total, point, values, is_next=True)
 
 
@@ -808,14 +607,9 @@ def whir_domain_size_at(num_variables: int, starting_log_inv_rate: int, round_in
     return 1 << domain_log
 
 
-# ---------------------------------------------------------------------------
-# WHIR config table — float-derived numbers only, dumped by the Rust test.
-#
-# Everything not in the JSON (n_rounds, per-round num_variables/log_inv_rate/
-# domain_size/folding_factor/folded_domain_gen, final_sumcheck_rounds,
-# final_log_inv_rate, ...) is integer arithmetic and should be derived on the
-# Python side when it's actually needed.
-# ---------------------------------------------------------------------------
+# The Rust-dumped JSON only carries the float-derived numbers (query counts,
+# OOD samples, grinding bits); every other parameter is integer arithmetic
+# we recompute on the fly via the helpers above.
 
 
 @dataclass(frozen=True)
@@ -897,32 +691,40 @@ def parsed_commitment_parse(state: VerifierState, num_variables: int, ood_sample
     )
 
 
+def _check_sumcheck_identity(coeffs: list[EF], target: EF) -> None:
+    """`h(0) + h(1) = target`, i.e. `coeffs[0] + sum(coeffs) == target`."""
+    s = coeffs[0]
+    for c in coeffs:
+        s = s + c
+    if s != target:
+        raise ProofError("Sumcheck identity failed: h(0) + h(1) != target")
+
+
+def _eval_univariate(coeffs: list[EF], x: EF) -> EF:
+    """Horner: c[0] + c[1]*x + c[2]*x^2 + ..."""
+    acc = EF.zero()
+    for c in reversed(coeffs):
+        acc = acc * x + c
+    return acc
+
+
 def verify_sumcheck_rounds(
     state: VerifierState,
     claimed_sum_ref: list[EF],   # 1-element box, mutated in-place
     rounds: int,
     pow_bits: int,
 ) -> list[EF]:
-    """Returns the folding randomness for these rounds. Mutates `claimed_sum_ref[0]`.
-    """
+    """Degree-2 sumcheck (3 coeffs per round). Returns the folding randomness
+    and mutates `claimed_sum_ref[0]` to the final claim."""
     randomness: list[EF] = []
     for _ in range(rounds):
-        coeffs = state.next_sumcheck_polynomial(3, claimed_sum_ref[0], None)
+        coeffs = state.next_extension_scalars_vec(3)
+        _check_sumcheck_identity(coeffs, claimed_sum_ref[0])
         state.check_pow_grinding(pow_bits)
         r = state.sample()
-        # Evaluate cubic poly (length-3 coeffs in standard univariate basis).
-        # DensePolynomial::evaluate uses Horner-style on coeffs[0..n].
         claimed_sum_ref[0] = _eval_univariate(coeffs, r)
         randomness.append(r)
     return randomness
-
-
-def _eval_univariate(coeffs: list[EF], x: EF) -> EF:
-    """Standard univariate evaluation: c[0] + c[1]*x + c[2]*x^2 + ..."""
-    acc = EF.zero()
-    for c in reversed(coeffs):
-        acc = acc * x + c
-    return acc
 
 
 def combine_constraints(
@@ -1064,7 +866,6 @@ def whir_verify(
     prev_commitment = parsed_commitment
 
     # OODS + initial statement combine.
-    state.duplex()
     initial_constraints = prev_commitment.oods_constraints() + statement
     combo = combine_constraints(state, claimed_sum_ref, initial_constraints)
     round_constraints.append((combo, initial_constraints))
@@ -1102,8 +903,6 @@ def whir_verify(
             folding_randomness=round_folding[-1],
         )
         constraints_r = new_commitment.oods_constraints() + stir_constraints
-
-        state.duplex()
         combo_r = combine_constraints(state, claimed_sum_ref, constraints_r)
         round_constraints.append((combo_r, constraints_r))
 
@@ -1351,18 +1150,15 @@ def sumcheck_verify(
     n_vars: int,
     degree: int,
     expected_sum: EF,
-    eq_alphas: Sequence[EF] | None,
 ) -> Evaluation:
-    """Reads `n_vars` round polynomials, each of `degree + 1` coefficients (so the
-    bare polynomial is degree-`degree`; in the `eq_alphas` path the verifier
-    extracts the bare poly and re-expands with `eq(α_round, X)`).
-    Returns the final point + claimed value.
-    """
+    """Reads `n_vars` round polynomials in standard univariate basis, each with
+    `degree + 1` coefficients. Checks `h(0) + h(1) = target` each round, then
+    folds in the challenge. Returns the final point + claimed value."""
     target = expected_sum
     challenges: list[EF] = []
-    for round_idx in range(n_vars):
-        eq_alpha = eq_alphas[round_idx] if eq_alphas is not None else None
-        coeffs = state.next_sumcheck_polynomial(degree + 1, target, eq_alpha)
+    for _ in range(n_vars):
+        coeffs = state.next_extension_scalars_vec(degree + 1)
+        _check_sumcheck_identity(coeffs, target)
         r = state.sample()
         challenges.append(r)
         target = _eval_univariate(coeffs, r)
@@ -1412,8 +1208,7 @@ def _verify_gkr_quotient_step(
 ) -> tuple[list[EF], EF, EF]:
     alpha = state.sample()
     expected_sum = claims_num + alpha * claims_den
-    eq_alphas_rev = list(reversed(point))
-    postponed = sumcheck_verify(state, n_vars, 3, expected_sum, eq_alphas_rev)
+    postponed = sumcheck_verify(state, n_vars, 3, expected_sum)
     # Rust: postponed.point.0.reverse();
     postponed_point = list(reversed(postponed.point))
     inner_evals = state.next_extension_scalars_vec(4)
@@ -1944,7 +1739,7 @@ def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: 
     nu_a_minus_one = nu_a - one
 
     add = aux * EF.from_base(Fp(2)) - aux * aux
-    deref = _ef_halve(aux * (aux - one))
+    deref = aux * (aux - one) * EF.from_base(_INV_TWO)
     is_precompile = -(add + mul + deref + jump - one)
 
     # Constraint 1: bus column (assert_zero_ef)
@@ -2436,7 +2231,7 @@ def verify_air_stage(
     max_full_degree = max(_TABLE_SPECS[name]["degree"] + 1 for name, _ in tables_sorted)
     n_max = tables_sorted[0][1]
 
-    sumcheck_result = sumcheck_verify(state, n_max, max_full_degree, initial_sum, None)
+    sumcheck_result = sumcheck_verify(state, n_max, max_full_degree, initial_sum)
     sumcheck_air_point = sumcheck_result.point
     claimed_air_final_value = sumcheck_result.value
 
@@ -2709,9 +2504,11 @@ def main() -> int:
     input_data = [Fp(v) for v in raw["input_data"]]
 
     openings = [
-        MerkleOpening(leaf_data=p.leaf_data, path=p.sibling_hashes)
-        for bucket in raw["proof"]["merkle_paths"]
-        for p in restore_merkle_paths(prunedpaths_from_json(bucket))
+        MerkleOpening(
+            leaf_data=[Fp(v) for v in o["leaf_data"]],
+            path=[[Fp(v) for v in d] for d in o["path"]],
+        )
+        for o in raw["proof"]["merkle_openings"]
     ]
     proof = Proof(transcript=[Fp(v) for v in raw["proof"]["transcript"]], merkle_openings=openings)
 
