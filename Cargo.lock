@@ -711,8 +711,6 @@ dependencies = [
  "mt-utils",
  "rand",
  "rayon",
- "serde",
- "serde_json",
  "system-info",
  "tracing",
  "tracing-forest",

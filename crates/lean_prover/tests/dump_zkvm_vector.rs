@@ -1,24 +1,22 @@
-//! Dumps a tiny zkVM proof + metadata so the Python `verify_execution`
-//! port (`crates/lean_prover/verifier.py`) can run against it.
+//! Single end-to-end test vector for the Python verifier: aggregate one XMSS
+//! signature using rec-aggregation, then dump the resulting bytecode, public
+//! input, table metadata, and proof.
 //!
 //! Run:
 //!     cargo test --release -p lean_prover --test dump_zkvm_vector -- --nocapture
 //!
-//! Output: `target/zkvm_test_vectors/small.json`. The JSON contains everything
-//! Python needs to mirror `verify_execution.rs` up to (and through) any
-//! sub-protocol we've ported so far.
+//! Output: `target/zkvm_test_vectors/proof.json` + `proof.bytecode_mle.bin`.
 
 use std::fs;
 use std::path::PathBuf;
 
-use backend::{Air, PrimeField32, PrunedMerklePaths, WhirConfigBuilder};
-use lean_compiler::*;
-use lean_prover::{default_whir_config, prove_execution::prove_execution, verify_execution::verify_execution};
-// `verify_execution` is imported so the dump test self-checks the proof
-// before writing it.
+use backend::{Air, PrimeField32, PrunedMerklePaths};
 use lean_vm::*;
+use rec_aggregation::{aggregate_type_1, get_aggregation_bytecode, init_aggregation_bytecode, verify_type_1};
 use serde::Serialize;
 use std::io::Write;
+use utils::poseidon_compress_slice;
+use xmss::signers_cache::{BENCHMARK_SLOT, get_benchmark_signatures, message_for_benchmark};
 
 type F = lean_vm::F;
 
@@ -47,18 +45,6 @@ struct PrunedMerklePathsJson {
 struct ProofJson {
     transcript: Vec<u32>,
     merkle_paths: Vec<PrunedMerklePathsJson>,
-}
-
-#[derive(Serialize)]
-struct BuilderJson {
-    security_level: usize,
-    max_num_variables_to_send_coeffs: usize,
-    pow_bits: usize,
-    folding_factor_first: usize,
-    folding_factor_subsequent: usize,
-    starting_log_inv_rate: usize,
-    rs_domain_initial_reduction_factor: usize,
-    soundness_type: &'static str,
 }
 
 #[derive(Serialize)]
@@ -104,18 +90,24 @@ struct ConstantsJson {
 
 #[derive(Serialize)]
 struct OutJson {
-    name: String,
+    /// Aggregation bytecode metadata. The multilinear is in the sidecar.
     bytecode_log_size: usize,
     bytecode_hash: [u32; DIGEST_ELEMS],
-    /// Path (relative to JSON) of the raw u32-LE bytecode multilinear sidecar.
     bytecode_multilinear_path: String,
     bytecode_multilinear_len: usize,
-    public_input: Vec<u32>,
+
+    /// Public input to `verify_execution` (the hashed `input_data`).
+    public_input: [u32; DIGEST_ELEMS],
+
+    /// Pre-image of `public_input`. Dumped so Python can re-derive the hash.
+    input_data: Vec<u32>,
+
+    /// Per-table metadata + global constants.
     n_tables: usize,
     tables: Vec<TableInfoJson>,
     constants: ConstantsJson,
     snark_domain_sep: [u32; DIGEST_ELEMS],
-    builder: BuilderJson,
+
     proof: ProofJson,
 }
 
@@ -140,17 +132,39 @@ fn convert_pruned(p: &PrunedMerklePaths<F, F>) -> PrunedMerklePathsJson {
     }
 }
 
-fn dump_one(name: &str, program_str: &str, public_input: Vec<F>, out_dir: &PathBuf) {
-    let bytecode = compile_program(&ProgramSource::Raw(program_str.to_string()));
-    let starting_log_inv_rate = 1;
-    let builder: WhirConfigBuilder = default_whir_config(starting_log_inv_rate);
-    let witness = ExecutionWitness::default();
-    let exec_proof = prove_execution(&bytecode, &public_input, &witness, &builder, false)
-        .expect("prove_execution failed");
+#[test]
+fn dump_zkvm_vector() {
+    let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
+    let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(&target_dir)
+        .join("zkvm_test_vectors");
+    fs::create_dir_all(&out_dir).unwrap();
 
-    // Run the Rust verifier as a self-check before writing the dump.
-    verify_execution(&bytecode, &public_input, exec_proof.proof.clone())
-        .expect("Rust verify_execution failed");
+    // Compile the aggregation program once.
+    init_aggregation_bytecode();
+    let bytecode = get_aggregation_bytecode();
+
+    // Aggregate one raw XMSS signature into a TypeOneMultiSignature.
+    let sig = {
+        let (pk, xmss_sig) = get_benchmark_signatures()[0].clone();
+        aggregate_type_1(
+            &[],
+            vec![(pk, xmss_sig)],
+            message_for_benchmark(),
+            BENCHMARK_SLOT,
+            /* log_inv_rate = */ 1,
+        )
+        .expect("aggregate_type_1 failed")
+    };
+
+    // `verify_type_1` rebuilds `input_data` from the public info and runs the
+    // Rust verifier as a self-check. We grab `input_data` from the returned
+    // `InnerVerified` and reuse `sig.proof.proof` for the serialized proof.
+    let proof = sig.proof.proof.clone();
+    let verified = verify_type_1(&sig).expect("Rust verify_type_1 failed");
+    let input_data = verified.input_data;
+    let public_input = poseidon_compress_slice(&input_data, true);
 
     let convert_bus = |bus: Bus| BusJson {
         direction: match bus.direction {
@@ -182,24 +196,22 @@ fn dump_one(name: &str, program_str: &str, public_input: Vec<F>, out_dir: &PathB
         })
         .collect();
 
-    // Dump the bytecode multilinear to a sidecar binary file. Length is
-    // `2^cumulated_n_vars` where `cumulated_n_vars = log_size + ceil(log2(N_INSTRUCTION_COLUMNS))`.
-    let mle_path_rel = format!("{name}.bytecode_mle.bin");
-    let mle_full_path = out_dir.join(&mle_path_rel);
+    // Sidecar: raw u32-LE bytecode multilinear.
+    let mle_path = "proof.bytecode_mle.bin";
     {
-        let mut f = fs::File::create(&mle_full_path).unwrap();
+        let mut f = fs::File::create(out_dir.join(mle_path)).unwrap();
         for v in &bytecode.instructions_multilinear {
             f.write_all(&f_to_u32(*v).to_le_bytes()).unwrap();
         }
     }
 
     let out = OutJson {
-        name: name.to_string(),
         bytecode_log_size: bytecode.log_size(),
         bytecode_hash: bytecode.hash.map(f_to_u32),
-        bytecode_multilinear_path: mle_path_rel.clone(),
+        bytecode_multilinear_path: mle_path.to_string(),
         bytecode_multilinear_len: bytecode.instructions_multilinear.len(),
-        public_input: public_input.iter().map(|&f| f_to_u32(f)).collect(),
+        public_input: public_input.map(f_to_u32),
+        input_data: input_data.iter().map(|&f| f_to_u32(f)).collect(),
         n_tables: N_TABLES,
         tables: table_infos,
         constants: ConstantsJson {
@@ -214,51 +226,27 @@ fn dump_one(name: &str, program_str: &str, public_input: Vec<F>, out_dir: &PathB
             ending_pc: ENDING_PC,
         },
         snark_domain_sep: lean_prover::SNARK_DOMAIN_SEP.map(f_to_u32),
-        builder: BuilderJson {
-            security_level: 124,
-            max_num_variables_to_send_coeffs: 8,
-            pow_bits: 16,
-            folding_factor_first: 7,
-            folding_factor_subsequent: 5,
-            starting_log_inv_rate,
-            rs_domain_initial_reduction_factor: 5,
-            soundness_type: "JohnsonBound",
-        },
         proof: ProofJson {
-            transcript: exec_proof.proof.transcript.iter().map(|&f| f_to_u32(f)).collect(),
-            merkle_paths: exec_proof.proof.merkle_paths.iter().map(convert_pruned).collect(),
+            transcript: proof.transcript.iter().map(|&f| f_to_u32(f)).collect(),
+            merkle_paths: proof.merkle_paths.iter().map(convert_pruned).collect(),
         },
     };
 
-    let path = out_dir.join(format!("{name}.json"));
-    fs::write(&path, serde_json::to_string(&out).unwrap()).unwrap();
+    let json_path = out_dir.join("proof.json");
+    fs::write(&json_path, serde_json::to_string(&out).unwrap()).unwrap();
+
+    let mle_bytes = out_dir.join(mle_path).metadata().unwrap().len();
     println!(
-        "{} -> {} ({:.1} KiB; bytecode_log_size={}, transcript_len={})",
-        name,
-        path.display(),
-        path.metadata().unwrap().len() as f64 / 1024.0,
+        "wrote test vector:\n  {} ({:.1} KiB)\n  {} ({:.1} KiB)",
+        json_path.display(),
+        json_path.metadata().unwrap().len() as f64 / 1024.0,
+        out_dir.join(mle_path).display(),
+        mle_bytes as f64 / 1024.0,
+    );
+    println!(
+        "  bytecode_log_size={}, transcript_len={}, input_data_len={}",
         out.bytecode_log_size,
         out.proof.transcript.len(),
+        out.input_data.len(),
     );
-}
-
-#[test]
-fn dump_zkvm_vector() {
-    let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
-    let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(&target_dir)
-        .join("zkvm_test_vectors");
-    fs::create_dir_all(&out_dir).unwrap();
-
-    // Use a small program (no big unroll). Empty public input. The compiler
-    // pads bytecode to at least MIN_BYTECODE_LOG_SIZE so we still get a valid
-    // proof; keeping the bytecode small keeps the dumped multilinear small.
-    let small_program = r#"
-def main():
-    a = Array(1)
-    a[0] = 1 * 2
-    return
-"#;
-    dump_one("small", small_program, vec![], &out_dir);
 }
