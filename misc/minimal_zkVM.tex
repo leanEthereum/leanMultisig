@@ -109,10 +109,10 @@ Symbol & Value & Description \\
 $M_\text{min}$ & $2^{16}$ & minimum size of the memory \\
 $M_\text{max}$ & $2^{26}$ & maximum size of the memory \\
 $M_\text{public}$ & variable, power of $2$, $\leq M$ & size of the public memory \\
-$H^{min}$ & 8 & log2 of the minimum number of rows in any table \\
-$H^{max}_\text{execution}$ & 24 & log2 of the maximum of rows in the \texttt{execution} table \\
-$H^{max}_\text{poseidon}$ & 21 & log2 of the maximum of rows in the \texttt{poseidon} table \\
-$H^{max}_\text{extension}$ & 21 & log2 of the maximum of rows in the \texttt{extension} table \\
+$h^{min}$ & 8 & log2 of the minimum number of rows in any table \\
+$h^{max}_\text{execution}$ & 24 & log2 of the maximum of rows in the \texttt{execution} table \\
+$h^{max}_\text{poseidon}$ & 21 & log2 of the maximum of rows in the \texttt{poseidon} table \\
+$h^{max}_\text{extension}$ & 21 & log2 of the maximum of rows in the \texttt{extension} table \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -153,7 +153,7 @@ We use a read-only memory (also called write-once memory). Each memory word is a
 
 \subsection{Bytecode}
 
-The bytecode is also read-only, and also has a power of two size. It lives in a separate region than the memory (Harvard architecture). Both prover and verifier are expected to have access to the bytecode. Each bytecode contains the size of the public input. 
+The bytecode is also read-only, and also has a power of two size. It lives in a separate region than the memory (Harvard architecture). Both prover and verifier are expected to have access to the bytecode. Each bytecode specifies the size of the public input $M_{\text{public}}$. For a bytecode of size $2^b$, a valid execution should start at $\textbf{pc} = 0$, and end at $\textbf{pc} = 2^b - 1$. In practice, it is suggested to use for the last instruction (at index $2^b - 1$) a \texttt{JUMP} (\ref{sec:jump}) that inconditionally jumps to itself (for padding reasons within the snark). The minimal size for a bytecode is $2^{h^{min}}$.
 
 \subsection{Registers}
 
@@ -246,7 +246,7 @@ A pointer dereference: accesses memory at an address read from another memory ce
 \textbf{m}\big[\;\textbf{m}[\textbf{fp} + \alpha] + \beta\;\big] \;=\; \mathsf{val}(\gamma^\text{addr}, \gamma).
 \]
 
-\subsubsection{JUMP}
+\subsubsection{JUMP} \label{sec:jump}
 
 A conditional jump.
 
