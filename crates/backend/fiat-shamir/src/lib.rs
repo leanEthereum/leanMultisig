@@ -16,7 +16,7 @@ mod transcript;
 pub use transcript::{DIGEST_LEN_FE, MerkleOpening, MerklePath, MerklePaths, Proof, RawProof};
 
 mod merkle_pruning;
-pub(crate) use merkle_pruning::*;
+pub use merkle_pruning::PrunedMerklePaths;
 
 mod verifier;
 pub use verifier::*;

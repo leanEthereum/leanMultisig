@@ -27,3 +27,4 @@ serde.workspace = true
 [dev-dependencies]
 xmss.workspace = true
 rec_aggregation.workspace = true
+serde_json.workspace = true
