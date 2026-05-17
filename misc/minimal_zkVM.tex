@@ -34,6 +34,7 @@
 \newcommand{\offopzero}{\text{off}_{\text{op0}}}
 \newcommand{\offopone}{\text{off}_{\text{op1}}}
 \newcommand*{\logeq}{\ratio\Leftrightarrow}
+\newcommand{\nextmle}{\overset{\scriptscriptstyle\wedge}{\textsf{next}}}
 
 \newtheorem{lemma}{Lemma}
 
@@ -91,13 +92,66 @@ See \ref{sec:signature-aggregation} for more details.
 \begin{itemize}
     \item $[a, b] = \{a, a + 1, \ldots, b\}$
     \item $[a, b) = \{a, a + 1, \ldots, b-1\}$    \item $eq(x, y) = x y + (1 - x)(1 - y)$
-    \item $\mathsf{embed}(x_1, x_2, x_3, x_4, x_5)$ is the extension field element built from 5 base field elements: $x_1 + x_2 X + x_3 X^2 + x_4 X^3 + x_5 X^4$, using $X^5 + X^2 - 1$ as the irreducible polynomial defining the extension. By extension, $\mathsf{embed}$ is applied to any contiguous slice $\textbf{m}[i \,..\, i + 5]$ of 5 memory cells.
+    \item $\mathsf{embed}(x_1, x_2, x_3, x_4, x_5)$ is the extension field element built from 5 base field elements: $x_1 + x_2 X + x_3 X^2 + x_4 X^3 + x_5 X^4$, using $X^5 + X^2 - 1$ as the irreducible polynomial defining the extension.
+    \item Given a number of bits $n > 0$, and an $n$-bit iteger $x$, we denote by $[x]_{01}$ its big-endian bit-decomposion in $n$ boolean values. For example, $[14]_{01} = (1, 1, 1, 0)$
     
     \item $M$ is the size of the (read-only) memory, which is a power of 2.
-    \item $\textbf{m}[i]$ is the value of the memory at index $i$. It is defined only for $0 \leq i < M$; any out-of-bound access ($i \geq M$) makes the execution \emph{invalid}.
+    \item $\textbf{m}[i]$ is the value of the memory at index $i$. It is defined only for $0 \leq i < M$; any out-of-bound access ($i \geq M$) makes the execution \emph{invalid}. More generally, any vector of field elements $v$ is indexed starting at $v[0], v[1], \dots$
     \item $\textbf{m}[i..j]$ is the memory slice $(\textbf{m}[i], \textbf{m}[i+1], \ldots, \textbf{m}[j-1])$.
     \item $||$ denotes concatenation of slices.
+    \item $0_k$ denotes the all-zero vector of length $k$, for $k \geq 0$.
 \end{itemize}
+
+\subsection{Definitions}
+
+\subsubsection{Multilinear Extension (MLE)}
+
+For a vector of field elements $v \in \mathbb F^{2^n}$ (for some $n \geq 0$), the Multilinear Extension (MLE) of $v$, denoted by $\hat{v}$, is the unique multilinear polynomial in $\mathbb F[X_1, \dots, X_n]$, in $n$ variables, such that: $\forall i \in [0, 2^n), v[i] = \hat{v}([i]_{01})$
+
+Throughout, $v$ denotes a vector and $\hat{v}$ its MLE.
+
+\vspace{5mm}
+
+\subsubsection{Inner Product Commitment Scheme}\label{sec:inner_product_PCS}
+
+An \textit{Inner Product Commitment Scheme} is an interractive protocol where a prover commits to a vector of field elements $v \in \Fp^{2^n}$ (for some $n \geq 0$), and later convince a verifier of the evaluation of $\sum_{i = 0}^{2^n} v[i] \cdot x[i]$ for some arbitrary vector $x \in \Fq^{2^n}$, assuming the verifier is able to evaluate the MLE of $x$.
+
+WHIR \cite{whir} is an example of Inner Product Commitment Scheme.
+
+
+\vspace{5mm}
+
+\subsubsection{Shifted polynomial}\label{sec:shifts}
+
+Given a vector $v \in \Fp^{2^n}$, we define $\mathsf{shift}(v)  \in \Fp^{2^n}$ by $\mathsf{shift}(v)[2^n - 1] = v[2^n - 1]$ and:
+
+$$
+\forall i [0, 2^n - 1), \mathsf{shift}(v)[i] = v[i + 1]
+$$
+
+\subsubsection{The next multilinear}\label{sec:next-mle}
+
+For $n \geq 0$, identify each $x \in \{0,1\}^n$ with the integer it encodes in big-endian. We define $\nextmle$ as the multilinear polynomial in $2n$ variables whose values on the boolean hypercube are
+\[
+\nextmle(x, y) =
+\begin{cases}
+1 & \text{if } y = x + 1, \\
+1 & \text{if } x = y = 2^n - 1, \\
+0 & \text{otherwise},
+\end{cases}
+\qquad x, y \in \{0,1\}^n .
+\]
+
+$\nextmle$ can be efficiently evaluated:
+\[
+\nextmle((x_0, \ldots, x_{n-1}), (y_0, \ldots, y_{n-1})) \;=\; \prod_{j=0}^{n-1} x_j\, y_j \;+\; \sum_{k=0}^{n-1} \Bigg( \prod_{j<k} eq(x_j, y_j) \Bigg)\, (1 - x_k)\, y_k \, \Bigg( \prod_{j>k} x_j\, (1 - y_j) \Bigg) .
+\]
+The leading product is the wrap-around case $x = y = 2^n - 1$. The $k$-th term of the sum is the case $y = x + 1$ with the carry stopping at bit $k$: the high bits ($j < k$) are unchanged, bit $k$ flips $0 \to 1$, and the low bits ($j > k$) flip $1 \to 0$.
+
+The polynomial $\nextmle$ enables sumcheck-based evaluation of shifted MLEs \ref{sec:shifts}: for every $v \in \Fp^{2^n}$,
+\[
+\overset{\scriptscriptstyle\wedge}{\textsf{shift}(v)}(x) \;=\; \sum_{y \in \{0,1\}^n} \nextmle(x, y)\; \hat{v}(y) ,
+\]
 
 \subsection{Constants}
 
@@ -424,6 +478,177 @@ The following program takes two base field elements $(n, r)$ as public input, an
 \vspace{2mm}
 
 \section{Proving system}\label{sec:proving}
+
+
+\subsection{Stacking multilinear polynomials}
+
+Given an inner product PCS \ref{sec:inner_product_PCS}, we present a protocol that lets a prover commit to many multilinear polynomials of potentially different sizes, and later prove their respective evaluations, and evaluations of their shifted MLEs \ref{sec:shifts}, at various points.
+
+\textbf{Setup}
+
+The prover has access to $n > 0$ multilinear polynomials $\hat{P_1}, \dots, \hat{P_n}$ with $\nu_1, \dots, \nu_n$ variables respectively, given by their evaluation vectors $P_1, \dots, P_n$ of respective lengths $2^{\nu_1}, \dots, 2^{\nu_n}$. We assume without loss of generality $\nu_1 \geq \nu_2 \geq \dots \geq \nu_n$.
+
+We stack them into a single vector of length $2^{\nu}$, where $\nu = \lceil \log_2(\sum_i 2^{\nu_i}) \rceil$:
+\[
+S \;=\; \textsf{stack}[P_1, \dots, P_n] \;=\; P_1 \,\Vert\, P_2 \,\Vert\, \dots \,\Vert\, P_n \,\Vert\, 0_{\,2^{\nu} - \sum_i 2^{\nu_i}},
+\]
+and commit to $S$ via the inner product PCS.
+
+\textbf{Sampling of opening points}
+
+For each $i \in [1, n]$, the following points are sampled:
+\begin{itemize}
+    \item  $(\alpha_i^1, \dots, \alpha_i^{n^\text{normal}_i}) \in (\Fq^{\nu_i})^{n^\text{normal}_i}$, where $n^\text{normal}_i \in \mathbb{N}$ (normal points)
+    \item  $(\beta_i^1, \dots, \beta_i^{n^\text{shift}_i}) \in (\Fq^{\nu_i})^{n^\text{shift}_i}$, where $n^\text{shift}_i \in \mathbb{N}$ (shifted points)
+\end{itemize}
+
+\textbf{Sending claimed evaluations}
+
+For each $i \in [1, n]$, the prover sends the following:
+\begin{itemize}
+    \item $\hat{P_i}(\alpha_i^1), \dots, \hat{P_i}(\alpha_i^{n^\text{normal}_i})$ (normal evaluations)
+    \item $\overset{\scriptscriptstyle\wedge}{\textsf{shift}(P_i)}(\beta_i^1), \dots, \overset{\scriptscriptstyle\wedge}{\textsf{shift}(P_i)}(\beta_i^{n^\text{shift}_i})$ (shifted evaluations)
+\end{itemize}
+
+
+\textbf{Reducing each claim to a sum over $S$}
+
+Because $\nu_1 \geq \dots \geq \nu_n$, the block of $P_i$ inside $S$ starts at offset $o_i = \sum_{j < i} 2^{\nu_j}$, which is a multiple of $2^{\nu_i}$. Let $\mathsf{sel}_i \in \{0,1\}^{\nu - \nu_i}$ be the big-endian encoding of $o_i / 2^{\nu_i}$ --- the \textbf{boolean selector} of block $i$ (see Figure~\ref{fig:stacking}). Then, as multilinear polynomials,
+\[
+\hat{P_i}(x) = \hat{S}(\mathsf{sel}_i, x), \qquad \forall x \in \Fq^{\nu_i} .
+\]
+
+A \textbf{normal claim} $\hat{P_i}(\alpha) = c$ is therefore an evaluation of the committed polynomial, which we rewrite as a sum over the full hypercube:
+\[
+c = \hat{S}(\mathsf{sel}_i, \alpha) = \sum_{w \in \{0,1\}^{\nu}} eq\big((\mathsf{sel}_i, \alpha),\, w\big)\; \hat{S}(w) .
+\]
+
+A \textbf{shift claim} $\overset{\scriptscriptstyle\wedge}{\textsf{shift}(P_i)}(\beta) = d$ likewise reduces to a sum over $\hat{S}$: the $\nextmle$ identity of \ref{sec:next-mle}, together with $\hat{P_i} = \hat{S}(\mathsf{sel}_i, \cdot)$, gives
+\[
+d = \sum_{y \in \{0,1\}^{\nu_i}} \nextmle(\beta, y)\; \hat{S}(\mathsf{sel}_i, y) .
+\]
+Splitting $w \in \{0,1\}^{\nu}$ as $w = (w^{\mathrm{hi}}, w^{\mathrm{lo}})$ with $w^{\mathrm{hi}} \in \{0,1\}^{\nu - \nu_i}$ and $w^{\mathrm{lo}} \in \{0,1\}^{\nu_i}$, this lifts to the full hypercube:
+\[
+d = \sum_{w \in \{0,1\}^{\nu}} eq(\mathsf{sel}_i, w^{\mathrm{hi}})\cdot \nextmle(\beta, w^{\mathrm{lo}})\; \hat{S}(w) .
+\]
+
+
+TODO
+
+Hence \emph{every} claim --- write $J = \sum_{i=1}^{n}\big(n^\text{normal}_i + n^\text{shift}_i\big)$ for their total number --- takes the common shape
+\[
+\sum_{w \in \{0,1\}^{\nu}} W_j(w)\; \hat{S}(w) = c_j, \qquad j = 1, \dots, J ,
+\]
+where the weight $W_j$ is a fixed multilinear that the verifier can efficiently evaluate:
+\begin{itemize}
+    \item normal claim: $W_j(w) = eq\big((\mathsf{sel}_i, \alpha),\, w\big)$;
+    \item shift claim: $W_j(w) = eq(\mathsf{sel}_i, w^{\mathrm{hi}})\cdot \nextmle(\beta, w^{\mathrm{lo}})$
+\end{itemize}
+
+\textbf{Batching into a single sumcheck}
+
+The verifier samples a random $\lambda \in \Fq$ and combines the $J$ claims with powers of $\lambda$:
+\[
+\sum_{j=1}^{J} \lambda^{j} c_j
+= \sum_{j=1}^{J} \lambda^{j} \sum_{w \in \{0,1\}^{\nu}} W_j(w)\, \hat{S}(w)
+= \sum_{w \in \{0,1\}^{\nu}} W(w)\, \hat{S}(w),
+\qquad W := \sum_{j=1}^{J} \lambda^{j} W_j .
+\]
+If any individual claim is false, this combined identity fails except with probability $\leq J / q$ over $\lambda$. Prover and verifier then run a \textbf{single sumcheck} on
+\[
+\sum_{w \in \{0,1\}^{\nu}} W(w)\, \hat{S}(w) = C, \qquad C := \sum_{j=1}^{J} \lambda^{j} c_j .
+\]
+The summand $W \cdot \hat{S}$ is a product of two multilinear polynomials, hence of degree $2$ in each variable: in every one of the $\nu$ rounds the prover sends a degree-$2$ univariate, and the soundness error of the sumcheck is $\leq 2\nu / q$.
+
+\textbf{Concluding}
+
+The sumcheck reduces the statement to its value at the random point $r \in \Fq^{\nu}$ produced over its rounds:
+\[
+W(r)\cdot \hat{S}(r) = s ,
+\]
+where $s$ is the final value output by the sumcheck. The verifier evaluates $W(r) = \sum_{j} \lambda^{j} W_j(r)$ on its own --- each $W_j(r)$ is a single $eq$, or a single $eq$ times a single $\nextmle$, all in $O(\nu)$ --- so it only remains to obtain $\hat{S}(r)$. This last claim is discharged by \emph{one} opening of the inner product PCS on the commitment to $S$: taking $x \in \Fq^{2^{\nu}}$ with $\hat{x} = eq(r, \cdot)$, the scheme proves $\sum_{i} S[i]\, x[i] = \hat{S}(r)$. The verifier accepts iff $W(r)\cdot \hat{S}(r) = s$.
+
+In summary, arbitrarily many evaluation and shift claims, on arbitrarily many inner polynomials of arbitrary sizes, collapse into a single $\nu$-round sumcheck followed by a single PCS opening.
+
+
+% \vspace{3mm}
+
+% % One of the advantage of multilinear polynomials versus univariate polynomials is the ability to efficienty commit to multiple polynomials at once.
+% In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-committed.
+% Even if it's possible to have some batching at the Merkle tree level (see 'MMCS' in \href{https://github.com/Plonky3/Plonky3}{Plonky3}), the proof size for multiple, complex AIR tables quickly reach the megabyte scale.
+
+% With a multilinear PCS (such as WHIR), we can "concatenate" multiple multilinear polynomials into a single one, and commit to it once (offering significant proof size savings).
+
+% \vspace{5mm}
+
+% More details: Given $n$ multilinear polynomials $P_1, \dots, P_n$ with $\nu_1, \dots, \nu_n$ variables respectively, we order them from the \textbf{largest to the smallest} and concatenate their respective evaluation (on the boolean hypercube):
+
+% $$P = [P_1(\{0,1\}^{\nu_1}) \| P_2(\{0,1\}^{\nu_2}) \| \dots \| P_n(\{0,1\}^{\nu_n})]$$
+
+% After padding with zeros to the next power of two, we can interpret the result as the evaluations (on the boolean hypercube) of a multilinear polynomial, with $\nu = \lceil \log_2(\sum_i 2^{\nu_i}) \rceil$ variables, and commit to it.
+
+% To reduce an evaluation claim on an "inner" (smaller) polynomial $P_i$ to a claim on the "outer" (larger) polynomial $P$, we use \textbf{boolean selectors}.
+
+% \vspace{5mm}
+
+Example: Consider 3 multilinear polynomials $\hat{P_1}, \hat{P_2}, \hat{P_3}$ with 4, 3, and 2 variables respectively.
+The stacked polynomial $\hat{S}$, which we commit, has $5 = \lceil \log_2(2^4 + 2^3 + 2^2) \rceil$ variables.
+
+\begin{itemize}
+    \item $\hat{P_1}(x_1, x_2, x_3, x_4) = \hat{S}(0, x_1, x_2, x_3, x_4)$
+    \item $\hat{P_2}(x_1, x_2, x_3) = \hat{S}(1, 0, x_1, x_2, x_3)$
+    \item $\hat{P_3}(x_1, x_2) = \hat{S}(1, 1, 0, x_1, x_2)$
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.45, every node/.style={font=\small}]
+    \fill[gray!10] (0,0) rectangle (16,1.5);
+    \fill[gray!20] (16,0) rectangle (24,1.5);
+    \fill[gray!10] (24,0) rectangle (28,1.5);
+    \fill[gray!20] (28,0) rectangle (32,1.5);
+
+    \draw[black] (0,0) rectangle (32,1.5);
+    \draw[black] (16,0) -- (16,1.5);
+    \draw[black] (24,0) -- (24,1.5);
+    \draw[black] (28,0) -- (28,1.5);
+
+    \node at (8,0.75) {$P_1$};
+    \node at (20,0.75) {$P_2$};
+    \node at (26,0.75) {$P_3$};
+    \node at (30,0.75) {padding};
+
+    \node[below] at (0,-0.1) {\footnotesize 0};
+    \node[below] at (16,-0.1) {\footnotesize 16};
+    \node[below] at (24,-0.1) {\footnotesize 24};
+    \node[below] at (28,-0.1) {\footnotesize 28};
+    \node[below] at (32,-0.1) {\footnotesize 32};
+
+    % Selector annotations above each section
+    \node[above] at (8,1.6) {$\hat{S}({\mathbf{0}}, x_1, x_2, x_3, x_4)$};
+    \node[above] at (20,1.6) {$\hat{S}({\mathbf{1}}, {\mathbf{0}}, x_1, x_2, x_3)$};
+    \node[above] at (26,1.6) {$\hat{S}({\mathbf{1}}, {\mathbf{1}}, {\mathbf{0}}, x_1, x_2)$};
+\end{tikzpicture}
+\caption{Simple stacking of $P_1, P_2, P_3$ into a single vector $S$}
+\label{fig:stacking}
+\end{figure}
+
+Advantage of this approach: simplicity.
+
+Drawback: padding overhead, i.e. it does not take advantage of the potential repetions at the end of each inner polynomial's evaluations.
+
+\vspace{5mm}
+
+There are alterntive ways to handle the stacking of multiple multilinear polynomials:
+
+\begin{itemize}
+    \item \textbf{Jagged PCS} \cite{jagged_pcs}: No padding overhead, at the cost of an additional sumcheck.
+    \item  \textbf{Per-polynomial chunking}: decompose the non-repeated par of each inner polynomial into a small (think 3 or 4) number of power-of-two sized chunks, and concatenate all these chunks into a single large polynomial.
+\end{itemize}
+
+\textit{Note 3:} A meticulous implementation of WHIR could also take advantage of any potential repetitions in the committed polynomial, both at the FFT and the sumcheck level, leaving the Merklelisation as the main overhead.
+
+
 
 \subsection{Tables}\label{sec:table-sizes}
 
@@ -906,90 +1131,6 @@ As with the indexed lookup into memory, this sum can be computed efficiently via
 \vspace{3mm} TODO: Unified vision in which memory is just another table, and memory accesses are just bus interactions?
 
 A detailled soundness analysis can be found in \href{https://github.com/openvm-org/stark-backend/blob/main/docs/Soundness_of_Interactions_via_LogUp.pdf}{Soundness of Interactions via LogUp}.
-
-\subsection{Simple stacking of multilinear polynomials}
-
-\textit{Note 1}: It's always possible to reduce $n$ claims about a multilinear polynomial to a single one, using sumcheck. But this trick is not necessary with WHIR, which natively supports an arbitrary number of claims about the committed polynomial.
-\vspace{3mm}
-
-\textit{Note 2:} Crucially, the proving cost to add an equality constraint of the form $P((x_1, \dots, x_n)) = y$ to a committed polynomial $P$ via WHIR is $O(2^k)$ where $k = {|\{i, x_i \notin \{0, 1\} \}|}$ is the number of "non-boolean variables". As a result, adding "sparse" ($(x_i)$ containing boolean values) equality constraints is essentially optimal.
-
-\vspace{3mm}
-
-% One of the advantage of multilinear polynomials versus univariate polynomials is the ability to efficienty commit to multiple polynomials at once.
-In order to commit to multiple univariate polynomials with FRI, each polynomial must be FFT-ed + Merkle-committed.
-Even if it's possible to have some batching at the Merkle tree level (see 'MMCS' in \href{https://github.com/Plonky3/Plonky3}{Plonky3}), the proof size for multiple, complex AIR tables quickly reach the megabyte scale.
-
-With a multilinear PCS (such as WHIR), we can "concatenate" multiple multilinear polynomials into a single one, and commit to it once (offering significant proof size savings).
-
-\vspace{5mm}
-
-More details: Given $n$ multilinear polynomials $P_1, \dots, P_n$ with $\nu_1, \dots, \nu_n$ variables respectively, we order them from the \textbf{largest to the smallest} and concatenate their respective evaluation (on the boolean hypercube):
-
-$$P = [P_1(\{0,1\}^{\nu_1}) \| P_2(\{0,1\}^{\nu_2}) \| \dots \| P_n(\{0,1\}^{\nu_n})]$$
-
-After padding with zeros to the next power of two, we can interpret the result as the evaluations (on the boolean hypercube) of a multilinear polynomial, with $\nu = \lceil \log_2(\sum_i 2^{\nu_i}) \rceil$ variables, and commit to it.
-
-To reduce an evaluation claim on an "inner" (smaller) polynomial $P_i$ to a claim on the "outer" (larger) polynomial $P$, we use \textbf{boolean selectors}.
-
-\vspace{5mm}
-
-Example: Consider 3 multilinear polynomials $P_1, P_2, P_3$ with 4, 3, and 2 variables respectively.
-The concatenated polynomial $P$, that we commit, has $5 = \lceil \log_2(2^4 + 2^3 + 2^2) \rceil$ variables.
-
-\begin{itemize}
-    \item $P_1(x_1, x_2, x_3, x_4) = P(0, x_1, x_2, x_3, x_4)$
-    \item $P_2(x_1, x_2, x_3) = P(1, 0, x_1, x_2, x_3)$
-    \item $P_3(x_1, x_2) = P(1, 1, 0, x_1, x_2)$
-\end{itemize}
-
-\begin{figure}[h]
-\centering
-\begin{tikzpicture}[scale=0.45, every node/.style={font=\small}]
-    \fill[gray!10] (0,0) rectangle (16,1.5);
-    \fill[gray!20] (16,0) rectangle (24,1.5);
-    \fill[gray!10] (24,0) rectangle (28,1.5);
-    \fill[gray!20] (28,0) rectangle (32,1.5);
-
-    \draw[black] (0,0) rectangle (32,1.5);
-    \draw[black] (16,0) -- (16,1.5);
-    \draw[black] (24,0) -- (24,1.5);
-    \draw[black] (28,0) -- (28,1.5);
-
-    \node at (8,0.75) {$P_1$};
-    \node at (20,0.75) {$P_2$};
-    \node at (26,0.75) {$P_3$};
-    \node at (30,0.75) {padding};
-
-    \node[below] at (0,-0.1) {\footnotesize 0};
-    \node[below] at (16,-0.1) {\footnotesize 16};
-    \node[below] at (24,-0.1) {\footnotesize 24};
-    \node[below] at (28,-0.1) {\footnotesize 28};
-    \node[below] at (32,-0.1) {\footnotesize 32};
-
-    % Selector annotations above each section
-    \node[above] at (8,1.6) {$P({\mathbf{0}}, x_1, x_2, x_3, x_4)$};
-    \node[above] at (20,1.6) {$P({\mathbf{1}}, {\mathbf{0}}, x_1, x_2, x_3)$};
-    \node[above] at (26,1.6) {$P({\mathbf{1}}, {\mathbf{1}}, {\mathbf{0}}, x_1, x_2)$};
-\end{tikzpicture}
-\caption{Simple stacking of $P_1, P_2, P_3$ into a single polynomial $P$}
-\label{fig:stacking}
-\end{figure}
-
-Advantage of this approach: simplicity.
-
-Drawback: padding overhead, i.e. it does not take advantage of the potential repetions at the end of each inner polynomial's evaluations.
-
-\vspace{5mm}
-
-There are alterntive ways to handle the stacking of multiple multilinear polynomials:
-
-\begin{itemize}
-    \item \textbf{Jagged PCS} \cite{jagged_pcs}: No padding overhead, at the cost of an additional sumcheck.
-    \item  \textbf{Per-polynomial chunking}: decompose the non-repeated par of each inner polynomial into a small (think 3 or 4) number of power-of-two sized chunks, and concatenate all these chunks into a single large polynomial.
-\end{itemize}
-
-\textit{Note 3:} A meticulous implementation of WHIR could also take advantage of any potential repetitions in the committed polynomial, both at the FFT and the sumcheck level, leaving the Merklelisation as the main overhead.
 
 
 
