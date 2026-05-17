@@ -23,6 +23,7 @@ Run:
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -196,36 +197,20 @@ class EF:
 _POSEIDON16 = Poseidon1(PARAMS_16)
 
 
-def poseidon16_permute(state: list[Fp]) -> list[Fp]:
-    """Apply the Poseidon16 permutation to a length-WIDTH state.
-
-    NOTE: this is the bare permutation. For the Davies-Meyer-style
-    *compression* used by Merkle trees use `poseidon16_compress_in_place`.
-    The Fiat-Shamir challenger uses the bare permutation (no feed-forward).
-    """
-    assert len(state) == WIDTH
-    return _POSEIDON16.permute(state)
-
-
 def poseidon16_compress_in_place(state: list[Fp]) -> list[Fp]:
-    """`compress_in_place`: out = permute(state) + state (feed-forward)."""
+    """Davies-Meyer compression: `permute(state) + state` (length WIDTH)."""
     assert len(state) == WIDTH
-    permuted = _POSEIDON16.permute(state)
-    return [a + b for a, b in zip(permuted, state)]
+    return [a + b for a, b in zip(_POSEIDON16.permute(state), state)]
 
 
 def poseidon16_compress(left: Sequence[Fp], right: Sequence[Fp]) -> list[Fp]:
-    """2:1 Merkle compression: `compress_in_place(left || right)[:DIGEST_ELEMS]`."""
+    """2:1 Merkle compression: top DIGEST_ELEMS of `compress_in_place(left || right)`."""
     assert len(left) == DIGEST_ELEMS and len(right) == DIGEST_ELEMS
     return poseidon16_compress_in_place(list(left) + list(right))[:DIGEST_ELEMS]
 
 
 def hash_slice(data: Sequence[Fp]) -> list[Fp]:
-    """`symetric::hash_slice` with WIDTH=16, RATE=OUT=8 (right-to-left absorbing).
-
-    Uses the same `compress_in_place` (feed-forward) primitive as Merkle, NOT
-    the bare permutation used by the challenger.
-    """
+    """`symetric::hash_slice` with WIDTH=16, RATE=OUT=8 (right-to-left absorbing)."""
     assert len(data) % RATE == 0
     n_chunks = len(data) // RATE
     assert n_chunks >= 2
@@ -519,7 +504,6 @@ def padd_with_zero_to_next_power_of_two(values: Sequence[Fp]) -> list[Fp]:
 
 @dataclass
 class MerklePath:
-    """Mirror of fiat_shamir::MerklePath (the un-pruned form)."""
 
     leaf_data: list[Fp]
     sibling_hashes: list[list[Fp]]  # each entry has DIGEST_ELEMS Fp
@@ -528,7 +512,6 @@ class MerklePath:
 
 @dataclass
 class PrunedMerklePaths:
-    """Mirror of fiat_shamir::PrunedMerklePaths — input to restore()."""
 
     merkle_height: int
     original_order: list[int]
@@ -544,9 +527,7 @@ def _lca_level(a: int, b: int) -> int:
 
 
 def restore_merkle_paths(p: PrunedMerklePaths) -> list[MerklePath]:
-    """Port of `merkle_pruning::restore` (fiat_shamir).
-
-    Reconstructs full sibling arrays from the pruned form using leaf hashing
+    """Reconstructs full sibling arrays from the pruned form using leaf hashing
     and 2:1 compression (Poseidon16). Raises ProofError on malformed inputs.
     """
 
@@ -626,7 +607,6 @@ def merkle_verify_path(
     opened_values: Sequence[Fp],
     opening_proof: Sequence[list[Fp]],
 ) -> bool:
-    """Mirror of symetric::merkle::merkle_verify (length-DIGEST_ELEMS digests)."""
 
     if len(opening_proof) != log_height:
         return False
@@ -677,7 +657,6 @@ def eq_poly_outside(a: Sequence[EF], b: Sequence[EF]) -> EF:
 
 
 def next_mle(x: Sequence[EF], y: Sequence[EF]) -> EF:
-    """Port of poly::next_mle (the "next" multilinear on the boolean cube)."""
     assert len(x) == len(y)
     n = len(x)
     one = EF.one()
@@ -738,7 +717,6 @@ class SparseValue:
 
 @dataclass
 class SparseStatement:
-    """Mirror of whir::SparseStatement."""
 
     total_num_variables: int
     point: list[EF]  # the "inner" point, length = inner_num_variables
@@ -802,18 +780,8 @@ def whir_log_inv_rate_at(starting_log_inv_rate: int, round_index: int) -> int:
     return rate
 
 
-def whir_num_variables_at_round(num_variables: int, round_index: int) -> int:
-    """num_variables remaining at the START of round `round_index` (the verifier
-    parses a new commitment at this num_variables for that round).
-    """
-    rem = num_variables
-    for r in range(round_index + 1):
-        rem -= whir_folding_factor_at_round(r)
-    return rem
-
-
-# KoalaBear two-adic generators: index `bits` is the primitive 2^bits-th root of unity.
-# Mirrors KoalaBearParameters::TWO_ADIC_GENERATORS (canonical-form u32 values).
+# KoalaBear two-adic generators: index `bits` is the primitive 2^bits-th root
+# of unity (canonical-form u32 values, mirrors `TWO_ADIC_GENERATORS`).
 KB_TWO_ADIC_GENERATORS: list[int] = [
     0x1, 0x7F000000, 0x7E010002, 0x6832FE4A, 0x08DBD69C, 0x0A28F031, 0x5C4A5B99,
     0x29B75A80, 0x17668B8A, 0x27AD539B, 0x334D48C7, 0x7744959C, 0x768FC6FA,
@@ -823,7 +791,6 @@ KB_TWO_ADIC_GENERATORS: list[int] = [
 
 
 def two_adic_generator(bits: int) -> Fp:
-    """Mirror of KoalaBear::two_adic_generator(bits)."""
     assert 0 <= bits <= BASE_TWO_ADICITY
     return Fp(KB_TWO_ADIC_GENERATORS[bits])
 
@@ -870,43 +837,28 @@ class WhirConfig:
     rounds: tuple[WhirRoundConfig, ...]
 
 
-def _load_whir_configs() -> dict[tuple[int, int], WhirConfig]:
+@functools.cache
+def _whir_configs() -> dict[tuple[int, int], WhirConfig]:
     import json
     from pathlib import Path
-
-    path = Path(__file__).with_name(WHIR_CONFIGS_PATH)
-    with open(path) as f:
-        raw = json.load(f)
-
-    out: dict[tuple[int, int], WhirConfig] = {}
-    for c in raw:
-        cfg = WhirConfig(
-            log_inv_rate=c["log_inv_rate"],
-            num_variables=c["num_variables"],
-            commitment_ood_samples=c["commitment_ood_samples"],
-            starting_folding_pow_bits=c["starting_folding_pow_bits"],
-            final_queries=c["final_queries"],
-            final_query_pow_bits=c["final_query_pow_bits"],
+    raw = json.loads(Path(__file__).with_name(WHIR_CONFIGS_PATH).read_text())
+    return {
+        (c["log_inv_rate"], c["num_variables"]): WhirConfig(
+            **{k: c[k] for k in WhirConfig.__annotations__ if k != "rounds"},
             rounds=tuple(WhirRoundConfig(**r) for r in c["rounds"]),
         )
-        out[(cfg.log_inv_rate, cfg.num_variables)] = cfg
-    return out
-
-
-_WHIR_CONFIGS: dict[tuple[int, int], WhirConfig] | None = None
+        for c in raw
+    }
 
 
 def whir_config(log_inv_rate: int, num_variables: int) -> WhirConfig:
-    global _WHIR_CONFIGS
-    if _WHIR_CONFIGS is None:
-        _WHIR_CONFIGS = _load_whir_configs()
-    key = (log_inv_rate, num_variables)
-    if key not in _WHIR_CONFIGS:
+    try:
+        return _whir_configs()[(log_inv_rate, num_variables)]
+    except KeyError:
         raise KeyError(
-            f"No WHIR config for log_inv_rate={log_inv_rate}, num_variables={num_variables}. "
-            f"Regenerate with: cargo test -p lean_prover --test dump_whir_configs"
-        )
-    return _WHIR_CONFIGS[key]
+            f"No WHIR config for (log_inv_rate={log_inv_rate}, num_variables={num_variables}). "
+            "Regenerate with: cargo test -p lean_prover --test dump_whir_configs"
+        ) from None
 
 
 
@@ -915,7 +867,6 @@ def whir_config(log_inv_rate: int, num_variables: int) -> WhirConfig:
 
 @dataclass
 class ParsedCommitment:
-    """Mirror of whir::ParsedCommitment<F, EF>."""
 
     num_variables: int
     root: list[Fp]              # length DIGEST_ELEMS
@@ -932,7 +883,6 @@ class ParsedCommitment:
 
 
 def parsed_commitment_parse(state: VerifierState, num_variables: int, ood_samples: int) -> ParsedCommitment:
-    """Port of ParsedCommitment::parse."""
     root = state.next_base_scalars_vec(DIGEST_ELEMS)
     ood_points: list[EF] = []
     ood_answers: list[EF] = []
@@ -953,9 +903,7 @@ def verify_sumcheck_rounds(
     rounds: int,
     pow_bits: int,
 ) -> list[EF]:
-    """Port of whir::verify::verify_sumcheck_rounds.
-
-    Returns the folding randomness for these rounds. Mutates `claimed_sum_ref[0]`.
+    """Returns the folding randomness for these rounds. Mutates `claimed_sum_ref[0]`.
     """
     randomness: list[EF] = []
     for _ in range(rounds):
@@ -982,7 +930,6 @@ def combine_constraints(
     claimed_sum_ref: list[EF],
     constraints: list[SparseStatement],
 ) -> list[EF]:
-    """Port of combine_constraints — mutates claimed_sum_ref[0] in-place."""
     gamma: EF = state.sample()
     combination = [EF.one()]
     for smt in constraints:
@@ -1007,9 +954,7 @@ def verify_stir_challenges(
     commitment: ParsedCommitment,
     folding_randomness: list[EF],
 ) -> list[SparseStatement]:
-    """Port of WhirConfig::verify_stir_challenges (incl. Merkle verification).
-
-    `folding_factor` is the folding factor applied AT this round (i.e. how the
+    """`folding_factor` is the folding factor applied AT this round (i.e. how the
     leaves are arranged). `next_folding_factor` is the AIR sumcheck folding for
     the *next* hop; for the final pseudo-round it equals `folding_factor`.
 
@@ -1054,9 +999,7 @@ def verify_stir_challenges(
 
 
 def verify_constraint_coeffs(constraint: SparseStatement, coeffs: list[EF]) -> bool:
-    """Port of verify_constraint_coeffs.
-
-    Checks that the constraint's point is `[α, α^2, α^4, ...]` and that
+    """Checks that the constraint's point is `[α, α^2, α^4, ...]` and that
     the univariate polynomial (Horner) evaluates to each claimed value.
     """
     assert constraint.selector_num_variables == 0
@@ -1075,9 +1018,7 @@ def eval_constraints_poly(
     constraints: list[tuple[list[EF], list[SparseStatement]]],
     point: list[EF],
 ) -> EF:
-    """Port of WhirConfig::eval_constraints_poly.
-
-    `constraints` is a list of (combination_randomness, sparse_statements) per
+    """`constraints` is a list of (combination_randomness, sparse_statements) per
     round. `point` is the global folding randomness; it is sliced down by the
     folding factor of each preceding round before use.
     """
@@ -1112,7 +1053,6 @@ def whir_verify(
     parsed_commitment: ParsedCommitment,
     statement: list[SparseStatement],
 ) -> list[EF]:
-    """Port of WhirConfig::verify. Returns the folding randomness."""
     for s in statement:
         assert s.total_num_variables == parsed_commitment.num_variables
 
@@ -1176,52 +1116,33 @@ def whir_verify(
         round_folding.append(folding_rand_r)
         prev_commitment = new_commitment
 
-    # Final round: read the final polynomial coefficients (length 2^n_vars_final).
+    # Final round: read the final polynomial in coefficient form, then run a
+    # last batch of STIR queries against the last commitment.
     n_vars_final = cfg.num_variables - sum(
         whir_folding_factor_at_round(i) for i in range(n_rounds + 1)
     )
     final_coeffs = state.next_extension_scalars_vec(1 << n_vars_final)
 
-    # Final STIR challenges (against the last commitment) — uses final_round_config.
-    # In Rust: final.domain_size = round_params.last().domain_size >> rs_reduction_factor(n_rounds-1).
-    # `whir_domain_size_at(num_variables, log_inv_rate, n_rounds)` already applies all the
-    # reductions for rounds 0..n_rounds, so it equals final.domain_size directly.
     final_domain_size = whir_domain_size_at(cfg.num_variables, cfg.log_inv_rate, n_rounds)
     final_folding_factor = whir_folding_factor_at_round(n_rounds)
-    final_num_variables = (
-        cfg.num_variables - sum(whir_folding_factor_at_round(i) for i in range(n_rounds + 1))
-    )
     folded_domain_size_final = final_domain_size >> final_folding_factor
-    folded_gen_final = two_adic_generator(
-        final_domain_size.bit_length() - 1 - final_folding_factor
-    )
+    folded_gen_final = two_adic_generator(final_domain_size.bit_length() - 1 - final_folding_factor)
+    log_height_final = folded_domain_size_final.bit_length() - 1
 
     state.check_pow_grinding(cfg.final_query_pow_bits)
-    indices_final = state.sample_in_range(
-        folded_domain_size_final.bit_length() - 1, cfg.final_queries
-    )
-    log_height_final = folded_domain_size_final.bit_length() - 1
-    answers_ef: list[list[EF]] = []
+    indices_final = state.sample_in_range(log_height_final, cfg.final_queries)
+    final_stir: list[SparseStatement] = []
     for idx in indices_final:
         op = state.next_merkle_opening()
-        if not merkle_verify_path(
-            prev_commitment.root, log_height_final, idx, op.leaf_data, op.path
-        ):
+        if not merkle_verify_path(prev_commitment.root, log_height_final, idx, op.leaf_data, op.path):
             raise ProofError("Final Merkle verification failed")
         if n_rounds == 0:
-            answers_ef.append([EF.from_base(f) for f in op.leaf_data])
+            answers = [EF.from_base(f) for f in op.leaf_data]
         else:
-            ans: list[EF] = []
-            for i in range(0, len(op.leaf_data), EF.DIMENSION):
-                ans.append(EF(op.leaf_data[i : i + EF.DIMENSION]))
-            answers_ef.append(ans)
-    folds_final = [eval_multilinear_evals(a, round_folding[-1]) for a in answers_ef]
-    final_stir: list[SparseStatement] = []
-    for idx, fold in zip(indices_final, folds_final):
-        gen_pow = pow(int(folded_gen_final.value), idx, P)
-        ef_pt = EF.from_base(Fp(gen_pow))
-        expanded = expand_from_univariate(ef_pt, final_num_variables)
-        final_stir.append(SparseStatement.dense(expanded, fold))
+            answers = [EF(op.leaf_data[i : i + EF.DIMENSION]) for i in range(0, len(op.leaf_data), EF.DIMENSION)]
+        fold = eval_multilinear_evals(answers, round_folding[-1])
+        ef_pt = EF.from_base(Fp(pow(int(folded_gen_final.value), idx, P)))
+        final_stir.append(SparseStatement.dense(expand_from_univariate(ef_pt, n_vars_final), fold))
 
     # Verify STIR constraints directly on final polynomial coefficients.
     for c in final_stir:
@@ -1252,34 +1173,6 @@ def whir_verify(
 
 
 @dataclass(frozen=True)
-class BusData:
-    """One field of a precompile bus message: either a column index or a
-    constant. Mirrors `lean_vm::BusData`.
-    """
-
-    kind: str            # "Column" or "Constant"
-    value: int
-
-    @classmethod
-    def from_json(cls, obj: dict) -> "BusData":
-        return cls(kind=obj["kind"], value=int(obj["value"]))
-
-
-@dataclass(frozen=True)
-class Bus:
-    """Per-table bus descriptor. `direction` is "Pull" or "Push"."""
-
-    direction: str
-    selector: int
-    data: tuple[BusData, ...]
-
-    @property
-    def direction_flag(self) -> Fp:
-        # Mirrors `BusDirection::to_field_flag`: Pull = -1, Push = +1.
-        return Fp(P - 1) if self.direction == "Pull" else Fp(1)
-
-
-@dataclass(frozen=True)
 class Lookup:
     """A single memory lookup descriptor (`LookupIntoMemory` in Rust)."""
 
@@ -1289,36 +1182,27 @@ class Lookup:
 
 @dataclass(frozen=True)
 class TableMeta:
-    """Bundle of everything the verifier needs about one table."""
+    """The bits of `lean_vm::Table` the verifier actually consumes."""
 
     name: str
     n_columns: int
-    bus: Bus
+    bus_direction: str         # "Pull" or "Push"
     lookups: tuple[Lookup, ...]
 
 
 def tables_from_json(obj: list[dict]) -> list[TableMeta]:
-    out: list[TableMeta] = []
-    for t in obj:
-        bus_obj = t["bus"]
-        bus = Bus(
-            direction=bus_obj["direction"],
-            selector=int(bus_obj["selector"]),
-            data=tuple(BusData.from_json(d) for d in bus_obj["data"]),
+    return [
+        TableMeta(
+            name=t["name"],
+            n_columns=int(t["n_columns"]),
+            bus_direction=t["bus"]["direction"],
+            lookups=tuple(
+                Lookup(index=int(l["index"]), values=tuple(int(v) for v in l["values"]))
+                for l in t["lookups"]
+            ),
         )
-        lookups = tuple(
-            Lookup(index=int(l["index"]), values=tuple(int(v) for v in l["values"]))
-            for l in t["lookups"]
-        )
-        out.append(
-            TableMeta(
-                name=t["name"],
-                n_columns=int(t["n_columns"]),
-                bus=bus,
-                lookups=lookups,
-            )
-        )
-    return out
+        for t in obj
+    ]
 
 
 
@@ -1331,9 +1215,7 @@ def compute_stacked_n_vars(
     table_log_heights: dict[str, int],
     table_n_columns: dict[str, int],
 ) -> int:
-    """Mirror of `stacked_pcs::compute_stacked_n_vars`.
-
-    The stacked polynomial concatenates:
+    """The stacked polynomial concatenates:
       - 2 copies of memory               -> 2 * 2^log_memory
       - one bytecode accumulator padded  -> 2^max(log_bytecode, max_table_log_n_rows)
       - per table: n_columns * 2^log_n_rows
@@ -1357,9 +1239,7 @@ def stacked_pcs_global_statements(
     tables: dict[str, TableMeta],
     constants: dict,
 ) -> list[SparseStatement]:
-    """Port of `stacked_pcs::stacked_pcs_global_statements`.
-
-    Stacks the per-table column claims into the global statement list passed to
+    """Stacks the per-table column claims into the global statement list passed to
     `WhirConfig::verify`. Tables are processed in descending-height order.
     """
     assert len(table_log_heights) == len(committed_statements)
@@ -1431,9 +1311,7 @@ def stacked_pcs_parse_commitment(
     table_n_columns: dict[str, int],
     execution_table_name: str = "execution",
 ) -> ParsedCommitment:
-    """Port of `stacked_pcs_parse_commitment`.
-
-    - Memory must be at least as wide as the execution table.
+    """- Memory must be at least as wide as the execution table.
     - The execution table must be the tallest table.
     - The stacked-poly size must fit within the WHIR domain bound.
     The actual commitment parsing is then delegated to `parsed_commitment_parse`.
@@ -1475,9 +1353,7 @@ def sumcheck_verify(
     expected_sum: EF,
     eq_alphas: Sequence[EF] | None,
 ) -> Evaluation:
-    """Mirror of `sumcheck::sumcheck_verify`.
-
-    Reads `n_vars` round polynomials, each of `degree + 1` coefficients (so the
+    """Reads `n_vars` round polynomials, each of `degree + 1` coefficients (so the
     bare polynomial is degree-`degree`; in the `eq_alphas` path the verifier
     extracts the bare poly and re-expands with `eq(α_round, X)`).
     Returns the final point + claimed value.
@@ -1507,8 +1383,7 @@ def verify_gkr_quotient(
     state: VerifierState,
     n_vars: int,
 ) -> tuple[EF, list[EF], EF, EF]:
-    """Mirror of `verify_gkr_quotient`. Returns
-    `(quotient, gkr_point, claims_num, claims_den)`.
+    """`(quotient, gkr_point, claims_num, claims_den)`.
     """
     assert n_vars > N_VARS_TO_SEND_GKR_COEFFS
     send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS
@@ -1572,9 +1447,7 @@ def _quotient_sum(nums: Sequence[EF], dens: Sequence[EF]) -> EF:
 
 
 def to_big_endian_in_field(value: int, bit_count: int) -> list[EF]:
-    """Mirror of `poly::to_big_endian_in_field`.
-
-    Returns the `bit_count` bits of `value` MSB-first, each as `EF::ZERO`/`EF::ONE`.
+    """Returns the `bit_count` bits of `value` MSB-first, each as `EF::ZERO`/`EF::ONE`.
     """
     return [EF.one() if (value >> (bit_count - 1 - i)) & 1 else EF.zero() for i in range(bit_count)]
 
@@ -1587,22 +1460,18 @@ def from_end(seq: Sequence, n: int) -> list:
 
 
 def mle_of_01234567_etc(point: Sequence[EF]) -> EF:
-    """Mirror of `utils::mle_of_01234567_etc`.
-
-    Evaluates the multilinear polynomial whose evaluations on `{0,1}^n` are
+    """Evaluates the multilinear polynomial whose evaluations on `{0,1}^n` are
     `f(i) = i` (with `i` interpreted big-endian), at `point`.
     """
     if not point:
         return EF.zero()
     e = mle_of_01234567_etc(point[1:])
-    bit = EF(_from_int(1 << (len(point) - 1)).c)
+    bit = EF.from_base(Fp(1 << (len(point) - 1)))
     return (EF.one() - point[0]) * e + point[0] * (e + bit)
 
 
 def mle_of_zeros_then_ones(n_zeros: int, point: Sequence[EF]) -> EF:
-    """Mirror of `poly::mle_of_zeros_then_ones`.
-
-    Evaluates the multilinear of `[0, ..., 0, 1, ..., 1]` (`n_zeros` zeros, then
+    """Evaluates the multilinear of `[0, ..., 0, 1, ..., 1]` (`n_zeros` zeros, then
     `2^len(point) - n_zeros` ones) at `point`.
     """
     n_values = 1 << len(point)
@@ -1618,9 +1487,7 @@ def mle_of_zeros_then_ones(n_zeros: int, point: Sequence[EF]) -> EF:
 
 
 def finger_print(table: Fp, data: Sequence[EF], alphas_eq_poly: Sequence[EF]) -> EF:
-    """Mirror of `utils::finger_print`.
-
-    Computes `Σᵢ alphas_eq_poly[i] · data[i] + alphas_eq_poly[-1] · table`.
+    """Computes `Σᵢ alphas_eq_poly[i] · data[i] + alphas_eq_poly[-1] · table`.
     """
     assert len(alphas_eq_poly) > len(data)
     acc = EF.zero()
@@ -1630,15 +1497,10 @@ def finger_print(table: Fp, data: Sequence[EF], alphas_eq_poly: Sequence[EF]) ->
     return acc
 
 
-def _from_int(x: int) -> EF:
-    return EF.from_base(Fp(x % P))
-
-
 def sort_tables_by_height(
     table_log_heights: dict[str, int],
 ) -> list[tuple[str, int]]:
-    """Mirror of `lean_vm::sort_tables_by_height` — descending by `log_n_rows`,
-    `BTreeMap` ordering (= alphabetical) breaks ties.
+    """`BTreeMap` ordering (= alphabetical) breaks ties.
     """
     items = sorted(table_log_heights.items())  # alphabetical
     items.sort(key=lambda kv: -kv[1])
@@ -1665,7 +1527,6 @@ def eval_eq(point: Sequence[EF]) -> list[EF]:
 
 @dataclass
 class GenericLogupStatements:
-    """Mirror of `GenericLogupStatements` returned by `verify_generic_logup`."""
 
     memory_and_acc_point: list[EF]
     value_memory: EF
@@ -1687,7 +1548,6 @@ def _compute_total_active_len_logup(
     table_lookups: dict[str, list[Lookup]],
     execution_name: str,
 ) -> int:
-    """Mirror of `logup::compute_total_active_len`."""
     max_table_height = 1 << tables_sorted[0][1]
     log_n_cycles = next(h for n, h in tables_sorted if n == execution_name)
 
@@ -1715,9 +1575,7 @@ def verify_generic_logup(
     constants: dict,
     execution_name: str = "execution",
 ) -> GenericLogupStatements:
-    """Port of `verify_generic_logup`.
-
-    `bytecode_multilinear` is the flat coefficient vector of length
+    """`bytecode_multilinear` is the flat coefficient vector of length
     `2^(log_bytecode + ceil(log2(N_INSTRUCTION_COLUMNS)))` — what the Rust
     verifier holds as `&bytecode.instructions_multilinear`.
 
@@ -1732,9 +1590,8 @@ def verify_generic_logup(
     dom_byte = constants["logup_bytecode_domainsep"]
 
     tables_sorted = sort_tables_by_height(table_log_heights)
-    log_bytecode = log2_strict_usize(
-        len(bytecode_multilinear) // _next_pow_two(n_instr_cols)
-    )
+    n_instr_padded = 1 << log2_ceil_usize(n_instr_cols)  # next power of 2
+    log_bytecode = log2_strict_usize(len(bytecode_multilinear) // n_instr_padded)
 
     table_lookups = {name: list(tables[name].lookups) for name in table_log_heights}
     total_active_len = _compute_total_active_len_logup(
@@ -1897,22 +1754,13 @@ def verify_generic_logup(
     )
 
 
-def _next_pow_two(x: int) -> int:
-    if x <= 1:
-        return 1
-    return 1 << (x - 1).bit_length()
-
-
-
 # ─── AIR sumcheck helpers (port of sub_protocols/air_sumcheck.rs) ──────────────────────────────────────────────────────────
 
 
 def natural_ordering_point_for_session(
     sumcheck_air_point: Sequence[EF], log_n_rows: int
 ) -> list[EF]:
-    """Mirror of `air_sumcheck::natural_ordering_point_for_session`.
-
-    Takes the last `log_n_rows` coordinates of the AIR sumcheck point and
+    """Takes the last `log_n_rows` coordinates of the AIR sumcheck point and
     reverses them.
     """
     if log_n_rows == 0:
@@ -1927,9 +1775,7 @@ def back_loaded_table_contribution(
     constraint_eval: EF,
     eta_power: EF,
 ) -> EF:
-    """Mirror of `verify_execution::back_loaded_table_contribution`.
-
-        eta^t · (Π i∈[0, n_max - n_t) sumcheck_point[i]) · eq(bus_point, natural_point) · constraint_eval
+    """eta^t · (Π i∈[0, n_max - n_t) sumcheck_point[i]) · eq(bus_point, natural_point) · constraint_eval
     """
     n_t = len(bus_point)
     n_max = len(sumcheck_air_point)
@@ -1967,9 +1813,7 @@ def columns_evals_up_and_down(
 
 
 class ConstraintFolder:
-    """Mirror of `air::constraint_folder::ConstraintFolder` over EF.
-
-    Each `assert_zero(x)` (or `assert_zero_ef`) contributes
+    """Each `assert_zero(x)` (or `assert_zero_ef`) contributes
     `alpha_powers[constraint_index] · x` to the accumulator.
     """
 
@@ -1996,23 +1840,8 @@ class ConstraintFolder:
         self.assert_zero(x * (EF.one() - x))
 
 
-# Registry of per-table AIR constraint evaluators. Each function takes
-# `(folder, table_meta, extra_data)` and emits constraints via the folder.
-_AIR_EVALUATORS: dict[str, "callable"] = {}
-
-
-def register_air_evaluator(name: str):
-    def decorator(fn):
-        _AIR_EVALUATORS[name] = fn
-        return fn
-    return decorator
-
-
 def _eval_virtual_bus_column(extra_data: dict, flag: EF, data: Sequence[EF]) -> EF:
-    """Port of `tables::utils::eval_virtual_bus_column`.
-
-    `(Σ alphas[i] · data[i] + alphas[-1] · LOGUP_PRECOMPILE_DOMAINSEP) · bus_beta + flag`.
-    """
+    """`(Σ αᵢ · dataᵢ + α_last · LOGUP_PRECOMPILE_DOMAINSEP) · bus_beta + flag`."""
     alphas: list[EF] = extra_data["logup_alphas_eq_poly"]
     bus_beta: EF = extra_data["bus_beta"]
     assert len(data) < len(alphas)
@@ -2029,19 +1858,17 @@ def air_constraint_eval(
     alpha_powers: Sequence[EF],
     extra_data: dict,
 ) -> EF:
-    """Evaluate the table's AIR constraint polynomial at `col_evals`.
+    """Evaluate `table`'s AIR constraint polynomial at the given column evals.
 
     `col_evals[:n_columns]` is the `up` row, `col_evals[n_columns:]` is the
-    `down` row (only for tables with `down_column_indexes`).
-    `extra_data` carries `logup_alphas_eq_poly`, `bus_beta`, `c` (logup_c) —
-    used by the precompile bus constraints.
+    `down` row (only present for tables with `down_column_indexes`).
     """
-    n_up = table.n_columns
-    folder = ConstraintFolder(col_evals[:n_up], col_evals[n_up:], alpha_powers)
-    impl = _AIR_EVALUATORS.get(table.name)
-    if impl is None:
-        raise NotImplementedError(f"AIR evaluator not yet ported for table {table.name!r}")
-    impl(folder, table, extra_data)
+    folder = ConstraintFolder(col_evals[:table.n_columns], col_evals[table.n_columns:], alpha_powers)
+    {
+        "execution": _eval_air_execution,
+        "extension_op": _eval_air_extension_op,
+        "poseidon16_compress": _eval_air_poseidon16,
+    }[table.name](folder, table, extra_data)
     return folder.accumulator
 
 
@@ -2060,7 +1887,6 @@ _EXEC = {
 }
 
 
-@register_air_evaluator("execution")
 def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
     up = folder.up
     down = folder.down
@@ -2194,7 +2020,6 @@ def _quintic_mul_ef(a: Sequence[EF], b: Sequence[EF]) -> list[EF]:
     ]
 
 
-@register_air_evaluator("extension_op")
 def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
     up = folder.up
     down = folder.down
@@ -2307,39 +2132,26 @@ def _ef_cube(x: EF) -> EF:
     return x * x * x
 
 
-def _load_poseidon1_constants() -> dict:
+@functools.cache
+def _p1c() -> dict:
+    """Poseidon1 round constants + matrices, lifted from the Rust-dumped JSON."""
     import json
     from pathlib import Path
-
-    raw = json.loads(
-        (Path(__file__).with_name("poseidon1_constants.json")).read_text()
-    )
-
-    def to_fp_mat(m: list[list[int]]) -> list[list[Fp]]:
-        return [[Fp(v) for v in row] for row in m]
-
+    raw = json.loads(Path(__file__).with_name("poseidon1_constants.json").read_text())
+    mat = lambda m: [[Fp(v) for v in row] for row in m]
+    vec = lambda v: [Fp(x) for x in v]
     return {
-        "half_full_rounds": raw["half_full_rounds"],
-        "partial_rounds": raw["partial_rounds"],
-        "initial_constants": to_fp_mat(raw["initial_constants"]),
-        "final_constants": to_fp_mat(raw["final_constants"]),
-        "sparse_m_i": to_fp_mat(raw["sparse_m_i"]),
-        "sparse_first_row": to_fp_mat(raw["sparse_first_row"]),
-        "sparse_v": to_fp_mat(raw["sparse_v"]),
-        "sparse_first_rc": [Fp(v) for v in raw["sparse_first_round_constants"]],
-        "sparse_scalar_rc": [Fp(v) for v in raw["sparse_scalar_round_constants"]],
-        "mds_dense": to_fp_mat(raw["mds_dense"]),
+        "half_full_rounds":  raw["half_full_rounds"],
+        "partial_rounds":    raw["partial_rounds"],
+        "initial_constants": mat(raw["initial_constants"]),
+        "final_constants":   mat(raw["final_constants"]),
+        "sparse_m_i":        mat(raw["sparse_m_i"]),
+        "sparse_first_row":  mat(raw["sparse_first_row"]),
+        "sparse_v":          mat(raw["sparse_v"]),
+        "sparse_first_rc":   vec(raw["sparse_first_round_constants"]),
+        "sparse_scalar_rc":  vec(raw["sparse_scalar_round_constants"]),
+        "mds_dense":         mat(raw["mds_dense"]),
     }
-
-
-_POSEIDON1_CONSTS: dict | None = None
-
-
-def _p1c() -> dict:
-    global _POSEIDON1_CONSTS
-    if _POSEIDON1_CONSTS is None:
-        _POSEIDON1_CONSTS = _load_poseidon1_constants()
-    return _POSEIDON1_CONSTS
 
 
 _POSEIDON_WIDTH = 16
@@ -2376,7 +2188,6 @@ def _eval_2_full_rounds(
     rc1: list[Fp],
     rc2: list[Fp],
 ) -> list[EF]:
-    """Mirror of `eval_2_full_rounds_16` (16 constraints emitted)."""
     state = _cube_vec(_add_kb_vec(state, rc1))
     state = _mds_dense_apply(state)
     state = _cube_vec(_add_kb_vec(state, rc2))
@@ -2396,7 +2207,6 @@ def _eval_last_2_full_rounds(
     rc2: list[Fp],
     flag_half_output: EF,
 ) -> None:
-    """Mirror of `eval_last_2_full_rounds_16` (4 + 4 = 8 constraints)."""
     state = _cube_vec(_add_kb_vec(state, rc1))
     state = _mds_dense_apply(state)
     state = _cube_vec(_add_kb_vec(state, rc2))
@@ -2412,7 +2222,6 @@ def _eval_last_2_full_rounds(
 
 
 def _eval_poseidon1_16(folder: ConstraintFolder, cols: dict, extra_data: dict) -> None:
-    """Mirror of `eval_poseidon1_16`. Emits 80 (non-bus) constraints."""
     const = _p1c()
     state = list(cols["inputs"])
     initial_state = list(cols["inputs"])  # used for compression at the end
@@ -2480,7 +2289,6 @@ def _matvec_kb(mat: list[list[Fp]], state: list[EF]) -> list[EF]:
     return out
 
 
-@register_air_evaluator("poseidon16_compress")
 def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
     up = folder.up
     one = EF.one()
@@ -2566,42 +2374,19 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
 class AirStageResult:
     """Outputs of the AIR sumcheck stage, fed into the WHIR finale."""
 
-    sumcheck_air_point: list[EF]
-    bus_beta: EF
-    air_alpha: EF
-    eta: EF
     committed_statements: dict[str, list[tuple[list[EF], dict[int, EF], dict[int, EF]]]]
     public_memory_random_point: list[EF]
     public_memory_eval: EF
 
 
-def _max_air_constraints(tables: dict[str, TableMeta]) -> int:
-    # Hardcoded mirrors of `<Table as Air>::n_constraints` for each table.
-    NC = {"execution": 13, "extension_op": 16, "poseidon16_compress": 81}
-    return max(NC[t] for t in tables)
-
-
-def _table_degree_air(table_name: str) -> int:
-    # Hardcoded mirrors of `<Table as Air>::degree_air`.
-    return {"execution": 5, "extension_op": 4, "poseidon16_compress": 10}[table_name]
-
-
-def _table_down_column_indexes(table_name: str) -> list[int]:
-    """Hardcoded mirrors of `<Table as Air>::down_column_indexes`."""
-    if table_name == "execution":
-        # COL_PC=0, COL_FP=1
-        return [0, 1]
-    if table_name == "extension_op":
-        # COL_START, COL_IS_BE, COL_LEN, COL_FLAG_ADD, COL_FLAG_MUL,
-        # COL_FLAG_POLY_EQ, COL_IDX_A, COL_IDX_B, COL_COMP+0..5
-        return [1, 0, 5, 2, 3, 4, 6, 7, 24, 25, 26, 27, 28]
-    if table_name == "poseidon16_compress":
-        return []
-    raise KeyError(table_name)
-
-
-def _table_n_down_columns(table_name: str) -> int:
-    return len(_table_down_column_indexes(table_name))
+# Per-table compile-time spec (Rust: `<Table as Air>::{degree_air, n_constraints,
+# down_column_indexes}`). The down-column lists for `execution` and
+# `extension_op` are exactly what their `Air::down_column_indexes` returns.
+_TABLE_SPECS: dict[str, dict] = {
+    "execution":           {"degree": 5,  "n_constraints": 13, "down": [0, 1]},
+    "extension_op":        {"degree": 4,  "n_constraints": 16, "down": [1, 0, 5, 2, 3, 4, 6, 7, 24, 25, 26, 27, 28]},
+    "poseidon16_compress": {"degree": 10, "n_constraints": 81, "down": []},
+}
 
 
 def verify_air_stage(
@@ -2614,18 +2399,16 @@ def verify_air_stage(
     public_input: Sequence[Fp],
     log_memory: int,
 ) -> AirStageResult:
-    """Port of the AIR-sumcheck block in `verify_execution.rs` (lines 100–179).
-
-    Returns the per-table committed statements (point + eq_values + next_values)
+    """Returns the per-table committed statements (point + eq_values + next_values)
     and the public-memory random point + its evaluation.
     """
     bus_beta = state.sample()
     air_alpha = state.sample()
 
-    max_air_constraints = _max_air_constraints(tables)
+    max_n_constraints = max(_TABLE_SPECS[name]["n_constraints"] for name in tables)
     alpha_powers: list[EF] = []
     cur = EF.one()
-    for _ in range(max_air_constraints + 1):
+    for _ in range(max_n_constraints + 1):
         alpha_powers.append(cur)
         cur = cur * air_alpha
 
@@ -2642,7 +2425,7 @@ def verify_air_stage(
         bus_den = logup.bus_denominators_values[name]
         flag = (
             EF.zero() - EF.one()
-            if tables[name].bus.direction == "Pull"
+            if tables[name].bus_direction == "Pull"
             else EF.one()
         )
         bus_final_value = bus_num * flag + bus_beta * (bus_den - logup_c)
@@ -2650,7 +2433,7 @@ def verify_air_stage(
         eta_powers.append(cur)
         cur = cur * eta
 
-    max_full_degree = max(_table_degree_air(name) + 1 for name, _ in tables_sorted)
+    max_full_degree = max(_TABLE_SPECS[name]["degree"] + 1 for name, _ in tables_sorted)
     n_max = tables_sorted[0][1]
 
     sumcheck_result = sumcheck_verify(state, n_max, max_full_degree, initial_sum, None)
@@ -2676,12 +2459,9 @@ def verify_air_stage(
     }
     for (name, log_n_rows), eta_pow in zip(tables_sorted, eta_powers):
         meta = tables[name]
-        n_down = _table_n_down_columns(name)
-        n_cols_total = meta.n_columns + n_down
-        col_evals = state.next_extension_scalars_vec(n_cols_total)
-
-        alpha_powers_table = alpha_powers  # same list — folder reads constraint_index
-        constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers_table, extra_data)
+        down_indexes = _TABLE_SPECS[name]["down"]
+        col_evals = state.next_extension_scalars_vec(meta.n_columns + len(down_indexes))
+        constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers, extra_data)
 
         bus_point = from_end(logup.gkr_point, log_n_rows)
         natural_pt = natural_ordering_point_for_session(sumcheck_air_point, log_n_rows)
@@ -2690,10 +2470,7 @@ def verify_air_stage(
         )
 
         point, eq_values, next_values = columns_evals_up_and_down(
-            meta.n_columns,
-            _table_down_column_indexes(name),
-            col_evals,
-            natural_pt,
+            meta.n_columns, down_indexes, col_evals, natural_pt
         )
         committed[name].append((point, eq_values, next_values))
 
@@ -2709,10 +2486,6 @@ def verify_air_stage(
     )
 
     return AirStageResult(
-        sumcheck_air_point=list(sumcheck_air_point),
-        bus_beta=bus_beta,
-        air_alpha=air_alpha,
-        eta=eta,
         committed_statements=committed,
         public_memory_random_point=list(public_memory_random_point),
         public_memory_eval=public_memory_eval,
@@ -2721,19 +2494,6 @@ def verify_air_stage(
 
 
 # ─── Top-level verifier ──────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class TableInfo:
-    """Table metadata (bus + lookups + n_columns). Built by `tables_from_json`."""
-
-    name: str
-    n_columns: int
-    bus: Bus
-    lookups: tuple[Lookup, ...]
-
-    def to_meta(self) -> TableMeta:
-        return TableMeta(self.name, self.n_columns, self.bus, self.lookups)
 
 
 @dataclass
@@ -2751,7 +2511,7 @@ def verify_execution(
     bytecode: Bytecode,
     public_input: Sequence[Fp],
     proof: Proof,
-    tables: Sequence[TableInfo],
+    tables: Sequence[TableMeta],
     constants: dict,
     bytecode_multilinear: list[Fp],
 ) -> VerifyResult:
@@ -2801,7 +2561,7 @@ def verify_execution(
 
     table_log_heights = {t.name: log_n_rows for t, log_n_rows in zip(tables, table_log_n_rows)}
     table_n_columns = {t.name: t.n_columns for t in tables}
-    tables_by_name = {t.name: t.to_meta() for t in tables}
+    tables_by_name = {t.name: t for t in tables}
 
     parsed_commitment = stacked_pcs_parse_commitment(
         state,
@@ -2902,9 +2662,7 @@ def verify_execution(
 
 
 def poseidon_compress_slice(data: Sequence[Fp], use_iv: bool) -> list[Fp]:
-    """Port of `utils::poseidon_compress_slice`.
-
-    Hash a length-multiple-of-8 sequence into one 8-element digest using
+    """Hash a length-multiple-of-8 sequence into one 8-element digest using
     Poseidon16 in Davies-Meyer compression mode. If `use_iv` is false the
     first 16 elements seed the sponge directly; if true an all-zero IV is used.
     """
@@ -2923,56 +2681,10 @@ def poseidon_compress_slice(data: Sequence[Fp], use_iv: bool) -> list[Fp]:
     return h
 
 
-def _load_test_vector(json_path):
-    """Load the Rust-dumped end-to-end test vector."""
-    import array
-    import json
-    from pathlib import Path
-
-    json_path = Path(json_path)
-    raw = json.loads(json_path.read_text())
-
-    # Bytecode multilinear (raw u32 LE sidecar).
-    mle_bin = (json_path.parent / raw["bytecode_multilinear_path"]).read_bytes()
-    arr = array.array("I")
-    arr.frombytes(mle_bin)
-    assert len(arr) == raw["bytecode_multilinear_len"]
-    bytecode_multilinear = [Fp(v) for v in arr]
-
-    bytecode = Bytecode(
-        hash=[Fp(v) for v in raw["bytecode_hash"]],
-        log_size=raw["bytecode_log_size"],
-    )
-    public_input = [Fp(v) for v in raw["public_input"]]
-    input_data = [Fp(v) for v in raw["input_data"]]
-
-    transcript = [Fp(v) for v in raw["proof"]["transcript"]]
-    openings: list[MerkleOpening] = []
-    for bucket in raw["proof"]["merkle_paths"]:
-        for path in restore_merkle_paths(prunedpaths_from_json(bucket)):
-            openings.append(MerkleOpening(leaf_data=path.leaf_data, path=path.sibling_hashes))
-    proof = Proof(transcript=transcript, merkle_openings=openings)
-
-    metas = tables_from_json(raw["tables"])
-    tables = [
-        TableInfo(name=m.name, n_columns=m.n_columns, bus=m.bus, lookups=m.lookups)
-        for m in metas
-    ]
-
-    return {
-        "bytecode": bytecode,
-        "bytecode_multilinear": bytecode_multilinear,
-        "public_input": public_input,
-        "input_data": input_data,
-        "proof": proof,
-        "tables": tables,
-        "constants": raw["constants"],
-    }
-
-
 def main() -> int:
     """Load the end-to-end test vector and run `verify_execution`."""
-    import sys
+    import array
+    import json
     from pathlib import Path
 
     vector_path = Path(__file__).resolve().parents[2] / "target" / "zkvm_test_vectors" / "proof.json"
@@ -2984,22 +2696,34 @@ def main() -> int:
         return 1
 
     print(f"Loading {vector_path.name}...")
-    v = _load_test_vector(vector_path)
+    raw = json.loads(vector_path.read_text())
+
+    # Bytecode multilinear (raw u32 LE sidecar).
+    mle_blob = (vector_path.parent / raw["bytecode_multilinear_path"]).read_bytes()
+    arr = array.array("I"); arr.frombytes(mle_blob)
+    assert len(arr) == raw["bytecode_multilinear_len"]
+    bytecode_multilinear = [Fp(v) for v in arr]
+
+    bytecode = Bytecode([Fp(v) for v in raw["bytecode_hash"]], raw["bytecode_log_size"])
+    public_input = [Fp(v) for v in raw["public_input"]]
+    input_data = [Fp(v) for v in raw["input_data"]]
+
+    openings = [
+        MerkleOpening(leaf_data=p.leaf_data, path=p.sibling_hashes)
+        for bucket in raw["proof"]["merkle_paths"]
+        for p in restore_merkle_paths(prunedpaths_from_json(bucket))
+    ]
+    proof = Proof(transcript=[Fp(v) for v in raw["proof"]["transcript"]], merkle_openings=openings)
 
     # Sanity: re-derive `public_input` from `input_data` to check the hash.
-    derived = poseidon_compress_slice(v["input_data"], use_iv=True)
-    if derived != v["public_input"]:
+    if poseidon_compress_slice(input_data, use_iv=True) != public_input:
         print("FAIL: poseidon_compress_slice(input_data) doesn't match dumped public_input")
         return 1
 
     try:
         result = verify_execution(
-            v["bytecode"],
-            v["public_input"],
-            v["proof"],
-            v["tables"],
-            v["constants"],
-            v["bytecode_multilinear"],
+            bytecode, public_input, proof,
+            tables_from_json(raw["tables"]), raw["constants"], bytecode_multilinear,
         )
     except ProofError as e:
         print(f"FAIL: {e}")
