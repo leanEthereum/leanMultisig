@@ -352,9 +352,73 @@ a_i =
 \end{cases}
 \]
 
-\subsection{Program example}
+\subsection{Example: Fibonacci Program}
 
-The following is a program that takes as public input ($n$, $r$) and proves that the $n$-th Fibonacci number, modulo $p$, is equal to $r$.
+The following program takes two base field elements $(n, r)$ as public input, and proves that the $n$-th Fibonacci number, reduced modulo $p$, equals $r$.
+
+\begin{framed}
+\small
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\begin{verbatim}
+[public input size]  2
+
+[program]
+   0: ADD[imm, 0,  imm, 0,  mem, 2]
+   1: DEREF[2,  0,  mem, 3]
+   2: ADD[imm, 1,  mem, 4,  mem, 3]
+   3: DEREF[5,  0,  imm, 1]
+   4: DEREF[5,  1,  imm, 1]
+   5: ADD[imm, 1,  mem, 3,  mem, 6]
+   6: DEREF[7,  0,  imm, 34]
+   7: DEREF[7,  1,  fp_rel, 0]
+   8: DEREF[7,  2,  imm, 0]
+   9: DEREF[7,  3,  mem, 5]
+  10: DEREF[7,  4,  mem, 3]
+  11: DEREF[7,  5,  mem, 6]
+  12: JUMP[imm, 1,  imm, 13,  mem, 7]
+  13: ADD[mem, 6,  mem, 2,  mem, 5]
+  14: MUL[mem, 6,  mem, 8,  mem, 7]
+  15: ADD[mem, 9,  imm, 1,  mem, 8]
+  16: MUL[mem, 9,  imm, 0,  mem, 6]
+  17: JUMP[mem, 8,  imm, 19,  fp_rel, 0]
+  18: JUMP[imm, 1,  imm, 32,  fp_rel, 0]
+  19: ADD[mem, 3,  mem, 10,  mem, 2]
+  20: DEREF[10,  0,  mem, 11]
+  21: DEREF[10,  1,  mem, 12]
+\end{verbatim}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\begin{verbatim}
+  22: ADD[mem, 11,  mem, 13,  mem, 12]
+  23: DEREF[10,  2,  mem, 13]
+  24: ADD[imm, 1,  mem, 14,  mem, 2]
+  25: DEREF[15,  0,  mem, 0]
+  26: DEREF[15,  1,  mem, 1]
+  27: DEREF[15,  2,  mem, 14]
+  28: DEREF[15,  3,  mem, 3]
+  29: DEREF[15,  4,  mem, 4]
+  30: DEREF[15,  5,  mem, 5]
+  31: JUMP[imm, 1,  imm, 13,  mem, 15]
+  32: JUMP[imm, 1,  mem, 0,  mem, 1]
+  33: JUMP[imm, 1,  imm, 34,  fp_rel, 0]
+  34: ADD[mem, 5,  mem, 8,  mem, 6]
+  35: DEREF[8,  0,  mem, 9]
+  36: DEREF[2,  1,  mem, 9]
+  37: ADD[imm, 0,  imm, 0,  mem, 10]
+  38: JUMP[imm, 1,  imm, 255,  mem, 10]
+
+  39: MUL[imm, 0,  imm, 1,  fp_rel, 0]
+  40: MUL[imm, 0,  imm, 1,  fp_rel, 0]
+       ... (padding)
+ 253: MUL[imm, 0,  imm, 1,  fp_rel, 0]
+ 254: MUL[imm, 0,  imm, 1,  fp_rel, 0]
+
+ 255: JUMP[imm, 1,  imm, 255,  fp_rel, 0]
+\end{verbatim}
+\end{minipage}
+\end{framed}
 
 
 \vspace{2mm}
