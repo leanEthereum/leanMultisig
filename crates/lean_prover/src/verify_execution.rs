@@ -209,6 +209,7 @@ pub fn verify_execution(
         parsed_commitment.num_variables,
         log_memory,
         bytecode.log_size(),
+        bytecode.ending_pc,
         previous_statements,
         &table_n_vars,
         &committed_statements,

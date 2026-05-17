@@ -80,28 +80,28 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
     let mut log_size_guess = 18;
-    let bytecode_zero_eval = F::ONE;
-    loop {
+    let bytecode_zero_eval = F::ZERO;
+    for _ in 0..10 {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
-        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
+        assert_eq!(bytecode.ending_pc, (1 << actual_log_size) - 1);
+        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         if actual_log_size == log_size_guess {
             return bytecode;
-        } else {
-            println!(
-                "Wrong guess at `compile_main_program_self_referential`, should be {} instead of {}, recompiling...",
-                actual_log_size, log_size_guess
-            );
         }
+        println!(
+            "Wrong guess at `compile_main_program_self_referential` (log_size {log_size_guess}->{actual_log_size})"
+        );
         log_size_guess = actual_log_size;
     }
+    panic!("`compile_main_program_self_referential` did not converge");
 }
 
-fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
-    let mut replacements = BTreeMap::new();
-
-    let log_inner_bytecode = inner_program_log_size;
+fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
+    let ending_pc = (1 << log_inner_bytecode) - 1;
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);
+
+    let mut replacements = BTreeMap::new();
 
     let mut all_potential_num_queries = vec![];
     let mut all_potential_query_grinding = vec![];
@@ -365,7 +365,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         total_whir_statements().to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
-    replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
+    replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ending_pc.to_string());
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
