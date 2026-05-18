@@ -10,7 +10,7 @@ use crate::MontyField31;
 /// MontyParameters contains the prime P along with constants needed to convert elements into and out of MONTY form.
 /// The MONTY constant is assumed to be a power of 2.
 pub trait MontyParameters: Copy + Clone + Default + Debug + Eq + PartialEq + Sync + Send + Hash + 'static {
-    // A 31-bit prime.
+    // A prime that fits in a u32. May be larger than 2^31.
     const PRIME: u32;
 
     // The log_2 of our MONTY constant.

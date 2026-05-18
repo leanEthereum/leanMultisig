@@ -25,72 +25,57 @@ fn uint32x4_to_array(input: uint32x4_t) -> [u32; 4] {
 
 /// Add the packed vectors `a` and `b` modulo `p`.
 ///
-/// This allows us to add 4 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `a + b <= 2P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod p`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. The result will be in `[0, P)`.
+/// Works for any P < 2^32, including P > 2^31 where a + b may overflow u32.
 #[inline]
 #[must_use]
 pub fn uint32x4_mod_add(a: uint32x4_t, b: uint32x4_t, p: uint32x4_t) -> uint32x4_t {
-    // We want this to compile to:
-    //      add   t.4s, a.4s, b.4s
-    //      sub   u.4s, t.4s, P.4s
-    //      umin  res.4s, t.4s, u.4s
-    // throughput: .75 cyc/vec (5.33 els/cyc)
-    // latency: 6 cyc
-
-    // See field/src/packed/x86_64_avx.rs for a proof of correctness of this algorithm.
-
+    // Uses saturating add to detect "a + b >= P" in one comparison:
+    // sat = min(a+b, 2^32-1). If a+b >= 2^32, sat = 2^32-1 >= P. If a+b < 2^32, sat = a+b.
+    // Either way, sat >= P iff a+b >= P.
+    //
+    //      add       t.4s, a.4s, b.4s         // wrapping add
+    //      sub       u.4s, t.4s, P.4s         // wrapping sub P
+    //      uqadd     sat.4s, a.4s, b.4s       // saturating add
+    //      cmhs      mask.4s, sat.4s, P.4s    // sat >= P ?
+    //      bsl       mask.4s, u.4s, t.4s      // select
+    // throughput: 1.25 cyc/vec (3.2 els/cyc)
+    // latency: 8 cyc
     unsafe {
-        // Safety: If this code got compiled then NEON intrinsics are available.
         let t = aarch64::vaddq_u32(a, b);
         let u = aarch64::vsubq_u32(t, p);
-        aarch64::vminq_u32(t, u)
+        let sat = aarch64::vqaddq_u32(a, b); // saturating: min(a+b, 2^32-1)
+        let mask = aarch64::vcgeq_u32(sat, p); // sat >= P iff a+b >= P
+        aarch64::vbslq_u32(mask, u, t)
     }
 }
 
 /// Subtract the packed vectors `a` and `b` modulo `p`.
 ///
-/// This allows us to subtract 4 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. The result will be in `[0, P)`.
+/// Works for any P < 2^32, including P > 2^31.
 #[inline]
 #[must_use]
 pub fn uint32x4_mod_sub(a: uint32x4_t, b: uint32x4_t, p: uint32x4_t) -> uint32x4_t {
-    // We want this to compile to:
-    //      sub   t.4s, a.4s, b.4s
-    //      add   u.4s, t.4s, P.4s
-    //      umin  res.4s, t.4s, u.4s
-    // throughput: .75 cyc/vec (5.33 els/cyc)
-    // latency: 6 cyc
-
-    // See field/src/packed/x86_64_avx.rs for a proof of correctness of this algorithm.
-
+    // Algorithm: t = a - b (wrapping). If a < b (borrow), result = t + P; otherwise result = t.
+    //
+    //      sub       t.4s, a.4s, b.4s
+    //      cmhi      borrow.4s, b.4s, a.4s        // b > a means borrow
+    //      and       corr.4s, borrow.4s, P.4s
+    //      add       res.4s, t.4s, corr.4s
+    // throughput: 1 cyc/vec (4 els/cyc)
+    // latency: 8 cyc
     unsafe {
-        // Safety: If this code got compiled then NEON intrinsics are available.
         let t = aarch64::vsubq_u32(a, b);
-        let u = aarch64::vaddq_u32(t, p);
-        aarch64::vminq_u32(t, u)
+        let borrow = aarch64::vcgtq_u32(b, a); // b > a means borrow
+        let corr = aarch64::vandq_u32(borrow, p);
+        aarch64::vaddq_u32(t, corr)
     }
 }
 
 /// Add two arrays of integers modulo `P` using packings.
 ///
-/// Assumes that `P` is less than `2^31` and `a + b <= 2P` for all array pairs `a, b`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod P`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
-///
-/// Scalar add is assumed to be a function which implements `a + b % P` with the
-/// same specifications as above.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 ///
 /// TODO: Add support for extensions of degree 2,3,6,7.
 #[inline(always)]
@@ -152,14 +137,7 @@ pub fn packed_mod_add<const WIDTH: usize>(
 
 /// Subtract two arrays of integers modulo `P` using packings.
 ///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
-///
-/// Scalar sub is assumed to be a function which implements `a - b % P` with the
-/// same specifications as above.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 ///
 /// TODO: Add support for extensions of degree 2,3,6,7.
 #[inline(always)]

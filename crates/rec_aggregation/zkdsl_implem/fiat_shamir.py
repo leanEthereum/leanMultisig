@@ -75,13 +75,13 @@ def assert_trailing_bits_are_zeros(value, bits: Const):
     partial_sums[0] = chunks[0]
     for i in unroll(1, num_chunks):
         partial_sums[i] = partial_sums[i - 1] + chunks[i] * 2**(i * chunk_size)
-    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
-    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
-    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
-    top7 = (partial_sums[num_chunks - 1] - value) * 127
-    assert top7 < 2**7
-    if top7 == 2**7 - 1:
-        assert partial_sums[chunk_size - 1] == 0
+    # p = 0xfa000001 = 250 * 2^24 + 1, so 2^24 * 250 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -250.
+    # Deduce top_byte from the identity partial_sum + top_byte * 2^24 == a:
+    # top_byte = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 250
+    top_byte = (partial_sums[num_chunks - 1] - value) * 250
+    assert top_byte < 251
+    if top_byte == 250:
+        assert partial_sums[num_chunks - 1] == 0
 
     if bits < 12:
         assert chunks[0] / 2**bits < 2**(chunk_size - bits)

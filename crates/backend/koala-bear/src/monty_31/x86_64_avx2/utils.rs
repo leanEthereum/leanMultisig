@@ -3,7 +3,7 @@
 use core::arch::x86_64::{self, __m256i};
 use core::mem::transmute;
 
-use crate::{MontyParameters, MontyParametersAVX2, TwoAdicData};
+use crate::{FieldParameters, MontyParameters, MontyParametersAVX2, TwoAdicData};
 
 // Godbolt file showing that these all compile to the expected instructions. (Potentially plus a few memory ops):
 // https://godbolt.org/z/9P71nYrqh
@@ -12,28 +12,20 @@ use crate::{MontyParameters, MontyParametersAVX2, TwoAdicData};
 ///
 /// If the inputs are not in canonical form, the result is undefined.
 #[inline(always)]
-pub(crate) fn halve_avx2<MP: MontyParameters>(input: __m256i) -> __m256i {
+pub(crate) fn halve_avx2<FP: FieldParameters>(input: __m256i) -> __m256i {
     /*
-        We want this to compile to:
-            vpand    least_bit, val, ONE
-            vpsrld   t, val, 1
-            vpsignd  maybe_half, HALF, least_bit
-            vpaddd   res, t, maybe_half
-        throughput: 1.33 cyc/vec
-        latency: 3 cyc
-
         Given an element val in [0, P), we want to compute val/2 mod P.
         If val is even: val/2 mod P = val/2 = val >> 1.
         If val is odd: val/2 mod P = (val + P)/2 = (val >> 1) + (P + 1)/2
     */
     unsafe {
-        // Safety: If this code got compiled then AVX2 intrinsics are available.
         const ONE: __m256i = unsafe { transmute([1u32; 8]) };
-        let half = x86_64::_mm256_set1_epi32((MP::PRIME as i32 + 1) / 2); // Compiler realises this is constant.
+        // HALF_P_PLUS_1 = (P + 1) / 2, computed correctly at u32 level.
+        // For P = 0xFA000001: HALF_P_PLUS_1 = 0x7D000001 which fits in positive i32.
+        let half = x86_64::_mm256_set1_epi32(FP::HALF_P_PLUS_1 as i32);
 
-        let least_bit = x86_64::_mm256_and_si256(input, ONE); // Determine the parity of val.
+        let least_bit = x86_64::_mm256_and_si256(input, ONE);
         let t = x86_64::_mm256_srli_epi32::<1>(input);
-        // This does nothing when least_bit = 1 and sets the corresponding entry to 0 when least_bit = 0
         let maybe_half = x86_64::_mm256_sign_epi32(half, least_bit);
         x86_64::_mm256_add_epi32(t, maybe_half)
     }
@@ -45,45 +37,46 @@ pub(crate) fn halve_avx2<MP: MontyParameters>(input: __m256i) -> __m256i {
 ///
 /// This function is not symmetric in the inputs. The caller must ensure that inputs
 /// conform to the expected representation. Each element of lhs must lie in [0, P) and
-/// each element of rhs in (-P, P).
+/// each element of rhs in (-P, P) (as signed i32 for P < 2^31, or as u32 with wrapping for P >= 2^31).
+///
+/// For P > 2^31, rhs in (-P, P) means: the mathematical value D satisfies -P < D < P.
+/// If D >= 0, it's stored as D (u32). If D < 0, it's stored as 2^32 + D (u32 wrapping).
+///
+/// The output is in [0, P) canonical form.
 #[inline(always)]
 pub(crate) unsafe fn signed_add_avx2<MPAVX2: MontyParametersAVX2>(lhs: __m256i, rhs: __m256i) -> __m256i {
-    /*
-        We want this to compile to:
-            vpsignd  pos_neg_P,  P,     rhs
-            vpaddd   sum,        lhs,   rhs
-            vpsubd   sum_corr,   sum,   pos_neg_P
-            vpminud  res,        sum,   sum_corr
-        throughput: 1.33 cyc/vec
-        latency: 3 cyc
-
-        While this is more expensive than an add, it is cheaper than reducing the rhs to a canonical value and then adding.
-
-        We give a short proof that the output is correct:
-
-        Let t = lhs + rhs mod 2^32, we want to return t mod P while correcting for any possible wraparound.
-        We make use of the fact wrapping addition acts identically on signed and unsigned inputs.
-
-        If rhs is positive, lhs + rhs < 2P < 2^32 and so we interpret t as a unsigned 32 bit integer.
-            In this case, t mod P = min_{u32}(t, t - P) where min_{u32} takes the min treating both inputs as unsigned 32 bit integers.
-            This works as if t >= P then t - P < t and if t < P then, due to wraparound, t - P outputs t - P + 2^32 > t.
-        If rhs is negative, -2^31 < -P < lhs + rhs < P < 2^31 so we interpret t as a signed 32 bit integer.
-            In this case t mod P = min_{u32}(t, t + P)
-            This works as if t > 0 then t < t + P and if t < 0 then due to wraparound when we interpret t as an unsigned integer it becomes
-            2^32 + t > t + P.
-        if rhs = 0 then we can just return t = lhs as it is already in the desired range.
-    */
+    // For P > 2^31 we cannot use the min trick. Instead:
+    // 1. Canonicalize rhs from (-P, P) to [0, P) by detecting negative values
+    //    and adding P. For P > 2^31, "negative" means the u32 value is in [2^32-P+1, 2^32-1].
+    //    We can't distinguish from the u32 alone, but we know |D| < P so D < 0 iff D_u32 >= P.
+    // 2. Then do a standard canonical add.
+    //
+    // rhs in (-P, P): if D >= 0, rhs_u32 = D ∈ [0, P-1].
+    //                  if D < 0, rhs_u32 = 2^32 + D ∈ [2^32-P+1, 2^32-1].
+    // Since P < 2^32, the negative range starts at 2^32 - P + 1 > P, so rhs_u32 >= P iff D < 0.
     unsafe {
-        // If rhs > 0 set the value to P, if rhs < 0 set it to -P and if rhs = 0 set it to 0.
-        let pos_neg_p = x86_64::_mm256_sign_epi32(MPAVX2::PACKED_P, rhs);
+        // Detect negative: rhs >= P (unsigned)
+        let flip = x86_64::_mm256_set1_epi32(i32::MIN);
+        let rhs_f = x86_64::_mm256_xor_si256(rhs, flip);
+        let p_m1_f = x86_64::_mm256_xor_si256(
+            x86_64::_mm256_sub_epi32(MPAVX2::PACKED_P, x86_64::_mm256_set1_epi32(1)),
+            flip,
+        );
+        let is_neg = x86_64::_mm256_cmpgt_epi32(rhs_f, p_m1_f); // rhs > P-1 unsigned → negative
+        let corr = x86_64::_mm256_and_si256(is_neg, MPAVX2::PACKED_P);
+        let rhs_canon = x86_64::_mm256_add_epi32(rhs, corr); // canonicalize: add P if negative
 
-        // Compute t = lhs + rhs
-        let sum = x86_64::_mm256_add_epi32(lhs, rhs);
-
-        // sum_corr = (t - P) if rhs > 0, t + P if rhs < 0 and t if rhs = 0 as desired.
-        let sum_corr = x86_64::_mm256_sub_epi32(sum, pos_neg_p);
-
-        x86_64::_mm256_min_epu32(sum, sum_corr)
+        // Now do standard modular add of two canonical values
+        let t = x86_64::_mm256_add_epi32(lhs, rhs_canon);
+        let u = x86_64::_mm256_sub_epi32(t, MPAVX2::PACKED_P);
+        // Detect overflow or t >= P
+        let lhs_f = x86_64::_mm256_xor_si256(lhs, flip);
+        let t_f = x86_64::_mm256_xor_si256(t, flip);
+        let overflow = x86_64::_mm256_cmpgt_epi32(lhs_f, t_f);
+        let t_f2 = x86_64::_mm256_xor_si256(t, flip);
+        let geq_p = x86_64::_mm256_cmpgt_epi32(t_f2, p_m1_f);
+        let mask = x86_64::_mm256_or_si256(overflow, geq_p);
+        x86_64::_mm256_blendv_epi8(t, u, mask)
     }
 }
 

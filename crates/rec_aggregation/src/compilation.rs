@@ -10,7 +10,10 @@ use std::sync::OnceLock;
 use sub_protocols::{N_VARS_TO_SEND_GKR_COEFFS, min_stacked_n_vars, total_whir_statements};
 use tracing::instrument;
 use utils::Counter;
-use xmss::{LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W, XMSS_DIGEST_LEN};
+use xmss::{
+    ENCODING_NUM_FINAL_ZEROS, LOG_LIFETIME, MESSAGE_LEN_FE, PUBLIC_PARAM_LEN_FE, RANDOMNESS_LEN_FE, TARGET_SUM, V, W,
+    XMSS_DIGEST_LEN,
+};
 
 use crate::bytecode_claims::bytecode_reduction_sumcheck_proof_size;
 use crate::type_1_aggregation::TWEAK_TABLE_SIZE_FE_PADDED;
@@ -371,6 +374,10 @@ fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTree
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());
     replacements.insert("W_PLACEHOLDER".to_string(), W.to_string());
     replacements.insert("TARGET_SUM_PLACEHOLDER".to_string(), TARGET_SUM.to_string());
+    replacements.insert(
+        "ENCODING_NUM_FINAL_ZEROS_PLACEHOLDER".to_string(),
+        ENCODING_NUM_FINAL_ZEROS.to_string(),
+    );
     replacements.insert("LOG_LIFETIME_PLACEHOLDER".to_string(), LOG_LIFETIME.to_string());
     replacements.insert("MESSAGE_LEN_PLACEHOLDER".to_string(), MESSAGE_LEN_FE.to_string());
     replacements.insert("RANDOMNESS_LEN_PLACEHOLDER".to_string(), RANDOMNESS_LEN_FE.to_string());

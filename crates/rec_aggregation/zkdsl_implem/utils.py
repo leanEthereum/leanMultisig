@@ -1,10 +1,10 @@
 from snark_lib import *
 from hashing import *
 
-F_BITS = 31  # koala-bear = 31 bits
+F_BITS = 32  # koala-bear (32-bit prime experiment) = 32 bits
 
-TWO_ADICITY = 24
-ROOT = 1791270792  # of order 2^TWO_ADICITY
+TWO_ADICITY = 25
+ROOT = 1177770062  # of order 2^TWO_ADICITY (= 0x4633584e)
 
 
 @inline
@@ -478,17 +478,14 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
     return sum_num, common_den
 
 
-# p = 2^31 - 2^24 + 1
-# in binary: p = 1111111000000000000000000000001
-#        p - 1 = 1111111000000000000000000000000
-#        p - 2 = 1111110111111111111111111111111
-#        p - 3 = 1111110111111111111111111111110
-#        ...
+# p = 0xfa000001 = 250 * 2^24 + 1
+# in binary: p     = 11111010_00000000_00000000_00000001
+#            p - 1 = 11111010_00000000_00000000_00000000
 # Any field element (< p) is either:
-# -   1111111    | 00...00
-# - not(1111111) | xx...xx
+# -   11111010    | 00...00
+# - not(11111010) | xx...xx
 def checked_decompose_bits(a):
-    # return a pointer to the 31 bits of a (big-endian: bits[0] = MSB, bits[F_BITS-1] = LSB)
+    # return a pointer to the 32 bits of a (big-endian: bits[0] = MSB, bits[F_BITS-1] = LSB)
     # .. and the first 24 partial sums of these bits, where partial_sums_24[k] is the
     # value of the lowest k+1 bits of a.
     bits = Array(F_BITS)
@@ -500,13 +497,14 @@ def checked_decompose_bits(a):
     partial_sums_24[0] = bits[F_BITS - 1]
     for i in unroll(1, 24):
         partial_sums_24[i] = partial_sums_24[i - 1] + bits[F_BITS - 1 - i] * 2**i
-    sum_7: Mut = bits[F_BITS - 1 - 24]
-    for i in unroll(1, 7):
-        sum_7 += bits[F_BITS - 1 - (24 + i)] * 2**i
-    if sum_7 == 127:
+    sum_8: Mut = bits[F_BITS - 1 - 24]
+    for i in unroll(1, 8):
+        sum_8 += bits[F_BITS - 1 - (24 + i)] * 2**i
+    # p - 1 = 250 * 2^24, so if top 8 bits = 250, low 24 bits must be 0.
+    if sum_8 == 250:
         assert partial_sums_24[23] == 0
 
-    assert a == partial_sums_24[23] + sum_7 * 2**24
+    assert a == partial_sums_24[23] + sum_8 * 2**24
     return bits, partial_sums_24
 
 
@@ -546,12 +544,12 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
     for i in unroll(1, 6):
         partial_sum += nibbles[i] * 16**i
 
-    # p = 2^31 - 2^24 + 1, so 2^24 * 127 = p - 1 ≡ -1 (mod p), hence inv(2^24) = -127.
-    # Deduce top7 from the identity partial_sum + top7 * 2^24 == a:
-    # top7 = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 127
-    top7 = (partial_sum - a) * 127
-    assert top7 < 2**7
-    if top7 == 2**7 - 1:
+    # p = 250 * 2^24 + 1, so 2^24 * 250 ≡ -1 (mod p), hence inv(2^24) = -250.
+    # Deduce top from the identity partial_sum + top * 2^24 == a:
+    # top = (a - partial_sum) * inv(2^24) = (partial_sum - a) * 250
+    top = (partial_sum - a) * 250
+    assert top < 251
+    if top == 250:
         assert partial_sum == 0
 
     leaf_data = Array(num_chunks * DIGEST_LEN)

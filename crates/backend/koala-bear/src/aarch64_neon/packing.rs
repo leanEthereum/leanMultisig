@@ -10,9 +10,9 @@ use crate::KoalaBearParameters;
 const WIDTH: usize = 4;
 
 impl MontyParametersNeon for KoalaBearParameters {
-    const PACKED_P: uint32x4_t = unsafe { transmute::<[u32; WIDTH], _>([0x7f000001; WIDTH]) };
-    // This MU is the same 0x88000001 as elsewhere, just interpreted as an `i32`.
-    const PACKED_MU: int32x4_t = unsafe { transmute::<[i32; WIDTH], _>([-0x7effffff; WIDTH]) };
+    const PACKED_P: uint32x4_t = unsafe { transmute::<[u32; WIDTH], _>([0xfa000001; WIDTH]) };
+    // MU = 0x06000001, which fits in positive i32.
+    const PACKED_MU: int32x4_t = unsafe { transmute::<[i32; WIDTH], _>([0x06000001_i32; WIDTH]) };
 }
 
 pub type PackedKoalaBearNeon = PackedMontyField31Neon<KoalaBearParameters>;

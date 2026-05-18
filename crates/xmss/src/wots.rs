@@ -169,10 +169,16 @@ pub fn wots_encode(
         // ensures uniformity of encoding
         return None;
     }
-    let all_indices: Vec<_> = compressed
+    let all_bits: Vec<bool> = compressed
         .iter()
         .flat_map(|kb| to_little_endian_bits(kb.to_usize(), 24))
-        .collect::<Vec<_>>()
+        .collect();
+
+    if all_bits[V * W..][..ENCODING_NUM_FINAL_ZEROS].iter().any(|&b| b) {
+        return None;
+    }
+
+    let all_indices: Vec<u8> = all_bits
         .chunks_exact(W)
         .take(V)
         .map(|chunk| {

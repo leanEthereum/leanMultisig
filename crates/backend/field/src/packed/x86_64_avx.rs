@@ -7,189 +7,130 @@ use core::arch::x86_64::__m512i;
 use core::arch::x86_64::{self, __m128i, __m256i};
 use core::mem::transmute;
 
-// Goal: Compute r = lhs + rhs mod P for lhs, rhs <= P < 2^31
-// Output should mostly lie in [0, P) but is allowed to equal P if lhs = rhs = P.
+// Modular addition/subtraction for P < 2^32.
 //
-//   Let t := lhs + rhs. Clearly t \in [0, 2P]
-//   Define u := (t - P) mod 2^32 and r := min(t, u)  (Note that it is crucial this is an unsigned min)
-//   We argue by cases.
-//      - If t is in [0, P), then due to wraparound, u is in [2^32 - P, 2^32 - 1). As
-//          2^32 - P > P - 1, we conclude that r = t lies in the correct range.
-//      - If t is in [P, 2 P], then u is in [0, P] and r = u lies in the correct range.
-//   As both t and u are both equal to lhs + rhs mod P, we conclude that
-//   r = (lhs + rhs) mod P and lies in the correct range.
+// For add: t = a + b (wrapping u32). If overflow occurred or t >= P, subtract P.
+// Overflow detection: t < a (unsigned) means carry.
 //
-// An identical idea works for subtraction.
-// Set t := lhs - rhs, u := t + P and output r := min(t, u).
+// For sub: t = a - b (wrapping u32). If borrow (a < b), add P.
+// These algorithms work for any P < 2^32.
 
-/// Add the packed vectors `a` and `b` modulo `p`.
+/// Add the packed vectors `a` and `b` modulo `p` (SSE, 4 elements).
 ///
-/// This allows us to add 4 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `a + b <= 2P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod p`.
-/// It will be equal to `P` if and only if `a + b = 2P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 fn mm128_mod_add(a: __m128i, b: __m128i, p: __m128i) -> __m128i {
-    // We want this to compile to:
-    //      paddd   t, lhs, rhs
-    //      psubd   u, t, P
-    //      pminud  res, t, u
-    // throughput: 1 cyc/vec (8 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
         let t = x86_64::_mm_add_epi32(a, b);
         let u = x86_64::_mm_sub_epi32(t, p);
-        x86_64::_mm_min_epu32(t, u)
+        // Detect carry: flip sign bits for unsigned comparison
+        let flip = x86_64::_mm_set1_epi32(i32::MIN);
+        let a_f = x86_64::_mm_xor_si128(a, flip);
+        let t_f = x86_64::_mm_xor_si128(t, flip);
+        let overflow = x86_64::_mm_cmpgt_epi32(a_f, t_f); // a > t unsigned → overflow
+        let t_f2 = t_f; // reuse
+        let p_m1_f = x86_64::_mm_xor_si128(x86_64::_mm_sub_epi32(p, x86_64::_mm_set1_epi32(1)), flip);
+        let geq_p = x86_64::_mm_cmpgt_epi32(t_f2, p_m1_f); // t > p-1 unsigned → t >= p
+        let mask = x86_64::_mm_or_si128(overflow, geq_p);
+        // blend: (mask & u) | (~mask & t)
+        let sel_u = x86_64::_mm_and_si128(mask, u);
+        let sel_t = x86_64::_mm_andnot_si128(mask, t);
+        x86_64::_mm_or_si128(sel_u, sel_t)
     }
 }
 
-/// Subtract the packed vectors `a` and `b` modulo `p`.
+/// Subtract the packed vectors `a` and `b` modulo `p` (SSE, 4 elements).
 ///
-/// This allows us to subtract 4 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 fn mm128_mod_sub(a: __m128i, b: __m128i, p: __m128i) -> __m128i {
-    // We want this to compile to:
-    //      psubd   t, lhs, rhs
-    //      paddd   u, t, P
-    //      pminud  res, t, u
-    // throughput: 1 cyc/vec (8 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
         let t = x86_64::_mm_sub_epi32(a, b);
-        let u = x86_64::_mm_add_epi32(t, p);
-        x86_64::_mm_min_epu32(t, u)
+        // Detect borrow: b > a unsigned
+        let flip = x86_64::_mm_set1_epi32(i32::MIN);
+        let a_f = x86_64::_mm_xor_si128(a, flip);
+        let b_f = x86_64::_mm_xor_si128(b, flip);
+        let borrow = x86_64::_mm_cmpgt_epi32(b_f, a_f);
+        let corr = x86_64::_mm_and_si128(borrow, p);
+        x86_64::_mm_add_epi32(t, corr)
     }
 }
 
-/// Add the packed vectors `a` and `b` modulo `p`.
+/// Add the packed vectors `lhs` and `rhs` modulo `p` (AVX2, 8 elements).
 ///
-/// This allows us to add 8 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `a + b <= 2P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod p`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 pub fn mm256_mod_add(lhs: __m256i, rhs: __m256i, p: __m256i) -> __m256i {
-    // We want this to compile to:
-    //      vpaddd   t, lhs, rhs
-    //      vpsubd   u, t, P
-    //      vpminud  res, t, u
-    // throughput: 1 cyc/vec (8 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
         let t = x86_64::_mm256_add_epi32(lhs, rhs);
         let u = x86_64::_mm256_sub_epi32(t, p);
-        x86_64::_mm256_min_epu32(t, u)
+        let flip = x86_64::_mm256_set1_epi32(i32::MIN);
+        let lhs_f = x86_64::_mm256_xor_si256(lhs, flip);
+        let t_f = x86_64::_mm256_xor_si256(t, flip);
+        let overflow = x86_64::_mm256_cmpgt_epi32(lhs_f, t_f);
+        let p_m1_f = x86_64::_mm256_xor_si256(x86_64::_mm256_sub_epi32(p, x86_64::_mm256_set1_epi32(1)), flip);
+        let geq_p = x86_64::_mm256_cmpgt_epi32(t_f, p_m1_f);
+        let mask = x86_64::_mm256_or_si256(overflow, geq_p);
+        x86_64::_mm256_blendv_epi8(t, u, mask)
     }
 }
 
-/// Subtract the packed vectors `a` and `b` modulo `p`.
+/// Subtract the packed vectors `lhs` and `rhs` modulo `p` (AVX2, 8 elements).
 ///
-/// This allows us to subtract 8 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 pub fn mm256_mod_sub(lhs: __m256i, rhs: __m256i, p: __m256i) -> __m256i {
-    // We want this to compile to:
-    //      vpsubd   t, lhs, rhs
-    //      vpaddd   u, t, P
-    //      vpminud  res, t, u
-    // throughput: 1 cyc/vec (8 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
         let t = x86_64::_mm256_sub_epi32(lhs, rhs);
-        let u = x86_64::_mm256_add_epi32(t, p);
-        x86_64::_mm256_min_epu32(t, u)
+        let flip = x86_64::_mm256_set1_epi32(i32::MIN);
+        let lhs_f = x86_64::_mm256_xor_si256(lhs, flip);
+        let rhs_f = x86_64::_mm256_xor_si256(rhs, flip);
+        let borrow = x86_64::_mm256_cmpgt_epi32(rhs_f, lhs_f);
+        let corr = x86_64::_mm256_and_si256(borrow, p);
+        x86_64::_mm256_add_epi32(t, corr)
     }
 }
 
 #[cfg(target_feature = "avx512f")]
-/// Add the packed vectors `a` and `b` modulo `p`.
+/// Add the packed vectors `lhs` and `rhs` modulo `p` (AVX-512, 16 elements).
 ///
-/// This allows us to add 16 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `a + b <= 2P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod p`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 pub fn mm512_mod_add(lhs: __m512i, rhs: __m512i, p: __m512i) -> __m512i {
-    // We want this to compile to:
-    //      vpaddd   t, lhs, rhs
-    //      vpsubd   u, t, P
-    //      vpminud  res, t, u
-    // throughput: 1.5 cyc/vec (10.67 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
         let t = x86_64::_mm512_add_epi32(lhs, rhs);
         let u = x86_64::_mm512_sub_epi32(t, p);
-        x86_64::_mm512_min_epu32(t, u)
+        // AVX-512 has native unsigned comparison
+        let overflow = x86_64::_mm512_cmplt_epu32_mask(t, lhs); // t < lhs → overflow
+        let geq_p = x86_64::_mm512_cmpge_epu32_mask(t, p); // t >= P
+        let mask = overflow | geq_p;
+        x86_64::_mm512_mask_mov_epi32(t, mask, u)
     }
 }
 
 #[cfg(target_feature = "avx512f")]
-/// Subtract the packed vectors `a` and `b` modulo `p`.
+/// Subtract the packed vectors `lhs` and `rhs` modulo `p` (AVX-512, 16 elements).
 ///
-/// This allows us to subtract 16 elements at once.
-///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
+/// Assumes `a, b` in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 #[inline(always)]
 #[must_use]
 pub fn mm512_mod_sub(lhs: __m512i, rhs: __m512i, p: __m512i) -> __m512i {
-    // We want this to compile to:
-    //      vpsubd   t, lhs, rhs
-    //      vpaddd   u, t, P
-    //      vpminud  res, t, u
-    // throughput: 1.5 cyc/vec (10.67 els/cyc)
-    // latency: 3 cyc
-
     unsafe {
-        // Safety: If this code got compiled then AVX-512F intrinsics are available.
         let t = x86_64::_mm512_sub_epi32(lhs, rhs);
-        let u = x86_64::_mm512_add_epi32(t, p);
-        x86_64::_mm512_min_epu32(t, u)
+        let borrow = x86_64::_mm512_cmplt_epu32_mask(lhs, rhs); // lhs < rhs → borrow
+        let p_masked = x86_64::_mm512_maskz_mov_epi32(borrow, p);
+        x86_64::_mm512_add_epi32(t, p_masked)
     }
 }
 
 /// Add two arrays of integers modulo `P` using packings.
 ///
-/// Assumes that `P` is less than `2^31` and `a + b <= 2P` for all array pairs `a, b`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a + b) mod P`.
-/// It will be equal to `P` if and only if `a + b = 2P` so provided `a + b < 2P`
-/// the result is guaranteed to be less than `P`.
-///
-/// Scalar add is assumed to be a function which implements `a + b % P` with the
-/// same specifications as above.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 ///
 /// TODO: Add support for extensions of degree 2,3,6,7.
 #[inline(always)]
@@ -248,14 +189,7 @@ pub fn packed_mod_add<const WIDTH: usize>(
 
 /// Subtract two arrays of integers modulo `P` using packings.
 ///
-/// Assumes that `p` is less than `2^31` and `|a - b| <= P`.
-/// If the inputs are not in this range, the result may be incorrect.
-/// The result will be in the range `[0, P]` and equal to `(a - b) mod p`.
-/// It will be equal to `P` if and only if `a - b = P` so provided `a - b < P`
-/// the result is guaranteed to be less than `P`.
-///
-/// Scalar sub is assumed to be a function which implements `a - b % P` with the
-/// same specifications as above.
+/// Assumes `a, b` are in `[0, P)` where `P < 2^32`. Works for P > 2^31.
 ///
 /// TODO: Add support for extensions of degree 2,3,6,7.
 #[inline(always)]
