@@ -105,7 +105,7 @@ where
         return false;
     }
 
-    let mut root = crate::hash_slice::<_, _, WIDTH, RATE, DIGEST_ELEMS>(comp, opened_values);
+    let mut root = crate::hash_iter::<_, _, _, WIDTH, RATE, DIGEST_ELEMS>(comp, opened_values.iter().copied());
 
     for &sibling in opening_proof.iter() {
         let (left, right) = if index & 1 == 0 {

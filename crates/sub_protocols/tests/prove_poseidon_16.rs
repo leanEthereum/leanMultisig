@@ -62,7 +62,7 @@ fn prove_air_poseidon_16(log_n_rows: usize) {
         commitmed_pol[i << log_n_rows..(i + 1) << log_n_rows].copy_from_slice(col);
     }
     let committed_pol = MleOwned::Base(commitmed_pol);
-    let witness = whir_config.commit(&mut prover_state, &committed_pol, n_cols << log_n_rows);
+    let witness = whir_config.commit_with_prefix_len(&mut prover_state, &committed_pol, n_cols << log_n_rows);
 
     let alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = alpha.powers().collect_n(n_constraints + 1);

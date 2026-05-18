@@ -106,6 +106,15 @@ where
     }
 }
 
+impl<F: Clone> MultilinearPoint<F> {
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        let mut v = self.0.clone();
+        v.reverse();
+        Self(v)
+    }
+}
+
 impl<F> From<Vec<F>> for MultilinearPoint<F> {
     fn from(v: Vec<F>) -> Self {
         Self(v)
