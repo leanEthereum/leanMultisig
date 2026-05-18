@@ -62,14 +62,26 @@ impl<F: PrimeField64, P: Permutation<[F; WIDTH]>> Challenger<F, P> {
         out
     }
 
-    /// Warning: not perfectly uniform
+    /// Samples uniformly random values in `[0, 2^bits)` using rejection sampling.
+    ///
+    /// Field elements are uniform in `[0, ORDER_U64)`. To avoid modulo bias when
+    /// extracting `bits`-wide integers, we reject elements `>= floor(ORDER / 2^bits) * 2^bits`.
     pub fn sample_in_range(&mut self, bits: usize, n_samples: usize) -> Vec<usize> {
         assert!(bits < F::bits());
-        let sampled_fe = self.sample_many(n_samples.div_ceil(RATE)).into_iter().flatten();
-        let mut res = Vec::new();
-        for fe in sampled_fe.take(n_samples) {
-            let rand_usize = fe.as_canonical_u64() as usize;
-            res.push(rand_usize & ((1 << bits) - 1));
+        let mask = (1usize << bits) - 1;
+        let threshold = (F::ORDER_U64 >> bits) << bits;
+        let mut res = Vec::with_capacity(n_samples);
+        while res.len() < n_samples {
+            let needed = n_samples - res.len();
+            for fe in self.sample_many(needed.div_ceil(RATE)).into_iter().flatten() {
+                let x = fe.as_canonical_u64();
+                if x < threshold {
+                    res.push((x as usize) & mask);
+                    if res.len() == n_samples {
+                        break;
+                    }
+                }
+            }
         }
         res
     }

@@ -31,15 +31,16 @@ impl<EF: ExtensionField<PF<EF>>> MerkleData<EF> {
         }
     }
 
-    pub(crate) fn open(&self, index: usize) -> (MleOwned<EF>, Vec<[PF<EF>; DIGEST_ELEMS]>) {
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn open(&self, index: usize) -> Option<(MleOwned<EF>, Vec<[PF<EF>; DIGEST_ELEMS]>)> {
         match self {
             MerkleData::Base(prover_data) => {
-                let (leaf, proof) = merkle_open::<PF<EF>, PF<EF>>(prover_data, index);
-                (MleOwned::Base(leaf), proof)
+                let (leaf, proof) = merkle_open::<PF<EF>, PF<EF>>(prover_data, index)?;
+                Some((MleOwned::Base(leaf), proof))
             }
             MerkleData::Extension(prover_data) => {
-                let (leaf, proof) = merkle_open::<PF<EF>, EF>(prover_data, index);
-                (MleOwned::Extension(leaf), proof)
+                let (leaf, proof) = merkle_open::<PF<EF>, EF>(prover_data, index)?;
+                Some((MleOwned::Extension(leaf), proof))
             }
         }
     }

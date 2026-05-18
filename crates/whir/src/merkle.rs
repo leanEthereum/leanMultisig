@@ -91,21 +91,21 @@ fn build_merkle_tree_koalabear(
 pub(crate) fn merkle_open<F: Field, EF: ExtensionField<F>>(
     merkle_tree: &RoundMerkleTree<F>,
     index: usize,
-) -> (Vec<EF>, Vec<[F; DIGEST_ELEMS]>) {
+) -> Option<(Vec<EF>, Vec<[F; DIGEST_ELEMS]>)> {
     if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, QuinticExtensionFieldKB)>() {
         let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
-        let (inner_leaf, proof) = merkle_tree.open(index);
+        let (inner_leaf, proof) = merkle_tree.open(index)?;
         let leaf = QuinticExtensionFieldKB::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
         let proof = unsafe { std::mem::transmute::<_, Vec<[F; DIGEST_ELEMS]>>(proof) };
-        (leaf, proof)
+        Some((leaf, proof))
     } else if TypeId::of::<(F, EF)>() == TypeId::of::<(KoalaBear, KoalaBear)>() {
         let merkle_tree = unsafe { std::mem::transmute::<_, &RoundMerkleTree<KoalaBear>>(merkle_tree) };
-        let (inner_leaf, proof) = merkle_tree.open(index);
+        let (inner_leaf, proof) = merkle_tree.open(index)?;
         let leaf = KoalaBear::reconstitute_from_base(inner_leaf);
         let leaf = unsafe { std::mem::transmute::<_, Vec<EF>>(leaf) };
         let proof = unsafe { std::mem::transmute::<_, Vec<[F; DIGEST_ELEMS]>>(proof) };
-        (leaf, proof)
+        Some((leaf, proof))
     } else {
         unimplemented!()
     }
@@ -202,12 +202,12 @@ impl<F: Clone + Copy + Default + Send + Sync, M: Matrix<F>, const DIGEST_ELEMS: 
         self.tree.root()
     }
 
-    pub fn open(&self, index: usize) -> (Vec<F>, Vec<[F; DIGEST_ELEMS]>) {
+    pub fn open(&self, index: usize) -> Option<(Vec<F>, Vec<[F; DIGEST_ELEMS]>)> {
         let log_height = log2_ceil_usize(self.leaf.height());
-        let mut opening: Vec<F> = self.leaf.row(index).unwrap().into_iter().collect();
+        let mut opening: Vec<F> = self.leaf.row(index)?.into_iter().collect();
         opening.resize(self.full_leaf_base_width, F::default());
         let proof = self.tree.open_siblings(index, log_height);
-        (opening, proof)
+        Some((opening, proof))
     }
 }
 

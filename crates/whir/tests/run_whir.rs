@@ -112,12 +112,14 @@ fn test_run_whir() {
 
     let witness_clone = witness.clone();
     let time = Instant::now();
-    params.prove(
-        &mut prover_state,
-        statement.clone(),
-        witness_clone,
-        &polynomial.by_ref(),
-    );
+    params
+        .prove(
+            &mut prover_state,
+            statement.clone(),
+            witness_clone,
+            &polynomial.by_ref(),
+        )
+        .expect("WHIR prove failed");
     let pruned_proof = prover_state.into_proof();
     let opening_time_single = time.elapsed();
 

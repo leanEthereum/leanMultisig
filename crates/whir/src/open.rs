@@ -1,7 +1,7 @@
 // Credits: whir-p3 (https://github.com/tcoratger/whir-p3) (MIT and Apache-2.0 licenses).
 
 use ::utils::log2_strict_usize;
-use fiat_shamir::{FSProver, MerklePath, ProofResult};
+use fiat_shamir::{FSProver, MerklePath, ProofError, ProofResult};
 use field::PrimeCharacteristicRing;
 use field::{ExtensionField, Field, TwoAdicField};
 use poly::*;
@@ -40,19 +40,19 @@ where
         statement: Vec<SparseStatement<EF>>,
         witness: Witness<EF>,
         polynomial: &MleRef<'_, EF>,
-    ) -> MultilinearPoint<EF> {
+    ) -> ProofResult<MultilinearPoint<EF>> {
         assert!(self.validate_parameters());
         assert!(self.validate_witness(&witness, polynomial));
         self.validate_statement(&statement);
 
         let mut round_state =
-            RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial).unwrap();
+            RoundState::initialize_first_round_state(self, prover_state, statement, witness, polynomial)?;
 
         for round in 0..=self.n_rounds() {
-            self.round(round, prover_state, &mut round_state).unwrap();
+            self.round(round, prover_state, &mut round_state)?;
         }
 
-        MultilinearPoint(round_state.randomness_vec)
+        Ok(MultilinearPoint(round_state.randomness_vec))
     }
 
     fn round(
@@ -114,9 +114,12 @@ where
         );
 
         let stir_evaluations = if let Some(data_b) = &round_state.commitment_merkle_prover_data_b {
-            let answers_a =
-                open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes);
-            let answers_b = open_merkle_tree_at_challenges(data_b, prover_state, &stir_challenges_indexes);
+            let answers_a = open_merkle_tree_at_challenges(
+                &round_state.merkle_prover_data,
+                prover_state,
+                &stir_challenges_indexes,
+            )?;
+            let answers_b = open_merkle_tree_at_challenges(data_b, prover_state, &stir_challenges_indexes)?;
             let mut stir_evaluations = Vec::new();
             for (answer_a, answer_b) in answers_a.iter().zip(&answers_b) {
                 let vars_a = answer_a.by_ref().n_vars();
@@ -135,7 +138,7 @@ where
 
             stir_evaluations
         } else {
-            open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes)
+            open_merkle_tree_at_challenges(&round_state.merkle_prover_data, prover_state, &stir_challenges_indexes)?
                 .iter()
                 .map(|answer| answer.evaluate(&folding_randomness))
                 .collect()
@@ -207,7 +210,10 @@ where
         let mut base_paths = Vec::new();
         let mut ext_paths = Vec::new();
         for challenge in final_challenge_indexes {
-            let (answer, sibling_hashes) = round_state.merkle_prover_data.open(challenge);
+            let (answer, sibling_hashes) = round_state
+                .merkle_prover_data
+                .open(challenge)
+                .ok_or(ProofError::InvalidProof)?;
 
             match answer {
                 MleOwned::Base(leaf) => {
@@ -281,13 +287,13 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
     merkle_tree: &MerkleData<EF>,
     prover_state: &mut impl FSProver<EF>,
     stir_challenges_indexes: &[usize],
-) -> Vec<MleOwned<EF>> {
+) -> ProofResult<Vec<MleOwned<EF>>> {
     let mut answers = Vec::new();
     let mut base_paths = Vec::new();
     let mut ext_paths = Vec::new();
 
     for &challenge in stir_challenges_indexes {
-        let (answer, sibling_hashes) = merkle_tree.open(challenge);
+        let (answer, sibling_hashes) = merkle_tree.open(challenge).ok_or(ProofError::InvalidProof)?;
 
         match &answer {
             MleOwned::Base(leaf) => {
@@ -316,7 +322,7 @@ fn open_merkle_tree_at_challenges<EF: ExtensionField<PF<EF>>>(
         prover_state.hint_merkle_paths_extension(ext_paths);
     }
 
-    answers
+    Ok(answers)
 }
 
 #[derive(Debug, Clone)]
