@@ -65,18 +65,12 @@ BASE_TWO_ADICITY = 24  # KoalaBear
 WHIR_CONFIGS_PATH = "whir_configs.json"
 
 
-
-# ─── Error type + quintic extension field ──────────────────────────────────────────────────────────
-
-
 class ProofError(Exception):
-    """Mirrors backend::ProofError."""
-
+    pass
 
 
 # Quintic extension field: EF = Fp[X] / (X^5 + X^2 - 1)
 # Reduction rule: X^5 = 1 - X^2.
-
 
 
 class EF:
@@ -133,10 +127,6 @@ class EF:
             base = base * base
             n >>= 1
         return result
-
-
-
-# ─── Poseidon16-based Challenger ──────────────────────────────────────────────────────────
 
 
 _POSEIDON16 = Poseidon1(PARAMS_16)
@@ -204,34 +194,20 @@ class Challenger:
         return [int(x.value) & ((1 << bits) - 1) for x in flat]
 
 
-
-# ─── Proof container + VerifierState (transcript reader) ──────────────────────────────────────────────────────────
-
-
 @dataclass
 class MerkleOpening:
-    """Restored Merkle opening: matches fiat_shamir::transcript::MerkleOpening."""
-
     leaf_data: list[Fp]
-    path: list[list[Fp]]  # each sibling is a length-DIGEST_ELEMS digest
+    path: list[list[Fp]]
 
 
 @dataclass
 class Proof:
-    """Mirrors `backend::RawProof`. `transcript` is the flat raw transcript
-    (every absorbed group padded to a multiple of RATE with zeros — the format
-    the zkDSL recursion verifier reads). `merkle_openings` is the list of
-    already-restored openings in consumption order."""
-
     transcript: list[Fp]
     merkle_openings: list[MerkleOpening]
 
 
 class VerifierState:
-    """Drives the Fiat-Shamir transcript: reads scalars from `proof.transcript`,
-    samples challenges from the challenger, yields restored Merkle openings.
-
-    Every read pads to RATE — `n` real scalars are consumed as
+    """Reads from the raw transcript: every `n` real scalars are consumed as
     `next_multiple_of(n, RATE)` raw scalars (trailing positions must be zero),
     and the full RATE-aligned chunk is what the challenger absorbs."""
 
@@ -282,13 +258,8 @@ class VerifierState:
             raise ProofError("InvalidGrindingWitness")
 
 
-
-# ─── Small helpers (Bytecode metadata, EF utilities, log2, padding) ──────────────────────────────────────────────
-
-
 @dataclass
 class Bytecode:
-    """What `verify_execution` needs about a bytecode program."""
     hash: list[Fp]
     log_size: int
 
@@ -313,9 +284,6 @@ def padd_with_zero_to_next_power_of_two(values: Sequence[Fp]) -> list[Fp]:
     return list(values) + [Fp(0)] * (n - len(values))
 
 
-# ─── Merkle path verify ──────────────────────────────────
-
-
 def merkle_verify_path(
     commit: list[Fp],
     log_height: int,
@@ -323,7 +291,6 @@ def merkle_verify_path(
     opened_values: Sequence[Fp],
     opening_proof: Sequence[list[Fp]],
 ) -> bool:
-    """Hash the leaf, walk up `log_height` siblings, compare to the commitment."""
     if len(opening_proof) != log_height:
         return False
     cur = hash_slice(list(opened_values))
@@ -331,10 +298,6 @@ def merkle_verify_path(
         cur = poseidon16_compress(cur, sibling) if index & 1 == 0 else poseidon16_compress(sibling, cur)
         index >>= 1
     return list(commit) == list(cur)
-
-
-
-# ─── WHIR polynomial primitives (poly + whir crates) ──────────────────────────────────────────────────────────
 
 
 def expand_from_univariate(x: EF, num_variables: int) -> list[EF]:
@@ -479,10 +442,6 @@ class SparseStatement:
         return SparseStatement(total, point, values, is_next=True)
 
 
-
-# ─── WHIR config helpers: derive integer-only parameters from the trimmed JSON ──────────────────────────────────────────────────────────
-
-
 def whir_folding_factor_at_round(r: int) -> int:
     return WHIR_INITIAL_FOLDING_FACTOR if r == 0 else WHIR_SUBSEQUENT_FOLDING_FACTOR
 
@@ -562,10 +521,6 @@ def whir_config(log_inv_rate: int, num_variables: int) -> WhirConfig:
     )
 
 
-
-# ─── WHIR verifier (port of crates/whir/src/verify.rs) ──────────────────────────────────────────────────────────
-
-
 @dataclass
 class ParsedCommitment:
     num_variables: int
@@ -589,13 +544,11 @@ def parsed_commitment_parse(state: VerifierState, num_variables: int, ood_sample
 
 @dataclass
 class Evaluation:
-    """Claim that a multilinear evaluates to `value` at `point`."""
     point: list[EF]
     value: EF
 
 
 def _eval_univariate(coeffs: list[EF], x: EF) -> EF:
-    """Horner: c[0] + c[1]*x + c[2]*x^2 + ..."""
     acc = EF.zero()
     for c in reversed(coeffs):
         acc = acc * x + c
@@ -788,19 +741,12 @@ def whir_verify(
     return folding_flat
 
 
-
-# ─── Table metadata (mirror of lean_vm::tables::table_trait) ──────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class TableMeta:
-    """The bits of `lean_vm::Table` the verifier consumes. Each lookup is a
-    `(index_column, value_columns)` pair (mirrors `LookupIntoMemory`)."""
-
     name: str
     n_columns: int
-    bus_direction: str         # "Pull" or "Push"
-    lookups: tuple[tuple[int, tuple[int, ...]], ...]
+    bus_direction: str  # "Pull" or "Push"
+    lookups: tuple[tuple[int, tuple[int, ...]], ...]  # (index_col, value_cols)
 
 
 def tables_from_json(obj: list[dict]) -> list[TableMeta]:
@@ -813,10 +759,6 @@ def tables_from_json(obj: list[dict]) -> list[TableMeta]:
         )
         for t in obj
     ]
-
-
-
-# ─── Stacked PCS — port of sub_protocols/stacked_pcs.rs ──────────────────────────────────────────────────────────
 
 
 def compute_stacked_n_vars(
@@ -896,8 +838,6 @@ def stacked_pcs_parse_commitment(
     return parsed_commitment_parse(state, stacked_n_vars, cfg.commitment_ood_samples)
 
 
-
-# ─── GKR-quotient verifier (port of `sub_protocols::quotient_gkr`) ──────────────────────────────────────────────────────────
 # Verifies `Σ nᵢ/dᵢ` via a layered sumcheck.
 
 
@@ -936,10 +876,6 @@ def verify_gkr_quotient(state: VerifierState, n_vars: int) -> tuple[EF, list[EF]
         point = sc_point + [beta]
 
     return quotient, point, claim_num, claim_den
-
-
-
-# ─── Logup helpers (utils + poly) ──────────────────────────────────────────────────────────
 
 
 def to_big_endian_in_field(value: int, bit_count: int) -> list[EF]:
@@ -993,10 +929,6 @@ def eval_eq(point: Sequence[EF]) -> list[EF]:
     for p in point:
         out = [w for v in out for w in (v * (EF.one() - p), v * p)]
     return out
-
-
-
-# ─── Generic logup verifier — port of sub_protocols/logup.rs::verify_generic_logup ──────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -1155,18 +1087,13 @@ def verify_generic_logup(
     )
 
 
-
-
-
-# ─── Pluggable per-table AIR constraint evaluator ──────────────────────────────────────────────────────────
-
-
 class ConstraintFolder:
-    """Each `assert_zero(x)` contributes `alpha_powers[i] · x` to the
-    running accumulator. `assert_eq` and `assert_bool` are sugar."""
+    """`flat` = current-row column evaluations; `shift` = next-row evaluations
+    restricted to the table's first `n_shift_columns`. Each `assert_zero(x)`
+    contributes `alpha_powers[i] · x` to the accumulator."""
 
-    def __init__(self, up: Sequence[EF], down: Sequence[EF], alpha_powers: Sequence[EF]) -> None:
-        self.up, self.down, self.alpha_powers = list(up), list(down), list(alpha_powers)
+    def __init__(self, flat: Sequence[EF], shift: Sequence[EF], alpha_powers: Sequence[EF]) -> None:
+        self.flat, self.shift, self.alpha_powers = list(flat), list(shift), list(alpha_powers)
         self.accumulator: EF = EF.zero()
         self.i = 0
 
@@ -1202,8 +1129,8 @@ def air_constraint_eval(
 ) -> EF:
     """Evaluate `table`'s AIR constraint polynomial at the given column evals.
 
-    `col_evals[:n_columns]` is the `up` row, `col_evals[n_columns:]` is the
-    `down` row (only present for tables with `down_column_indexes`).
+    `col_evals[:n_columns]` is the `flat` row, `col_evals[n_columns:]` is the
+    `shift` (next-row) view, only present for tables with `n_shift_columns > 0`.
     """
     folder = ConstraintFolder(col_evals[:table.n_columns], col_evals[table.n_columns:], alpha_powers)
     {
@@ -1214,18 +1141,14 @@ def air_constraint_eval(
     return folder.accumulator
 
 
-
-# ─── Execution-table AIR (lean_vm/src/tables/execution/air.rs) ──────────────────────────────────────────────────────────
-
-
 def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
     # Column layout (execution/air.rs): pc, fp, addr_{a,b,c}, value_{a,b,c},
     # operand_{a,b,c}, flag_{a,b,c}, flag_c_fp, flag_ab_fp, mul, jump, aux,
-    # precompile_data. `down[0..2]` carries the next row's (pc, fp).
+    # precompile_data. `shift[0..2]` carries the next row's (pc, fp).
     (pc, fp, addr_a, addr_b, addr_c, value_a, value_b, value_c,
      operand_a, operand_b, operand_c, flag_a, flag_b, flag_c, flag_c_fp,
-     flag_ab_fp, mul, jump, aux, precompile_data) = folder.up[:20]
-    next_pc, next_fp = folder.down[0], folder.down[1]
+     flag_ab_fp, mul, jump, aux, precompile_data) = folder.flat[:20]
+    pc_shift, fp_shift = folder.shift[0], folder.shift[1]
     one = EF.one()
 
     # `nu_x = flag · operand + (1 − flag − flag_ab_fp) · value + flag_ab_fp · (fp + operand)`.
@@ -1259,15 +1182,11 @@ def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: 
     # Constraints 9-13: jump control flow.
     jc = jump * nu_a
     folder.assert_zero(jc * (nu_a - one))
-    folder.assert_zero(jc * (next_pc - nu_b))
-    folder.assert_zero(jc * (next_fp - nu_c))
+    folder.assert_zero(jc * (pc_shift - nu_b))
+    folder.assert_zero(jc * (fp_shift - nu_c))
     not_jc = -(jc - one)
-    folder.assert_zero(not_jc * (next_pc - (pc + one)))
-    folder.assert_zero(not_jc * (next_fp - fp))
-
-
-
-# ─── Extension-op-table AIR (lean_vm/src/tables/extension_op/air.rs) ──────────────────────────────────────────────────────────
+    folder.assert_zero(not_jc * (pc_shift - (pc + one)))
+    folder.assert_zero(not_jc * (fp_shift - fp))
 
 
 # Bus-data magic numbers from extension_op/air.rs (precompile-data layout).
@@ -1299,15 +1218,17 @@ def _quintic_mul_ef(a: Sequence[EF], b: Sequence[EF]) -> list[EF]:
 
 
 def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
-    # `up`: is_be, start, flag_{add,mul,poly_eq}, len, idx_{a,b,res}, then four
-    # 5-EF blocks va, vb, vres, comp. `down`: start, is_be, len, flag_*, idx_*,
-    # comp[0..5] (we only use the next-row `start` and `comp` here).
-    is_be, start, flag_add, flag_mul, flag_poly_eq, len_col, idx_a, idx_b, idx_res = folder.up[:9]
-    va, vb, vres, comp = (folder.up[9 + 5 * k : 9 + 5 * (k + 1)] for k in range(4))
-    # `down`: start, is_be, len, flag_{add,mul,poly_eq}, idx_{a,b}, comp[0..5].
-    (start_down, is_be_down, len_down, flag_add_down, flag_mul_down,
-     flag_poly_eq_down, idx_a_down, idx_b_down) = folder.down[:8]
-    comp_down = folder.down[8:13]
+    # Column layout (extension_op/air.rs): the 13 shift columns
+    # (is_be, start, len, flag_{add,mul,poly_eq}, idx_{a,b}, comp[0..5])
+    # occupy positions 0..13, then idx_res, va, vb, vres (5 each).
+    is_be, start, len_col, flag_add, flag_mul, flag_poly_eq, idx_a, idx_b = folder.flat[:8]
+    comp = folder.flat[8:13]
+    idx_res = folder.flat[13]
+    va, vb, vres = (folder.flat[14 + 5 * k : 14 + 5 * (k + 1)] for k in range(3))
+    # `shift[j]` mirrors `flat[j]` for j ∈ 0..13 (convention).
+    (is_be_shift, start_shift, len_shift, flag_add_shift, flag_mul_shift,
+     flag_poly_eq_shift, idx_a_shift, idx_b_shift) = folder.shift[:8]
+    comp_shift = folder.shift[8:13]
     one = EF.one()
 
     # Constraint 1: precompile bus.
@@ -1326,9 +1247,9 @@ def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_dat
 
     # `va` is `Fp` when in base-extension mode, full EF otherwise; `comp_tail`
     # carries the next chunk's comp when this row isn't a `start`.
-    is_ee, not_start_down = -(is_be - one), -(start_down - one)
+    is_ee, not_start_shift = -(is_be - one), -(start_shift - one)
     va_f_or_ef  = [va[0]] + [va[k] * is_ee for k in range(1, 5)]
-    comp_tail   = [comp_down[k] * not_start_down for k in range(5)]
+    comp_tail   = [comp_shift[k] * not_start_shift for k in range(5)]
     va_times_vb = _quintic_mul_ef(va_f_or_ef, vb)
 
     # Constraints 7-11: add.
@@ -1338,10 +1259,10 @@ def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_dat
     for k in range(5):
         folder.assert_zero((comp[k] - (va_times_vb[k] + comp_tail[k])) * flag_mul)
 
-    # Constraints 17-21: poly_eq gate — `comp ← (2·va·vb − va − vb + 1) · comp_down_or_one`.
+    # Constraints 17-21: poly_eq gate — `comp ← (2·va·vb − va − vb + 1) · comp_shift_or_one`.
     poly_eq_val = [va_times_vb[k] + va_times_vb[k] - va_f_or_ef[k] - vb[k] + (one if k == 0 else EF.zero()) for k in range(5)]
-    comp_down_or_one = [comp_down[0] * not_start_down + start_down] + [comp_down[k] * not_start_down for k in range(1, 5)]
-    poly_eq_result = _quintic_mul_ef(poly_eq_val, comp_down_or_one)
+    comp_shift_or_one = [comp_shift[0] * not_start_shift + start_shift] + [comp_shift[k] * not_start_shift for k in range(1, 5)]
+    poly_eq_result = _quintic_mul_ef(poly_eq_val, comp_shift_or_one)
     for k in range(5):
         folder.assert_zero((comp[k] - poly_eq_result[k]) * flag_poly_eq)
 
@@ -1349,24 +1270,20 @@ def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_dat
     for k in range(5):
         folder.assert_zero((comp[k] - vres[k]) * start)
 
-    # Constraints 27-31: down-row consistency on non-start rows
-    folder.assert_zero(not_start_down * (len_col - len_down - one))
-    folder.assert_zero(not_start_down * (is_be - is_be_down))
-    folder.assert_zero(not_start_down * (flag_add - flag_add_down))
-    folder.assert_zero(not_start_down * (flag_mul - flag_mul_down))
-    folder.assert_zero(not_start_down * (flag_poly_eq - flag_poly_eq_down))
+    # Constraints 27-31: shift-row consistency on non-start rows.
+    folder.assert_zero(not_start_shift * (len_col - len_shift - one))
+    folder.assert_zero(not_start_shift * (is_be - is_be_shift))
+    folder.assert_zero(not_start_shift * (flag_add - flag_add_shift))
+    folder.assert_zero(not_start_shift * (flag_mul - flag_mul_shift))
+    folder.assert_zero(not_start_shift * (flag_poly_eq - flag_poly_eq_shift))
 
-    # Constraint 32-33: idx_a / idx_b increment
+    # Constraint 32-33: idx_a / idx_b increment.
     a_increment = is_be + is_ee * EF.from_base(Fp(5))  # DIMENSION = 5
-    folder.assert_zero(not_start_down * (idx_a_down - idx_a - a_increment))
-    folder.assert_zero(not_start_down * (idx_b_down - idx_b - EF.from_base(Fp(5))))
+    folder.assert_zero(not_start_shift * (idx_a_shift - idx_a - a_increment))
+    folder.assert_zero(not_start_shift * (idx_b_shift - idx_b - EF.from_base(Fp(5))))
 
-    # Constraint 34: start_down enforces len=1
-    folder.assert_zero(start_down * (len_col - one))
-
-
-
-# ─── Poseidon16-compress AIR (lean_vm/src/tables/poseidon_16/mod.rs) ──────────────────────────────────────────────────────────
+    # Constraint 34: `start_shift` enforces len=1.
+    folder.assert_zero(start_shift * (len_col - one))
 
 
 @functools.cache
@@ -1476,7 +1393,7 @@ def _eval_poseidon1_16(folder: ConstraintFolder, cols: dict, extra_data: dict) -
 
 def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
     const = _p1c()
-    up = folder.up
+    flat = folder.flat
     one = EF.one()
     W = _POSEIDON_WIDTH
     half_initial = const["half_full_rounds"] // 2
@@ -1486,7 +1403,7 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
     o = 0
     def take(n: int) -> list[EF]:
         nonlocal o
-        chunk, o = up[o : o + n], o + n
+        chunk, o = flat[o : o + n], o + n
         return list(chunk)
 
     [flag_active, index_b, index_res, flag_half_output, flag_hardcoded_left,
@@ -1528,17 +1445,12 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
     }, extra_data)
 
 
-
-# ─── AIR-stage orchestration in verify_execution ──────────────────────────────────────────────────────────
-
-
 # Per-table compile-time spec (Rust: `<Table as Air>::{degree_air, n_constraints,
-# down_column_indexes}`). The down-column lists for `execution` and
-# `extension_op` are exactly what their `Air::down_column_indexes` returns.
+# n_shift_columns}`). By convention the shift columns occupy positions `0..n_shift`.
 _TABLE_SPECS: dict[str, dict] = {
-    "execution":           {"degree": 5,  "n_constraints": 13, "down": [0, 1]},
-    "extension_op":        {"degree": 4,  "n_constraints": 16, "down": [1, 0, 5, 2, 3, 4, 6, 7, 24, 25, 26, 27, 28]},
-    "poseidon16_compress": {"degree": 10, "n_constraints": 81, "down": []},
+    "execution":           {"degree": 5,  "n_constraints": 13, "n_shift":  2},
+    "extension_op":        {"degree": 4,  "n_constraints": 16, "n_shift": 13},
+    "poseidon16_compress": {"degree": 10, "n_constraints": 81, "n_shift":  0},
 }
 
 
@@ -1590,8 +1502,8 @@ def verify_air_stage(
     }
     my_air_final_value = EF.zero()
     for (name, log_n_rows), eta_pow in zip(tables_sorted, eta_powers):
-        meta, down = tables[name], _TABLE_SPECS[name]["down"]
-        col_evals = state.next_extension_scalars_vec(meta.n_columns + len(down))
+        meta, n_shift = tables[name], _TABLE_SPECS[name]["n_shift"]
+        col_evals = state.next_extension_scalars_vec(meta.n_columns + n_shift)
         constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers, extra_data)
 
         # Per-table contribution = η^t · (Π unused-prefix coords) · eq · C(col_evals).
@@ -1602,8 +1514,9 @@ def verify_air_stage(
         bus_point = from_end(logup.gkr_point, log_n_rows)
         my_air_final_value = my_air_final_value + eta_pow * k_t * eq_poly_outside(bus_point, natural_pt) * constraint_eval
 
+        # Convention: down column `j` is column `j` of the table.
         eq_values = {i: col_evals[i] for i in range(meta.n_columns)}
-        next_values = {idx: col_evals[meta.n_columns + j] for j, idx in enumerate(down)}
+        next_values = {j: col_evals[meta.n_columns + j] for j in range(n_shift)}
         committed[name].append((natural_pt, eq_values, next_values))
 
     if my_air_final_value != sc.value:
@@ -1616,10 +1529,6 @@ def verify_air_stage(
     return committed, list(pm_point), pm_eval
 
 
-
-# ─── Top-level verifier ──────────────────────────────────────────────────────────
-
-
 def verify_execution(
     bytecode: Bytecode,
     public_input: Sequence[Fp],
@@ -1628,11 +1537,6 @@ def verify_execution(
     constants: dict,
     bytecode_multilinear: list[int],
 ) -> dict:
-    """Verify a leanVM execution proof. Port of `verify_execution.rs`.
-
-    Flow: observe prologue → read dims → parse stacked-PCS WHIR commitment →
-    generic logup → AIR sumcheck → assemble global WHIR statements → final WHIR.
-    `tables` must be in canonical Rust order (`ALL_TABLES`)."""
     state = VerifierState(proof)
     state.observe_scalars(list(public_input))
     state.observe_scalars(poseidon16_compress(bytecode.hash, SNARK_DOMAIN_SEP))
@@ -1698,10 +1602,6 @@ def verify_execution(
     whir_verify(state, whir_config(log_inv_rate, stacked_n_vars), parsed_commitment, global_statements)
 
     return {"log_inv_rate": log_inv_rate, "log_memory": log_memory, "stacked_n_vars": stacked_n_vars}
-
-
-
-# ─── Test vector loader + entry point ──────────────────────────────────────────────────────────
 
 
 def poseidon_compress_slice_iv(data: Sequence[Fp]) -> list[Fp]:
