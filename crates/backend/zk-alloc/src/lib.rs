@@ -30,6 +30,16 @@ const SLACK: usize = 4; // SLACK absorbs the main thread and any non-rayon helpe
 const MAX_THREADS: usize = NUM_THREADS + SLACK;
 const REGION_SIZE: usize = SLAB_SIZE * MAX_THREADS;
 
+/// Allocations smaller than this go to System even during active phases.
+/// Routes registry / hashmap / injector-block-sized allocations away from the
+/// arena, so library state that outlives a phase doesn't land in recycled
+/// memory. Covers the known phase-crossing patterns: crossbeam_deque::Injector
+/// blocks (~1.5 KB), tracing-subscriber Registry slot data (sub-KB), hashbrown
+/// HashMap entries (sub-KB), rayon-core job stack frames (sub-KB).
+///
+/// TODO is there a cleaner way?
+const MIN_ARENA_BYTES: usize = 4096;
+
 #[derive(Debug)]
 pub struct ZkAllocator;
 
@@ -99,19 +109,22 @@ pub fn init() {
 
 /// Activates the arena and resets every thread's slab. All allocations until the next
 /// `end_phase()` go to the arena; the previous phase's data is overwritten in place.
+///
+/// Panics if a phase is already active: phases must not nest (a nested call would
+/// recycle the slab and overwrite the outer phase's still-live allocations).
 pub fn begin_phase() {
+    let prev_active = ARENA_ACTIVE.swap(true, Ordering::Release);
+    assert!(
+        !prev_active,
+        "begin_phase() called while another phase is already active — phases must not nest"
+    );
     GENERATION.fetch_add(1, Ordering::Release);
-    ARENA_ACTIVE.store(true, Ordering::Release);
 }
 
 /// Deactivates the arena. New allocations go to the system allocator; existing arena
 /// pointers stay valid until the next `begin_phase()` resets the slabs.
-///
-/// Also calls [`system_info::flush_rayon`] to release any rayon/crossbeam storage
-/// still referencing this phase's arena memory.
 pub fn end_phase() {
     ARENA_ACTIVE.store(false, Ordering::Release);
-    system_info::flush_rayon();
 }
 
 #[cold]
@@ -152,6 +165,15 @@ unsafe impl GlobalAlloc for ZkAllocator {
     #[inline(always)]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if ARENA_ACTIVE.load(Ordering::Relaxed) {
+            // Small allocs bypass arena: registry slots / HashMap entries /
+            // injector-block-sized allocations from rayon/tracing libraries
+            // commonly outlive a phase. Routing them to System keeps them
+            // safe across begin_phase()/end_phase() boundaries.
+            //
+            // TODO is there a cleaner way?
+            if layout.size() < MIN_ARENA_BYTES {
+                return unsafe { std::alloc::System.alloc(layout) };
+            }
             let generation = GENERATION.load(Ordering::Relaxed);
             if ARENA_GEN.get() == generation {
                 let align = layout.align();
@@ -182,11 +204,22 @@ unsafe impl GlobalAlloc for ZkAllocator {
         if new_size <= layout.size() {
             return ptr;
         }
+        // Sticky-System routing: if the original allocation came from System
+        // (small, or pre-phase, or routed by size-routing), keep the grown
+        // allocation in System too. Without this, a Vec allocated outside a
+        // phase that grows inside one would silently migrate into the arena
+        // and become subject to phase recycling.
+        let addr = ptr as usize;
+        let base = REGION_BASE.load(Ordering::Relaxed);
+        let in_arena = base != 0 && addr >= base && addr < base + REGION_SIZE;
+        if !in_arena {
+            return unsafe { std::alloc::System.realloc(ptr, layout, new_size) };
+        }
         // SAFETY: new_size > layout.size() > 0, align unchanged from valid layout.
         let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
         let new_ptr = unsafe { self.alloc(new_layout) };
         if !new_ptr.is_null() {
-            unsafe { std::ptr::copy_nonoverlapping(ptr, new_ptr, layout.size()) };
+            unsafe { std::ptr::copy(ptr, new_ptr, layout.size()) };
             unsafe { self.dealloc(ptr, layout) };
         }
         new_ptr
