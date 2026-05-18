@@ -31,6 +31,10 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
     let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 3])).collect();
+    // log_memory (separately observed) must match the Memory table's row count.
+    if table_n_vars[&Table::memory()] != log_memory {
+        return Err(ProofError::InvalidProof);
+    }
     check_rate(log_inv_rate)?;
     let whir_config = default_whir_config(log_inv_rate);
     for (table, &log_n_rows) in &table_n_vars {
@@ -47,8 +51,14 @@ pub fn verify_execution(
             .into());
         }
     }
-    // check memory is bigger than any other table
-    if log_memory < (*table_n_vars.values().max().unwrap()).max(bytecode.log_size()) {
+    // check memory is bigger than any other table (and >= bytecode size)
+    let max_non_memory = table_n_vars
+        .iter()
+        .filter(|(t, _)| **t != Table::memory())
+        .map(|(_, h)| *h)
+        .max()
+        .unwrap();
+    if log_memory < max_non_memory.max(bytecode.log_size()) {
         return Err(ProofError::InvalidProof);
     }
 
@@ -62,13 +72,8 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let parsed_commitment = stacked_pcs_parse_commitment(
-        &whir_config,
-        &mut verifier_state,
-        log_memory,
-        bytecode.log_size(),
-        &table_n_vars,
-    )?;
+    let parsed_commitment =
+        stacked_pcs_parse_commitment(&whir_config, &mut verifier_state, bytecode.log_size(), &table_n_vars)?;
 
     let logup_c = verifier_state.sample();
     verifier_state.duplex();
@@ -80,7 +85,6 @@ pub fn verify_execution(
         logup_c,
         &logup_alphas,
         &logup_alphas_eq_poly,
-        log_memory,
         &bytecode.instructions_multilinear,
         &table_n_vars,
     )?;
@@ -106,6 +110,12 @@ pub fn verify_execution(
     let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
+    // Memory has no AIR / no bus — filter it out.
+    let air_tables_sorted: Vec<(Table, VarCount)> = tables_sorted
+        .iter()
+        .copied()
+        .filter(|(t, _)| *t != Table::memory())
+        .collect();
 
     struct TableVerifyData {
         table: Table,
@@ -116,7 +126,7 @@ pub fn verify_execution(
     let mut initial_sum = EF::ZERO;
     let mut eta_power = EF::ONE;
 
-    for (table, _) in &tables_sorted {
+    for (table, _) in &air_tables_sorted {
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
         let bus_denominator_value = logup_statements.bus_denominators_values[table];
         let bus_final_value = bus_numerator_value
@@ -137,9 +147,9 @@ pub fn verify_execution(
         eta_power *= eta;
     }
 
-    let max_full_degree = tables_sorted.iter().map(|(t, _)| t.degree_air() + 1).max().unwrap();
+    let max_full_degree = air_tables_sorted.iter().map(|(t, _)| t.degree_air() + 1).max().unwrap();
 
-    let n_max = tables_sorted[0].1;
+    let n_max = air_tables_sorted[0].1;
     let Evaluation {
         point: sumcheck_air_point,
         value: claimed_air_final_value,
@@ -181,15 +191,9 @@ pub fn verify_execution(
         MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(public_memory.len())));
     let public_memory_eval = public_memory.evaluate(&public_memory_random_point);
 
+    // bytecode_acc lives at byte-offset `MEMORY_N_COLUMNS << log_memory` (right
+    // after the Memory table's columns). Its MLE has `bytecode.log_size()` variables.
     let previous_statements = vec![
-        SparseStatement::new(
-            parsed_commitment.num_variables,
-            logup_statements.memory_and_acc_point,
-            vec![
-                SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_memory_acc),
-            ],
-        ),
         SparseStatement::new(
             parsed_commitment.num_variables,
             public_memory_random_point,
@@ -199,7 +203,7 @@ pub fn verify_execution(
             parsed_commitment.num_variables,
             logup_statements.bytecode_and_acc_point,
             vec![SparseValue::new(
-                (2 << log_memory) >> bytecode.log_size(),
+                (MEMORY_N_COLUMNS << log_memory) >> bytecode.log_size(),
                 logup_statements.value_bytecode_acc,
             )],
         ),
@@ -207,7 +211,6 @@ pub fn verify_execution(
 
     let global_statements_base = stacked_pcs_global_statements(
         parsed_commitment.num_variables,
-        log_memory,
         bytecode.log_size(),
         bytecode.ending_pc,
         previous_statements,

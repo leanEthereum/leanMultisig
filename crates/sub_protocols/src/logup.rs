@@ -8,9 +8,6 @@ use utils::*;
 
 #[derive(Debug, PartialEq, Hash, Clone)]
 pub struct GenericLogupStatements {
-    pub memory_and_acc_point: MultilinearPoint<EF>,
-    pub value_memory: EF,
-    pub value_memory_acc: EF,
     pub bytecode_and_acc_point: MultilinearPoint<EF>,
     pub value_bytecode_acc: EF,
     pub bus_numerators_values: BTreeMap<Table, EF>,
@@ -28,18 +25,20 @@ pub fn prove_generic_logup(
     prover_state: &mut impl FSProver<EF>,
     c: EF,
     alphas_eq_poly: &[EF],
-    memory: &[F],
-    memory_acc: &[F],
     bytecode_multilinear: &[F],
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> GenericLogupStatements {
+    let memory_trace = &traces[&Table::memory()];
+    let memory = &memory_trace.columns[MEMORY_COL_VALUE][..];
+    let memory_acc = &memory_trace.columns[MEMORY_COL_ACC][..];
     assert!(memory.len().is_power_of_two());
     assert_eq!(memory.len(), memory_acc.len());
     assert!(memory.len() >= traces.values().map(|t| 1 << t.log_n_rows).max().unwrap());
 
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
-    let tables_log_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_log_heights: BTreeMap<Table, _> =
+        traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_log_heights_sorted = sort_tables_by_height(&tables_log_heights);
 
     let total_active_len = compute_total_active_len(
@@ -66,7 +65,7 @@ pub fn prove_generic_logup(
     let chunk_size = 1usize << pivot;
     let chunk_shift = usize::BITS as usize - pivot;
     let chunk_mask = chunk_size - 1;
-    let max_table_height = 1 << tables_log_heights_sorted[0].1;
+    let max_table_height = 1 << max_non_memory_log_height(&tables_log_heights_sorted);
 
     let src_idx = |p: usize, w: usize| -> usize {
         let x = p * width + w;
@@ -130,6 +129,11 @@ pub fn prove_generic_logup(
     offset += max_table_height.max(1 << log_bytecode);
 
     for (table, _) in &tables_log_heights_sorted {
+        if *table == Table::memory() {
+            // Memory's pull side has already been emitted above (special-cased,
+            // implicit row=index). Memory has no bus and no lookups.
+            continue;
+        }
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
@@ -220,12 +224,14 @@ pub fn prove_generic_logup(
     // sanity check
     assert_eq!(sum, EF::ZERO);
 
-    // Memory: ...
-    let memory_and_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
-    let value_memory_acc = memory_acc.evaluate(&memory_and_acc_point);
+    // Memory: emit (value, acc) evaluations at the memory point. These become the
+    // Memory table's "committed_statements" so the stacked-PCS layer handles them
+    // through the same path as every other table's column claims.
+    let memory_point = MultilinearPoint(from_end(&claim_point_gkr, log2_strict_usize(memory.len())).to_vec());
+    let value_memory_acc = memory_acc.evaluate(&memory_point);
     prover_state.add_extension_scalar(value_memory_acc);
 
-    let value_memory = memory.evaluate(&memory_and_acc_point);
+    let value_memory = memory.evaluate(&memory_point);
     prover_state.add_extension_scalar(value_memory);
 
     let bytecode_and_acc_point = MultilinearPoint(from_end(&claim_point_gkr, log_bytecode).to_vec());
@@ -237,7 +243,15 @@ pub fn prove_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
+    // Memory's column claims (filled-in for the stacked-PCS layer).
+    let mut memory_table_values = BTreeMap::<ColIndex, EF>::new();
+    memory_table_values.insert(MEMORY_COL_VALUE, value_memory);
+    memory_table_values.insert(MEMORY_COL_ACC, value_memory_acc);
+    columns_values.insert(Table::memory(), memory_table_values);
     for (table, _) in &tables_log_heights_sorted {
+        if *table == Table::memory() {
+            continue;
+        }
         let trace = &traces[table];
         let log_n_rows = trace.log_n_rows;
 
@@ -308,9 +322,6 @@ pub fn prove_generic_logup(
     }
 
     GenericLogupStatements {
-        memory_and_acc_point,
-        value_memory,
-        value_memory_acc,
         bytecode_and_acc_point,
         value_bytecode_acc,
         bus_numerators_values,
@@ -328,11 +339,11 @@ pub fn verify_generic_logup(
     c: EF,
     alphas: &[EF],
     alphas_eq_poly: &[EF],
-    log_memory: usize,
     bytecode_multilinear: &[F],
     table_log_n_rows: &BTreeMap<Table, VarCount>,
 ) -> ProofResult<GenericLogupStatements> {
     let tables_heights_sorted = sort_tables_by_height(table_log_n_rows);
+    let log_memory = table_log_n_rows[&Table::memory()];
     let log_bytecode = log2_strict_usize(bytecode_multilinear.len() / N_INSTRUCTION_COLUMNS.next_power_of_two());
     let total_gkr_n_vars = log2_ceil_usize(compute_total_active_len(
         log_memory,
@@ -355,14 +366,14 @@ pub fn verify_generic_logup(
         MultilinearPoint(bits).eq_poly_outside(&MultilinearPoint(point_gkr[..n_missing].to_vec()))
     };
 
-    let memory_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
+    let memory_point = MultilinearPoint(from_end(&point_gkr, log_memory).to_vec());
     let pref = pref_at(0, log_memory);
 
     let value_memory_acc = verifier_state.next_extension_scalar()?;
     retrieved_numerators_value -= pref * value_memory_acc;
 
     let value_memory = verifier_state.next_extension_scalar()?;
-    let value_index = mle_of_01234567_etc(&memory_and_acc_point);
+    let value_index = mle_of_01234567_etc(&memory_point);
     retrieved_denominators_value += pref
         * (c - finger_print(
             F::from_usize(LOGUP_MEMORY_DOMAINSEP),
@@ -371,7 +382,7 @@ pub fn verify_generic_logup(
         ));
     let mut offset = 1 << log_memory;
 
-    let log_bytecode_padded = log_bytecode.max(tables_heights_sorted[0].1);
+    let log_bytecode_padded = log_bytecode.max(max_non_memory_log_height(&tables_heights_sorted));
     let bytecode_and_acc_point = MultilinearPoint(from_end(&point_gkr, log_bytecode).to_vec());
     let pref = pref_at(offset, log_bytecode);
     let pref_padded = pref_at(offset, log_bytecode_padded);
@@ -404,7 +415,14 @@ pub fn verify_generic_logup(
     let mut bus_numerators_values = BTreeMap::new();
     let mut bus_denominators_values = BTreeMap::new();
     let mut columns_values = BTreeMap::new();
+    let mut memory_table_values = BTreeMap::<ColIndex, EF>::new();
+    memory_table_values.insert(MEMORY_COL_VALUE, value_memory);
+    memory_table_values.insert(MEMORY_COL_ACC, value_memory_acc);
+    columns_values.insert(Table::memory(), memory_table_values);
     for &(table, log_n_rows) in &tables_heights_sorted {
+        if table == Table::memory() {
+            continue;
+        }
         let mut table_values = BTreeMap::<ColIndex, EF>::new();
 
         if table == Table::execution() {
@@ -478,9 +496,6 @@ pub fn verify_generic_logup(
     }
 
     Ok(GenericLogupStatements {
-        memory_and_acc_point,
-        value_memory,
-        value_memory_acc,
         bytecode_and_acc_point,
         value_bytecode_acc,
         bus_numerators_values,
@@ -493,8 +508,22 @@ pub fn verify_generic_logup(
 }
 
 fn offset_for_table(table: &Table, log_n_rows: usize) -> usize {
+    if *table == Table::memory() {
+        // Memory has no bus and no lookups — its contribution (the value column
+        // pulled at implicit row=index) is accounted for separately as `1 << log_memory`.
+        return 0;
+    }
     let num_cols = table.lookups().iter().map(|l| l.values.len()).sum::<usize>() + 1; // +1 for the bus
     num_cols << log_n_rows
+}
+
+pub fn max_non_memory_log_height(tables_heights_sorted: &[(Table, VarCount)]) -> VarCount {
+    tables_heights_sorted
+        .iter()
+        .filter(|(t, _)| *t != Table::memory())
+        .map(|(_, h)| *h)
+        .max()
+        .unwrap()
 }
 
 fn compute_total_active_len(
@@ -502,7 +531,7 @@ fn compute_total_active_len(
     log_bytecode: usize,
     tables_heights_sorted: &[(Table, VarCount)],
 ) -> usize {
-    let max_table_height = 1 << tables_heights_sorted[0].1;
+    let max_table_height = 1 << max_non_memory_log_height(tables_heights_sorted);
     let log_n_cycles = tables_heights_sorted
         .iter()
         .find(|(table, _)| *table == Table::execution())

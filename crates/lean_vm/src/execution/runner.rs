@@ -7,7 +7,9 @@ use crate::execution::{ExecutionHistory, Memory};
 use crate::isa::Bytecode;
 use crate::isa::hint::{DiagnosticState, Hint, HintState, NamedHintCursor};
 use crate::isa::instruction::{InstructionContext, InstructionCounts};
-use crate::{ALL_TABLES, CodeAddress, HintExecutionContext, MemOrConstant, N_TABLES, STARTING_PC, Table, TableTrace};
+use crate::{
+    ALL_AIR_TABLES, CodeAddress, HintExecutionContext, MemOrConstant, N_AIR_TABLES, STARTING_PC, Table, TableTrace,
+};
 use backend::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use utils::{ToUsize, padd_with_zero_to_next_power_of_two};
@@ -77,7 +79,9 @@ impl Trace {
         Self {
             pcs: Vec::new(),
             fps: Vec::new(),
-            tables: BTreeMap::from_iter((0..N_TABLES).map(|i| (ALL_TABLES[i], TableTrace::new(&ALL_TABLES[i])))),
+            tables: BTreeMap::from_iter(
+                (0..N_AIR_TABLES).map(|i| (ALL_AIR_TABLES[i], TableTrace::new(&ALL_AIR_TABLES[i]))),
+            ),
             counts: InstructionCounts::default(),
             pending_deref_hints: Vec::new(),
         }

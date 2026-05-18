@@ -167,6 +167,19 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: ExecutionResul
     }
 }
 
+/// Build the Memory `TableTrace` from finalized memory + access counts.
+/// Memory is its own table now (no AIR, 2 columns: value, acc).
+pub fn build_memory_table_trace(memory: Vec<F>, memory_acc: Vec<F>) -> TableTrace {
+    assert_eq!(memory.len(), memory_acc.len());
+    assert!(memory.len().is_power_of_two());
+    let log_n_rows = log2_strict_usize(memory.len());
+    TableTrace {
+        non_padded_n_rows: memory.len(),
+        log_n_rows,
+        columns: vec![memory, memory_acc],
+    }
+}
+
 fn pad_table(
     table: &Table,
     traces: &mut BTreeMap<Table, TableTrace>,

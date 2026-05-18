@@ -3,13 +3,22 @@ use backend::*;
 use crate::execution::memory::MemoryAccess;
 use crate::*;
 
-pub const N_TABLES: usize = 3;
-pub const ALL_TABLES: [Table; N_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
+pub const N_TABLES: usize = 4;
+pub const ALL_TABLES: [Table; N_TABLES] = [
+    Table::memory(),
+    Table::execution(),
+    Table::extension_op(),
+    Table::poseidon16(),
+];
+pub const N_AIR_TABLES: usize = 3;
+/// AIR tables only (memory is excluded — it has no AIR / bus).
+pub const ALL_AIR_TABLES: [Table; N_AIR_TABLES] = [Table::execution(), Table::extension_op(), Table::poseidon16()];
 pub const MAX_PRECOMPILE_BUS_WIDTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(usize)]
 pub enum Table {
+    Memory(MemoryTable),
     Execution(ExecutionTable<true>),
     ExtensionOp(ExtensionOpPrecompile<true>),
     Poseidon16(Poseidon16Precompile<true>),
@@ -20,6 +29,7 @@ macro_rules! delegate_to_inner {
     // Existing pattern for method calls
     ($self:expr, $method:ident $(, $($arg:expr),*)?) => {
         match $self {
+            Self::Memory(p) => p.$method($($($arg),*)?),
             Self::ExtensionOp(p) => p.$method($($($arg),*)?),
             Self::Poseidon16(p) => p.$method($($($arg),*)?),
             Self::Execution(p) => p.$method($($($arg),*)?),
@@ -28,6 +38,7 @@ macro_rules! delegate_to_inner {
     // New pattern for applying a macro to the inner value
     ($self:expr => $macro_name:ident) => {
         match $self {
+            Table::Memory(p) => $macro_name!(p),
             Table::ExtensionOp(p) => $macro_name!(p),
             Table::Poseidon16(p) => $macro_name!(p),
             Table::Execution(p) => $macro_name!(p),
@@ -36,6 +47,9 @@ macro_rules! delegate_to_inner {
 }
 
 impl Table {
+    pub const fn memory() -> Self {
+        Self::Memory(MemoryTable)
+    }
     pub const fn execution() -> Self {
         Self::Execution(ExecutionTable)
     }
@@ -111,7 +125,7 @@ pub fn max_bus_width_including_domainsep() -> usize {
 }
 
 pub fn max_air_constraints() -> usize {
-    ALL_TABLES.iter().map(|table| table.n_constraints()).max().unwrap()
+    ALL_AIR_TABLES.iter().map(|table| table.n_constraints()).max().unwrap()
 }
 
 #[cfg(test)]
@@ -127,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_max_precompile_bus_width() {
-        let expected_max_bus_width = ALL_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
+        let expected_max_bus_width = ALL_AIR_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
         assert_eq!(MAX_PRECOMPILE_BUS_WIDTH, expected_max_bus_width);
     }
 }

@@ -4,6 +4,9 @@ pub use extension_op::*;
 mod poseidon_16;
 pub use poseidon_16::*;
 
+mod memory;
+pub use memory::*;
+
 mod table_enum;
 pub use table_enum::*;
 

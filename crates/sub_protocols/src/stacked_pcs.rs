@@ -11,9 +11,14 @@ use utils::ansi::Colorize;
 
 /*
 Stacking of various (multilinear) polynomials into a single -big- (multilinear) polynomial, which is committed via WHIR.
-[------------------------------ Memory ------------------------------]
-[------------------------ Memory Accumulator ------------------------]
-[------ Bytecode Accumulator -----]                             (padded to bas as least as large as the execution table)
+
+Memory is the first table in `ALL_TABLES`, has no AIR / no bus, and is always the
+tallest (>= every other table's height). It is therefore always laid out first in
+the stacked polynomial:
+
+[------------------------------ Memory value -----------------------]
+[------------------------ Memory acc (multiplicity) -----------------]
+[------ Bytecode Accumulator -----]                             (padded to >= largest non-memory table)
 [-------- Execution Col 0 --------]
 [-------- Execution Col 1 --------]
 ...
@@ -39,7 +44,6 @@ pub struct StackedPcsWitness {
 
 pub fn stacked_pcs_global_statements(
     stacked_n_vars: VarCount,
-    memory_n_vars: VarCount,
     bytecode_n_vars: VarCount,
     ending_pc: usize,
     previous_statements: Vec<SparseStatement<EF>>,
@@ -49,14 +53,12 @@ pub fn stacked_pcs_global_statements(
     assert_eq!(tables_heights.len(), committed_statements.len());
 
     let tables_heights_sorted = sort_tables_by_height(tables_heights);
+    let max_other_table_n_vars = max_non_memory_height(&tables_heights_sorted);
 
     let mut global_statements = previous_statements;
-    let mut offset = 2 << memory_n_vars; // memory + memory_acc
+    let mut offset = 0;
 
-    let max_table_n_vars = tables_heights_sorted[0].1;
-    offset += 1 << bytecode_n_vars.max(max_table_n_vars); // bytecode acc
-
-    for (table, n_vars) in tables_heights_sorted {
+    for (table, n_vars) in &tables_heights_sorted {
         if table.is_execution_table() {
             // Important: ensure both initial and final PC conditions are correct
             global_statements.push(SparseStatement::unique_value(
@@ -70,7 +72,7 @@ pub fn stacked_pcs_global_statements(
                 EF::from_usize(ending_pc),
             ));
         }
-        for (point, eq_values, next_values) in &committed_statements[&table] {
+        for (point, eq_values, next_values) in &committed_statements[table] {
             if !next_values.is_empty() {
                 global_statements.push(SparseStatement::new_next(
                     stacked_n_vars,
@@ -91,39 +93,47 @@ pub fn stacked_pcs_global_statements(
             ));
         }
         offset += table.n_columns() << n_vars;
+        // Right after the Memory table columns, bytecode_acc occupies its own slot,
+        // padded to >= the largest non-memory table height.
+        if *table == Table::memory() {
+            offset += 1 << bytecode_n_vars.max(max_other_table_n_vars);
+        }
     }
     global_statements
+}
+
+fn max_non_memory_height(sorted: &[(Table, VarCount)]) -> VarCount {
+    sorted
+        .iter()
+        .filter(|(t, _)| *t != Table::memory())
+        .map(|(_, h)| *h)
+        .max()
+        .unwrap()
 }
 
 #[instrument(skip_all)]
 pub fn stack_polynomials_and_commit(
     prover_state: &mut impl FSProver<EF>,
     whir_config_builder: &WhirConfigBuilder,
-    memory: &[F],
-    memory_acc: &[F],
     bytecode_acc: &[F],
     traces: &BTreeMap<Table, TableTrace>,
 ) -> StackedPcsWitness {
-    assert_eq!(memory.len(), memory_acc.len());
-    let tables_heights = traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
+    let tables_heights: BTreeMap<Table, VarCount> =
+        traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_heights_sorted = sort_tables_by_height(&tables_heights);
-    assert!(log2_strict_usize(memory.len()) >= tables_heights[&Table::execution()]); // memory must be at least as large as the number of cycles (TODO add some padding when this is not the case)
-    assert!(tables_heights[&Table::execution()] >= tables_heights_sorted[0].1); // execution table must be the largest table (TODO add some padding when this is not the case)
+    let log_memory = tables_heights[&Table::memory()];
+    // Memory must be the tallest table.
+    assert_eq!(tables_heights_sorted[0].0, Table::memory());
+    // Memory must be at least as large as the execution table.
+    assert!(log_memory >= tables_heights[&Table::execution()]);
 
     let stacked_n_vars = compute_stacked_n_vars(
-        log2_strict_usize(memory.len()),
         log2_strict_usize(bytecode_acc.len()),
         &tables_heights_sorted.iter().cloned().collect(),
     );
     let mut global_polynomial = F::zero_vec(1 << stacked_n_vars); // TODO avoid cloning all witness data
-    global_polynomial[..memory.len()].copy_from_slice(memory);
-    let mut offset = memory.len();
-    global_polynomial[offset..][..memory_acc.len()].copy_from_slice(memory_acc);
-    offset += memory_acc.len();
-
-    global_polynomial[offset..][..bytecode_acc.len()].copy_from_slice(bytecode_acc);
-    let largest_table_height = 1 << tables_heights_sorted[0].1;
-    offset += largest_table_height.max(bytecode_acc.len()); // we may pad bytecode_acc to match largest table height
+    let mut offset = 0;
+    let largest_non_memory_height = 1 << max_non_memory_height(&tables_heights_sorted);
 
     for (table, log_n_rows) in &tables_heights_sorted {
         let n_rows = 1 << *log_n_rows;
@@ -131,6 +141,12 @@ pub fn stack_polynomials_and_commit(
             let col = &traces[table].columns[col_index];
             global_polynomial[offset..][..n_rows].copy_from_slice(&col[..n_rows]);
             offset += n_rows;
+        }
+        if *table == Table::memory() {
+            // bytecode_acc is laid out right after the memory columns, padded with zeros to at
+            // least the largest non-memory table height (`global_polynomial` is zero-initialized).
+            global_polynomial[offset..][..bytecode_acc.len()].copy_from_slice(bytecode_acc);
+            offset += largest_non_memory_height.max(bytecode_acc.len());
         }
     }
     assert_eq!(log2_ceil_usize(offset), stacked_n_vars);
@@ -159,19 +175,23 @@ pub fn stack_polynomials_and_commit(
 pub fn stacked_pcs_parse_commitment(
     whir_config_builder: &WhirConfigBuilder,
     verifier_state: &mut impl FSVerifier<EF>,
-    log_memory: usize,
     log_bytecode: usize,
     tables_heights: &BTreeMap<Table, VarCount>,
 ) -> Result<ParsedCommitment<F, EF>, ProofError> {
-    if log_memory < tables_heights[&Table::execution()]
-        || tables_heights[&Table::execution()] < tables_heights.values().copied().max().unwrap()
-    {
+    let log_memory = tables_heights[&Table::memory()];
+    let max_non_memory = tables_heights
+        .iter()
+        .filter(|(t, _)| **t != Table::memory())
+        .map(|(_, h)| *h)
+        .max()
+        .unwrap();
+    if log_memory < tables_heights[&Table::execution()] || log_memory < max_non_memory {
         // memory must be at least as large as the number of cycles
-        // execution table must be the largest table
+        // and the largest of all (non-memory) tables
         return Err(ProofError::InvalidProof);
     }
 
-    let stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode, tables_heights);
+    let stacked_n_vars = compute_stacked_n_vars(log_bytecode, tables_heights);
     if stacked_n_vars
         > F::TWO_ADICITY + whir_config_builder.folding_factor.at_round(0) - whir_config_builder.starting_log_inv_rate
     {
@@ -180,14 +200,14 @@ pub fn stacked_pcs_parse_commitment(
     WhirConfig::new(whir_config_builder, stacked_n_vars).parse_commitment(verifier_state)
 }
 
-fn compute_stacked_n_vars(
-    log_memory: usize,
-    log_bytecode: usize,
-    tables_log_heights: &BTreeMap<Table, VarCount>,
-) -> VarCount {
-    let max_table_log_n_rows = tables_log_heights.values().copied().max().unwrap();
-    let total_len = (2 << log_memory)
-        + (1 << log_bytecode.max(max_table_log_n_rows))
+fn compute_stacked_n_vars(log_bytecode: usize, tables_log_heights: &BTreeMap<Table, VarCount>) -> VarCount {
+    let max_non_memory_height = tables_log_heights
+        .iter()
+        .filter(|(t, _)| **t != Table::memory())
+        .map(|(_, h)| *h)
+        .max()
+        .unwrap();
+    let total_len = (1 << log_bytecode.max(max_non_memory_height))
         + tables_log_heights
             .iter()
             .map(|(table, log_n_rows)| table.n_columns() << log_n_rows)
@@ -198,13 +218,18 @@ fn compute_stacked_n_vars(
 pub fn min_stacked_n_vars(log_bytecode: usize) -> usize {
     let mut min_tables_log_heights = BTreeMap::new();
     for table in ALL_TABLES {
-        min_tables_log_heights.insert(table, MIN_LOG_N_ROWS_PER_TABLE);
+        let h = if table == Table::memory() {
+            MIN_LOG_MEMORY_SIZE
+        } else {
+            MIN_LOG_N_ROWS_PER_TABLE
+        };
+        min_tables_log_heights.insert(table, h);
     }
-    compute_stacked_n_vars(MIN_LOG_MEMORY_SIZE, log_bytecode, &min_tables_log_heights)
+    compute_stacked_n_vars(log_bytecode, &min_tables_log_heights)
 }
 
 pub fn total_whir_statements() -> usize {
-    6 // memory + memory_acc + public_memory + bytecode_acc + pc_start + pc_end
+    4 // public_memory + bytecode_acc + pc_start + pc_end
      + ALL_TABLES
         .iter()
         .map(|table| {

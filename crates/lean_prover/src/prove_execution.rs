@@ -28,7 +28,7 @@ pub fn prove_execution(
         .map_err(|err| panic!("{err}"))
         .unwrap();
     let ExecutionTrace {
-        traces,
+        mut traces,
         public_memory_size,
         mut memory, // padded with zeros to next power of two
         metadata,
@@ -47,14 +47,22 @@ pub fn prove_execution(
     let mut prover_state = build_prover_state();
     prover_state.observe_scalars(public_input);
     prover_state.observe_scalars(&poseidon16_compress_pair(&bytecode.hash, &SNARK_DOMAIN_SEP));
+    // Dim slots, in ALL_TABLES order. Memory's height = log_memory.
+    let log_memory_dim = log2_strict_usize(memory.len());
+    let per_table_log_n_rows: Vec<usize> = ALL_TABLES
+        .iter()
+        .map(|t| {
+            if *t == Table::memory() {
+                log_memory_dim
+            } else {
+                traces[t].log_n_rows
+            }
+        })
+        .collect();
     prover_state.add_base_scalars(
         &[
-            vec![
-                whir_config.starting_log_inv_rate,
-                log2_strict_usize(memory.len()),
-                public_input.len(),
-            ],
-            traces.values().map(|t| t.log_n_rows).collect::<Vec<_>>(),
+            vec![whir_config.starting_log_inv_rate, log_memory_dim, public_input.len()],
+            per_table_log_n_rows,
         ]
         .concat()
         .into_iter()
@@ -74,6 +82,8 @@ pub fn prove_execution(
             .into());
         }
     }
+    // Note: at this point `traces` contains the 3 AIR tables only; Memory is added below
+    // once its `memory_acc` column has been built and the final memory size is known.
 
     let mut table_log = String::new();
     for (table, trace) in &traces {
@@ -109,15 +119,15 @@ pub fn prove_execution(
         }
     });
 
-    // 1st Commitment
-    let stacked_pcs_witness = stack_polynomials_and_commit(
-        &mut prover_state,
-        whir_config,
-        &memory,
-        &memory_acc,
-        &bytecode_acc,
-        &traces,
+    // Memory is now a (constraint-less) table. Insert it into `traces` so the same
+    // stacking / logup machinery handles it uniformly.
+    traces.insert(
+        Table::memory(),
+        build_memory_table_trace(memory.clone(), memory_acc.clone()),
     );
+
+    // 1st Commitment
+    let stacked_pcs_witness = stack_polynomials_and_commit(&mut prover_state, whir_config, &bytecode_acc, &traces);
 
     // logup (GKR)
     let logup_c = prover_state.sample();
@@ -129,8 +139,6 @@ pub fn prove_execution(
         &mut prover_state,
         logup_c,
         &logup_alphas_eq_poly,
-        &memory,
-        &memory_acc,
         &bytecode.instructions_multilinear,
         &bytecode_acc,
         &traces,
@@ -159,8 +167,14 @@ pub fn prove_execution(
     let tables_log_heights: BTreeMap<Table, VarCount> =
         traces.iter().map(|(table, trace)| (*table, trace.log_n_rows)).collect();
     let tables_sorted = sort_tables_by_height(&tables_log_heights);
+    // Memory has no AIR / no bus — filter it out of the AIR sumcheck loops.
+    let air_tables_sorted: Vec<(Table, VarCount)> = tables_sorted
+        .iter()
+        .copied()
+        .filter(|(t, _)| *t != Table::memory())
+        .collect();
 
-    let column_refs: Vec<Vec<&[F]>> = tables_sorted
+    let column_refs: Vec<Vec<&[F]>> = air_tables_sorted
         .iter()
         .map(|(table, _)| {
             traces[table].columns[..table.n_columns()]
@@ -170,14 +184,14 @@ pub fn prove_execution(
         })
         .collect();
     let _span = info_span!("Computing shifted columns for AIR sumcheck").entered();
-    let shifted_rows: Vec<Vec<Vec<F>>> = tables_sorted
+    let shifted_rows: Vec<Vec<Vec<F>>> = air_tables_sorted
         .par_iter()
         .zip(&column_refs)
         .map(|((table, _), cols)| compute_shifted_columns(table.n_shift_columns(), cols))
         .collect();
     std::mem::drop(_span);
-    let mut sessions = Vec::with_capacity(tables_sorted.len());
-    for (idx, (table, log_n_rows)) in tables_sorted.iter().enumerate() {
+    let mut sessions = Vec::with_capacity(air_tables_sorted.len());
+    for (idx, (table, log_n_rows)) in air_tables_sorted.iter().enumerate() {
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
         let bus_denominator_value = logup_statements.bus_denominators_values[table];
         let bus_final_value = bus_numerator_value
@@ -209,7 +223,7 @@ pub fn prove_execution(
     let sumcheck_air_point = info_span!("batched AIR sumcheck")
         .in_scope(|| prove_batched_air_sumcheck(&mut prover_state, &mut sessions, air_eta));
 
-    for (idx, (table, _)) in tables_sorted.iter().enumerate() {
+    for (idx, (table, _)) in air_tables_sorted.iter().enumerate() {
         let col_evals = sessions[idx].final_column_evals();
         prover_state.add_extension_scalars(&col_evals);
 
@@ -225,15 +239,11 @@ pub fn prove_execution(
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
 
+    // Public-memory claim: memory is the first table laid out in the stacked polynomial
+    // (offset 0 = memory value column). bytecode_acc lives at byte-offset
+    // MEMORY_N_COLUMNS << log_memory right after the memory columns.
+    let memory_log_n = log2_strict_usize(memory.len());
     let previous_statements = vec![
-        SparseStatement::new(
-            stacked_pcs_witness.stacked_n_vars,
-            logup_statements.memory_and_acc_point,
-            vec![
-                SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_memory_acc),
-            ],
-        ),
         SparseStatement::new(
             stacked_pcs_witness.stacked_n_vars,
             public_memory_random_point,
@@ -243,7 +253,7 @@ pub fn prove_execution(
             stacked_pcs_witness.stacked_n_vars,
             logup_statements.bytecode_and_acc_point,
             vec![SparseValue::new(
-                (2 * memory.len()) >> bytecode.log_size(),
+                (MEMORY_N_COLUMNS << memory_log_n) >> bytecode.log_size(),
                 logup_statements.value_bytecode_acc,
             )],
         ),
@@ -251,7 +261,6 @@ pub fn prove_execution(
 
     let global_statements_base = stacked_pcs_global_statements(
         stacked_pcs_witness.stacked_n_vars,
-        log2_strict_usize(memory.len()),
         bytecode.log_size(),
         bytecode.ending_pc,
         previous_statements,
