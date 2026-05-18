@@ -84,6 +84,10 @@ fn alloc_node<F: Field>(node: SymbolicNode<F>) -> u32 {
         let mut bytes = arena.borrow_mut();
         let node_size = std::mem::size_of::<SymbolicNode<F>>();
         let idx = bytes.len();
+        assert!(
+            idx <= u32::MAX as usize,
+            "symbolic arena overflow: index {idx} exceeds u32::MAX"
+        );
         bytes.resize(idx + node_size, 0);
         unsafe {
             std::ptr::write_unaligned(bytes.as_mut_ptr().add(idx) as *mut SymbolicNode<F>, node);
@@ -95,7 +99,14 @@ fn alloc_node<F: Field>(node: SymbolicNode<F>) -> u32 {
 pub fn get_node<F: Field>(idx: u32) -> SymbolicNode<F> {
     ARENA.with(|arena| {
         let bytes = arena.borrow();
-        unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(idx as usize) as *const SymbolicNode<F>) }
+        let offset = idx as usize;
+        let node_size = std::mem::size_of::<SymbolicNode<F>>();
+        assert!(
+            offset.checked_add(node_size).is_some_and(|end| end <= bytes.len()),
+            "arena out-of-bounds: index {idx} (need {node_size} bytes, arena has {} bytes)",
+            bytes.len()
+        );
+        unsafe { std::ptr::read_unaligned(bytes.as_ptr().add(offset) as *const SymbolicNode<F>) }
     })
 }
 

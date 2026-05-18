@@ -271,7 +271,8 @@ impl Hint {
                 let size = size.read_value(ctx.memory, ctx.fp)?.to_usize();
 
                 let allocation_start_addr = *ctx.ap;
-                ctx.memory.set(ctx.fp + *offset, F::from_usize(allocation_start_addr))?;
+                let addr = ctx.fp.checked_add(*offset).ok_or(RunnerError::AddressOverflow)?;
+                ctx.memory.set(addr, F::from_usize(allocation_start_addr))?;
                 *ctx.ap += size;
             }
             Self::Custom(hint, args) => {
@@ -280,7 +281,8 @@ impl Hint {
             Self::Inverse { arg, res_offset } => {
                 let value = arg.read_value(ctx.memory, ctx.fp)?;
                 let result = value.try_inverse().unwrap_or(F::ZERO);
-                ctx.memory.set(ctx.fp + *res_offset, result)?;
+                let addr = ctx.fp.checked_add(*res_offset).ok_or(RunnerError::AddressOverflow)?;
+                ctx.memory.set(addr, result)?;
             }
             Self::Print { line_info, content } => {
                 if let Some(diag) = &mut ctx.hints.diagnostics {
@@ -352,8 +354,8 @@ impl Hint {
                 offset_target,
             } => {
                 // Record a deref constraint: memory[target_addr] = memory[memory[src_addr]]
-                let src_addr = ctx.fp + offset_src;
-                let target_addr = ctx.fp + offset_target;
+                let src_addr = ctx.fp.checked_add(*offset_src).ok_or(RunnerError::AddressOverflow)?;
+                let target_addr = ctx.fp.checked_add(*offset_target).ok_or(RunnerError::AddressOverflow)?;
                 ctx.pending_deref_hints.push((target_addr, src_addr));
             }
             Self::Panic { message } => {
@@ -368,8 +370,13 @@ impl Hint {
             Self::HintWitness { name, destination } => {
                 let data = consume_next_hint_entry(ctx.hints.named_hints, name);
                 let dest_addr = match destination {
-                    HintWitnessDestination::Inline { offset } => ctx.fp + *offset,
-                    HintWitnessDestination::Indirect { ptr_offset } => ctx.memory.get(ctx.fp + *ptr_offset)?.to_usize(),
+                    HintWitnessDestination::Inline { offset } => {
+                        ctx.fp.checked_add(*offset).ok_or(RunnerError::AddressOverflow)?
+                    }
+                    HintWitnessDestination::Indirect { ptr_offset } => {
+                        let addr = ctx.fp.checked_add(*ptr_offset).ok_or(RunnerError::AddressOverflow)?;
+                        ctx.memory.get(addr)?.to_usize()
+                    }
                 };
                 ctx.memory.set_slice(dest_addr, data)?;
             }

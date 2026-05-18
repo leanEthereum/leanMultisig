@@ -23,6 +23,7 @@ pub enum RunnerError {
         range: usize,
     },
     InvalidExtensionOp,
+    AddressOverflow,
     ParallelSegmentFailed(usize, Box<RunnerError>),
 }
 
@@ -55,6 +56,7 @@ impl Display for RunnerError {
                 )
             }
             Self::InvalidExtensionOp => write!(f, "invalid extension op"),
+            Self::AddressOverflow => write!(f, "address overflow: fp + offset exceeds usize"),
             Self::ParallelSegmentFailed(id, err) => {
                 write!(f, "parallel segment {id} failed: {err}")
             }

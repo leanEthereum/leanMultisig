@@ -20,8 +20,14 @@ impl MemOrFpOrConstant {
     /// Read the value from memory, return fp, or return the constant
     pub fn read_value(&self, memory: &impl MemoryAccess, fp: usize) -> Result<F, RunnerError> {
         match self {
-            Self::MemoryAfterFp { offset } => memory.get(fp + *offset),
-            Self::FpRelative { offset } => Ok(F::from_usize(fp + *offset)),
+            Self::MemoryAfterFp { offset } => {
+                let addr = fp.checked_add(*offset).ok_or(RunnerError::AddressOverflow)?;
+                memory.get(addr)
+            }
+            Self::FpRelative { offset } => {
+                let addr = fp.checked_add(*offset).ok_or(RunnerError::AddressOverflow)?;
+                Ok(F::from_usize(addr))
+            }
             Self::Constant(c) => Ok(*c),
         }
     }
@@ -34,7 +40,10 @@ impl MemOrFpOrConstant {
     /// Get the memory address (returns error for Fp and constants)
     pub const fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            Self::MemoryAfterFp { offset } => Ok(fp + *offset),
+            Self::MemoryAfterFp { offset } => match fp.checked_add(*offset) {
+                Some(addr) => Ok(addr),
+                None => Err(RunnerError::AddressOverflow),
+            },
             Self::FpRelative { .. } => Err(RunnerError::NotAPointer),
             Self::Constant(_) => Err(RunnerError::NotAPointer),
         }

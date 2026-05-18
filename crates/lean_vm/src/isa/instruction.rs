@@ -192,18 +192,27 @@ impl Instruction {
                 Ok(())
             }
             Self::Deref { shift_0, shift_1, res } => {
+                let base_addr = ctx.fp.checked_add(*shift_0).ok_or(RunnerError::AddressOverflow)?;
                 if res.is_value_unknown(ctx.memory, *ctx.fp) {
                     let memory_address_res = res.memory_address(*ctx.fp)?;
-                    let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
-                    if let Ok(value) = ctx.memory.get(ptr.to_usize() + shift_1) {
+                    let ptr = ctx.memory.get(base_addr)?;
+                    let deref_addr = ptr
+                        .to_usize()
+                        .checked_add(*shift_1)
+                        .ok_or(RunnerError::AddressOverflow)?;
+                    if let Ok(value) = ctx.memory.get(deref_addr) {
                         ctx.memory.set(memory_address_res, value)?;
                     } else {
                         // Do nothing, we are probably in a range check, will be resolved later
                     }
                 } else {
                     let value = res.read_value(ctx.memory, *ctx.fp).unwrap();
-                    let ptr = ctx.memory.get(*ctx.fp + shift_0)?;
-                    ctx.memory.set(ptr.to_usize() + shift_1, value)?;
+                    let ptr = ctx.memory.get(base_addr)?;
+                    let deref_addr = ptr
+                        .to_usize()
+                        .checked_add(*shift_1)
+                        .ok_or(RunnerError::AddressOverflow)?;
+                    ctx.memory.set(deref_addr, value)?;
                 }
 
                 ctx.counts.deref += 1;
