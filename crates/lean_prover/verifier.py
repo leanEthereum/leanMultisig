@@ -24,7 +24,7 @@ Run:
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 from lean_spec.subspecs.koalabear import Fp, P
@@ -303,16 +303,13 @@ class MerkleOpening:
 
 @dataclass
 class Proof:
-    """Verifier-side raw proof: matches backend::RawProof.
-
-    `transcript` is the flat RAW transcript (every absorbed group padded to a
-    multiple of RATE with zeros — the format the zkDSL recursion verifier reads).
-    `merkle_openings` is the list of already-restored openings in the order the
-    verifier consumes them (no pruning machinery on the Python side).
-    """
+    """Mirrors `backend::RawProof`. `transcript` is the flat raw transcript
+    (every absorbed group padded to a multiple of RATE with zeros — the format
+    the zkDSL recursion verifier reads). `merkle_openings` is the list of
+    already-restored openings in consumption order."""
 
     transcript: list[Fp]
-    merkle_openings: list[MerkleOpening] = field(default_factory=list)
+    merkle_openings: list[MerkleOpening]
 
 
 def _next_multiple_of(n: int, m: int) -> int:
@@ -442,9 +439,8 @@ def merkle_verify_path(
 
 
 def expand_from_univariate(x: EF, num_variables: int) -> list[EF]:
-    """[x, x^2, x^4, ..., x^{2^{n-1}}] — matches MultilinearPoint::expand_from_univariate."""
-    out: list[EF] = []
-    cur = x
+    """`[x, x², x⁴, …, x^(2^(n−1))]` — `MultilinearPoint::expand_from_univariate`."""
+    out, cur = [], x
     for _ in range(num_variables):
         out.append(cur)
         cur = cur * cur
@@ -452,12 +448,12 @@ def expand_from_univariate(x: EF, num_variables: int) -> list[EF]:
 
 
 def eq_poly_outside(a: Sequence[EF], b: Sequence[EF]) -> EF:
-    """Π (1 + 2 a_i b_i − a_i − b_i)  (eq polynomial)."""
+    """`Π (1 − a_i − b_i + 2·a_i·b_i)` — multilinear `eq` polynomial."""
     assert len(a) == len(b)
-    one = EF.one()
-    acc = one
+    one, acc = EF.one(), EF.one()
     for x, y in zip(a, b):
-        acc = acc * (one + (x * y) + (x * y) - x - y)
+        xy = x * y
+        acc = acc * (one + xy + xy - x - y)
     return acc
 
 
@@ -497,6 +493,51 @@ def eval_multilinear_evals(evals: Sequence[EF], point: Sequence[EF]) -> EF:
             nxt.append(cur[j] + (cur[j + 1] - cur[j]) * r)
         cur = nxt
     return cur[0]
+
+
+def eval_mle_base_at_ef(base_evals: Sequence[int], point: Sequence[EF]) -> EF:
+    """Same fold as `eval_multilinear_evals`, specialized for base-field evals.
+
+    Uses numpy to skip per-scalar Python/`Fp` wrapper overhead — the bytecode
+    multilinear is a 2²²-entry fold, far too big for the generic path.
+    """
+    import numpy as np
+    assert len(base_evals) == 1 << len(point)
+    pt = [tuple(int(ci.value) for ci in p.c) for p in point]
+    cur = np.asarray(base_evals, dtype=np.int64) % P
+    # First round: base → EF.  a + (b-a)*r, with r ∈ EF, a,b ∈ base.
+    a, b = cur[0::2], cur[1::2]
+    d = (b - a) % P
+    r = pt[-1]
+    cur = np.stack(
+        [(a + d * r[0]) % P, *[(d * r[k]) % P for k in range(1, 5)]],
+        axis=1,
+    )
+    # Remaining rounds: EF × EF.  Schoolbook product reduced mod X^5+X^2-1
+    # (using X^5≡1-X², X^6≡X-X³, X^7≡X²-X⁴, X^8≡X³+X²-1).
+    # Reduce every multiply before summing to stay inside int64.
+    for r0, r1, r2, r3, r4 in (pt[i] for i in range(len(pt) - 2, -1, -1)):
+        a, b = cur[0::2], cur[1::2]
+        d = (b - a) % P
+        d0, d1, d2, d3, d4 = d[:, 0], d[:, 1], d[:, 2], d[:, 3], d[:, 4]
+        m = lambda x, y: (x * y) % P
+        p0 = m(d0, r0)
+        p1 = (m(d0, r1) + m(d1, r0)) % P
+        p2 = (m(d0, r2) + m(d1, r1) + m(d2, r0)) % P
+        p3 = (m(d0, r3) + m(d1, r2) + m(d2, r1) + m(d3, r0)) % P
+        p4 = (m(d0, r4) + m(d1, r3) + m(d2, r2) + m(d3, r1) + m(d4, r0)) % P
+        p5 = (m(d1, r4) + m(d2, r3) + m(d3, r2) + m(d4, r1)) % P
+        p6 = (m(d2, r4) + m(d3, r3) + m(d4, r2)) % P
+        p7 = (m(d3, r4) + m(d4, r3)) % P
+        p8 = m(d4, r4)
+        cur = np.stack([
+            (a[:, 0] + p0 + p5 - p8) % P,
+            (a[:, 1] + p1 + p6) % P,
+            (a[:, 2] + p2 - p5 + p7 + p8) % P,
+            (a[:, 3] + p3 - p6 + p8) % P,
+            (a[:, 4] + p4 - p7) % P,
+        ], axis=1)
+    return EF([Fp(int(v)) for v in cur[0]])
 
 
 def eval_multilinear_coeffs(coeffs: Sequence[EF], point: Sequence[EF]) -> EF:
@@ -661,43 +702,30 @@ def whir_config(log_inv_rate: int, num_variables: int) -> WhirConfig:
 
 @dataclass
 class ParsedCommitment:
-
     num_variables: int
     root: list[Fp]              # length DIGEST_ELEMS
     ood_points: list[EF]
     ood_answers: list[EF]
 
     def oods_constraints(self) -> list[SparseStatement]:
-        """One dense SparseStatement per (point, eval) pair."""
-        out: list[SparseStatement] = []
-        for p, ev in zip(self.ood_points, self.ood_answers):
-            point = expand_from_univariate(p, self.num_variables)
-            out.append(SparseStatement.dense(point, ev))
-        return out
+        return [
+            SparseStatement.dense(expand_from_univariate(p, self.num_variables), ev)
+            for p, ev in zip(self.ood_points, self.ood_answers)
+        ]
 
 
 def parsed_commitment_parse(state: VerifierState, num_variables: int, ood_samples: int) -> ParsedCommitment:
     root = state.next_base_scalars_vec(DIGEST_ELEMS)
-    ood_points: list[EF] = []
-    ood_answers: list[EF] = []
-    if ood_samples > 0:
-        ood_points = state.sample_vec(ood_samples)
-        ood_answers = state.next_extension_scalars_vec(ood_samples)
-    return ParsedCommitment(
-        num_variables=num_variables,
-        root=root,
-        ood_points=ood_points,
-        ood_answers=ood_answers,
-    )
+    ood_points = state.sample_vec(ood_samples) if ood_samples else []
+    ood_answers = state.next_extension_scalars_vec(ood_samples) if ood_samples else []
+    return ParsedCommitment(num_variables, root, ood_points, ood_answers)
 
 
-def _check_sumcheck_identity(coeffs: list[EF], target: EF) -> None:
-    """`h(0) + h(1) = target`, i.e. `coeffs[0] + sum(coeffs) == target`."""
-    s = coeffs[0]
-    for c in coeffs:
-        s = s + c
-    if s != target:
-        raise ProofError("Sumcheck identity failed: h(0) + h(1) != target")
+@dataclass
+class Evaluation:
+    """Claim that a multilinear evaluates to `value` at `point`."""
+    point: list[EF]
+    value: EF
 
 
 def _eval_univariate(coeffs: list[EF], x: EF) -> EF:
@@ -708,39 +736,47 @@ def _eval_univariate(coeffs: list[EF], x: EF) -> EF:
     return acc
 
 
-def verify_sumcheck_rounds(
+def verify_sumcheck(
     state: VerifierState,
-    claimed_sum_ref: list[EF],   # 1-element box, mutated in-place
-    rounds: int,
-    pow_bits: int,
-) -> list[EF]:
-    """Degree-2 sumcheck (3 coeffs per round). Returns the folding randomness
-    and mutates `claimed_sum_ref[0]` to the final claim."""
-    randomness: list[EF] = []
-    for _ in range(rounds):
-        coeffs = state.next_extension_scalars_vec(3)
-        _check_sumcheck_identity(coeffs, claimed_sum_ref[0])
+    target: EF,
+    n_vars: int,
+    degree: int,
+    pow_bits: int = 0,
+) -> "Evaluation":
+    """Read `n_vars` round polynomials (degree-`degree`, sent as `degree + 1`
+    coefficients). Each round: check `h(0) + h(1) == target`, optional PoW
+    grinding, sample a challenge, fold the target. Returns (point, value)."""
+    point: list[EF] = []
+    for _ in range(n_vars):
+        coeffs = state.next_extension_scalars_vec(degree + 1)
+        # h(0) + h(1) = coeffs[0] + sum(coeffs).
+        s = coeffs[0]
+        for c in coeffs:
+            s = s + c
+        if s != target:
+            raise ProofError("Sumcheck identity failed: h(0) + h(1) != target")
         state.check_pow_grinding(pow_bits)
         r = state.sample()
-        claimed_sum_ref[0] = _eval_univariate(coeffs, r)
-        randomness.append(r)
-    return randomness
+        point.append(r)
+        target = _eval_univariate(coeffs, r)
+    return Evaluation(point=point, value=target)
 
 
 def combine_constraints(
     state: VerifierState,
-    claimed_sum_ref: list[EF],
+    target: EF,
     constraints: list[SparseStatement],
-) -> list[EF]:
+) -> tuple[EF, list[EF]]:
+    """Linear combination of constraint values by random `γ` powers. Returns
+    the updated target and the per-value combination weights `[1, γ, γ², ...]`."""
     gamma: EF = state.sample()
-    combination = [EF.one()]
+    combo = [EF.one()]
     for smt in constraints:
         for v in smt.values:
-            pow_prev = combination[-1]
-            claimed_sum_ref[0] = claimed_sum_ref[0] + pow_prev * v.value
-            combination.append(pow_prev * gamma)
-    combination.pop()
-    return combination
+            target = target + combo[-1] * v.value
+            combo.append(combo[-1] * gamma)
+    combo.pop()
+    return target, combo
 
 
 def verify_stir_challenges(
@@ -859,39 +895,26 @@ def whir_verify(
         assert s.total_num_variables == parsed_commitment.num_variables
 
     n_rounds, final_sumcheck_rounds = whir_n_rounds_and_final_sumcheck(cfg.num_variables)
-
     round_constraints: list[tuple[list[EF], list[SparseStatement]]] = []
     round_folding: list[list[EF]] = []
-    claimed_sum_ref: list[EF] = [EF.zero()]
+    target = EF.zero()
     prev_commitment = parsed_commitment
 
-    # OODS + initial statement combine.
+    # Initial: combine OODS + statement, then run the first folding sumcheck.
     initial_constraints = prev_commitment.oods_constraints() + statement
-    combo = combine_constraints(state, claimed_sum_ref, initial_constraints)
+    target, combo = combine_constraints(state, target, initial_constraints)
     round_constraints.append((combo, initial_constraints))
+    init_sc = verify_sumcheck(state, target, whir_folding_factor_at_round(0), 2, cfg.starting_folding_pow_bits)
+    round_folding.append(init_sc.point)
+    target = init_sc.value
 
-    # Initial sumcheck.
-    folding_rand = verify_sumcheck_rounds(
-        state,
-        claimed_sum_ref,
-        whir_folding_factor_at_round(0),
-        cfg.starting_folding_pow_bits,
-    )
-    round_folding.append(folding_rand)
-
-    # Round loop.
+    # Per-round loop: new commitment → STIR → combine → sumcheck.
     for r in range(n_rounds):
         rp = cfg.rounds[r]
-        # New num_variables = num_variables_at_round(after this round's first absorb)
-        # In Rust: round_state.num_variables = num_variables - folding_factor.total_number(r+1)
-        nvars_round = cfg.num_variables - sum(
-            whir_folding_factor_at_round(i) for i in range(r + 1)
-        )
+        nvars_round = cfg.num_variables - sum(whir_folding_factor_at_round(i) for i in range(r + 1))
         new_commitment = parsed_commitment_parse(state, nvars_round, rp.ood_samples)
-
         stir_constraints = verify_stir_challenges(
-            state,
-            cfg,
+            state, cfg,
             round_index=r,
             num_variables=nvars_round,
             log_inv_rate=whir_log_inv_rate_at(cfg.log_inv_rate, r),
@@ -903,35 +926,25 @@ def whir_verify(
             folding_randomness=round_folding[-1],
         )
         constraints_r = new_commitment.oods_constraints() + stir_constraints
-        combo_r = combine_constraints(state, claimed_sum_ref, constraints_r)
+        target, combo_r = combine_constraints(state, target, constraints_r)
         round_constraints.append((combo_r, constraints_r))
-
-        folding_rand_r = verify_sumcheck_rounds(
-            state,
-            claimed_sum_ref,
-            whir_folding_factor_at_round(r + 1),
-            rp.folding_pow_bits,
-        )
-        round_folding.append(folding_rand_r)
+        sc = verify_sumcheck(state, target, whir_folding_factor_at_round(r + 1), 2, rp.folding_pow_bits)
+        round_folding.append(sc.point)
+        target = sc.value
         prev_commitment = new_commitment
 
     # Final round: read the final polynomial in coefficient form, then run a
     # last batch of STIR queries against the last commitment.
-    n_vars_final = cfg.num_variables - sum(
-        whir_folding_factor_at_round(i) for i in range(n_rounds + 1)
-    )
+    n_vars_final = cfg.num_variables - sum(whir_folding_factor_at_round(i) for i in range(n_rounds + 1))
     final_coeffs = state.next_extension_scalars_vec(1 << n_vars_final)
 
     final_domain_size = whir_domain_size_at(cfg.num_variables, cfg.log_inv_rate, n_rounds)
     final_folding_factor = whir_folding_factor_at_round(n_rounds)
-    folded_domain_size_final = final_domain_size >> final_folding_factor
     folded_gen_final = two_adic_generator(final_domain_size.bit_length() - 1 - final_folding_factor)
-    log_height_final = folded_domain_size_final.bit_length() - 1
+    log_height_final = (final_domain_size >> final_folding_factor).bit_length() - 1
 
     state.check_pow_grinding(cfg.final_query_pow_bits)
-    indices_final = state.sample_in_range(log_height_final, cfg.final_queries)
-    final_stir: list[SparseStatement] = []
-    for idx in indices_final:
+    for idx in state.sample_in_range(log_height_final, cfg.final_queries):
         op = state.next_merkle_opening()
         if not merkle_verify_path(prev_commitment.root, log_height_final, idx, op.leaf_data, op.path):
             raise ProofError("Final Merkle verification failed")
@@ -941,27 +954,19 @@ def whir_verify(
             answers = [EF(op.leaf_data[i : i + EF.DIMENSION]) for i in range(0, len(op.leaf_data), EF.DIMENSION)]
         fold = eval_multilinear_evals(answers, round_folding[-1])
         ef_pt = EF.from_base(Fp(pow(int(folded_gen_final.value), idx, P)))
-        final_stir.append(SparseStatement.dense(expand_from_univariate(ef_pt, n_vars_final), fold))
-
-    # Verify STIR constraints directly on final polynomial coefficients.
-    for c in final_stir:
-        if not verify_constraint_coeffs(c, final_coeffs):
+        smt = SparseStatement.dense(expand_from_univariate(ef_pt, n_vars_final), fold)
+        if not verify_constraint_coeffs(smt, final_coeffs):
             raise ProofError("Final STIR constraint mismatch")
 
-    # Final sumcheck.
-    final_sumcheck_rand = verify_sumcheck_rounds(
-        state, claimed_sum_ref, final_sumcheck_rounds, 0
-    )
-    round_folding.append(final_sumcheck_rand)
+    # Final sumcheck — closes the protocol against the constraint-weights MLE.
+    final_sc = verify_sumcheck(state, target, final_sumcheck_rounds, 2)
+    round_folding.append(final_sc.point)
+    target = final_sc.value
 
-    # Flatten all folding randomness; evaluate the constraint weights polynomial.
     folding_randomness_flat = [r for chunk in round_folding for r in chunk]
     eval_weights = eval_constraints_poly(round_constraints, folding_randomness_flat)
-
-    # Final coeffs are evaluated at REVERSED final_sumcheck_rand.
-    reversed_point = list(reversed(final_sumcheck_rand))
-    final_value = eval_multilinear_coeffs(final_coeffs, reversed_point)
-    if claimed_sum_ref[0] != eval_weights * final_value:
+    final_value = eval_multilinear_coeffs(final_coeffs, list(reversed(final_sc.point)))
+    if target != eval_weights * final_value:
         raise ProofError("WHIR final sumcheck check failed")
 
     return folding_randomness_flat
@@ -972,21 +977,14 @@ def whir_verify(
 
 
 @dataclass(frozen=True)
-class Lookup:
-    """A single memory lookup descriptor (`LookupIntoMemory` in Rust)."""
-
-    index: int
-    values: tuple[int, ...]
-
-
-@dataclass(frozen=True)
 class TableMeta:
-    """The bits of `lean_vm::Table` the verifier actually consumes."""
+    """The bits of `lean_vm::Table` the verifier consumes. Each lookup is a
+    `(index_column, value_columns)` pair (mirrors `LookupIntoMemory`)."""
 
     name: str
     n_columns: int
     bus_direction: str         # "Pull" or "Push"
-    lookups: tuple[Lookup, ...]
+    lookups: tuple[tuple[int, tuple[int, ...]], ...]
 
 
 def tables_from_json(obj: list[dict]) -> list[TableMeta]:
@@ -995,10 +993,7 @@ def tables_from_json(obj: list[dict]) -> list[TableMeta]:
             name=t["name"],
             n_columns=int(t["n_columns"]),
             bus_direction=t["bus"]["direction"],
-            lookups=tuple(
-                Lookup(index=int(l["index"]), values=tuple(int(v) for v in l["values"]))
-                for l in t["lookups"]
-            ),
+            lookups=tuple((int(l["index"]), tuple(int(v) for v in l["values"])) for l in t["lookups"]),
         )
         for t in obj
     ]
@@ -1045,56 +1040,26 @@ def stacked_pcs_global_statements(
     tables_sorted = sort_tables_by_height(table_log_heights)
 
     out = list(previous_statements)
-    offset = 2 << memory_n_vars  # memory + memory_acc
-    max_table_n_vars = tables_sorted[0][1]
-    offset += 1 << max(bytecode_n_vars, max_table_n_vars)  # bytecode acc
-
+    offset = (2 << memory_n_vars) + (1 << max(bytecode_n_vars, tables_sorted[0][1]))
     col_pc = constants["col_pc"]
-    starting_pc = constants["starting_pc"]
-    ending_pc = constants["ending_pc"]
+
+    def values_at(d: dict[int, EF], n_vars: int) -> list[SparseValue]:
+        # Rust uses BTreeMap → ascending-key iteration; Python dicts are
+        # insertion-ordered, so we sort explicitly here.
+        return [SparseValue((offset >> n_vars) + i, v) for i, v in sorted(d.items())]
 
     for name, n_vars in tables_sorted:
         if name == "execution":
-            out.append(
-                SparseStatement.unique_value(
-                    stacked_n_vars,
-                    offset + (col_pc << n_vars),
-                    EF.from_base(Fp(starting_pc)),
-                )
-            )
-            out.append(
-                SparseStatement.unique_value(
-                    stacked_n_vars,
-                    offset + ((col_pc + 1) << n_vars) - 1,
-                    EF.from_base(Fp(ending_pc)),
-                )
-            )
+            # PC column: first row pinned to `starting_pc`, last row to `ending_pc`.
+            for idx_in_col, pc_value in [(0, constants["starting_pc"]), ((1 << n_vars) - 1, constants["ending_pc"])]:
+                out.append(SparseStatement.unique_value(
+                    stacked_n_vars, offset + (col_pc << n_vars) + idx_in_col, EF.from_base(Fp(pc_value)),
+                ))
 
         for (point, eq_values, next_values) in committed_statements[name]:
-            # Rust uses BTreeMap → ascending-key iteration. Python dicts are
-            # insertion-ordered, so we have to sort explicitly here.
             if next_values:
-                out.append(
-                    SparseStatement.new_next(
-                        stacked_n_vars,
-                        list(point),
-                        [
-                            SparseValue((offset >> n_vars) + col_index, value)
-                            for col_index, value in sorted(next_values.items())
-                        ],
-                    )
-                )
-            out.append(
-                SparseStatement(
-                    total_num_variables=stacked_n_vars,
-                    point=list(point),
-                    values=[
-                        SparseValue((offset >> n_vars) + col_index, value)
-                        for col_index, value in sorted(eq_values.items())
-                    ],
-                    is_next=False,
-                )
-            )
+                out.append(SparseStatement.new_next(stacked_n_vars, list(point), values_at(next_values, n_vars)))
+            out.append(SparseStatement(stacked_n_vars, list(point), values_at(eq_values, n_vars)))
 
         offset += tables[name].n_columns << n_vars
 
@@ -1132,109 +1097,45 @@ def stacked_pcs_parse_commitment(
 
 
 
-# ─── Generic sumcheck verifier (port of `backend/sumcheck/src/verify.rs`) ──────────────────────────────────────────────────────────
-
-
-@dataclass
-class Evaluation:
-    """Pair (point, value): claim that a multilinear evaluates to `value` at
-    `point`. Mirrors `poly::Evaluation`.
-    """
-
-    point: list[EF]
-    value: EF
-
-
-def sumcheck_verify(
-    state: VerifierState,
-    n_vars: int,
-    degree: int,
-    expected_sum: EF,
-) -> Evaluation:
-    """Reads `n_vars` round polynomials in standard univariate basis, each with
-    `degree + 1` coefficients. Checks `h(0) + h(1) = target` each round, then
-    folds in the challenge. Returns the final point + claimed value."""
-    target = expected_sum
-    challenges: list[EF] = []
-    for _ in range(n_vars):
-        coeffs = state.next_extension_scalars_vec(degree + 1)
-        _check_sumcheck_identity(coeffs, target)
-        r = state.sample()
-        challenges.append(r)
-        target = _eval_univariate(coeffs, r)
-    return Evaluation(point=challenges, value=target)
-
-
-# ---------------------------------------------------------------------------
-# GKR-quotient verifier (port of `sub_protocols::quotient_gkr`)
-#
-# Verifies the protocol `Σ nᵢ/dᵢ` via a layered sumcheck.
-# ---------------------------------------------------------------------------
+# ─── GKR-quotient verifier (port of `sub_protocols::quotient_gkr`) ──────────────────────────────────────────────────────────
+# Verifies `Σ nᵢ/dᵢ` via a layered sumcheck.
 
 
 N_VARS_TO_SEND_GKR_COEFFS = 5
 
 
-def verify_gkr_quotient(
-    state: VerifierState,
-    n_vars: int,
-) -> tuple[EF, list[EF], EF, EF]:
-    """`(quotient, gkr_point, claims_num, claims_den)`.
-    """
+def verify_gkr_quotient(state: VerifierState, n_vars: int) -> tuple[EF, list[EF], EF, EF]:
+    """Returns `(quotient, point, claim_num, claim_den)`. Reads the top-level
+    coefficients, then collapses one variable per layer with a degree-3
+    sumcheck on `n·d_r + n_r·d` plus the next (num, den) random combination."""
     assert n_vars > N_VARS_TO_SEND_GKR_COEFFS
-    send_len = 1 << N_VARS_TO_SEND_GKR_COEFFS
 
-    last_nums = state.next_extension_scalars_vec(send_len)
-    last_dens = state.next_extension_scalars_vec(send_len)
-    quotient = _quotient_sum(last_nums, last_dens)
-
-    point: list[EF] = state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS)
-    claims_num = eval_multilinear_evals(last_nums, point)
-    claims_den = eval_multilinear_evals(last_dens, point)
-
-    for i in range(N_VARS_TO_SEND_GKR_COEFFS, n_vars):
-        point, claims_num, claims_den = _verify_gkr_quotient_step(
-            state, i, point, claims_num, claims_den
-        )
-    return quotient, point, claims_num, claims_den
-
-
-def _verify_gkr_quotient_step(
-    state: VerifierState,
-    n_vars: int,
-    point: list[EF],
-    claims_num: EF,
-    claims_den: EF,
-) -> tuple[list[EF], EF, EF]:
-    alpha = state.sample()
-    expected_sum = claims_num + alpha * claims_den
-    postponed = sumcheck_verify(state, n_vars, 3, expected_sum)
-    # Rust: postponed.point.0.reverse();
-    postponed_point = list(reversed(postponed.point))
-    inner_evals = state.next_extension_scalars_vec(4)
-
-    # constraints_eval = α · n_r · d_r + (n_l · d_r + n_r · d_l)
-    constraints_eval = (
-        alpha * inner_evals[2] * inner_evals[3]
-        + (inner_evals[0] * inner_evals[3] + inner_evals[1] * inner_evals[2])
-    )
-
-    if postponed.value != eq_poly_outside(point, postponed_point) * constraints_eval:
-        raise ProofError("GKR step: postponed value mismatch")
-
-    beta = state.sample()
-    one_minus_beta = EF.one() - beta
-    next_num = one_minus_beta * inner_evals[0] + beta * inner_evals[1]
-    next_den = one_minus_beta * inner_evals[2] + beta * inner_evals[3]
-    next_point = postponed_point + [beta]
-    return next_point, next_num, next_den
-
-
-def _quotient_sum(nums: Sequence[EF], dens: Sequence[EF]) -> EF:
-    acc = EF.zero()
+    nums = state.next_extension_scalars_vec(1 << N_VARS_TO_SEND_GKR_COEFFS)
+    dens = state.next_extension_scalars_vec(1 << N_VARS_TO_SEND_GKR_COEFFS)
+    quotient = EF.zero()
     for n, d in zip(nums, dens):
-        acc = acc + n * d.inv()
-    return acc
+        quotient = quotient + n * d.inv()
+
+    point = state.sample_vec(N_VARS_TO_SEND_GKR_COEFFS)
+    claim_num = eval_multilinear_evals(nums, point)
+    claim_den = eval_multilinear_evals(dens, point)
+
+    for layer_n_vars in range(N_VARS_TO_SEND_GKR_COEFFS, n_vars):
+        alpha = state.sample()
+        sc = verify_sumcheck(state, claim_num + alpha * claim_den, layer_n_vars, 3)
+        sc_point = list(reversed(sc.point))
+        # Inner evaluations: (n_left, n_right, d_left, d_right) at sc.point.
+        nl, nr, dl, dr = state.next_extension_scalars_vec(4)
+        # Sumcheck identity: eq(point, sc_point) · (α·dl·dr + (nl·dr + nr·dl)).
+        if sc.value != eq_poly_outside(point, sc_point) * (alpha * dl * dr + nl * dr + nr * dl):
+            raise ProofError("GKR step: postponed value mismatch")
+        beta = state.sample()
+        one_minus = EF.one() - beta
+        claim_num = one_minus * nl + beta * nr
+        claim_den = one_minus * dl + beta * dr
+        point = sc_point + [beta]
+
+    return quotient, point, claim_num, claim_den
 
 
 
@@ -1336,35 +1237,13 @@ class GenericLogupStatements:
     bytecode_evaluation: Evaluation
 
 
-def _compute_total_active_len_logup(
-    log_memory: int,
-    log_bytecode: int,
-    tables_sorted: list[tuple[str, int]],
-    table_lookups: dict[str, list[Lookup]],
-    execution_name: str,
-) -> int:
-    max_table_height = 1 << tables_sorted[0][1]
-    log_n_cycles = next(h for n, h in tables_sorted if n == execution_name)
-
-    def offset_for_table(name: str, log_n_rows: int) -> int:
-        num_cols = sum(len(l.values) for l in table_lookups[name]) + 1  # +1 for the bus
-        return num_cols << log_n_rows
-
-    return (
-        (1 << log_memory)
-        + max(1 << log_bytecode, max_table_height)
-        + (1 << log_n_cycles)
-        + sum(offset_for_table(name, h) for name, h in tables_sorted)
-    )
-
-
 def verify_generic_logup(
     state: VerifierState,
     c: EF,
     alphas: list[EF],
     alphas_eq_poly: list[EF],
     log_memory: int,
-    bytecode_multilinear: list[Fp],
+    bytecode_multilinear: list[int],
     table_log_heights: dict[str, int],
     tables: dict[str, TableMeta],
     constants: dict,
@@ -1388,9 +1267,16 @@ def verify_generic_logup(
     n_instr_padded = 1 << log2_ceil_usize(n_instr_cols)  # next power of 2
     log_bytecode = log2_strict_usize(len(bytecode_multilinear) // n_instr_padded)
 
-    table_lookups = {name: list(tables[name].lookups) for name in table_log_heights}
-    total_active_len = _compute_total_active_len_logup(
-        log_memory, log_bytecode, tables_sorted, table_lookups, execution_name
+    # Total active length = memory + bytecode + execution + per-table footprints,
+    # where each footprint is (sum of lookup arities + 1 bus column) × 2^log_n_rows.
+    max_table_height = 1 << tables_sorted[0][1]
+    log_n_cycles = next(h for n, h in tables_sorted if n == execution_name)
+    table_cols = lambda n: sum(len(vs) for _, vs in tables[n].lookups) + 1
+    total_active_len = (
+        (1 << log_memory)
+        + max(1 << log_bytecode, max_table_height)
+        + (1 << log_n_cycles)
+        + sum((table_cols(n) << h) for n, h in tables_sorted)
     )
     total_gkr_n_vars = log2_ceil_usize(total_active_len)
 
@@ -1435,9 +1321,7 @@ def verify_generic_logup(
     bytecode_index_value = mle_of_01234567_etc(bytecode_and_acc_point)
     log_instr = log2_ceil_usize(n_instr_cols)
     bytecode_point = list(bytecode_and_acc_point) + list(from_end(alphas, log_instr))
-    bytecode_value = eval_multilinear_evals(
-        [EF.from_base(x) for x in bytecode_multilinear], bytecode_point
-    )
+    bytecode_value = eval_mle_base_at_ef(bytecode_multilinear, bytecode_point)
     # Correction: `(1 - alpha[0]) * (1 - alpha[1]) * ... * (1 - alpha[k-1])`
     # over the alphas BEFORE the last `log_instr` (= the bus-data slot bits).
     correction = EF.one()
@@ -1502,12 +1386,12 @@ def verify_generic_logup(
         offset += 1 << log_n_rows
 
         # II] Lookups into memory
-        for lookup in meta.lookups:
+        for index_col, value_cols in meta.lookups:
             index_eval = state.next_extension_scalar()
-            assert lookup.index not in table_values
-            table_values[lookup.index] = index_eval
+            assert index_col not in table_values
+            table_values[index_col] = index_eval
 
-            for i, col_index in enumerate(lookup.values):
+            for i, col_index in enumerate(value_cols):
                 value_eval = state.next_extension_scalar()
                 assert col_index not in table_values
                 table_values[col_index] = value_eval
@@ -1549,58 +1433,6 @@ def verify_generic_logup(
     )
 
 
-# ─── AIR sumcheck helpers (port of sub_protocols/air_sumcheck.rs) ──────────────────────────────────────────────────────────
-
-
-def natural_ordering_point_for_session(
-    sumcheck_air_point: Sequence[EF], log_n_rows: int
-) -> list[EF]:
-    """Takes the last `log_n_rows` coordinates of the AIR sumcheck point and
-    reverses them.
-    """
-    if log_n_rows == 0:
-        return []
-    return list(reversed(sumcheck_air_point[-log_n_rows:]))
-
-
-def back_loaded_table_contribution(
-    bus_point: Sequence[EF],
-    sumcheck_air_point: Sequence[EF],
-    natural_ordering_point: Sequence[EF],
-    constraint_eval: EF,
-    eta_power: EF,
-) -> EF:
-    """eta^t · (Π i∈[0, n_max - n_t) sumcheck_point[i]) · eq(bus_point, natural_point) · constraint_eval
-    """
-    n_t = len(bus_point)
-    n_max = len(sumcheck_air_point)
-    suffix_start = n_max - n_t
-    assert len(natural_ordering_point) == n_t
-    eq_val = eq_poly_outside(bus_point, natural_ordering_point)
-    k_t = EF.one()
-    for x in sumcheck_air_point[:suffix_start]:
-        k_t = k_t * x
-    return eta_power * k_t * eq_val * constraint_eval
-
-
-def columns_evals_up_and_down(
-    n_columns: int,
-    down_column_indexes: Sequence[int],
-    col_evals: Sequence[EF],
-    natural_ordering_point: Sequence[EF],
-) -> tuple[list[EF], dict[int, EF], dict[int, EF]]:
-    """Mirror of `air_sumcheck::columns_evals_up_and_down`.
-
-    Splits `col_evals` into the per-column evaluation map plus the "next"
-    (= `down`) columns. Returns `(point, eq_values, next_values)`.
-    """
-    n_up = n_columns
-    assert len(col_evals) == n_up + len(down_column_indexes)
-    eq_values = {i: col_evals[i] for i in range(n_up)}
-    next_values = {
-        idx: col_evals[n_up + j] for j, idx in enumerate(down_column_indexes)
-    }
-    return list(natural_ordering_point), eq_values, next_values
 
 
 
@@ -1608,30 +1440,23 @@ def columns_evals_up_and_down(
 
 
 class ConstraintFolder:
-    """Each `assert_zero(x)` (or `assert_zero_ef`) contributes
-    `alpha_powers[constraint_index] · x` to the accumulator.
-    """
+    """Each `assert_zero(x)` contributes `alpha_powers[i] · x` to the
+    running accumulator. `assert_eq` and `assert_bool` are sugar."""
 
     def __init__(self, up: Sequence[EF], down: Sequence[EF], alpha_powers: Sequence[EF]) -> None:
-        self.up = list(up)
-        self.down = list(down)
-        self.alpha_powers = list(alpha_powers)
+        self.up, self.down, self.alpha_powers = list(up), list(down), list(alpha_powers)
         self.accumulator: EF = EF.zero()
-        self.constraint_index = 0
+        self.i = 0
 
     def assert_zero(self, x: EF) -> None:
-        a = self.alpha_powers[self.constraint_index]
-        self.accumulator = self.accumulator + a * x
-        self.constraint_index += 1
-
-    # `assert_zero_ef` is identical in EF.
-    assert_zero_ef = assert_zero
+        self.accumulator = self.accumulator + self.alpha_powers[self.i] * x
+        self.i += 1
 
     def assert_eq(self, x: EF, y: EF) -> None:
         self.assert_zero(x - y)
 
     def assert_bool(self, x: EF) -> None:
-        # bool_check(x) = x * (1 - x). Zero iff x is 0 or 1.
+        # bool_check(x) = x · (1 − x), zero iff x ∈ {0, 1}.
         self.assert_zero(x * (EF.one() - x))
 
 
@@ -1671,46 +1496,15 @@ def air_constraint_eval(
 # ─── Execution-table AIR (lean_vm/src/tables/execution/air.rs) ──────────────────────────────────────────────────────────
 
 
-# Column indexes for the execution table (mirrors execution/air.rs).
-_EXEC = {
-    "PC": 0, "FP": 1,
-    "MEM_ADDRESS_A": 2, "MEM_ADDRESS_B": 3, "MEM_ADDRESS_C": 4,
-    "MEM_VALUE_A": 5, "MEM_VALUE_B": 6, "MEM_VALUE_C": 7,
-    "OPERAND_A": 8, "OPERAND_B": 9, "OPERAND_C": 10,
-    "FLAG_A": 11, "FLAG_B": 12, "FLAG_C": 13, "FLAG_C_FP": 14,
-    "FLAG_AB_FP": 15, "MUL": 16, "JUMP": 17, "AUX": 18, "PRECOMPILE_DATA": 19,
-}
-
-
 def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
-    up = folder.up
-    down = folder.down
+    # Column layout (execution/air.rs): pc, fp, addr_{a,b,c}, value_{a,b,c},
+    # operand_{a,b,c}, flag_{a,b,c}, flag_c_fp, flag_ab_fp, mul, jump, aux,
+    # precompile_data. `down[0..2]` is the next row's (pc, fp).
+    (pc, fp, addr_a, addr_b, addr_c, value_a, value_b, value_c,
+     operand_a, operand_b, operand_c, flag_a, flag_b, flag_c, flag_c_fp,
+     flag_ab_fp, mul, jump, aux, precompile_data) = folder.up[:20]
+    next_pc, next_fp = folder.down[0], folder.down[1]
     one = EF.one()
-
-    next_pc = down[0]
-    next_fp = down[1]
-
-    operand_a = up[_EXEC["OPERAND_A"]]
-    operand_b = up[_EXEC["OPERAND_B"]]
-    operand_c = up[_EXEC["OPERAND_C"]]
-    flag_a = up[_EXEC["FLAG_A"]]
-    flag_b = up[_EXEC["FLAG_B"]]
-    flag_c = up[_EXEC["FLAG_C"]]
-    flag_c_fp = up[_EXEC["FLAG_C_FP"]]
-    flag_ab_fp = up[_EXEC["FLAG_AB_FP"]]
-    mul = up[_EXEC["MUL"]]
-    jump = up[_EXEC["JUMP"]]
-    aux = up[_EXEC["AUX"]]
-    precompile_data = up[_EXEC["PRECOMPILE_DATA"]]
-
-    value_a = up[_EXEC["MEM_VALUE_A"]]
-    value_b = up[_EXEC["MEM_VALUE_B"]]
-    value_c = up[_EXEC["MEM_VALUE_C"]]
-    pc = up[_EXEC["PC"]]
-    fp = up[_EXEC["FP"]]
-    addr_a = up[_EXEC["MEM_ADDRESS_A"]]
-    addr_b = up[_EXEC["MEM_ADDRESS_B"]]
-    addr_c = up[_EXEC["MEM_ADDRESS_C"]]
 
     one_minus_flag_a_and_flag_ab_fp = -(flag_a + flag_ab_fp - one)
     one_minus_flag_b_and_flag_ab_fp = -(flag_b + flag_ab_fp - one)
@@ -1743,7 +1537,7 @@ def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: 
     is_precompile = -(add + mul + deref + jump - one)
 
     # Constraint 1: bus column (assert_zero_ef)
-    folder.assert_zero_ef(
+    folder.assert_zero(
         _eval_virtual_bus_column(
             extra_data, is_precompile, [precompile_data, nu_a, nu_b, nu_c]
         )
@@ -1776,12 +1570,7 @@ def _eval_air_execution(folder: ConstraintFolder, table: TableMeta, extra_data: 
 # ─── Extension-op-table AIR (lean_vm/src/tables/extension_op/air.rs) ──────────────────────────────────────────────────────────
 
 
-_EXT_OP_COL = {
-    "IS_BE": 0, "START": 1, "FLAG_ADD": 2, "FLAG_MUL": 3, "FLAG_POLY_EQ": 4,
-    "LEN": 5, "IDX_A": 6, "IDX_B": 7, "IDX_RES": 8,
-    "VA": 9, "VB": 14, "VRES": 19, "COMP": 24,
-}
-
+# Bus-data magic numbers from extension_op/air.rs (precompile-data layout).
 _EXT_OP_FLAG_IS_BE = 4
 _EXT_OP_FLAG_ADD = 8
 _EXT_OP_FLAG_MUL = 16
@@ -1816,34 +1605,15 @@ def _quintic_mul_ef(a: Sequence[EF], b: Sequence[EF]) -> list[EF]:
 
 
 def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
-    up = folder.up
-    down = folder.down
+    # `up` layout (extension_op/air.rs): is_be, start, flag_{add,mul,poly_eq},
+    # len, idx_{a,b,res}, then four 5-element EF blocks va, vb, vres, comp.
+    is_be, start, flag_add, flag_mul, flag_poly_eq, len_col, idx_a, idx_b, idx_res = folder.up[:9]
+    va, vb, vres, comp = (folder.up[9 + 5 * k : 9 + 5 * (k + 1)] for k in range(4))
+    # `down` layout: start, is_be, len, flag_{add,mul,poly_eq}, idx_{a,b}, comp[0..5].
+    (start_down, is_be_down, len_down, flag_add_down, flag_mul_down,
+     flag_poly_eq_down, idx_a_down, idx_b_down) = folder.down[:8]
+    comp_down = folder.down[8:13]
     one = EF.one()
-
-    is_be = up[_EXT_OP_COL["IS_BE"]]
-    start = up[_EXT_OP_COL["START"]]
-    flag_add = up[_EXT_OP_COL["FLAG_ADD"]]
-    flag_mul = up[_EXT_OP_COL["FLAG_MUL"]]
-    flag_poly_eq = up[_EXT_OP_COL["FLAG_POLY_EQ"]]
-    len_col = up[_EXT_OP_COL["LEN"]]
-    idx_a = up[_EXT_OP_COL["IDX_A"]]
-    idx_b = up[_EXT_OP_COL["IDX_B"]]
-    idx_res = up[_EXT_OP_COL["IDX_RES"]]
-
-    va = [up[_EXT_OP_COL["VA"] + k] for k in range(5)]
-    vb = [up[_EXT_OP_COL["VB"] + k] for k in range(5)]
-    vres = [up[_EXT_OP_COL["VRES"] + k] for k in range(5)]
-    comp = [up[_EXT_OP_COL["COMP"] + k] for k in range(5)]
-
-    start_down = down[0]
-    is_be_down = down[1]
-    len_down = down[2]
-    flag_add_down = down[3]
-    flag_mul_down = down[4]
-    flag_poly_eq_down = down[5]
-    idx_a_down = down[6]
-    idx_b_down = down[7]
-    comp_down = [down[8 + k] for k in range(5)]
 
     active = flag_add + flag_mul + flag_poly_eq
     activation_flag = start * active
@@ -1857,7 +1627,7 @@ def _eval_air_extension_op(folder: ConstraintFolder, table: TableMeta, extra_dat
     )
 
     # Constraint 1: bus
-    folder.assert_zero_ef(
+    folder.assert_zero(
         _eval_virtual_bus_column(extra_data, activation_flag, [aux, idx_a, idx_b, idx_res])
     )
 
@@ -2128,7 +1898,7 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
     )
 
     # Constraint 1: bus
-    folder.assert_zero_ef(
+    folder.assert_zero(
         _eval_virtual_bus_column(
             extra_data, flag_active, [precompile_data_reconstructed, index_a, index_b, index_res]
         )
@@ -2165,15 +1935,6 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
 # ─── AIR-stage orchestration in verify_execution ──────────────────────────────────────────────────────────
 
 
-@dataclass
-class AirStageResult:
-    """Outputs of the AIR sumcheck stage, fed into the WHIR finale."""
-
-    committed_statements: dict[str, list[tuple[list[EF], dict[int, EF], dict[int, EF]]]]
-    public_memory_random_point: list[EF]
-    public_memory_eval: EF
-
-
 # Per-table compile-time spec (Rust: `<Table as Air>::{degree_air, n_constraints,
 # down_column_indexes}`). The down-column lists for `execution` and
 # `extension_op` are exactly what their `Air::down_column_indexes` returns.
@@ -2193,9 +1954,11 @@ def verify_air_stage(
     tables: dict[str, TableMeta],
     public_input: Sequence[Fp],
     log_memory: int,
-) -> AirStageResult:
-    """Returns the per-table committed statements (point + eq_values + next_values)
-    and the public-memory random point + its evaluation.
+) -> tuple[dict[str, list[tuple[list[EF], dict[int, EF], dict[int, EF]]]], list[EF], EF]:
+    """Returns `(committed_statements, public_memory_random_point, public_memory_eval)`.
+
+    `committed_statements[name]` is a list of (point, eq_values, next_values)
+    triples — one per session for that table.
     """
     bus_beta = state.sample()
     air_alpha = state.sample()
@@ -2231,7 +1994,7 @@ def verify_air_stage(
     max_full_degree = max(_TABLE_SPECS[name]["degree"] + 1 for name, _ in tables_sorted)
     n_max = tables_sorted[0][1]
 
-    sumcheck_result = sumcheck_verify(state, n_max, max_full_degree, initial_sum)
+    sumcheck_result = verify_sumcheck(state, initial_sum, n_max, max_full_degree)
     sumcheck_air_point = sumcheck_result.point
     claimed_air_final_value = sumcheck_result.value
 
@@ -2258,16 +2021,20 @@ def verify_air_stage(
         col_evals = state.next_extension_scalars_vec(meta.n_columns + len(down_indexes))
         constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers, extra_data)
 
+        # Per-table contribution = η^t · (Π unused-prefix coords) · eq · C(col_evals).
         bus_point = from_end(logup.gkr_point, log_n_rows)
-        natural_pt = natural_ordering_point_for_session(sumcheck_air_point, log_n_rows)
-        my_air_final_value = my_air_final_value + back_loaded_table_contribution(
-            bus_point, sumcheck_air_point, natural_pt, constraint_eval, eta_pow
+        natural_pt = list(reversed(sumcheck_air_point[-log_n_rows:])) if log_n_rows else []
+        k_t = EF.one()
+        for x in sumcheck_air_point[: n_max - log_n_rows]:
+            k_t = k_t * x
+        my_air_final_value = my_air_final_value + (
+            eta_pow * k_t * eq_poly_outside(bus_point, natural_pt) * constraint_eval
         )
 
-        point, eq_values, next_values = columns_evals_up_and_down(
-            meta.n_columns, down_indexes, col_evals, natural_pt
-        )
-        committed[name].append((point, eq_values, next_values))
+        # Split col_evals into the per-column eq-values + the next-row evals.
+        eq_values = {i: col_evals[i] for i in range(meta.n_columns)}
+        next_values = {idx: col_evals[meta.n_columns + j] for j, idx in enumerate(down_indexes)}
+        committed[name].append((natural_pt, eq_values, next_values))
 
     if my_air_final_value != claimed_air_final_value:
         raise ProofError("AIR sumcheck: my_air_final_value != claimed_air_final_value")
@@ -2280,26 +2047,11 @@ def verify_air_stage(
         [EF.from_base(f) for f in public_memory], public_memory_random_point
     )
 
-    return AirStageResult(
-        committed_statements=committed,
-        public_memory_random_point=list(public_memory_random_point),
-        public_memory_eval=public_memory_eval,
-    )
+    return committed, list(public_memory_random_point), public_memory_eval
 
 
 
 # ─── Top-level verifier ──────────────────────────────────────────────────────────
-
-
-@dataclass
-class VerifyResult:
-    """High-level outputs of `verify_execution` (mostly for diagnostics)."""
-
-    log_inv_rate: int
-    log_memory: int
-    stacked_n_vars: int
-    bytecode_evaluation_point: list[EF]
-    bytecode_evaluation_value: EF
 
 
 def verify_execution(
@@ -2308,8 +2060,8 @@ def verify_execution(
     proof: Proof,
     tables: Sequence[TableMeta],
     constants: dict,
-    bytecode_multilinear: list[Fp],
-) -> VerifyResult:
+    bytecode_multilinear: list[int],
+) -> dict:
     """Verify a leanVM execution proof. Port of `verify_execution.rs`.
 
     The flow is:
@@ -2387,69 +2139,41 @@ def verify_execution(
         constants,
     )
 
-    air_stage = verify_air_stage(
-        state,
-        logup_statements,
-        logup_c,
-        logup_alphas_eq_poly,
-        table_log_heights,
-        tables_by_name,
-        public_input,
-        log_memory,
+    committed, pm_point, pm_eval = verify_air_stage(
+        state, logup_statements, logup_c, logup_alphas_eq_poly,
+        table_log_heights, tables_by_name, public_input, log_memory,
     )
 
-    # Build the global WHIR statement list and run the final WHIR verify.
+    # Build the global WHIR statement list. Three "previous" statements seed it
+    # (memory + memory_acc, public memory, bytecode acc), then `stacked_pcs_…`
+    # appends the per-table committed claims.
     stacked_n_vars = parsed_commitment.num_variables
+    mk = lambda point, values: SparseStatement(stacked_n_vars, list(point), values)
     previous_statements = [
-        SparseStatement(
-            total_num_variables=stacked_n_vars,
-            point=list(logup_statements.memory_and_acc_point),
-            values=[
-                SparseValue(0, logup_statements.value_memory),
-                SparseValue(1, logup_statements.value_memory_acc),
-            ],
-            is_next=False,
-        ),
-        SparseStatement(
-            total_num_variables=stacked_n_vars,
-            point=list(air_stage.public_memory_random_point),
-            values=[SparseValue(0, air_stage.public_memory_eval)],
-            is_next=False,
-        ),
-        SparseStatement(
-            total_num_variables=stacked_n_vars,
-            point=list(logup_statements.bytecode_and_acc_point),
-            values=[
-                SparseValue(
-                    (2 << log_memory) >> bytecode.log_size,
-                    logup_statements.value_bytecode_acc,
-                ),
-            ],
-            is_next=False,
-        ),
+        mk(logup_statements.memory_and_acc_point, [
+            SparseValue(0, logup_statements.value_memory),
+            SparseValue(1, logup_statements.value_memory_acc),
+        ]),
+        mk(pm_point, [SparseValue(0, pm_eval)]),
+        mk(logup_statements.bytecode_and_acc_point, [SparseValue(
+            (2 << log_memory) >> bytecode.log_size,
+            logup_statements.value_bytecode_acc,
+        )]),
     ]
 
     global_statements = stacked_pcs_global_statements(
-        stacked_n_vars,
-        log_memory,
-        bytecode.log_size,
-        previous_statements,
-        table_log_heights,
-        air_stage.committed_statements,
-        tables_by_name,
-        constants,
+        stacked_n_vars, log_memory, bytecode.log_size, previous_statements,
+        table_log_heights, committed, tables_by_name, constants,
     )
 
     whir_cfg = whir_config(log_inv_rate, stacked_n_vars)
     whir_verify(state, whir_cfg, parsed_commitment, global_statements)
 
-    return VerifyResult(
-        log_inv_rate=log_inv_rate,
-        log_memory=log_memory,
-        stacked_n_vars=stacked_n_vars,
-        bytecode_evaluation_point=list(logup_statements.bytecode_evaluation.point),
-        bytecode_evaluation_value=logup_statements.bytecode_evaluation.value,
-    )
+    return {
+        "log_inv_rate": log_inv_rate,
+        "log_memory": log_memory,
+        "stacked_n_vars": stacked_n_vars,
+    }
 
 
 
@@ -2497,7 +2221,7 @@ def main() -> int:
     mle_blob = (vector_path.parent / raw["bytecode_multilinear_path"]).read_bytes()
     arr = array.array("I"); arr.frombytes(mle_blob)
     assert len(arr) == raw["bytecode_multilinear_len"]
-    bytecode_multilinear = [Fp(v) for v in arr]
+    bytecode_multilinear: list[int] = list(arr)
 
     bytecode = Bytecode([Fp(v) for v in raw["bytecode_hash"]], raw["bytecode_log_size"])
     public_input = [Fp(v) for v in raw["public_input"]]
@@ -2526,11 +2250,7 @@ def main() -> int:
         print(f"FAIL: {e}")
         return 1
 
-    print(
-        f"OK: rec-aggregation proof verified "
-        f"(log_inv_rate={result.log_inv_rate}, log_memory={result.log_memory}, "
-        f"stacked_n_vars={result.stacked_n_vars})"
-    )
+    print(f"OK: rec-aggregation proof verified ({result})")
     return 0
 
 
