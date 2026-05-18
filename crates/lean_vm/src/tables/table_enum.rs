@@ -98,8 +98,8 @@ impl Air for Table {
     fn n_constraints(&self) -> usize {
         delegate_to_inner!(self, n_constraints)
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes)
+    fn n_shift_columns(&self) -> usize {
+        delegate_to_inner!(self, n_shift_columns)
     }
     fn eval<AB: AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()

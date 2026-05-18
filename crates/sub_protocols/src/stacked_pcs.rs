@@ -210,7 +210,7 @@ pub fn total_whir_statements() -> usize {
         .map(|table| {
             // AIR
             table.n_columns()
-            + table.n_down_columns()
+            + table.n_shift_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
         })

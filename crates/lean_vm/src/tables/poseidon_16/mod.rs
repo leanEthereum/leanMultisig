@@ -307,16 +307,16 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         // Each partial round contributes one `assert_eq_low` per round (1 S-box / round), of degree 3 (= the "low" degree part)
         Some((3, PARTIAL_ROUNDS))
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        vec![]
+    fn n_shift_columns(&self) -> usize {
+        0
     }
     fn n_constraints(&self) -> usize {
         BUS as usize + 99
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
-            let up = builder.up();
-            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon1Cols16<AB::IF>>() };
+            let flat = builder.flat();
+            let (prefix, shorts, suffix) = unsafe { flat.align_to::<Poseidon1Cols16<AB::IF>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");
             debug_assert_eq!(shorts.len(), 1);

@@ -275,7 +275,7 @@ fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTree
     let mut num_cols_air = vec![];
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
-    let mut air_down_columns = vec![];
+    let mut n_air_shift_columns = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
             .lookups()
@@ -302,15 +302,7 @@ fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTree
         lookup_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         air_degrees.push(table.degree_air().to_string());
         n_air_columns.push(table.n_columns().to_string());
-        air_down_columns.push(format!(
-            "[{}]",
-            table
-                .down_column_indexes()
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        n_air_shift_columns.push(table.n_shift_columns().to_string());
     }
     replacements.insert(
         "LOOKUPS_INDEXES_PLACEHOLDER".to_string(),
@@ -345,8 +337,8 @@ fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTree
         format!("[{}]", n_air_columns.join(", ")),
     );
     replacements.insert(
-        "AIR_DOWN_COLUMNS_PLACEHOLDER".to_string(),
-        format!("[{}]", air_down_columns.join(", ")),
+        "N_AIR_SHIFT_COLUMNS_PLACEHOLDER".to_string(),
+        format!("[{}]", n_air_shift_columns.join(", ")),
     );
     replacements.insert(
         "EVALUATE_AIR_FUNCTIONS_PLACEHOLDER".to_string(),
