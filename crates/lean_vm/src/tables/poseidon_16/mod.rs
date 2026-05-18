@@ -3,7 +3,7 @@ use std::any::TypeId;
 use crate::*;
 use crate::{execution::memory::MemoryAccess, tables::poseidon_16::trace_gen::generate_trace_rows_for_perm};
 use backend::*;
-use utils::{ToUsize, poseidon16_compress};
+use utils::{ToUsize, poseidon16_compress, poseidon16_permute};
 
 /// Dispatch `mds_fft_16` through concrete types.
 /// For `SymbolicExpression` we use the dense form so the zkDSL generator can
@@ -91,9 +91,10 @@ const HALF_FINAL_FULL_ROUNDS: usize = POSEIDON1_HALF_FULL_ROUNDS / 2;
 
 // `PRECOMPILE_DATA` encoding: see `tables/mod.rs`.
 pub const POSEIDON_PRECOMPILE_DATA: usize = 1;
-pub const POSEIDON_HALF_OUTPUT_SHIFT: usize = 1 << 1;
-pub const POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT: usize = 1 << 2;
-pub const POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT: usize = 1 << 3;
+pub const POSEIDON_PERMUTE_SHIFT: usize = 1 << 1;
+pub const POSEIDON_HALF_OUTPUT_SHIFT: usize = 1 << 2;
+pub const POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT: usize = 1 << 3;
+pub const POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT: usize = 1 << 4;
 
 pub const POSEIDON_16_COL_FLAG: ColIndex = 0;
 pub const POSEIDON_16_COL_INDEX_INPUT_RIGHT: ColIndex = 1;
@@ -103,8 +104,10 @@ pub const POSEIDON_16_COL_FLAG_HARDCODED_LEFT: ColIndex = 4;
 pub const POSEIDON_16_COL_OFFSET_LEFT_HARDCODED: ColIndex = 5;
 pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST: ColIndex = 6;
 pub const POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND: ColIndex = 7;
-pub const POSEIDON_16_COL_INPUT_START: ColIndex = 8;
-pub const POSEIDON_16_COL_OUTPUT_START: ColIndex = num_cols_poseidon_16() - 8;
+pub const POSEIDON_16_COL_FLAG_PERMUTE: ColIndex = 8;
+pub const POSEIDON_16_COL_INPUT_START: ColIndex = 9;
+pub const POSEIDON_16_COL_OUTPUT_LEFT: ColIndex = num_cols_poseidon_16() - 16;
+pub const POSEIDON_16_COL_OUTPUT_RIGHT: ColIndex = num_cols_poseidon_16() - 8;
 /// Non-committed columns ("virtual"):
 pub const POSEIDON_16_COL_INDEX_INPUT_LEFT: ColIndex = num_cols_poseidon_16();
 pub const POSEIDON_16_COL_PRECOMPILE_DATA: ColIndex = num_cols_poseidon_16() + 1;
@@ -113,11 +116,13 @@ pub const POSEIDON16_NAME: &str = "poseidon16_compress";
 pub const POSEIDON16_HALF_NAME: &str = "poseidon16_compress_half";
 pub const POSEIDON16_HARDCODED_LEFT_NAME: &str = "poseidon16_compress_hardcoded_left";
 pub const POSEIDON16_HALF_HARDCODED_LEFT_NAME: &str = "poseidon16_compress_half_hardcoded_left";
-pub const ALL_POSEIDON16_NAMES: [&str; 4] = [
+pub const POSEIDON16_PERMUTE_NAME: &str = "poseidon16_permute";
+pub const ALL_POSEIDON16_NAMES: [&str; 5] = [
     POSEIDON16_NAME,
     POSEIDON16_HALF_NAME,
     POSEIDON16_HARDCODED_LEFT_NAME,
     POSEIDON16_HALF_HARDCODED_LEFT_NAME,
+    POSEIDON16_PERMUTE_NAME,
 ];
 pub const HALF_DIGEST_LEN: usize = DIGEST_LEN / 2;
 
@@ -151,7 +156,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
             },
             LookupIntoMemory {
                 index: POSEIDON_16_COL_INDEX_INPUT_RES,
-                values: (POSEIDON_16_COL_OUTPUT_START..POSEIDON_16_COL_OUTPUT_START + DIGEST_LEN).collect(),
+                values: (POSEIDON_16_COL_OUTPUT_LEFT..POSEIDON_16_COL_OUTPUT_LEFT + DIGEST_LEN * 2).collect(),
             },
         ]
     }
@@ -174,7 +179,7 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         }
     }
 
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<F> {
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, _ending_pc: usize) -> Vec<F> {
         let mut row = vec![F::ZERO; num_cols_total_poseidon_16()];
         let ptrs: Vec<*mut F> = (0..num_cols_poseidon_16())
             .map(|i| unsafe { row.as_mut_ptr().add(i) })
@@ -190,7 +195,8 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         *perm.offset_hardcoded_left = F::ZERO;
         *perm.effective_index_left_first = F::from_usize(zero_vec_ptr);
         *perm.effective_index_left_second = F::from_usize(zero_vec_ptr + HALF_DIGEST_LEN);
-        // Non-committed columns
+        *perm.flag_permute = F::ZERO;
+        perm.outputs_right.iter_mut().for_each(|x| **x = F::ZERO);
         row[POSEIDON_16_COL_INDEX_INPUT_LEFT] = F::from_usize(zero_vec_ptr);
         row[POSEIDON_16_COL_PRECOMPILE_DATA] = F::from_usize(POSEIDON_PRECOMPILE_DATA);
 
@@ -210,10 +216,15 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         let PrecompileCompTimeArgs::Poseidon16 {
             half_output,
             hardcoded_offset_left,
+            permute,
         } = args
         else {
             unreachable!("Poseidon16 table called with non-Poseidon16 args");
         };
+        assert!(
+            !(permute && (half_output || hardcoded_offset_left.is_some())),
+            "Poseidon16 permute is mutually exclusive with half_output and hardcoded_left"
+        );
         let trace = ctx.traces.get_mut(&self.table()).unwrap();
 
         let arg_a_usize = arg_a.to_usize();
@@ -238,13 +249,17 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         input[HALF_DIGEST_LEN..DIGEST_LEN].copy_from_slice(&arg0_second);
         input[DIGEST_LEN..].copy_from_slice(&arg1);
 
-        let output = poseidon16_compress(input);
-
-        if half_output {
-            ctx.memory
-                .set_slice(index_res_a.to_usize(), &output[..HALF_DIGEST_LEN])?;
+        let res_addr = index_res_a.to_usize();
+        if permute {
+            let permuted = poseidon16_permute(input);
+            ctx.memory.set_slice(res_addr, &permuted)?;
         } else {
-            ctx.memory.set_slice(index_res_a.to_usize(), &output)?;
+            let output = poseidon16_compress(input);
+            if half_output {
+                ctx.memory.set_slice(res_addr, &output[..HALF_DIGEST_LEN])?;
+            } else {
+                ctx.memory.set_slice(res_addr, &output)?;
+            }
         }
 
         let hardcoded_offset_left_val = hardcoded_offset_left.unwrap_or(0);
@@ -252,17 +267,19 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         trace.columns[POSEIDON_16_COL_FLAG].push(F::ONE);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RIGHT].push(arg_b);
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_RES].push(index_res_a);
-        trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(if half_output { F::ONE } else { F::ZERO });
-        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT].push(if flag_hardcoded { F::ONE } else { F::ZERO });
+        trace.columns[POSEIDON_16_COL_FLAG_HALF_OUTPUT].push(F::from_bool(half_output));
+        trace.columns[POSEIDON_16_COL_FLAG_HARDCODED_LEFT].push(F::from_bool(flag_hardcoded));
         trace.columns[POSEIDON_16_COL_OFFSET_LEFT_HARDCODED].push(F::from_usize(hardcoded_offset_left_val));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST].push(F::from_usize(left_first_addr));
         trace.columns[POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND].push(F::from_usize(left_second_addr));
+        trace.columns[POSEIDON_16_COL_FLAG_PERMUTE].push(F::from_bool(permute));
         for (i, value) in input.iter().enumerate() {
             trace.columns[POSEIDON_16_COL_INPUT_START + i].push(*value);
         }
         // Non-committed columns
         trace.columns[POSEIDON_16_COL_INDEX_INPUT_LEFT].push(arg_a);
         let precompile_data = POSEIDON_PRECOMPILE_DATA
+            + POSEIDON_PERMUTE_SHIFT * (permute as usize)
             + POSEIDON_HALF_OUTPUT_SHIFT * (half_output as usize)
             + POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT * (flag_hardcoded as usize)
             + POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT * hardcoded_offset_left_val;
@@ -280,22 +297,26 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         num_cols_poseidon_16()
     }
     fn degree_air(&self) -> usize {
-        10 // Last 4 output constraints are gated by (1 - half_output), raising degree from 9 to 10
+        // Last 4 output constraints (i in 4..8) are gated by the single linear factor
+        // `(1 - flag_permute - flag_half_output)`, which is boolean thanks to the mutex
+        // `flag_permute * flag_half_output = 0`. The permutation expression has degree 9, so
+        // the gated constraint stays at degree 10.
+        10
     }
     fn low_degree_air(&self) -> Option<(usize, usize)> {
         // Each partial round contributes one `assert_eq_low` per round (1 S-box / round), of degree 3 (= the "low" degree part)
         Some((3, PARTIAL_ROUNDS))
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        vec![]
+    fn n_shift_columns(&self) -> usize {
+        0
     }
     fn n_constraints(&self) -> usize {
-        BUS as usize + 80
+        BUS as usize + 99
     }
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
         let cols: Poseidon1Cols16<AB::IF> = {
-            let up = builder.up();
-            let (prefix, shorts, suffix) = unsafe { up.align_to::<Poseidon1Cols16<AB::IF>>() };
+            let flat = builder.flat();
+            let (prefix, shorts, suffix) = unsafe { flat.align_to::<Poseidon1Cols16<AB::IF>>() };
             debug_assert!(prefix.is_empty(), "Alignment should match");
             debug_assert!(suffix.is_empty(), "Alignment should match");
             debug_assert_eq!(shorts.len(), 1);
@@ -307,7 +328,8 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
             + cols.flag_hardcoded_left * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT)
             + cols.flag_hardcoded_left
                 * cols.offset_hardcoded_left
-                * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT);
+                * AB::F::from_usize(POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT)
+            + cols.flag_permute * AB::F::from_usize(POSEIDON_PERMUTE_SHIFT);
 
         // effective_index_left_first = index_a * (1 - flag_hardcoded_left_4) + offset * flag_hardcoded_left_4
         let one_minus_flag_hardcoded_left = AB::IF::ONE - cols.flag_hardcoded_left;
@@ -329,6 +351,8 @@ impl<const BUS: bool> Air for Poseidon16Precompile<BUS> {
         builder.assert_bool(cols.flag_active);
         builder.assert_bool(cols.flag_half_output);
         builder.assert_bool(cols.flag_hardcoded_left);
+        builder.assert_bool(cols.flag_permute);
+        builder.assert_zero(cols.flag_permute * (cols.flag_half_output + cols.flag_hardcoded_left));
 
         builder.assert_zero(cols.flag_hardcoded_left * (cols.offset_hardcoded_left - cols.effective_index_left_first));
         builder.assert_zero(one_minus_flag_hardcoded_left * (index_a - cols.effective_index_left_first));
@@ -348,12 +372,14 @@ pub(super) struct Poseidon1Cols16<T> {
     pub offset_hardcoded_left: T,
     pub effective_index_left_first: T,
     pub effective_index_left_second: T,
+    pub flag_permute: T,
 
     pub inputs: [T; WIDTH],
     pub beginning_full_rounds: [[T; WIDTH]; HALF_INITIAL_FULL_ROUNDS],
     pub partial_rounds: [T; PARTIAL_ROUNDS],
     pub ending_full_rounds: [[T; WIDTH]; HALF_FINAL_FULL_ROUNDS - 1],
-    pub outputs: [T; WIDTH / 2],
+    pub outputs_left: [T; WIDTH / 2],
+    pub outputs_right: [T; WIDTH / 2],
 }
 
 fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<AB::IF>) {
@@ -412,10 +438,12 @@ fn eval_poseidon1_16<AB: AirBuilder>(builder: &mut AB, local: &Poseidon1Cols16<A
     eval_last_2_full_rounds_16(
         &local.inputs,
         &mut state,
-        &local.outputs,
+        &local.outputs_left,
+        &local.outputs_right,
         &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1)],
         &final_constants[2 * (HALF_FINAL_FULL_ROUNDS - 1) + 1],
         local.flag_half_output,
+        local.flag_permute,
         builder,
     );
 }
@@ -454,13 +482,16 @@ fn eval_2_full_rounds_16<AB: AirBuilder>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn eval_last_2_full_rounds_16<AB: AirBuilder>(
     initial_state: &[AB::IF; WIDTH],
     state: &mut [AB::IF; WIDTH],
-    outputs: &[AB::IF; WIDTH / 2],
+    outputs_left: &[AB::IF; WIDTH / 2],
+    outputs_right: &[AB::IF; WIDTH / 2],
     round_constants_1: &[F; WIDTH],
     round_constants_2: &[F; WIDTH],
     flag_half_output: AB::IF,
+    flag_permute: AB::IF,
     builder: &mut AB,
 ) {
     for (s, r) in state.iter_mut().zip(round_constants_1.iter()) {
@@ -473,20 +504,17 @@ fn eval_last_2_full_rounds_16<AB: AirBuilder>(
         *s = s.cube();
     }
     mds_air_16(state);
-    // add inputs to outputs (for compression)
-    for (state_i, init_state_i) in state.iter_mut().zip(initial_state) {
-        *state_i += *init_state_i;
-    }
-    let one_minus_flag_half_output = AB::IF::ONE - flag_half_output;
-    for (idx, (state_i, output_i)) in state.iter_mut().zip(outputs).enumerate() {
-        if idx < HALF_DIGEST_LEN {
-            // First 4 outputs: always constrained
-            builder.assert_eq(*state_i, *output_i);
+    let not_permute = AB::IF::ONE - flag_permute;
+    let compression_last4 = not_permute - flag_half_output;
+    for i in 0..(WIDTH / 2) {
+        let compression_gate = if i < HALF_DIGEST_LEN {
+            not_permute
         } else {
-            // Last 4 outputs: constrained only when half_output = 0
-            builder.assert_zero(one_minus_flag_half_output * (*state_i - *output_i));
-        }
-        *state_i = *output_i;
+            compression_last4
+        };
+        builder.assert_zero(compression_gate * (state[i] + initial_state[i] - outputs_left[i]));
+        builder.assert_zero(flag_permute * (state[i] - outputs_left[i]));
+        builder.assert_zero(flag_permute * (state[i + WIDTH / 2] - outputs_right[i]));
     }
 }
 

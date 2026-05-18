@@ -1,7 +1,7 @@
 use backend::*;
 use lean_vm::{
-    ALL_TABLES, COL_PC, CommittedStatements, ENDING_PC, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE,
-    N_INSTRUCTION_COLUMNS, STARTING_PC, sort_tables_by_height,
+    ALL_TABLES, COL_PC, CommittedStatements, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE, N_INSTRUCTION_COLUMNS,
+    STARTING_PC, sort_tables_by_height,
 };
 use lean_vm::{EF, F, Table, TableT, TableTrace};
 use std::collections::BTreeMap;
@@ -41,6 +41,7 @@ pub fn stacked_pcs_global_statements(
     stacked_n_vars: VarCount,
     memory_n_vars: VarCount,
     bytecode_n_vars: VarCount,
+    ending_pc: usize,
     previous_statements: Vec<SparseStatement<EF>>,
     tables_heights: &BTreeMap<Table, VarCount>,
     committed_statements: &CommittedStatements,
@@ -66,7 +67,7 @@ pub fn stacked_pcs_global_statements(
             global_statements.push(SparseStatement::unique_value(
                 stacked_n_vars,
                 offset + ((COL_PC + 1) << n_vars) - 1,
-                EF::from_usize(ENDING_PC),
+                EF::from_usize(ending_pc),
             ));
         }
         for (point, eq_values, next_values) in &committed_statements[&table] {
@@ -209,7 +210,7 @@ pub fn total_whir_statements() -> usize {
         .map(|table| {
             // AIR
             table.n_columns()
-            + table.n_down_columns()
+            + table.n_shift_columns()
             // Lookups into memory
             + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
         })

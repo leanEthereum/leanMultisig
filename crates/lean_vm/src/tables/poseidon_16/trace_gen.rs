@@ -99,11 +99,13 @@ pub(super) fn generate_trace_rows_for_perm<F: Algebra<KoalaBear> + Copy>(perm: &
         generate_2_full_round(&mut state, full_round, &constants[0], &constants[1]);
     }
 
-    // Last 2 full rounds with compression (add inputs to outputs)
+    let flag_permute = *perm.flag_permute;
     generate_last_2_full_rounds(
         &mut state,
         &inputs,
-        &mut perm.outputs,
+        &mut perm.outputs_left,
+        &mut perm.outputs_right,
+        flag_permute,
         &poseidon1_final_constants()[2 * n_ending_full_rounds],
         &poseidon1_final_constants()[2 * n_ending_full_rounds + 1],
     );
@@ -137,7 +139,9 @@ fn generate_2_full_round<F: Algebra<KoalaBear> + Copy>(
 fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
     state: &mut [F; WIDTH],
     inputs: &[F; WIDTH],
-    outputs: &mut [&mut F; WIDTH / 2],
+    outputs_left: &mut [&mut F; WIDTH / 2],
+    outputs_right: &mut [&mut F; WIDTH / 2],
+    flag_permute: F,
     round_constants_1: &[KoalaBear; WIDTH],
     round_constants_2: &[KoalaBear; WIDTH],
 ) {
@@ -153,8 +157,9 @@ fn generate_last_2_full_rounds<F: Algebra<KoalaBear> + Copy>(
     }
     mds_circ_16(state);
 
-    // Add inputs to outputs (compression)
-    for ((output, state_i), &input_i) in outputs.iter_mut().zip(state).zip(inputs) {
-        **output = *state_i + input_i;
+    for i in 0..(WIDTH / 2) {
+        let compression_value = state[i] + inputs[i];
+        *outputs_left[i] = (F::ONE - flag_permute) * compression_value + flag_permute * state[i];
+        *outputs_right[i] = flag_permute * state[i + WIDTH / 2];
     }
 }

@@ -7,8 +7,8 @@ use crate::{
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
-    PrecompileCompTimeArgs, SourceLocation,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_PERMUTE_NAME,
+    PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -541,6 +541,7 @@ fn compile_time_transform_in_program(
                 func.name
             ));
         }
+        check_inline_returns(&func.body, &func.name)?;
     }
 
     // Process all functions, including newly created specialized ones
@@ -2259,13 +2260,14 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile (4 variants)
+                        // Special handling for poseidon16 precompile (5 variants).
                         if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
+                            let permute = function_name.as_str() == POSEIDON16_PERMUTE_NAME;
                             let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                 .contains(&function_name.as_str());
                             let is_hardcoded_left =
@@ -2303,6 +2305,7 @@ fn simplify_lines(
                                 data: PrecompileCompTimeArgs::Poseidon16 {
                                     half_output,
                                     hardcoded_offset_left,
+                                    permute,
                                 },
                             }));
                             continue;
@@ -3452,6 +3455,32 @@ fn inline_lines(
 
     transform_vars_in_lines(lines, &transform);
     replace_function_ret_in_lines(lines, res);
+}
+
+fn check_inline_returns(body: &[Line], func_name: &str) -> Result<(), String> {
+    fn count_returns(lines: &[Line]) -> usize {
+        lines
+            .iter()
+            .map(|line| {
+                usize::from(matches!(line, Line::FunctionRet { .. }))
+                    + line.nested_blocks().iter().map(|b| count_returns(b)).sum::<usize>()
+            })
+            .sum()
+    }
+
+    let nested_returns: usize = body
+        .iter()
+        .flat_map(Line::nested_blocks)
+        .map(|b| count_returns(b))
+        .sum();
+
+    if nested_returns > 0 || count_returns(body) > 1 {
+        return Err(format!(
+            "Inline function `{func_name}` has an unsupported `return`. Inline functions support \
+             exactly one `return`, placed at the end of the function's body"
+        ));
+    }
+    Ok(())
 }
 
 fn replace_function_ret_in_lines(lines: &mut Vec<Line>, res: &[AssignmentTarget]) {

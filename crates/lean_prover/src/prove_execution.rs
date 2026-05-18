@@ -121,6 +121,7 @@ pub fn prove_execution(
 
     // logup (GKR)
     let logup_c = prover_state.sample();
+    prover_state.duplex();
     let logup_alphas = prover_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
@@ -149,8 +150,10 @@ pub fn prove_execution(
     }
 
     let bus_beta = prover_state.sample();
+    prover_state.duplex();
     let air_alpha = prover_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    prover_state.duplex();
     let air_eta: EF = prover_state.sample();
 
     let tables_log_heights: BTreeMap<Table, VarCount> =
@@ -170,7 +173,7 @@ pub fn prove_execution(
     let shifted_rows: Vec<Vec<Vec<F>>> = tables_sorted
         .par_iter()
         .zip(&column_refs)
-        .map(|((table, _), cols)| compute_shifted_columns(&table.down_column_indexes(), cols))
+        .map(|((table, _), cols)| compute_shifted_columns(table.n_shift_columns(), cols))
         .collect();
     std::mem::drop(_span);
     let mut sessions = Vec::with_capacity(tables_sorted.len());
@@ -188,9 +191,9 @@ pub fn prove_execution(
 
         let extra_data = ExtraDataForBuses::new(logup_alphas_eq_poly.clone(), bus_beta, air_alpha_powers.clone());
 
-        let mut up_down: Vec<&[PF<EF>]> = column_refs[idx].to_vec();
-        up_down.extend(shifted_rows[idx].iter().map(Vec::as_slice));
-        let packed = MleGroupRef::<EF>::Base(up_down).pack();
+        let mut flat_and_shift: Vec<&[PF<EF>]> = column_refs[idx].to_vec();
+        flat_and_shift.extend(shifted_rows[idx].iter().map(Vec::as_slice));
+        let packed = MleGroupRef::<EF>::Base(flat_and_shift).pack();
 
         let non_padded = traces[table].non_padded_n_rows;
 
@@ -213,7 +216,7 @@ pub fn prove_execution(
         let natural_ordering_point =
             natural_ordering_point_for_session(&sumcheck_air_point.0, traces[table].log_n_rows);
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_ordering_point) }};
+            ($t:expr) => {{ columns_evals_flat_and_shift($t, &col_evals, &natural_ordering_point) }};
         }
         let claim = delegate_to_inner!(table => split);
         committed_statements.get_mut(table).unwrap().push(claim);
@@ -250,6 +253,7 @@ pub fn prove_execution(
         stacked_pcs_witness.stacked_n_vars,
         log2_strict_usize(memory.len()),
         bytecode.log_size(),
+        bytecode.ending_pc,
         previous_statements,
         &tables_log_heights,
         &committed_statements,

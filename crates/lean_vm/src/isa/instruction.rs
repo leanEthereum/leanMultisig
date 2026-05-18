@@ -2,12 +2,12 @@
 
 use super::Operation;
 use super::operands::{MemOrConstant, MemOrFpOrConstant};
-use crate::POSEIDON16_NAME;
 use crate::core::{F, Label};
 use crate::diagnostics::RunnerError;
 use crate::execution::memory::MemoryAccess;
 use crate::tables::TableT;
 use crate::{ExtensionOpMode, Table, TableTrace};
+use crate::{POSEIDON16_NAME, POSEIDON16_PERMUTE_NAME};
 use backend::*;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -68,6 +68,8 @@ pub enum PrecompileCompTimeArgs<S> {
         //   hardcoded_offset_left = None:              left_input = m[arg_a..arg_a+8]
         //   hardcoded_offset_left = Some(offset_left): left_input = m[offset_left..offset_left+4] | m[arg_a..arg_a+4] (arg_a is the first runtime parameter)
         hardcoded_offset_left: Option<S>,
+        // Mutually exclusive with `half_output`.
+        permute: bool,
     },
     ExtensionOp {
         size: S,
@@ -88,9 +90,11 @@ impl<S> PrecompileCompTimeArgs<S> {
             Self::Poseidon16 {
                 half_output,
                 hardcoded_offset_left: hardcoded_left_4,
+                permute,
             } => PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
                 hardcoded_offset_left: hardcoded_left_4.map(&mut f),
+                permute,
             },
             Self::ExtensionOp { size, mode } => PrecompileCompTimeArgs::ExtensionOp { size: f(size), mode },
         }
@@ -253,15 +257,24 @@ impl<V: Display, S: Display> Display for PrecompileArgs<V, S> {
             PrecompileCompTimeArgs::Poseidon16 {
                 half_output,
                 hardcoded_offset_left: hardcoded_left_4,
-            } => match (*half_output, hardcoded_left_4) {
-                (false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
-                (true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
-                (false, Some(off)) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, hardcoded_left_4={off})"),
-                (true, Some(off)) => write!(
-                    f,
-                    "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
-                ),
-            },
+                permute,
+            } => {
+                if *permute {
+                    write!(f, "{POSEIDON16_PERMUTE_NAME}({arg_0}, {arg_1}, {res})")
+                } else {
+                    match (*half_output, hardcoded_left_4) {
+                        (false, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res})"),
+                        (true, None) => write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half)"),
+                        (false, Some(off)) => {
+                            write!(f, "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, hardcoded_left_4={off})")
+                        }
+                        (true, Some(off)) => write!(
+                            f,
+                            "{POSEIDON16_NAME}({arg_0}, {arg_1}, {res}, half, hardcoded_left_4={off})"
+                        ),
+                    }
+                }
+            }
             PrecompileCompTimeArgs::ExtensionOp { size, mode } => {
                 write!(f, "{}({arg_0}, {arg_1}, {res}, {size})", mode.name())
             }

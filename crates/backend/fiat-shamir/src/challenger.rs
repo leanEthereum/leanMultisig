@@ -1,64 +1,65 @@
 use field::PrimeField64;
-use symetric::Compression;
+use koala_bear::symmetric::Permutation;
 
 pub(crate) const RATE: usize = 8;
 pub(crate) const WIDTH: usize = RATE * 2;
+pub(crate) const CAPACITY: usize = WIDTH - RATE;
 
 #[derive(Clone, Debug)]
 pub struct Challenger<F, P> {
-    pub compressor: P,
-    pub state: [F; RATE],
+    pub permutation: P,
+    pub state: [F; WIDTH],
+    rate_fresh: bool,
 }
 
-impl<F: PrimeField64, P: Compression<[F; WIDTH]>> Challenger<F, P> {
-    pub fn new(compressor: P) -> Self
+impl<F: PrimeField64, P: Permutation<[F; WIDTH]>> Challenger<F, P> {
+    pub fn new(permutation: P) -> Self
     where
         F: Default,
     {
         Self {
-            compressor,
-            state: [F::ZERO; RATE],
+            permutation,
+            state: [F::ZERO; WIDTH],
+            rate_fresh: false,
         }
     }
 
     pub fn observe(&mut self, value: [F; RATE]) {
-        self.state = self.compressor.compress({
-            let mut concat = [F::ZERO; WIDTH];
-            concat[..RATE].copy_from_slice(&self.state);
-            concat[RATE..].copy_from_slice(&value);
-            concat
-        })[..RATE]
-            .try_into()
-            .unwrap();
+        self.state[CAPACITY..].copy_from_slice(&value);
+        self.permutation.permute_mut(&mut self.state);
+        self.rate_fresh = true;
     }
 
-    pub fn observe_scalars(&mut self, scalars: &[F]) {
+    pub fn observe_many(&mut self, scalars: &[F]) {
         for chunk in scalars.chunks(RATE) {
             let mut buffer = [F::ZERO; RATE];
-            for (i, val) in chunk.iter().enumerate() {
-                buffer[i] = *val;
-            }
+            buffer[..chunk.len()].copy_from_slice(chunk);
             self.observe(buffer);
         }
     }
 
+    pub fn duplex(&mut self) {
+        self.observe([F::ZERO; RATE]);
+    }
+
+    pub fn sample(&mut self) -> [F; RATE] {
+        assert!(self.rate_fresh, "stale rate. insert a duplex() before.");
+        let out: [F; RATE] = self.state[CAPACITY..].try_into().unwrap();
+        self.rate_fresh = false;
+        out
+    }
+
     pub fn sample_many(&mut self, n: usize) -> Vec<[F; RATE]> {
-        let mut sampled = Vec::with_capacity(n + 1);
-        for i in 0..n + 1 {
-            let mut domain_sep = [F::ZERO; RATE];
-            domain_sep[0] = F::from_usize(i);
-            let hashed = self.compressor.compress({
-                let mut concat = [F::ZERO; WIDTH];
-                concat[..RATE].copy_from_slice(&domain_sep);
-                concat[RATE..].copy_from_slice(&self.state);
-                concat
-            })[..RATE]
-                .try_into()
-                .unwrap();
-            sampled.push(hashed);
+        if n == 0 {
+            return Vec::new();
         }
-        self.state = sampled.pop().unwrap();
-        sampled
+        let mut out = Vec::with_capacity(n);
+        out.push(self.sample());
+        for _ in 1..n {
+            self.duplex();
+            out.push(self.sample());
+        }
+        out
     }
 
     /// Warning: not perfectly uniform
