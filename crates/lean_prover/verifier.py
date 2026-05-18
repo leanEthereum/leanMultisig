@@ -10,7 +10,7 @@ Setup (one-time):
     uv venv .venv --python 3.12
     VIRTUAL_ENV=.venv uv pip install "git+https://github.com/leanEthereum/leanSpec.git"
 
-    # Rust-side data (hardcoded soundness numbers + Poseidon round constants).
+    # Rust-side data (hardcoded WHIR numbers + Poseidon round constants).
     cargo test --release -p lean_prover --test dump_whir_configs        -- --nocapture
     cargo test --release -p lean_prover --test dump_poseidon1_constants -- --nocapture
 
@@ -36,10 +36,11 @@ WHIR_SUBSEQUENT_FOLDING_FACTOR = 5
 MAX_NUM_VARIABLES_TO_SEND_COEFFS = 8
 RS_DOMAIN_INITIAL_REDUCTION_FACTOR = 5
 
-# Poseidon16 sponge parameters. The challenger uses the compression-with-
-# domain-separator design: `state` is a RATE-sized buffer; `observe(chunk)`
-# does `state ← permute(state || chunk)[:RATE]`; sampling re-permutes the
-# state with a per-call domain separator.
+# Poseidon16 duplex-sponge parameters. The challenger keeps a WIDTH-sized
+# state; `observe(chunk)` writes `chunk` into the rate slots `[CAPACITY:]`
+# and permutes the full state (no DM feed-forward). Sampling reads the
+# rate slots; consecutive samples must be separated by `duplex()` (which
+# observes zeros).
 RATE = 8
 WIDTH = 16
 CAPACITY = WIDTH - RATE
@@ -153,34 +154,50 @@ def hash_slice(data: Sequence[Fp]) -> list[Fp]:
 
 
 class Challenger:
-    """Compression-with-domain-separator Fiat-Shamir state.
+    """Duplex-sponge Fiat-Shamir state (mirrors `fiat_shamir::Challenger`).
 
-    `state` is a length-`RATE` buffer; `observe(chunk)` does
-    `state ← permute(state || chunk)[:RATE]`; sampling re-permutes the
-    state with a per-call domain separator `[i, 0, …, 0]`."""
+    State is `WIDTH` field elements, all zero at start. `observe(chunk)`
+    overwrites `state[CAPACITY:] = chunk` and applies the full Poseidon1
+    permutation; the rate slots are then *fresh*. `sample()` reads the
+    rate slots and marks them stale. Multiple samples between observes
+    must each be preceded by `duplex()` (which absorbs a zero chunk)."""
 
     def __init__(self) -> None:
-        self.state: list[Fp] = [Fp(0)] * RATE
+        self.state: list[Fp] = [Fp(0)] * WIDTH
+        self.rate_fresh: bool = False
+
+    def observe(self, chunk: Sequence[Fp]) -> None:
+        assert len(chunk) == RATE
+        new_state = self.state[:CAPACITY] + list(chunk)
+        self.state = _POSEIDON16.permute(new_state)
+        self.rate_fresh = True
 
     def observe_many(self, scalars: Sequence[Fp]) -> None:
         for i in range(0, len(scalars), RATE):
             chunk = list(scalars[i : i + RATE])
             chunk += [Fp(0)] * (RATE - len(chunk))
-            self.state = poseidon16_compress_in_place(self.state + chunk)[:RATE]
+            self.observe(chunk)
 
-    def _sample_blocks(self, n_blocks: int) -> list[Fp]:
-        """Run `n_blocks + 1` permutations with domain separators, advance the
-        state to the last, return the first `n_blocks * RATE` scalars flat."""
-        flat: list[Fp] = []
-        for i in range(n_blocks + 1):
-            ds = [Fp(i)] + [Fp(0)] * (RATE - 1)
-            hashed = poseidon16_compress_in_place(ds + self.state)[:RATE]
-            if i < n_blocks: flat.extend(hashed)
-            else: self.state = hashed
-        return flat
+    def duplex(self) -> None:
+        self.observe([Fp(0)] * RATE)
+
+    def sample(self) -> list[Fp]:
+        assert self.rate_fresh, "stale rate — insert duplex() before sampling"
+        self.rate_fresh = False
+        return list(self.state[CAPACITY:])
+
+    def sample_many(self, n: int) -> list[Fp]:
+        """Concatenated rate outputs from `n` sponge squeezes (`duplex` between)."""
+        if n == 0:
+            return []
+        out = self.sample()
+        for _ in range(1, n):
+            self.duplex()
+            out.extend(self.sample())
+        return out
 
     def sample_ef_vec(self, n: int) -> list[EF]:
-        flat = self._sample_blocks((n * EF.DIMENSION + RATE - 1) // RATE)[: n * EF.DIMENSION]
+        flat = self.sample_many((n * EF.DIMENSION + RATE - 1) // RATE)[: n * EF.DIMENSION]
         return [EF(flat[i : i + EF.DIMENSION]) for i in range(0, len(flat), EF.DIMENSION)]
 
     def sample_ef(self) -> EF:
@@ -190,7 +207,7 @@ class Challenger:
         """Truncate the low `bits` bits of `n_samples` field samples — matches
         `challenger::sample_in_range` (not perfectly uniform)."""
         assert bits < 31
-        flat = self._sample_blocks((n_samples + RATE - 1) // RATE)[:n_samples]
+        flat = self.sample_many((n_samples + RATE - 1) // RATE)[:n_samples]
         return [int(x.value) & ((1 << bits) - 1) for x in flat]
 
 
@@ -243,6 +260,7 @@ class VerifierState:
     def sample(self) -> EF:                          return self.challenger.sample_ef()
     def sample_vec(self, n: int) -> list[EF]:        return self.challenger.sample_ef_vec(n)
     def sample_in_range(self, b: int, n: int) -> list[int]: return self.challenger.sample_in_range(b, n)
+    def duplex(self) -> None:                        self.challenger.duplex()
 
     def next_merkle_opening(self) -> MerkleOpening:
         if self.open_idx >= len(self.openings):
@@ -251,10 +269,11 @@ class VerifierState:
         return self.openings[self.open_idx - 1]
 
     def check_pow_grinding(self, bits: int) -> None:
-        """Grinding witness is `[witness, 0, …, 0]` (RATE-padded)."""
+        """Grinding witness is `[witness, 0, …, 0]` (RATE-padded). After absorbing
+        the witness, the first rate slot must be `0 mod 2^bits`."""
         if bits == 0: return
         self._read_padded(1)
-        if int(self.challenger.state[0].value) & ((1 << bits) - 1) != 0:
+        if int(self.challenger.state[CAPACITY].value) & ((1 << bits) - 1) != 0:
             raise ProofError("InvalidGrindingWitness")
 
 
@@ -690,6 +709,7 @@ def whir_verify(
 
     def step(constraints: list[SparseStatement], n_fold: int, pow_bits: int) -> None:
         nonlocal target
+        state.duplex()
         new_target, combo = combine_constraints(state, target, constraints)
         round_constraints.append((combo, constraints))
         sc = verify_sumcheck(state, new_target, n_fold, 2, pow_bits)
@@ -861,6 +881,7 @@ def verify_gkr_quotient(state: VerifierState, n_vars: int) -> tuple[EF, list[EF]
     claim_den = eval_multilinear_evals(dens, point)
 
     for layer_n_vars in range(N_VARS_TO_SEND_GKR_COEFFS, n_vars):
+        state.duplex()
         alpha = state.sample()
         sc = verify_sumcheck(state, claim_num + alpha * claim_den, layer_n_vars, 3)
         sc_point = list(reversed(sc.point))
@@ -1310,9 +1331,10 @@ def _p1c() -> dict:
 
 _POSEIDON_WIDTH = 16
 _HALF_DIGEST_LEN = 4
-_POSEIDON_HALF_OUTPUT_SHIFT             = 1 << 1
-_POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT   = 1 << 2
-_POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT = 1 << 3
+_POSEIDON_PERMUTE_SHIFT                 = 1 << 1
+_POSEIDON_HALF_OUTPUT_SHIFT             = 1 << 2
+_POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT   = 1 << 3
+_POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT = 1 << 4
 
 
 def _matvec_kb(mat: list[list[Fp]], state: list[EF]) -> list[EF]:
@@ -1378,17 +1400,22 @@ def _eval_poseidon1_16(folder: ConstraintFolder, cols: dict, extra_data: dict) -
             folder.assert_eq(state[i], post)
             state[i] = post
 
-    # Last full round + Davies-Meyer: state += initial_state, then compare to
-    # outputs (always for the first half; gated by `flag_half_output` after).
+    # Last full round (no Davies-Meyer add here — the `+ initial[i]` is folded
+    # into the compression constraint below). Behaviour depends on flag_permute:
+    #  - compression mode (flag_permute = 0): `outputs_left[i] = state[i] + initial[i]`
+    #    for the first 4 lanes always; for lanes 4..8 only when flag_half_output = 0.
+    #  - permute mode (flag_permute = 1): `outputs_left = state[:8]` and
+    #    `outputs_right = state[8:]`.
     last = 2 * (half_final - 1)
     state = _full_round(state, const["final_constants"][last], const["final_constants"][last + 1])
-    state = [s + init for s, init in zip(state, initial)]
-    one_minus_half = EF.one() - cols["flag_half_output"]
-    for idx in range(_POSEIDON_WIDTH // 2):
-        if idx < _HALF_DIGEST_LEN:
-            folder.assert_eq(state[idx], cols["outputs"][idx])
-        else:
-            folder.assert_zero(one_minus_half * (state[idx] - cols["outputs"][idx]))
+    flag_permute = cols["flag_permute"]
+    not_permute = EF.one() - flag_permute
+    compression_last4 = not_permute - cols["flag_half_output"]
+    for i in range(_POSEIDON_WIDTH // 2):
+        compression_gate = not_permute if i < _HALF_DIGEST_LEN else compression_last4
+        folder.assert_zero(compression_gate * (state[i] + initial[i] - cols["outputs_left"][i]))
+        folder.assert_zero(flag_permute * (state[i] - cols["outputs_left"][i]))
+        folder.assert_zero(flag_permute * (state[i + _POSEIDON_WIDTH // 2] - cols["outputs_right"][i]))
 
 
 def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data: dict) -> None:
@@ -1407,16 +1434,19 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
         return list(chunk)
 
     [flag_active, index_b, index_res, flag_half_output, flag_hardcoded_left,
-     offset_hardcoded_left, effective_index_left_first, effective_index_left_second] = take(8)
+     offset_hardcoded_left, effective_index_left_first, effective_index_left_second,
+     flag_permute] = take(9)
     inputs                = take(W)
     beginning_full_rounds = [take(W) for _ in range(half_initial)]
     partial_cols          = take(const["partial_rounds"])
     ending_full_rounds    = [take(W) for _ in range(half_final - 1)]
-    outputs               = take(W // 2)
+    outputs_left          = take(W // 2)
+    outputs_right         = take(W // 2)
 
     # Reconstruct `precompile_data` from the flags + offset.
     precompile_data = (
         one
+        + flag_permute          * EF.from_base(Fp(_POSEIDON_PERMUTE_SHIFT))
         + flag_half_output      * EF.from_base(Fp(_POSEIDON_HALF_OUTPUT_SHIFT))
         + flag_hardcoded_left   * EF.from_base(Fp(_POSEIDON_HARDCODED_LEFT_4_FLAG_SHIFT))
         + flag_hardcoded_left * offset_hardcoded_left * EF.from_base(Fp(_POSEIDON_HARDCODED_LEFT_4_OFFSET_SHIFT))
@@ -1428,10 +1458,12 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
     folder.assert_zero(_eval_virtual_bus_column(
         extra_data, flag_active, [precompile_data, index_a, index_b, index_res],
     ))
-    # Constraints 2-4: bool flags.
-    for f in (flag_active, flag_half_output, flag_hardcoded_left):
+    # Constraints 2-5: bool flags.
+    for f in (flag_active, flag_half_output, flag_hardcoded_left, flag_permute):
         folder.assert_bool(f)
-    # Constraints 5-6: hardcoded-left consistency.
+    # Constraint 6: mutex — flag_permute can't coexist with half-output or hardcoded-left.
+    folder.assert_zero(flag_permute * (flag_half_output + flag_hardcoded_left))
+    # Constraints 7-8: hardcoded-left consistency.
     folder.assert_zero(flag_hardcoded_left * (offset_hardcoded_left - effective_index_left_first))
     folder.assert_zero(not_hcl * (index_a - effective_index_left_first))
 
@@ -1440,8 +1472,10 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
         "beginning_full_rounds": beginning_full_rounds,
         "partial_rounds": partial_cols,
         "ending_full_rounds": ending_full_rounds,
-        "outputs": outputs,
+        "outputs_left": outputs_left,
+        "outputs_right": outputs_right,
         "flag_half_output": flag_half_output,
+        "flag_permute": flag_permute,
     }, extra_data)
 
 
@@ -1449,8 +1483,8 @@ def _eval_air_poseidon16(folder: ConstraintFolder, table: TableMeta, extra_data:
 # n_shift_columns}`). By convention the shift columns occupy positions `0..n_shift`.
 _TABLE_SPECS: dict[str, dict] = {
     "execution":           {"degree": 5,  "n_constraints": 13, "n_shift":  2},
-    "extension_op":        {"degree": 4,  "n_constraints": 16, "n_shift": 13},
-    "poseidon16_compress": {"degree": 10, "n_constraints": 81, "n_shift":  0},
+    "extension_op":        {"degree": 4,  "n_constraints": 33, "n_shift": 13},
+    "poseidon16_compress": {"degree": 10, "n_constraints": 99, "n_shift":  0},
 }
 
 
@@ -1476,7 +1510,11 @@ def verify_air_stage(
     """Returns `(committed_statements, public_memory_random_point, public_memory_eval)`.
     `committed_statements[name]` is a list of `(point, eq_values, next_values)`
     triples — one per session for that table."""
-    bus_beta, air_alpha, eta = state.sample(), state.sample(), state.sample()
+    bus_beta = state.sample()
+    state.duplex()
+    air_alpha = state.sample()
+    state.duplex()
+    eta = state.sample()
     alpha_powers = _powers(air_alpha, max(_TABLE_SPECS[n]["n_constraints"] for n in tables) + 1)
     tables_sorted = sort_tables_by_height(table_log_heights)
     eta_powers = _powers(eta, len(tables_sorted))
@@ -1568,6 +1606,7 @@ def verify_execution(
 
     # Logup phase.
     logup_c = state.sample()
+    state.duplex()
     max_bus_width = 1 + max(constants["max_precompile_bus_width"], constants["n_instruction_columns"])
     logup_alphas = state.sample_vec(log2_ceil_usize(max_bus_width))
     logup_alphas_eq = eval_eq(logup_alphas)

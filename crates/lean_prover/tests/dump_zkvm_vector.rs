@@ -203,7 +203,7 @@ fn dump_zkvm_vector() {
             logup_bytecode_domainsep: LOGUP_BYTECODE_DOMAINSEP,
             max_precompile_bus_width: MAX_PRECOMPILE_BUS_WIDTH,
             starting_pc: STARTING_PC,
-            ending_pc: ENDING_PC,
+            ending_pc: bytecode.ending_pc,
         },
         snark_domain_sep: lean_prover::SNARK_DOMAIN_SEP.map(f_to_u32),
         proof: RawProofJson {
