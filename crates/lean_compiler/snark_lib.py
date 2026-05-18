@@ -67,8 +67,32 @@ class DynArray:
         self._data.pop()
 
 
-def poseidon16_compress(left, right, output, mode):
-    _ = left, right, output, mode
+def poseidon16_compress(left, right, output):
+    _ = left, right, output
+
+
+def poseidon16_compress_half(left, right, output):
+    """Poseidon16 compression outputting only the first 4 FE (last 4 unconstrained)."""
+    _ = left, right, output
+
+
+def poseidon16_compress_hardcoded_left(left, right, output, offset):
+    """Poseidon16 compression where the first 4 FE of the left input are read from
+    memory[offset..offset+4] instead of memory[left..left+4]. The last 4 FE of the
+    left input come from memory[left..left+4]. `offset` must be a compile-time
+    constant expression."""
+    _ = left, right, output, offset
+
+
+def poseidon16_compress_half_hardcoded_left(left, right, output, offset):
+    """Composition of `poseidon16_compress_half` and `poseidon16_compress_hardcoded_left`."""
+    _ = left, right, output, offset
+
+
+def poseidon16_permute(left, right, output):
+    """Raw Poseidon1 permutation (no feed-forward). Writes the 16-cell result in natural order:
+        m[output .. output + 16] = poseidon(left || right)"""
+    _ = left, right, output
 
 
 def add_be(a, b, result, length=None):
@@ -95,8 +119,8 @@ def poly_eq_ee(a, b, result, length=None):
     _ = a, b, result, length
 
 
-def hint_decompose_bits(value, bits, n_bits, endian):
-    _ = value, bits, n_bits, endian
+def hint_decompose_bits(value, bits, n_bits):
+    _ = value, bits, n_bits
 
 def hint_less_than(a, b, result_ptr):
     _ = a, b, result_ptr

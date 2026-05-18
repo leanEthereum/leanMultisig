@@ -959,19 +959,10 @@ fn base_eval_eq_packed_with_packed_output<F, EF, const INITIALIZED: bool>(
     F: Field,
     EF: ExtensionField<F>,
 {
-    // Ensure that the output buffer size is correct:
-    // It should be of size `2^n`, where `n` is the number of variables.
-    let width = F::Packing::WIDTH;
-    let log_packing_width = log2_strict_usize(width);
     debug_assert_eq!(out.len(), 1 << eval_points.len());
-    debug_assert!(log_packing_width <= eval_points.len());
 
     match eval_points.len() {
-        0 => {
-            debug_assert_eq!(F::Packing::WIDTH, 1);
-            let base_vals = F::Packing::pack_slice(eq_evals.as_slice());
-            scale_and_add_pf::<F, EF, INITIALIZED>(out, base_vals, packed_scalar);
-        }
+        0 => unreachable!(),
         1 => {
             let eq_evaluations = eval_eq_1(eval_points, eq_evals);
             scale_and_add_pf::<F, EF, INITIALIZED>(out, eq_evaluations.as_slice(), packed_scalar);

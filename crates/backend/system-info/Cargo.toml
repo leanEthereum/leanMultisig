@@ -3,5 +3,9 @@ name = "system-info"
 version.workspace = true
 edition.workspace = true
 
+[dependencies]
+libc = "0.2"
+rayon.workspace = true
+
 [lints]
 workspace = true

@@ -425,7 +425,7 @@ where
 {
     let degree = computation.degree_air();
     let n_cols = cols.len();
-    let n_up = computation.n_columns();
+    let n_flat = computation.n_columns();
     let stride = 1usize << fold_bit;
     let lo_mask = stride - 1;
     let n_full = low_degree + 1;
@@ -475,7 +475,7 @@ where
 
                 // z = 0: full eval, capture post-block state.
                 {
-                    let mut folder = ConstraintFolderPacked::new(&point[..n_up], &point[n_up..], extra_data);
+                    let mut folder = ConstraintFolderPacked::new(&point[..n_flat], &point[n_flat..], extra_data);
                     folder.cached_state = Some(state_0);
                     Air::eval(computation, &mut folder, extra_data);
                     acc[0] += folder.accumulator * partial_eq;
@@ -489,7 +489,7 @@ where
                     point[k] += diff[k].double();
                 }
                 {
-                    let mut folder = ConstraintFolderPacked::new(&point[..n_up], &point[n_up..], extra_data);
+                    let mut folder = ConstraintFolderPacked::new(&point[..n_flat], &point[n_flat..], extra_data);
                     folder.cached_state = Some(state_2);
                     Air::eval(computation, &mut folder, extra_data);
                     acc[1] += folder.accumulator * partial_eq;
@@ -502,7 +502,7 @@ where
                     for k in 0..n_cols {
                         point[k] += diff[k];
                     }
-                    let mut folder = ConstraintFolderPacked::new(&point[..n_up], &point[n_up..], extra_data);
+                    let mut folder = ConstraintFolderPacked::new(&point[..n_flat], &point[n_flat..], extra_data);
                     Air::eval(computation, &mut folder, extra_data);
                     acc[z_idx] += folder.accumulator * partial_eq;
                     low_evals[z_idx] = folder.accumulator_low;
@@ -523,7 +523,7 @@ where
                             .push(state_0[i] + (state_2[i] - state_0[i]) * PFPacking::<EF>::from(hi_zs_halved[t]));
                     }
 
-                    let mut folder = ConstraintFolderPacked::new(&point[..n_up], &point[n_up..], extra_data);
+                    let mut folder = ConstraintFolderPacked::new(&point[..n_flat], &point[n_flat..], extra_data);
                     folder.skip_low = true;
                     folder.cached_state = Some(cached_buf);
                     folder.low_ci_count = low_n_constraints;
@@ -680,15 +680,15 @@ pub fn prove_batched_air_sumcheck<'a, EF: ExtensionField<PF<EF>>>(
     MultilinearPoint(challenges)
 }
 
-pub fn compute_shifted_columns<F: Field>(air_down_column_indexes: &[usize], columns: &[&[F]]) -> Vec<Vec<F>> {
-    air_down_column_indexes
+pub fn compute_shifted_columns<F: Field>(n_shift_columns: usize, columns: &[&[F]]) -> Vec<Vec<F>> {
+    // Convention: the first `n_shift_columns` columns are the ones that get shifted.
+    columns[..n_shift_columns]
         .par_iter()
-        .map(|&col_index| {
-            let column = columns[col_index];
-            let mut down = unsafe { uninitialized_vec(column.len()) };
-            down[..column.len() - 1].copy_from_slice(&column[1..]);
-            down[column.len() - 1] = column[column.len() - 1];
-            down
+        .map(|column| {
+            let mut shifted = unsafe { uninitialized_vec(column.len()) };
+            shifted[..column.len() - 1].copy_from_slice(&column[1..]);
+            shifted[column.len() - 1] = column[column.len() - 1];
+            shifted
         })
         .collect()
 }
@@ -701,22 +701,18 @@ pub fn natural_ordering_point_for_session<EF: Copy>(sumcheck_air_point: &[EF], l
         .collect()
 }
 
-pub fn columns_evals_up_and_down<EF: ExtensionField<PF<EF>>, A: Air>(
+pub fn columns_evals_flat_and_shift<EF: ExtensionField<PF<EF>>, A: Air>(
     air: &A,
     col_evals: &[EF],
     natural_ordering_point: &[EF],
 ) -> (MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>) {
-    let n_up = air.n_columns();
-    debug_assert_eq!(col_evals.len(), n_up + air.n_down_columns());
+    let n_flat = air.n_columns();
+    debug_assert_eq!(col_evals.len(), n_flat + air.n_shift_columns());
 
     let point = MultilinearPoint(natural_ordering_point.to_vec());
 
-    let evals_eq: BTreeMap<ColIndex, EF> = col_evals[..n_up].iter().copied().enumerate().collect();
-    let evals_next: BTreeMap<ColIndex, EF> = col_evals[n_up..]
-        .iter()
-        .zip(air.down_column_indexes())
-        .map(|(&v, col_index)| (col_index, v))
-        .collect();
+    let evals_eq: BTreeMap<ColIndex, EF> = col_evals[..n_flat].iter().copied().enumerate().collect();
+    let evals_next: BTreeMap<ColIndex, EF> = col_evals[n_flat..].iter().copied().enumerate().collect();
 
     (point, evals_eq, evals_next)
 }

@@ -21,6 +21,12 @@ impl IntermediateValue {
     pub const fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
     }
+
+    pub fn fp_register() -> Self {
+        Self::FpRelative {
+            offset: ConstExpression::zero(),
+        }
+    }
 }
 
 impl From<ConstExpression> for IntermediateValue {

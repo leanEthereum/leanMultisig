@@ -1,7 +1,6 @@
-use field::ExtensionField;
-
-use crate::{EFPacking, Mle, MleRef, MultilinearPoint, PF, PFPacking, pack_extension, unpack_extension};
+use crate::{EFPacking, Mle, MleRef, MultilinearPoint, PF, PFPacking, pack_extension, packing_width, unpack_extension};
 use field::PackedValue;
+use field::{ExtensionField, PackedFieldExtension};
 
 #[derive(Debug, Clone)]
 pub enum MleOwned<EF: ExtensionField<PF<EF>>> {
@@ -151,5 +150,21 @@ impl<EF: ExtensionField<PF<EF>>> MleOwned<EF> {
             }
         }
         self
+    }
+
+    pub fn as_constant(&self) -> EF {
+        assert_eq!(self.n_vars(), 0);
+        match self {
+            Self::Base(v) => EF::from(v[0]),
+            Self::Extension(v) => v[0],
+            Self::BasePacked(v) => {
+                assert_eq!(packing_width::<EF>(), 1);
+                EF::from(v[0].as_slice()[0])
+            }
+            Self::ExtensionPacked(v) => {
+                assert_eq!(packing_width::<EF>(), 1);
+                EFPacking::<EF>::to_ext_iter([v[0]]).nth(0).unwrap()
+            }
+        }
     }
 }

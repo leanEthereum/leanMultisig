@@ -151,9 +151,16 @@ def expand_from_univariate_base_const(alpha, n: Const):
 
 
 def expand_from_univariate_ext(alpha, n):
+    debug_assert(0 < n)
+    debug_assert(n < 31)
+    res = match_range(n, range(1, 31), lambda nv: expand_from_univariate_ext_const(alpha, nv))
+    return res
+
+
+def expand_from_univariate_ext_const(alpha, n: Const):
     res = Array(n * DIM)
     copy_5(alpha, res)
-    for i in range(0, n - 1):
+    for i in unroll(0, n - 1):
         mul_extension(res + i * DIM, res + i * DIM, res + (i + 1) * DIM)
     return res
 
@@ -360,6 +367,18 @@ def set_to_5_zeros(a):
     dot_product_ee(a, ONE_EF_PTR, zero_ptr)
     return
 
+@inline
+def set_to_6_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    a[5] = 0
+    return
+
+@inline
+def copy_6(a, b):
+    dot_product_ee(a, ONE_EF_PTR, b)
+    a[5] = b[5]
+    return
 
 @inline
 def set_to_7_zeros(a):
@@ -377,6 +396,22 @@ def set_to_8_zeros(a):
     dot_product_ee(a + (8 - DIM), ONE_EF_PTR, zero_ptr)
     return
 
+@inline
+def set_to_16_zeros(a):
+    zero_ptr = ZERO_VEC_PTR
+    dot_product_ee(a, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + 5, ONE_EF_PTR, zero_ptr)
+    dot_product_ee(a + 10, ONE_EF_PTR, zero_ptr)
+    a[15] = 0
+    return
+
+@inline
+def copy_16(a, b):
+    dot_product_ee(a, ONE_EF_PTR, b)
+    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
+    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
+    a[15] = b[15]
+    return
 
 @inline
 def copy_8(a, b):
@@ -386,17 +421,12 @@ def copy_8(a, b):
 
 
 @inline
-def copy_9(a, b):
-    dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + (9 - DIM), ONE_EF_PTR, b + (9 - DIM))
-    return
-
-@inline
-def copy_16(a, b):
-    dot_product_ee(a, ONE_EF_PTR, b)
-    dot_product_ee(a + 5, ONE_EF_PTR, b + 5)
-    dot_product_ee(a + 10, ONE_EF_PTR, b + 10)
-    a[15] = b[15]
+def copy_32(a, b):
+    chunks = div_floor(32, DIM)
+    for i in unroll(0, chunks):
+        copy_5(a + i * DIM, b + i * DIM)
+    if DIM * chunks != 32:
+        copy_5(a + (32 - DIM), b + (32 - DIM))
     return
 
 
@@ -458,20 +488,21 @@ def sum_2_ef_fractions(a_num, a_den, b_num, b_den):
 # -   1111111    | 00...00
 # - not(1111111) | xx...xx
 def checked_decompose_bits(a):
-    # return a pointer to the 31 bits of a
-    # .. and the first 24 partial sums of these bits
+    # return a pointer to the 31 bits of a (big-endian: bits[0] = MSB, bits[F_BITS-1] = LSB)
+    # .. and the first 24 partial sums of these bits, where partial_sums_24[k] is the
+    # value of the lowest k+1 bits of a.
     bits = Array(F_BITS)
-    hint_decompose_bits(a, bits, F_BITS, LITTLE_ENDIAN)
+    hint_decompose_bits(a, bits, F_BITS)
 
     for i in unroll(0, F_BITS):
         assert bits[i] * (1 - bits[i]) == 0
     partial_sums_24 = Array(24)
-    partial_sums_24[0] = bits[0]
+    partial_sums_24[0] = bits[F_BITS - 1]
     for i in unroll(1, 24):
-        partial_sums_24[i] = partial_sums_24[i - 1] + bits[i] * 2**i
-    sum_7: Mut = bits[24]
+        partial_sums_24[i] = partial_sums_24[i - 1] + bits[F_BITS - 1 - i] * 2**i
+    sum_7: Mut = bits[F_BITS - 1 - 24]
     for i in unroll(1, 7):
-        sum_7 += bits[24 + i] * 2**i
+        sum_7 += bits[F_BITS - 1 - (24 + i)] * 2**i
     if sum_7 == 127:
         assert partial_sums_24[23] == 0
 
@@ -597,7 +628,7 @@ def decompose_and_verify_merkle_query(a, domain_size, prev_root, num_chunks):
 
 def checked_decompose_bits_small_value_const(to_decompose, n_bits: Const):
     bits = Array(n_bits)
-    hint_decompose_bits(to_decompose, bits, n_bits, BIG_ENDIAN)
+    hint_decompose_bits(to_decompose, bits, n_bits)
     sum: Mut = bits[n_bits - 1]
     assert sum * (1 - sum) == 0
     for i in unroll(1, n_bits):
@@ -657,13 +688,25 @@ def mle_of_zeros_then_ones(point, n_zeros, n_vars):
 
     for i in range(0, n_vars):
         p = point + (n_vars - 1 - i) * DIM
-        if bits[i] == 0:
+        if bits[F_BITS - 1 - i] == 0:
             one_minus_p = one_minus_self_extension_ret(p)
             tmp = mul_extension_ret(one_minus_p, res)
             res = add_extension_ret(tmp, p)
         else:
             res = mul_extension_ret(p, res)
     return res
+
+
+def mle_of_zeros_then_ones_pow2(point, log_n_zeros: Const, n_vars):
+    debug_assert(log_n_zeros <= n_vars)
+    if log_n_zeros == n_vars:
+        return ZERO_VEC_PTR
+    n_factors = n_vars - log_n_zeros
+    prod: Mut = one_minus_self_extension_ret(point)
+    for i in range(1, n_factors):
+        new_prod = mul_extension_ret(prod, one_minus_self_extension_ret(point + i * DIM))
+        prod = new_prod
+    return sub_base_extension_ret(1, prod)
 
 
 @inline

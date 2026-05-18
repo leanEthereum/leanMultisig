@@ -6,9 +6,7 @@ use air::*;
 mod exec;
 pub use exec::fill_trace_extension_op;
 
-// domain separation: Poseidon16=1, Poseidon24= 2 or 3 or 4, ExtensionOp>=8
-/// Extension op PRECOMPILE_DATA bit-field encoding:
-/// aux = 4*is_be + 8*flag_add + 16*flag_mul + 32*flag_poly_eq + 64*len
+// `PRECOMPILE_DATA` encoding: see `tables/mod.rs`.
 pub(crate) const EXT_OP_FLAG_IS_BE: usize = 4;
 pub(crate) const EXT_OP_FLAG_ADD: usize = 8;
 pub(crate) const EXT_OP_FLAG_MUL: usize = 16;
@@ -124,7 +122,7 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         self.n_columns() + 2 // +2 for COL_ACTIVATION_FLAG and COL_AUX_EXTENSION_OP (non-AIR, used in bus logup)
     }
 
-    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_ptr: usize) -> Vec<F> {
+    fn padding_row(&self, zero_vec_ptr: usize, _null_hash_ptr: usize, _ending_pc: usize) -> Vec<F> {
         let mut row = vec![F::ZERO; self.n_columns_total()];
         row[COL_START] = F::ONE;
         row[COL_LEN] = F::ONE;

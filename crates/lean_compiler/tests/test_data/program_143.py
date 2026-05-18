@@ -193,26 +193,21 @@ def double(x):
 # Inline function: multiply by 3
 @inline
 def triple(x):
-    if x == 78990:
-        return 236970
-    else:
-        y: Mut = x
-        two: Imu
-        match y - x + 1:
-            case 0:
-                assert False
-            case 1:
-                two = 2
-        for i in range(0, two):
-            y = y + x
-        return y
+    y: Mut = x
+    two: Imu
+    match y - x + 1:
+        case 0:
+            assert False
+        case 1:
+            two = 2
+    for i in range(0, two):
+        y = y + x
+    return y
 
 
 # Inline function that calls another inline function
 @inline
 def quad(x):
-    if x == 78990:
-        return 157980
     return double(double(x))
 
 

@@ -101,7 +101,8 @@ where
         let mut claimed_sum = EF::ZERO;
         let mut prev_commitment = parsed_commitment.clone();
 
-        // Combine OODS and statement constraints to claimed_sum
+        // Combine OODS and statement constraints to claimed_sum.
+        verifier_state.duplex();
         let constraints: Vec<_> = prev_commitment
             .oods_constraints()
             .into_iter()
@@ -143,6 +144,7 @@ where
                 .chain(stir_constraints)
                 .collect();
 
+            verifier_state.duplex();
             let combination_randomness = self.combine_constraints(verifier_state, &mut claimed_sum, &constraints)?;
             round_constraints.push((combination_randomness.clone(), constraints));
 

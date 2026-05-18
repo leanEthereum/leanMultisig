@@ -2,7 +2,7 @@
 
 use backend::*;
 
-use crate::{EF, F, FileId, FunctionName, Hint, SourceLocation};
+use crate::{DIMENSION, F, FileId, FunctionName, Hint, N_INSTRUCTION_COLUMNS, SourceLocation};
 
 use super::Instruction;
 use std::collections::BTreeMap;
@@ -18,8 +18,8 @@ pub struct CodeEntry {
 pub struct Bytecode {
     pub code: Vec<CodeEntry>,
     pub instructions_multilinear: Vec<F>,
-    pub instructions_multilinear_packed: Vec<EFPacking<EF>>, // embedded in the extension field(bad, TODO)
     pub starting_frame_memory: usize,
+    pub ending_pc: usize,
     pub hash: [F; DIGEST_ELEMS],
     // debug
     pub function_locations: BTreeMap<SourceLocation, FunctionName>,
@@ -40,6 +40,14 @@ impl Bytecode {
 
     pub fn log_size(&self) -> usize {
         log2_ceil_usize(self.size())
+    }
+
+    pub fn cumulated_n_vars(&self) -> usize {
+        self.log_size() + log2_ceil_usize(N_INSTRUCTION_COLUMNS)
+    }
+
+    pub fn bytecode_claim_size(&self) -> usize {
+        (self.cumulated_n_vars() + 1) * DIMENSION
     }
 }
 

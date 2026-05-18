@@ -4,8 +4,8 @@ use poly::*;
 
 #[derive(Debug)]
 pub struct ConstraintFolder<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> {
-    pub up: &'a [IF],
-    pub down: &'a [IF],
+    pub flat: &'a [IF],
+    pub shift: &'a [IF],
     pub extra_data: &'a ExtraData,
     pub accumulator: EF,
     pub constraint_index: usize,
@@ -16,10 +16,10 @@ where
     EF: ExtensionField<PF<EF>>,
     ExtraData: AlphaPowers<EF>,
 {
-    pub fn new(up: &'a [IF], down: &'a [IF], extra_data: &'a ExtraData) -> Self {
+    pub fn new(flat: &'a [IF], shift: &'a [IF], extra_data: &'a ExtraData) -> Self {
         Self {
-            up,
-            down,
+            flat,
+            shift,
             extra_data,
             accumulator: EF::ZERO,
             constraint_index: 0,
@@ -38,13 +38,13 @@ where
     type EF = EF;
 
     #[inline]
-    fn up(&self) -> &[Self::IF] {
-        self.up
+    fn flat(&self) -> &[Self::IF] {
+        self.flat
     }
 
     #[inline]
-    fn down(&self) -> &[Self::IF] {
-        self.down
+    fn shift(&self) -> &[Self::IF] {
+        self.shift
     }
 
     #[inline]
@@ -59,10 +59,5 @@ where
         let alpha_power = self.extra_data.alpha_powers()[self.constraint_index];
         self.accumulator += alpha_power * x;
         self.constraint_index += 1;
-    }
-
-    #[inline]
-    fn eval_virtual_column(&mut self, x: Self::EF) {
-        self.assert_zero_ef(x);
     }
 }

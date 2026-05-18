@@ -28,6 +28,32 @@ pub enum ProofError {
     InvalidGrindingWitness,
     InvalidPadding,
     InvalidRate,
+    TooBigTable(TooBigTableError),
+}
+
+impl From<TooBigTableError> for ProofError {
+    fn from(e: TooBigTableError) -> Self {
+        Self::TooBigTable(e)
+    }
+}
+
+/// two-addicity of kolalbear = 2^24. Using initial folding of 7 + rate = 1/2, we can commit up to 2^30 field elements.
+/// We cap the maximum size of each table to ensure we never need to commit more than that. see `ensure_not_too_big_commitment_surface`
+#[derive(Debug, Clone)]
+pub struct TooBigTableError {
+    pub table_name: &'static str,
+    pub log_n_rows: usize,
+    pub log_limit: usize,
+}
+
+impl Display for TooBigTableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Table {} with 2^{} rows exceeds the maximum of 2^{} rows",
+            self.table_name, self.log_n_rows, self.log_limit
+        )
+    }
 }
 
 /// The result type when trying to prove or verify a proof using Fiat-Shamir.
@@ -44,6 +70,7 @@ impl Display for ProofError {
                 f,
                 "LeanVM supports rate 1/2, 1/4, 1/8 and 1/16 (log_inv_rate in {{1, 2, 3, 4}})"
             ),
+            Self::TooBigTable(e) => write!(f, "{}", e),
         }
     }
 }

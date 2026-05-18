@@ -33,18 +33,18 @@ pub fn verify_execution(
     let table_n_vars: BTreeMap<Table, VarCount> = (0..N_TABLES).map(|i| (ALL_TABLES[i], dims[i + 3])).collect();
     check_rate(log_inv_rate)?;
     let whir_config = default_whir_config(log_inv_rate);
-    for (table, &n_vars) in &table_n_vars {
-        if n_vars < MIN_LOG_N_ROWS_PER_TABLE {
+    for (table, &log_n_rows) in &table_n_vars {
+        if log_n_rows < MIN_LOG_N_ROWS_PER_TABLE {
             return Err(ProofError::InvalidProof);
         }
-        if n_vars
-            > MAX_LOG_N_ROWS_PER_TABLE
-                .iter()
-                .find(|(t, _)| t == table)
-                .map(|(_, m)| *m)
-                .unwrap()
-        {
-            return Err(ProofError::InvalidProof);
+        let log_limit = max_log_n_rows_per_table(table);
+        if log_n_rows > log_limit {
+            return Err(TooBigTableError {
+                table_name: table.name(),
+                log_n_rows,
+                log_limit,
+            }
+            .into());
         }
     }
     // check memory is bigger than any other table
@@ -71,6 +71,7 @@ pub fn verify_execution(
     )?;
 
     let logup_c = verifier_state.sample();
+    verifier_state.duplex();
     let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
@@ -98,8 +99,10 @@ pub fn verify_execution(
     }
 
     let bus_beta = verifier_state.sample();
+    verifier_state.duplex();
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_air_constraints() + 1);
+    verifier_state.duplex();
     let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
@@ -144,7 +147,7 @@ pub fn verify_execution(
 
     let mut my_air_final_value = EF::ZERO;
     for vd in &verify_data {
-        let n_cols_total = vd.table.n_columns() + vd.table.n_down_columns();
+        let n_cols_total = vd.table.n_columns() + vd.table.n_shift_columns();
         let col_evals = verifier_state.next_extension_scalars_vec(n_cols_total)?;
 
         macro_rules! eval_constraint {
@@ -163,7 +166,7 @@ pub fn verify_execution(
         );
 
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_ordering_point) }};
+            ($t:expr) => {{ columns_evals_flat_and_shift($t, &col_evals, &natural_ordering_point) }};
         }
         let claim = delegate_to_inner!(&vd.table => split);
 
@@ -206,6 +209,7 @@ pub fn verify_execution(
         parsed_commitment.num_variables,
         log_memory,
         bytecode.log_size(),
+        bytecode.ending_pc,
         previous_statements,
         &table_n_vars,
         &committed_statements,

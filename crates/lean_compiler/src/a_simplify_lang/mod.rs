@@ -6,8 +6,9 @@ use crate::{
 };
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
-    Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName, PrecompileArgs, PrecompileCompTimeArgs,
-    SourceLocation, Table, TableT,
+    ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_PERMUTE_NAME,
+    PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -135,7 +136,11 @@ pub enum SimpleLine {
     LocationReport {
         location: SourceLocation,
     },
-    DebugAssert(BooleanExpr<SimpleExpr>, SourceLocation),
+    DebugAssert {
+        expr: BooleanExpr<SimpleExpr>,
+        location: SourceLocation,
+        preceds_runtime_inequality: bool, // for each "real" range check 'assert a < b', we happend before a less-than hint that will check at runtime 1) that the inequality is true 2) that b is <= 2^MIN_LOG_MEMORY_SIZE = 2^16 (otherwise the range check is not not sound, cf. section 2.6.3 "Range checks" of minimal_zkVM.pdf)
+    },
     /// Runtime assertion `left == right`. Distinct from `Assignment` so dead-store
     /// analysis cannot drop it; both sides are read at execution time.
     AssertEq {
@@ -182,7 +187,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -209,7 +214,7 @@ impl SimpleLine {
             | Self::HintMAlloc { .. }
             | Self::ConstMalloc { .. }
             | Self::LocationReport { .. }
-            | Self::DebugAssert(..)
+            | Self::DebugAssert { .. }
             | Self::AssertEq { .. }
             | Self::RangeCheck { .. } => vec![],
         }
@@ -231,7 +236,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter().collect(),
             Self::FunctionRet { return_data } => return_data.iter().collect(),
             Self::Print { content, .. } => content.iter().collect(),
-            Self::DebugAssert(boolean, _) => vec![&boolean.left, &boolean.right],
+            Self::DebugAssert { expr, .. } => vec![&expr.left, &expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -253,7 +258,7 @@ impl SimpleLine {
             Self::FunctionCall { args, .. } | Self::CustomHint(_, args) => args.iter_mut().collect(),
             Self::FunctionRet { return_data } => return_data.iter_mut().collect(),
             Self::Print { content, .. } => content.iter_mut().collect(),
-            Self::DebugAssert(b, _) => vec![&mut b.left, &mut b.right],
+            Self::DebugAssert { expr, .. } => vec![&mut expr.left, &mut expr.right],
             Self::AssertEq { left, right, .. } => vec![left, right],
             Self::HintWitness { destination, .. } => vec![destination],
             Self::ForwardDeclaration { .. }
@@ -536,6 +541,7 @@ fn compile_time_transform_in_program(
                 func.name
             ));
         }
+        check_inline_returns(&func.body, &func.name)?;
     }
 
     // Process all functions, including newly created specialized ones
@@ -1506,7 +1512,7 @@ fn check_block_always_returns(function_name: &String, instructions: &[SimpleLine
 }
 
 fn check_program_scoping(program: &Program) {
-    for (_, function) in program.functions.iter() {
+    for function in program.functions.values() {
         let mut scope = Scope { vars: BTreeSet::new() };
         for arg in function.arguments.iter() {
             scope.vars.insert(arg.name.clone());
@@ -2254,16 +2260,28 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile
-                        if function_name == Table::poseidon16().name() {
+                        // Special handling for poseidon16 precompile (5 variants).
+                        if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
-                            if args.len() != 3 {
+                            let permute = function_name.as_str() == POSEIDON16_PERMUTE_NAME;
+                            let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
+                                .contains(&function_name.as_str());
+                            let is_hardcoded_left =
+                                [POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
+                                    .contains(&function_name.as_str());
+                            let expected_args = if is_hardcoded_left { 4 } else { 3 };
+                            if args.len() != expected_args {
+                                let signature = if is_hardcoded_left {
+                                    "(ptr_a, ptr_b, ptr_res, offset)"
+                                } else {
+                                    "(ptr_a, ptr_b, ptr_res)"
+                                };
                                 return Err(format!(
-                                    "Precompile {function_name} expects 3 arguments (ptr_a, ptr_b, ptr_res), got {}, at {location}",
+                                    "Precompile {function_name} expects {expected_args} arguments {signature}, got {}, at {location}",
                                     args.len()
                                 ));
                             }
@@ -2271,11 +2289,24 @@ fn simplify_lines(
                                 .iter()
                                 .map(|arg| simplify_expr(ctx, state, const_malloc, arg, &mut res))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            let hardcoded_offset_left = if is_hardcoded_left {
+                                Some(simplified_args[3].as_constant().ok_or_else(|| {
+                                    format!(
+                                        "{function_name}: offset argument must be a compile-time constant, at {location}"
+                                    )
+                                })?)
+                            } else {
+                                None
+                            };
                             res.push(SimpleLine::Precompile(PrecompileArgs {
                                 arg_0: simplified_args[0].clone(),
                                 arg_1: simplified_args[1].clone(),
                                 res: simplified_args[2].clone(),
-                                data: PrecompileCompTimeArgs::Poseidon16,
+                                data: PrecompileCompTimeArgs::Poseidon16 {
+                                    half_output,
+                                    hardcoded_offset_left,
+                                    permute,
+                                },
                             }));
                             continue;
                         }
@@ -2536,14 +2567,15 @@ fn simplify_lines(
                 let left = simplify_expr(ctx, state, const_malloc, &boolean.left, &mut res)?;
                 let right = simplify_expr(ctx, state, const_malloc, &boolean.right, &mut res)?;
                 if *debug {
-                    res.push(SimpleLine::DebugAssert(
-                        BooleanExpr {
+                    res.push(SimpleLine::DebugAssert {
+                        expr: BooleanExpr {
                             left,
                             right,
                             kind: boolean.kind,
                         },
-                        *location,
-                    ));
+                        location: *location,
+                        preceds_runtime_inequality: false,
+                    });
                 } else {
                     match boolean.kind {
                         Boolean::Different => {
@@ -2599,14 +2631,15 @@ fn simplify_lines(
                             });
 
                             // We add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: bound_minus_one.clone().into(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -2617,14 +2650,15 @@ fn simplify_lines(
                             // Range check: assert left <= right
 
                             // we add a debug assert for sanity
-                            res.push(SimpleLine::DebugAssert(
-                                BooleanExpr {
+                            res.push(SimpleLine::DebugAssert {
+                                expr: BooleanExpr {
                                     kind: Boolean::LessOrEqual,
                                     left: left.clone(),
                                     right: right.clone(),
                                 },
-                                *location,
-                            ));
+                                location: *location,
+                                preceds_runtime_inequality: true,
+                            });
 
                             res.push(SimpleLine::RangeCheck {
                                 val: left,
@@ -3423,6 +3457,32 @@ fn inline_lines(
     replace_function_ret_in_lines(lines, res);
 }
 
+fn check_inline_returns(body: &[Line], func_name: &str) -> Result<(), String> {
+    fn count_returns(lines: &[Line]) -> usize {
+        lines
+            .iter()
+            .map(|line| {
+                usize::from(matches!(line, Line::FunctionRet { .. }))
+                    + line.nested_blocks().iter().map(|b| count_returns(b)).sum::<usize>()
+            })
+            .sum()
+    }
+
+    let nested_returns: usize = body
+        .iter()
+        .flat_map(Line::nested_blocks)
+        .map(|b| count_returns(b))
+        .sum();
+
+    if nested_returns > 0 || count_returns(body) > 1 {
+        return Err(format!(
+            "Inline function `{func_name}` has an unsupported `return`. Inline functions support \
+             exactly one `return`, placed at the end of the function's body"
+        ));
+    }
+    Ok(())
+}
+
 fn replace_function_ret_in_lines(lines: &mut Vec<Line>, res: &[AssignmentTarget]) {
     // First recurse into nested blocks
     for line in lines.iter_mut() {
@@ -3672,20 +3732,22 @@ fn expand_dynamic_unroll(
     // The template is the zkDSL expansion of dynamic_unroll, with `end` as the
     // runtime bound and `__iter` as a placeholder for the iterator assignment.
     //
-    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
+    // Bits are stored in big-endian order: bits[0] is the most significant bit
+    // (weight 2^(n_bits-1)), bits[n_bits-1] is the least significant (weight 2^0).
+    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^(n_bits-1-k).
     // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == n_iters.
     //
-    // For large bits (2^k > CHUNK_SIZE), we split into chunks to reduce bytecode size:
-    // - outer runtime loop over n_chunks = 2^k / CHUNK_SIZE
+    // For large bits (block_size > CHUNK_SIZE), we split into chunks to reduce bytecode size:
+    // - outer runtime loop over n_chunks = block_size / CHUNK_SIZE
     // - inner unroll over CHUNK_SIZE iterations
-    // For k <= log2(CHUNK_SIZE), the range loop has minimal overhead.
+    // For small bits, the range loop has minimal overhead.
 
     // Build the template with per-bit chunking logic.
     // Pre-compute __base_k = start_val + ps[k] once per activated bit,
     // so the inner loop stays at 1 ADD per iteration.
     let mut loop_body = String::new();
     for k in 0..n_bits {
-        let block_size = 1usize << k;
+        let block_size = 1usize << (n_bits - 1 - k);
         if block_size <= DYNAMIC_UNROLL_CHUNK_SIZE {
             // Small block: fully unroll
             loop_body.push_str(&format!(
@@ -3717,14 +3779,13 @@ fn expand_dynamic_unroll(
 def __dynamic_unroll_template(end):
     n_iters = end - {start_val}
     bits = Array({n_bits})
-    le = 1
-    hint_decompose_bits(n_iters, bits, {n_bits}, le)
+    hint_decompose_bits(n_iters, bits, {n_bits})
     ps = Array({ps_len})
     ps[0] = 0
     for k in unroll(0, {n_bits}):
         b = bits[k]
         assert b * (1 - b) == 0
-        ps[k + 1] = ps[k] + b * 2**k
+        ps[k + 1] = ps[k] + b * 2**({n_bits} - 1 - k)
     assert n_iters == ps[{n_bits}]
 {loop_body}
     return
@@ -3748,7 +3809,7 @@ def __dynamic_unroll_template(end):
 
     // Rename all internal variables with @du{id}_ prefix.
     // __iter is renamed directly to the user's iterator variable.
-    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk", "n_iters"]
+    let internals: BTreeSet<String> = ["bits", "ps", "k", "j", "b", "chunk", "n_iters"]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -4044,8 +4105,8 @@ impl SimpleLine {
                 None => "assert False".to_string(),
             },
             Self::LocationReport { .. } => Default::default(),
-            Self::DebugAssert(bool, _) => {
-                format!("debug_assert({bool})")
+            Self::DebugAssert { expr, .. } => {
+                format!("debug_assert({expr})")
             }
             Self::AssertEq { left, right, .. } => {
                 format!("assert_eq({left} == {right})")

@@ -45,8 +45,8 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
     fn degree_air(&self) -> usize {
         5
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        vec![COL_PC, COL_FP]
+    fn n_shift_columns(&self) -> usize {
+        2
     }
     fn n_constraints(&self) -> usize {
         13
@@ -54,25 +54,29 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
 
     #[inline]
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData) {
-        let up = builder.up();
-        let down = builder.down();
+        let flat = builder.flat();
+        let shift = builder.shift();
 
-        let next_pc = down[0];
-        let next_fp = down[1];
+        let pc_shift = shift[COL_PC];
+        let fp_shift = shift[COL_FP];
 
-        let (operand_a, operand_b, operand_c) = (up[COL_OPERAND_A], up[COL_OPERAND_B], up[COL_OPERAND_C]);
-        let (flag_a, flag_b, flag_c) = (up[COL_FLAG_A], up[COL_FLAG_B], up[COL_FLAG_C]);
-        let flag_c_fp = up[COL_FLAG_C_FP];
-        let flag_ab_fp = up[COL_FLAG_AB_FP];
-        let mul = up[COL_MUL];
-        let jump = up[COL_JUMP];
-        let aux = up[COL_AUX];
-        let precompile_data = up[COL_PRECOMPILE_DATA];
+        let (operand_a, operand_b, operand_c) = (flat[COL_OPERAND_A], flat[COL_OPERAND_B], flat[COL_OPERAND_C]);
+        let (flag_a, flag_b, flag_c) = (flat[COL_FLAG_A], flat[COL_FLAG_B], flat[COL_FLAG_C]);
+        let flag_c_fp = flat[COL_FLAG_C_FP];
+        let flag_ab_fp = flat[COL_FLAG_AB_FP];
+        let mul = flat[COL_MUL];
+        let jump = flat[COL_JUMP];
+        let aux = flat[COL_AUX];
+        let precompile_data = flat[COL_PRECOMPILE_DATA];
 
-        let (value_a, value_b, value_c) = (up[COL_MEM_VALUE_A], up[COL_MEM_VALUE_B], up[COL_MEM_VALUE_C]);
-        let pc = up[COL_PC];
-        let fp = up[COL_FP];
-        let (addr_a, addr_b, addr_c) = (up[COL_MEM_ADDRESS_A], up[COL_MEM_ADDRESS_B], up[COL_MEM_ADDRESS_C]);
+        let (value_a, value_b, value_c) = (flat[COL_MEM_VALUE_A], flat[COL_MEM_VALUE_B], flat[COL_MEM_VALUE_C]);
+        let pc = flat[COL_PC];
+        let fp = flat[COL_FP];
+        let (addr_a, addr_b, addr_c) = (
+            flat[COL_MEM_ADDRESS_A],
+            flat[COL_MEM_ADDRESS_B],
+            flat[COL_MEM_ADDRESS_C],
+        );
 
         let one_minus_flag_a_and_flag_ab_fp = -(flag_a + flag_ab_fp - AB::F::ONE);
         let one_minus_flag_b_and_flag_ab_fp = -(flag_b + flag_ab_fp - AB::F::ONE);
@@ -93,7 +97,7 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let is_precompile = -(add + mul + deref + jump - AB::F::ONE);
 
         if BUS {
-            builder.eval_virtual_column(eval_virtual_bus_column::<AB, EF>(
+            builder.assert_zero_ef(eval_virtual_bus_column::<AB, EF>(
                 extra_data,
                 is_precompile,
                 &[precompile_data, nu_a, nu_b, nu_c],
@@ -117,11 +121,11 @@ impl<const BUS: bool> Air for ExecutionTable<BUS> {
         let jump_and_condition = jump * nu_a;
 
         builder.assert_zero(jump_and_condition * nu_a_minus_one);
-        builder.assert_zero(jump_and_condition * (next_pc - nu_b));
-        builder.assert_zero(jump_and_condition * (next_fp - nu_c));
+        builder.assert_zero(jump_and_condition * (pc_shift - nu_b));
+        builder.assert_zero(jump_and_condition * (fp_shift - nu_c));
         let not_jump_and_condition = -(jump_and_condition - AB::F::ONE);
-        builder.assert_zero(not_jump_and_condition * (next_pc - pc_plus_one));
-        builder.assert_zero(not_jump_and_condition * (next_fp - fp));
+        builder.assert_zero(not_jump_and_condition * (pc_shift - pc_plus_one));
+        builder.assert_zero(not_jump_and_condition * (fp_shift - fp));
     }
 }
 
