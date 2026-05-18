@@ -72,8 +72,8 @@ impl TableT for Table {
     fn bus(&self) -> Bus {
         delegate_to_inner!(self, bus)
     }
-    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize) -> Vec<PF<EF>> {
-        delegate_to_inner!(self, padding_row, zero_vec_ptr, null_hash_ptr)
+    fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, ending_pc: usize) -> Vec<PF<EF>> {
+        delegate_to_inner!(self, padding_row, zero_vec_ptr, null_hash_ptr, ending_pc)
     }
     fn execute<M: MemoryAccess>(
         &self,
@@ -101,8 +101,8 @@ impl Air for Table {
     fn n_air_constraints(&self) -> usize {
         delegate_to_inner!(self, n_air_constraints)
     }
-    fn down_column_indexes(&self) -> Vec<usize> {
-        delegate_to_inner!(self, down_column_indexes)
+    fn n_shift_columns(&self) -> usize {
+        delegate_to_inner!(self, n_shift_columns)
     }
     fn eval<AB: AirBuilder>(&self, _: &mut AB, _: &Self::ExtraData) {
         unreachable!()

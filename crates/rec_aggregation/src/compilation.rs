@@ -80,28 +80,28 @@ fn compile_main_program(program_log_size: usize, bytecode_zero_eval: F) -> Bytec
 #[instrument(skip_all)]
 fn compile_main_program_self_referential() -> Bytecode {
     let mut log_size_guess = 18;
-    let bytecode_zero_eval = F::ONE;
-    loop {
+    let bytecode_zero_eval = F::ZERO;
+    for _ in 0..10 {
         let bytecode = compile_main_program(log_size_guess, bytecode_zero_eval);
-        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         let actual_log_size = bytecode.log_size();
+        assert_eq!(bytecode.ending_pc, (1 << actual_log_size) - 1);
+        assert_eq!(bytecode_zero_eval, bytecode.instructions_multilinear[0]);
         if actual_log_size == log_size_guess {
             return bytecode;
-        } else {
-            println!(
-                "Wrong guess at `compile_main_program_self_referential`, should be {} instead of {}, recompiling...",
-                actual_log_size, log_size_guess
-            );
         }
+        println!(
+            "Wrong guess at `compile_main_program_self_referential` (log_size {log_size_guess}->{actual_log_size})"
+        );
         log_size_guess = actual_log_size;
     }
+    panic!("`compile_main_program_self_referential` did not converge");
 }
 
-fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
-    let mut replacements = BTreeMap::new();
-
-    let log_inner_bytecode = inner_program_log_size;
+fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTreeMap<String, String> {
+    let ending_pc = (1 << log_inner_bytecode) - 1;
     let min_stacked = min_stacked_n_vars(log_inner_bytecode);
+
+    let mut replacements = BTreeMap::new();
 
     let mut all_potential_num_queries = vec![];
     let mut all_potential_query_grinding = vec![];
@@ -275,7 +275,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
     let mut num_cols_air = vec![];
     let mut air_degrees = vec![];
     let mut n_air_columns = vec![];
-    let mut air_down_columns = vec![];
+    let mut n_air_shift_columns = vec![];
     let mut logup_claim_columns_str = vec![];
     for table in ALL_TABLES {
         let this_look_f_indexes_str = table
@@ -303,15 +303,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         lookup_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         air_degrees.push(table.degree_air().to_string());
         n_air_columns.push(table.n_columns().to_string());
-        air_down_columns.push(format!(
-            "[{}]",
-            table
-                .down_column_indexes()
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        n_air_shift_columns.push(table.n_shift_columns().to_string());
         logup_claim_columns_str.push(format!(
             "[{}]",
             table
@@ -355,8 +347,8 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         format!("[{}]", n_air_columns.join(", ")),
     );
     replacements.insert(
-        "AIR_DOWN_COLUMNS_PLACEHOLDER".to_string(),
-        format!("[{}]", air_down_columns.join(", ")),
+        "N_AIR_SHIFT_COLUMNS_PLACEHOLDER".to_string(),
+        format!("[{}]", n_air_shift_columns.join(", ")),
     );
     replacements.insert(
         "LOGUP_CLAIM_COLUMNS_PLACEHOLDER".to_string(),
@@ -379,7 +371,7 @@ fn build_replacements(inner_program_log_size: usize, bytecode_zero_eval: F) -> B
         total_whir_statements().to_string(),
     );
     replacements.insert("STARTING_PC_PLACEHOLDER".to_string(), STARTING_PC.to_string());
-    replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ENDING_PC.to_string());
+    replacements.insert("ENDING_PC_PLACEHOLDER".to_string(), ending_pc.to_string());
 
     // XMSS-specific replacements
     replacements.insert("V_PLACEHOLDER".to_string(), V.to_string());

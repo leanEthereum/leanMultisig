@@ -198,21 +198,21 @@ def double_loop(a, b, n_bits: Const):
 
 
 def sum_even_indices(a, n_bits: Const):
-    # Use bit decomposition to check parity: bits[0]==0 means even
+    # Big-endian: i_bits[0] = MSB, i_bits[n_bits - 1] = LSB.
+    # Parity check: i_bits[n_bits - 1] == 0 means even.
     acc: Mut = 0
     for i in dynamic_unroll(0, a, n_bits):
         i_bits = Array(n_bits)
-        LITTLE_ENDIAN = 1
-        hint_decompose_bits(i, i_bits, n_bits, LITTLE_ENDIAN)
+        hint_decompose_bits(i, i_bits, n_bits)
         i_ps = Array(n_bits)
-        i_ps[0] = i_bits[0]
+        i_ps[0] = i_bits[n_bits - 1]
         assert i_ps[0] * (1 - i_ps[0]) == 0
         for k in unroll(1, n_bits):
-            ib = i_bits[k]
+            ib = i_bits[n_bits - 1 - k]
             assert ib * (1 - ib) == 0
             i_ps[k] = i_ps[k - 1] + ib * 2**k
         assert i == i_ps[n_bits - 1]
-        if i_bits[0] == 0:
+        if i_bits[n_bits - 1] == 0:
             acc = acc + i
     return acc
 

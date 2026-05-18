@@ -71,6 +71,7 @@ pub fn verify_execution(
     )?;
 
     let logup_c = verifier_state.sample();
+    verifier_state.duplex();
     let logup_alphas = verifier_state.sample_vec(log2_ceil_usize(max_bus_width_including_domainsep()));
     let logup_alphas_eq_poly = eval_eq(&logup_alphas);
 
@@ -90,8 +91,10 @@ pub fn verify_execution(
     }
 
     let bus_beta = verifier_state.sample();
+    verifier_state.duplex();
     let air_alpha = verifier_state.sample();
     let air_alpha_powers: Vec<EF> = air_alpha.powers().collect_n(max_total_constraints() + 1);
+    verifier_state.duplex();
     let eta: EF = verifier_state.sample(); // batching the sumchecks proving validity of AIR tables
 
     let tables_sorted = sort_tables_by_height(&table_n_vars);
@@ -144,7 +147,7 @@ pub fn verify_execution(
 
     let mut my_air_final_value = EF::ZERO;
     for vd in &verify_data {
-        let n_cols_total = vd.table.n_columns() + vd.table.n_down_columns();
+        let n_cols_total = vd.table.n_columns() + vd.table.n_shift_columns();
         let col_evals = verifier_state.next_extension_scalars_vec(n_cols_total)?;
 
         macro_rules! eval_constraint {
@@ -163,7 +166,7 @@ pub fn verify_execution(
         );
 
         macro_rules! split {
-            ($t:expr) => {{ columns_evals_up_and_down($t, &col_evals, &natural_ordering_point) }};
+            ($t:expr) => {{ columns_evals_flat_and_shift($t, &col_evals, &natural_ordering_point) }};
         }
         let claim = delegate_to_inner!(&vd.table => split);
 
@@ -206,6 +209,7 @@ pub fn verify_execution(
         parsed_commitment.num_variables,
         log_memory,
         bytecode.log_size(),
+        bytecode.ending_pc,
         previous_statements,
         &table_n_vars,
         &committed_statements,

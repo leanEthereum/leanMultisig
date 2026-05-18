@@ -18,17 +18,16 @@ pub trait Air: Send + Sync + 'static {
 
     fn n_air_constraints(&self) -> usize;
 
-    fn down_column_indexes(&self) -> Vec<usize>;
+    /// Number of "shift" columns (the ones that are also queried at the next
+    /// row). By convention they occupy columns `0..n_shift_columns()` of the
+    /// table; the remaining columns are "flat" (queried at the current row only).
+    fn n_shift_columns(&self) -> usize;
 
     fn eval<AB: AirBuilder>(&self, builder: &mut AB, extra_data: &Self::ExtraData);
 
     /// If the AIR contains a `low_degree_block` sub-region, returns `(degree, n_constraints)`
     fn low_degree_air(&self) -> Option<(usize, usize)> {
         None
-    }
-
-    fn n_down_columns(&self) -> usize {
-        self.down_column_indexes().len()
     }
 }
 
@@ -48,13 +47,14 @@ pub trait AirBuilder: Sized {
         + Sub<Self::F, Output = Self::EF>
         + From<Self::F>;
 
-    fn up(&self) -> &[Self::IF];
-    fn down(&self) -> &[Self::IF];
+    /// Current-row column evaluations ("flat" view).
+    fn flat(&self) -> &[Self::IF];
+    /// Next-row column evaluations, restricted to the first `n_shift_columns()`
+    /// columns (the "shift" view).
+    fn shift(&self) -> &[Self::IF];
 
     fn assert_zero(&mut self, x: Self::IF);
     fn assert_zero_ef(&mut self, x: Self::EF);
-
-    fn eval_virtual_column(&mut self, x: Self::EF);
 
     fn assert_eq(&mut self, x: Self::IF, y: Self::IF) {
         self.assert_zero(x - y);

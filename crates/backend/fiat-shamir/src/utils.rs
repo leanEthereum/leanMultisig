@@ -1,5 +1,5 @@
 use field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing, PrimeField64};
-use symetric::Compression;
+use koala_bear::symmetric::Permutation;
 
 use crate::challenger::{Challenger, RATE, WIDTH};
 
@@ -40,7 +40,7 @@ pub fn expand_bare_to_full<EF: Field>(bare: &[EF], alpha: EF) -> Vec<EF> {
     full
 }
 
-pub(crate) fn sample_vec<F: PrimeField64, EF: ExtensionField<F>, P: Compression<[F; WIDTH]>>(
+pub(crate) fn sample_vec<F: PrimeField64, EF: ExtensionField<F>, P: Permutation<[F; WIDTH]>>(
     challenger: &mut Challenger<F, P>,
     len: usize,
 ) -> Vec<EF> {

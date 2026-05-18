@@ -342,6 +342,7 @@ def whir_round(
         query_grinding_bits,
     )
 
+    fs = fs_duplex(fs)
     fs, combination_randomness_gen = fs_sample_ef(fs)
 
     combination_randomness_powers = powers(combination_randomness_gen, num_queries + num_ood)

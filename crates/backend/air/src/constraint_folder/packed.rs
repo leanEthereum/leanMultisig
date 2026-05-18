@@ -4,8 +4,8 @@ use poly::*;
 
 #[derive(Debug)]
 pub struct ConstraintFolderPacked<'a, IF, EF: ExtensionField<PF<EF>>, ExtraData: AlphaPowers<EF>> {
-    pub up: &'a [IF],
-    pub down: &'a [IF],
+    pub flat: &'a [IF],
+    pub shift: &'a [IF],
     pub extra_data: &'a ExtraData,
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
@@ -21,10 +21,10 @@ where
     EFPacking<EF>: PrimeCharacteristicRing,
     ExtraData: AlphaPowers<EF>,
 {
-    pub fn new(up: &'a [IF], down: &'a [IF], extra_data: &'a ExtraData) -> Self {
+    pub fn new(flat: &'a [IF], shift: &'a [IF], extra_data: &'a ExtraData) -> Self {
         Self {
-            up,
-            down,
+            flat,
+            shift,
             extra_data,
             accumulator: EFPacking::<EF>::ZERO,
             constraint_index: 0,
@@ -48,13 +48,13 @@ where
     type EF = EFPacking<EF>;
 
     #[inline]
-    fn up(&self) -> &[Self::IF] {
-        self.up
+    fn flat(&self) -> &[Self::IF] {
+        self.flat
     }
 
     #[inline]
-    fn down(&self) -> &[Self::IF] {
-        self.down
+    fn shift(&self) -> &[Self::IF] {
+        self.shift
     }
 
     #[inline]
@@ -95,10 +95,5 @@ where
                 cache.extend_from_slice(state);
             }
         }
-    }
-
-    #[inline]
-    fn eval_virtual_column(&mut self, x: Self::EF) {
-        self.assert_zero_ef(x);
     }
 }

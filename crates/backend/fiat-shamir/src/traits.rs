@@ -16,6 +16,7 @@ pub trait FSProver<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
     fn state(&self) -> String;
     fn add_base_scalars(&mut self, scalars: &[PF<EF>]);
     fn observe_scalars(&mut self, scalars: &[PF<EF>]);
+    fn duplex(&mut self);
     fn pow_grinding(&mut self, bits: usize);
     fn hint_merkle_paths_base(&mut self, paths: Vec<MerklePath<PF<EF>, PF<EF>>>);
     fn add_sumcheck_polynomial(&mut self, coeffs: &[EF], eq_alpha: Option<EF>);
@@ -46,6 +47,7 @@ pub trait FSVerifier<EF: ExtensionField<PF<EF>>>: ChallengeSampler<EF> {
     fn state(&self) -> String;
     fn next_base_scalars_vec(&mut self, n: usize) -> Result<Vec<PF<EF>>, ProofError>;
     fn observe_scalars(&mut self, scalars: &[PF<EF>]);
+    fn duplex(&mut self);
     fn next_merkle_opening(&mut self) -> Result<MerkleOpening<PF<EF>>, ProofError>;
     fn check_pow_grinding(&mut self, bits: usize) -> Result<(), ProofError>;
     fn next_sumcheck_polynomial(

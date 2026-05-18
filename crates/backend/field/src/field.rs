@@ -984,11 +984,12 @@ impl<R: PrimeCharacteristicRing> Powers<R> {
     pub fn fill(self, slice: &mut [R]) {
         slice.iter_mut().zip(self).for_each(|(out, next)| *out = next)
     }
+}
 
-    /// Wrapper for `self.take(n).collect()`.
+impl<F: Field> Powers<F> {
     #[inline]
     #[must_use]
-    pub fn collect_n(self, n: usize) -> Vec<R> {
+    pub fn collect_n(self, n: usize) -> Vec<F> {
         self.take(n).collect()
     }
 }

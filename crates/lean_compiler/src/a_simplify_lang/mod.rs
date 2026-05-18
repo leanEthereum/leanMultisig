@@ -7,8 +7,8 @@ use crate::{
 use backend::PrimeCharacteristicRing;
 use lean_vm::{
     ALL_POSEIDON16_NAMES, Boolean, BooleanExpr, CustomHint, ExtensionOpMode, FunctionName,
-    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, PrecompileArgs,
-    PrecompileCompTimeArgs, SourceLocation,
+    POSEIDON16_HALF_HARDCODED_LEFT_NAME, POSEIDON16_HALF_NAME, POSEIDON16_HARDCODED_LEFT_NAME, POSEIDON16_PERMUTE_NAME,
+    PrecompileArgs, PrecompileCompTimeArgs, SourceLocation,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -541,6 +541,7 @@ fn compile_time_transform_in_program(
                 func.name
             ));
         }
+        check_inline_returns(&func.body, &func.name)?;
     }
 
     // Process all functions, including newly created specialized ones
@@ -2259,13 +2260,14 @@ fn simplify_lines(
                             continue;
                         }
 
-                        // Special handling for poseidon16 precompile (4 variants)
+                        // Special handling for poseidon16 precompile (5 variants).
                         if ALL_POSEIDON16_NAMES.contains(&function_name.as_str()) {
                             if !targets.is_empty() {
                                 return Err(format!(
                                     "Precompile {function_name} should not return values, at {location}"
                                 ));
                             }
+                            let permute = function_name.as_str() == POSEIDON16_PERMUTE_NAME;
                             let half_output = [POSEIDON16_HALF_NAME, POSEIDON16_HALF_HARDCODED_LEFT_NAME]
                                 .contains(&function_name.as_str());
                             let is_hardcoded_left =
@@ -2303,6 +2305,7 @@ fn simplify_lines(
                                 data: PrecompileCompTimeArgs::Poseidon16 {
                                     half_output,
                                     hardcoded_offset_left,
+                                    permute,
                                 },
                             }));
                             continue;
@@ -3454,6 +3457,32 @@ fn inline_lines(
     replace_function_ret_in_lines(lines, res);
 }
 
+fn check_inline_returns(body: &[Line], func_name: &str) -> Result<(), String> {
+    fn count_returns(lines: &[Line]) -> usize {
+        lines
+            .iter()
+            .map(|line| {
+                usize::from(matches!(line, Line::FunctionRet { .. }))
+                    + line.nested_blocks().iter().map(|b| count_returns(b)).sum::<usize>()
+            })
+            .sum()
+    }
+
+    let nested_returns: usize = body
+        .iter()
+        .flat_map(Line::nested_blocks)
+        .map(|b| count_returns(b))
+        .sum();
+
+    if nested_returns > 0 || count_returns(body) > 1 {
+        return Err(format!(
+            "Inline function `{func_name}` has an unsupported `return`. Inline functions support \
+             exactly one `return`, placed at the end of the function's body"
+        ));
+    }
+    Ok(())
+}
+
 fn replace_function_ret_in_lines(lines: &mut Vec<Line>, res: &[AssignmentTarget]) {
     // First recurse into nested blocks
     for line in lines.iter_mut() {
@@ -3703,20 +3732,22 @@ fn expand_dynamic_unroll(
     // The template is the zkDSL expansion of dynamic_unroll, with `end` as the
     // runtime bound and `__iter` as a placeholder for the iterator assignment.
     //
-    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^k.
+    // Bits are stored in big-endian order: bits[0] is the most significant bit
+    // (weight 2^(n_bits-1)), bits[n_bits-1] is the least significant (weight 2^0).
+    // ps has n_bits+1 elements: ps[0]=0, ps[k+1] = ps[k] + bits[k]*2^(n_bits-1-k).
     // So ps[k] is the offset (number of indices below bit k), and ps[n_bits] == n_iters.
     //
-    // For large bits (2^k > CHUNK_SIZE), we split into chunks to reduce bytecode size:
-    // - outer runtime loop over n_chunks = 2^k / CHUNK_SIZE
+    // For large bits (block_size > CHUNK_SIZE), we split into chunks to reduce bytecode size:
+    // - outer runtime loop over n_chunks = block_size / CHUNK_SIZE
     // - inner unroll over CHUNK_SIZE iterations
-    // For k <= log2(CHUNK_SIZE), the range loop has minimal overhead.
+    // For small bits, the range loop has minimal overhead.
 
     // Build the template with per-bit chunking logic.
     // Pre-compute __base_k = start_val + ps[k] once per activated bit,
     // so the inner loop stays at 1 ADD per iteration.
     let mut loop_body = String::new();
     for k in 0..n_bits {
-        let block_size = 1usize << k;
+        let block_size = 1usize << (n_bits - 1 - k);
         if block_size <= DYNAMIC_UNROLL_CHUNK_SIZE {
             // Small block: fully unroll
             loop_body.push_str(&format!(
@@ -3748,14 +3779,13 @@ fn expand_dynamic_unroll(
 def __dynamic_unroll_template(end):
     n_iters = end - {start_val}
     bits = Array({n_bits})
-    le = 1
-    hint_decompose_bits(n_iters, bits, {n_bits}, le)
+    hint_decompose_bits(n_iters, bits, {n_bits})
     ps = Array({ps_len})
     ps[0] = 0
     for k in unroll(0, {n_bits}):
         b = bits[k]
         assert b * (1 - b) == 0
-        ps[k + 1] = ps[k] + b * 2**k
+        ps[k + 1] = ps[k] + b * 2**({n_bits} - 1 - k)
     assert n_iters == ps[{n_bits}]
 {loop_body}
     return
@@ -3779,7 +3809,7 @@ def __dynamic_unroll_template(end):
 
     // Rename all internal variables with @du{id}_ prefix.
     // __iter is renamed directly to the user's iterator variable.
-    let internals: BTreeSet<String> = ["bits", "le", "ps", "k", "j", "b", "chunk", "n_iters"]
+    let internals: BTreeSet<String> = ["bits", "ps", "k", "j", "b", "chunk", "n_iters"]
         .iter()
         .map(|s| s.to_string())
         .collect();

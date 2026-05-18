@@ -136,7 +136,7 @@ impl CustomHint {
         match self {
             Self::DecomposeBitsXMSS => 4,
             Self::DecomposeBitsMerkleWhir => 3,
-            Self::DecomposeBits => 4,
+            Self::DecomposeBits => 3,
             Self::LessThan => 3,
             Self::Log2Ceil => 2,
         }
@@ -182,27 +182,15 @@ impl CustomHint {
                 let to_decompose = args[0].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let memory_index = args[1].read_value(ctx.memory, ctx.fp)?.to_usize();
                 let num_bits = args[2].read_value(ctx.memory, ctx.fp)?.to_usize();
-                let endianness = args[3].read_value(ctx.memory, ctx.fp)?.to_usize();
-                assert!(
-                    endianness == 0 || endianness == 1,
-                    "Invalid endianness for DecomposeBits hint"
-                );
                 assert!(num_bits <= F::bits());
-                if endianness == 0 {
-                    // Big-endian
-                    ctx.memory
-                        .set_slice(memory_index, &to_big_endian_in_field::<F>(to_decompose, num_bits))?
-                } else {
-                    // Little-endian
-                    ctx.memory
-                        .set_slice(memory_index, &to_little_endian_in_field::<F>(to_decompose, num_bits))?
-                }
+                ctx.memory
+                    .set_slice(memory_index, &to_big_endian_in_field::<F>(to_decompose, num_bits))?
             }
             Self::LessThan => {
                 let a = args[0].read_value(ctx.memory, ctx.fp)?;
                 let b = args[1].read_value(ctx.memory, ctx.fp)?;
                 let res_ptr = args[2].memory_address(ctx.fp)?;
-                let result = if a.to_usize() < b.to_usize() { F::ONE } else { F::ZERO };
+                let result = F::from_bool(a.to_usize() < b.to_usize());
                 ctx.memory.set(res_ptr, result)?;
             }
             Self::Log2Ceil => {

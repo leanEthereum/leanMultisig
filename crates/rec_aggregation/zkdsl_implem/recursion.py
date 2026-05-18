@@ -28,7 +28,7 @@ NUM_COLS_AIR = NUM_COLS_AIR_PLACEHOLDER
 AIR_DEGREES = AIR_DEGREES_PLACEHOLDER  # [_; N_TABLES]
 MAX_AIR_FULL_DEGREE = MAX_AIR_FULL_DEGREE_PLACEHOLDER
 N_AIR_COLUMNS = N_AIR_COLUMNS_PLACEHOLDER  # [_; N_TABLES]
-AIR_DOWN_COLUMNS = AIR_DOWN_COLUMNS_PLACEHOLDER  # [[_; ?]; N_TABLES]
+N_AIR_SHIFT_COLUMNS = N_AIR_SHIFT_COLUMNS_PLACEHOLDER  # [_; N_TABLES] — by convention, shift column j of table t is column j
 
 N_INSTRUCTION_COLUMNS = N_INSTRUCTION_COLUMNS_PLACEHOLDER
 N_COMMITTED_EXEC_COLUMNS = N_COMMITTED_EXEC_COLUMNS_PLACEHOLDER
@@ -96,6 +96,7 @@ def recursion(inner_public_memory, bytecode_hash_domsep):
 
     fs, logup_c = fs_sample_ef(fs)
 
+    fs = fs_duplex(fs)
     fs, logup_alphas = fs_sample_many_ef(fs, log2_ceil(MAX_BUS_WIDTH))
 
     logup_alphas_eq_poly = compute_eq_mle_extension(logup_alphas, log2_ceil(MAX_BUS_WIDTH))
@@ -282,10 +283,10 @@ def continue_recursion_ordered(
     for i in unroll(0, N_TABLES):
         pcs_points.push(DynArray([]))
     pcs_values = DynArray([])  # [[[[] or [_]; num cols]; N]; N_TABLES]
-    pcs_values_down = DynArray([])  # same structure, for next_mle-weighted column evals
+    pcs_values_shift = DynArray([])  # same structure, for next_mle-weighted column evals
     for i in unroll(0, N_TABLES):
         pcs_values.push(DynArray([]))
-        pcs_values_down.push(DynArray([]))
+        pcs_values_shift.push(DynArray([]))
     gkr_evals = DynArray([])  # [[[] or [_]; num cols]; N_TABLES]
     for i in unroll(0, N_TABLES):
         gkr_evals.push(DynArray([]))
@@ -381,8 +382,10 @@ def continue_recursion_ordered(
     # VERIFY BUS AND AIR — back-loaded batched sumcheck (see https://hackmd.io/s/HyxaupAAA)
 
     fs, bus_beta = fs_sample_ef(fs)
+    fs = fs_duplex(fs)
     fs, air_alpha = fs_sample_ef(fs)
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
+    fs = fs_duplex(fs)
     fs, eta = fs_sample_ef(fs)
     eta_powers = powers_const(eta, N_TABLES)
 
@@ -446,10 +449,10 @@ def continue_recursion_ordered(
             table_index = third_table
         log_n_rows = table_log_heights[table_index]
         total_num_cols = NUM_COLS_AIR[table_index]
-        n_up_columns = N_AIR_COLUMNS[table_index]
-        n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
+        n_flat_columns = N_AIR_COLUMNS[table_index]
+        n_shift_columns = N_AIR_SHIFT_COLUMNS[table_index]
 
-        fs, inner_evals = fs_receive_ef_inlined(fs, n_up_columns + n_down_columns)
+        fs, inner_evals = fs_receive_ef_inlined(fs, n_flat_columns + n_shift_columns)
 
         air_constraints_eval = evaluate_air_constraints(table_index, inner_evals, air_alpha_powers, bus_beta, logup_alphas_eq_poly)
 
@@ -466,17 +469,17 @@ def continue_recursion_ordered(
 
         pcs_points[table_index].push(all_challenges)
         pcs_values[table_index].push(DynArray([]))
-        pcs_values_down[table_index].push(DynArray([]))
+        pcs_values_shift[table_index].push(DynArray([]))
         last_index = len(pcs_values[table_index]) - 1
         for _ in unroll(0, total_num_cols):
             pcs_values[table_index][last_index].push(DynArray([]))
-            pcs_values_down[table_index][last_index].push(DynArray([]))
-        for i in unroll(0, n_up_columns):
+            pcs_values_shift[table_index][last_index].push(DynArray([]))
+        for i in unroll(0, n_flat_columns):
             pcs_values[table_index][last_index][i].push(inner_evals + i * DIM)
-        if len(AIR_DOWN_COLUMNS[table_index]) != 0:
-            evals_down = inner_evals + n_up_columns * DIM
-            for i in unroll(0, n_down_columns):
-                pcs_values_down[table_index][last_index][AIR_DOWN_COLUMNS[table_index][i]].push(evals_down + i * DIM)
+        if n_shift_columns != 0:
+            evals_shift = inner_evals + n_flat_columns * DIM
+            for i in unroll(0, n_shift_columns):
+                pcs_values_shift[table_index][last_index][i].push(evals_shift + i * DIM)
 
     # verify that the AIR-batched sumcheck is valid
     copy_5(check_sum, batched_air_final_value)
@@ -487,6 +490,7 @@ def continue_recursion_ordered(
     dot_product_be(inner_public_memory, poly_eq_public_mem, public_memory_eval, 2**INNER_PUBLIC_MEMORY_LOG_SIZE)
 
     # WHIR BASE
+    fs = fs_duplex(fs)
     combination_randomness_gen: Mut
     fs, combination_randomness_gen = fs_sample_ef(fs)
     combination_randomness_powers: Mut = powers(combination_randomness_gen, num_ood_at_commitment + TOTAL_WHIR_STATEMENTS)
@@ -518,11 +522,11 @@ def continue_recursion_ordered(
             table_index = third_table
         debug_assert(len(pcs_points[table_index]) == len(pcs_values[table_index]))
         for i in unroll(0, len(pcs_values[table_index])):
-            # next_mle-weighted (down) values come first
-            for j in unroll(0, len(pcs_values_down[table_index][i])):
-                if len(pcs_values_down[table_index][i][j]) == 1:
+            # next_mle-weighted (shift) values come first
+            for j in unroll(0, len(pcs_values_shift[table_index][i])):
+                if len(pcs_values_shift[table_index][i][j]) == 1:
                     whir_sum = add_extension_ret(
-                        mul_extension_ret(pcs_values_down[table_index][i][j][0], curr_randomness),
+                        mul_extension_ret(pcs_values_shift[table_index][i][j][0], curr_randomness),
                         whir_sum,
                     )
                     curr_randomness += DIM
@@ -636,14 +640,14 @@ def continue_recursion_ordered(
         for i in unroll(0, len(pcs_points[table_index])):
             point = pcs_points[table_index][i]
             inner_folding = folding_randomness_global + (stacked_n_vars - log_n_rows) * DIM
-            n_down_columns = len(AIR_DOWN_COLUMNS[table_index])
-            # TODO: cache prefixes for down columns to avoid recomputing them in the eq pass below
-            
-            # next_mle (down) values
-            if n_down_columns != 0:
+            n_shift_columns = N_AIR_SHIFT_COLUMNS[table_index]
+            # TODO: cache prefixes for shift columns to avoid recomputing them in the eq pass below
+
+            # next_mle (shift) values
+            if n_shift_columns != 0:
                 next_factor = next_mle(point, inner_folding, log_n_rows)
                 for j in unroll(0, total_num_cols):
-                    if len(pcs_values_down[table_index][i][j]) == 1:
+                    if len(pcs_values_shift[table_index][i][j]) == 1:
                         prefix = multilinear_location_prefix(
                             offset / n_rows + j,
                             stacked_n_vars - log_n_rows,
@@ -654,7 +658,7 @@ def continue_recursion_ordered(
                             mul_extension_ret(mul_extension_ret(curr_randomness, prefix), next_factor),
                         )
                         curr_randomness += DIM
-            # eq (up) values
+            # eq (flat) values
             eq_factor = poly_eq_extension_dynamic_ret(point, inner_folding, log_n_rows)
             for j in unroll(0, total_num_cols):
                 if len(pcs_values[table_index][i][j]) == 1:
@@ -740,6 +744,7 @@ def verify_gkr_quotient(fs: Mut, n_vars):
 
 
 def verify_gkr_quotient_step(fs: Mut, n_vars, point, claim_num, claim_den):
+    fs = fs_duplex(fs)
     fs, alpha = fs_sample_ef(fs)
     alpha_mul_claim_den = mul_extension_ret(alpha, claim_den)
     num_plus_alpha_mul_claim_den = add_extension_ret(claim_num, alpha_mul_claim_den)

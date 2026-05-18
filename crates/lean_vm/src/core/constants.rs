@@ -36,10 +36,7 @@ pub fn max_log_n_rows_per_table(table: &Table) -> usize {
 }
 
 /// Starting program counter
-pub const STARTING_PC: usize = 1;
-
-/// Ending program counter (the final block is a looping block of 1 instruction)
-pub const ENDING_PC: usize = 0;
+pub const STARTING_PC: usize = 0;
 
 #[cfg(test)]
 mod tests {
