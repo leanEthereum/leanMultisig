@@ -3,7 +3,7 @@ use lean_vm::{
     ALL_TABLES, COL_PC, CommittedStatements, MIN_LOG_MEMORY_SIZE, MIN_LOG_N_ROWS_PER_TABLE, N_INSTRUCTION_COLUMNS,
     STARTING_PC, sort_tables_by_height,
 };
-use lean_vm::{EF, F, Table, TableT, TableTrace};
+use lean_vm::{Bus, EF, F, Table, TableT, TableTrace};
 use std::collections::BTreeMap;
 use tracing::instrument;
 use utils::VarCount;
@@ -233,14 +233,29 @@ pub fn total_whir_statements() -> usize {
      + ALL_TABLES
         .iter()
         .map(|table| {
-            // AIR
-            table.n_columns()
-            + table.n_shift_columns()
-            // Lookups into memory
-            + table.lookups().iter().map(|lookup| 1 + lookup.values.len()).sum::<usize>()
+            // AIR sumcheck claim columns (skipped for Memory which has no AIR).
+            let air_part = if *table == Table::memory() {
+                0
+            } else {
+                table.n_columns() + table.n_shift_columns()
+            };
+            // Memory-bus column evals committed at GKR point (deduplicated).
+            air_part + count_memory_bus_unique_cols(table)
         })
         .sum::<usize>()
         // bytecode lookup
         + 1 // PC
         + N_INSTRUCTION_COLUMNS
+}
+
+fn count_memory_bus_unique_cols(table: &Table) -> usize {
+    use lean_vm::LOGUP_MEMORY_DOMAINSEP;
+    use std::collections::BTreeSet;
+    table
+        .buses()
+        .iter()
+        .filter(|b| b.domain_sep == LOGUP_MEMORY_DOMAINSEP)
+        .flat_map(Bus::referenced_columns)
+        .collect::<BTreeSet<_>>()
+        .len()
 }

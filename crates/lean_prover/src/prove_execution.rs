@@ -101,11 +101,21 @@ pub fn prove_execution(
     let mut memory_acc = F::zero_vec(memory.len());
     info_span!("Building memory access count").in_scope(|| {
         for (table, trace) in &traces {
-            for lookup in table.lookups() {
-                for i in &trace.columns[lookup.index] {
-                    for j in 0..lookup.values.len() {
-                        memory_acc[i.to_usize() + j] += F::ONE;
-                    }
+            for bus in table.buses() {
+                // Push-side memory access buses bump the corresponding `memory_acc[addr]`.
+                if bus.domain_sep != LOGUP_MEMORY_DOMAINSEP || !matches!(bus.direction, BusDirection::Push) {
+                    continue;
+                }
+                // Convention: bus.data = [value_col, index_bus_data].
+                let index_bd = &bus.data[1];
+                let (addr_col, offset) = match index_bd {
+                    BusData::Column(c) => (&trace.columns[*c][..], 0usize),
+                    BusData::ColumnPlusOffset(c, off) => (&trace.columns[*c][..], *off),
+                    _ => continue,
+                };
+                let n_rows = 1usize << trace.log_n_rows;
+                for &addr_v in &addr_col[..n_rows] {
+                    memory_acc[addr_v.to_usize() + offset] += F::ONE;
                 }
             }
         }
@@ -195,7 +205,7 @@ pub fn prove_execution(
         let bus_numerator_value = logup_statements.bus_numerators_values[table];
         let bus_denominator_value = logup_statements.bus_denominators_values[table];
         let bus_final_value = bus_numerator_value
-            * match table.bus().direction {
+            * match table.buses()[0].direction {
                 BusDirection::Pull => EF::NEG_ONE,
                 BusDirection::Push => EF::ONE,
             }

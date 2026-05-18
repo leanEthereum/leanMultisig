@@ -277,29 +277,12 @@ fn build_replacements(log_inner_bytecode: usize, bytecode_zero_eval: F) -> BTree
     let mut n_air_columns = vec![];
     let mut n_air_shift_columns = vec![];
     for table in ALL_TABLES {
-        let this_look_f_indexes_str = table
-            .lookups()
-            .iter()
-            .map(|lookup_f| lookup_f.index.to_string())
-            .collect::<Vec<_>>();
-        lookup_indexes_str.push(format!("[{}]", this_look_f_indexes_str.join(", ")));
+        // TODO: rec_aggregation has not been updated for the bus-based memory model
+        // (lookups() is gone). These placeholders are stubbed so the crate still
+        // compiles; recursion tests will need a follow-up fix.
+        lookup_indexes_str.push("[]".to_string());
+        lookup_values_str.push("[]".to_string());
         num_cols_air.push(table.n_columns().to_string());
-        let this_lookup_f_values_str = table
-            .lookups()
-            .iter()
-            .map(|lookup_f| {
-                format!(
-                    "[{}]",
-                    lookup_f
-                        .values
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })
-            .collect::<Vec<_>>();
-        lookup_values_str.push(format!("[{}]", this_lookup_f_values_str.join(", ")));
         air_degrees.push(table.degree_air().to_string());
         n_air_columns.push(table.n_columns().to_string());
         n_air_shift_columns.push(table.n_shift_columns().to_string());

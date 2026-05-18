@@ -25,35 +25,35 @@ impl<const BUS: bool> TableT for ExecutionTable<BUS> {
         N_TOTAL_EXECUTION_COLUMNS + N_TEMPORARY_EXEC_COLUMNS
     }
 
-    fn lookups(&self) -> Vec<LookupIntoMemory> {
-        vec![
-            LookupIntoMemory {
-                index: COL_MEM_ADDRESS_A,
-                values: vec![COL_MEM_VALUE_A],
-            },
-            LookupIntoMemory {
-                index: COL_MEM_ADDRESS_B,
-                values: vec![COL_MEM_VALUE_B],
-            },
-            LookupIntoMemory {
-                index: COL_MEM_ADDRESS_C,
-                values: vec![COL_MEM_VALUE_C],
-            },
-        ]
-    }
-
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
-    fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
-        data.push(BusData::Column(COL_PRECOMPILE_DATA));
-        data.push(BusData::Column(COL_EXEC_NU_A));
-        data.push(BusData::Column(COL_EXEC_NU_B));
-        data.push(BusData::Column(COL_EXEC_NU_C));
-        Bus {
+    fn buses(&self) -> Vec<Bus> {
+        let precompile = {
+            let mut data = Vec::with_capacity(4);
+            data.push(BusData::Column(COL_PRECOMPILE_DATA));
+            data.push(BusData::Column(COL_EXEC_NU_A));
+            data.push(BusData::Column(COL_EXEC_NU_B));
+            data.push(BusData::Column(COL_EXEC_NU_C));
+            Bus {
+                direction: BusDirection::Push,
+                selector: BusData::Column(COL_IS_PRECOMPILE),
+                data,
+                domain_sep: LOGUP_PRECOMPILE_DOMAINSEP,
+            }
+        };
+        // One memory-access bus per (address, value) pair. Push side: each cycle
+        // accesses 3 memory cells. Selector = Constant(1) means "one push per row".
+        let mem_bus = |addr: ColIndex, value: ColIndex| Bus {
             direction: BusDirection::Push,
-            selector: COL_IS_PRECOMPILE,
-            data,
-        }
+            selector: BusData::Constant(1),
+            data: vec![BusData::Column(value), BusData::Column(addr)],
+            domain_sep: LOGUP_MEMORY_DOMAINSEP,
+        };
+        vec![
+            precompile,
+            mem_bus(COL_MEM_ADDRESS_A, COL_MEM_VALUE_A),
+            mem_bus(COL_MEM_ADDRESS_B, COL_MEM_VALUE_B),
+            mem_bus(COL_MEM_ADDRESS_C, COL_MEM_VALUE_C),
+        ]
     }
 
     fn padding_row(&self, zero_vec_ptr: usize, _null_hash_ptr: usize, ending_pc: usize) -> Vec<F> {

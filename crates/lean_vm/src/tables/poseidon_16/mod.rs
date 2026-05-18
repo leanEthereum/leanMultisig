@@ -138,45 +138,76 @@ impl<const BUS: bool> TableT for Poseidon16Precompile<BUS> {
         Table::poseidon16()
     }
 
-    fn lookups(&self) -> Vec<LookupIntoMemory> {
-        vec![
-            LookupIntoMemory {
-                index: POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST,
-                values: (POSEIDON_16_COL_INPUT_START..POSEIDON_16_COL_INPUT_START + HALF_DIGEST_LEN).collect(),
-            },
-            LookupIntoMemory {
-                index: POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND,
-                values: (POSEIDON_16_COL_INPUT_START + HALF_DIGEST_LEN..POSEIDON_16_COL_INPUT_START + DIGEST_LEN)
-                    .collect(),
-            },
-            LookupIntoMemory {
-                index: POSEIDON_16_COL_INDEX_INPUT_RIGHT,
-                values: (POSEIDON_16_COL_INPUT_START + DIGEST_LEN..POSEIDON_16_COL_INPUT_START + DIGEST_LEN * 2)
-                    .collect(),
-            },
-            LookupIntoMemory {
-                index: POSEIDON_16_COL_INDEX_INPUT_RES,
-                values: (POSEIDON_16_COL_OUTPUT_LEFT..POSEIDON_16_COL_OUTPUT_LEFT + DIGEST_LEN * 2).collect(),
-            },
-        ]
-    }
-
     fn n_columns_total(&self) -> usize {
         num_cols_total_poseidon_16()
     }
 
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
-    fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
-        data.push(BusData::Column(POSEIDON_16_COL_PRECOMPILE_DATA));
-        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT));
-        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT));
-        data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES));
-        Bus {
-            direction: BusDirection::Pull,
-            selector: POSEIDON_16_COL_FLAG,
-            data,
+    fn buses(&self) -> Vec<Bus> {
+        let precompile = {
+            let mut data = Vec::with_capacity(4);
+            data.push(BusData::Column(POSEIDON_16_COL_PRECOMPILE_DATA));
+            data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_LEFT));
+            data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RIGHT));
+            data.push(BusData::Column(POSEIDON_16_COL_INDEX_INPUT_RES));
+            Bus {
+                direction: BusDirection::Pull,
+                selector: BusData::Column(POSEIDON_16_COL_FLAG),
+                data,
+                domain_sep: LOGUP_PRECOMPILE_DOMAINSEP,
+            }
+        };
+        // For each value column in a chunked memory read, push (value_col, base+i)
+        // where i is the offset from the base index column.
+        let mem_bus = |base_idx: ColIndex, value_col: ColIndex, offset: usize| Bus {
+            direction: BusDirection::Push,
+            selector: BusData::Constant(1),
+            data: vec![
+                BusData::Column(value_col),
+                if offset == 0 {
+                    BusData::Column(base_idx)
+                } else {
+                    BusData::ColumnPlusOffset(base_idx, offset)
+                },
+            ],
+            domain_sep: LOGUP_MEMORY_DOMAINSEP,
+        };
+
+        let mut buses = Vec::with_capacity(1 + DIGEST_LEN * 2 + 4);
+        buses.push(precompile);
+        // Left input first half: m[effective_left_first + 0..HALF_DIGEST_LEN]
+        for i in 0..HALF_DIGEST_LEN {
+            buses.push(mem_bus(
+                POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_FIRST,
+                POSEIDON_16_COL_INPUT_START + i,
+                i,
+            ));
         }
+        // Left input second half: m[effective_left_second + 0..HALF_DIGEST_LEN]
+        for i in 0..HALF_DIGEST_LEN {
+            buses.push(mem_bus(
+                POSEIDON_16_COL_EFFECTIVE_INDEX_LEFT_SECOND,
+                POSEIDON_16_COL_INPUT_START + HALF_DIGEST_LEN + i,
+                i,
+            ));
+        }
+        // Right input: m[index_input_right + 0..DIGEST_LEN]
+        for i in 0..DIGEST_LEN {
+            buses.push(mem_bus(
+                POSEIDON_16_COL_INDEX_INPUT_RIGHT,
+                POSEIDON_16_COL_INPUT_START + DIGEST_LEN + i,
+                i,
+            ));
+        }
+        // Output: m[index_input_res + 0..2*DIGEST_LEN]
+        for i in 0..(DIGEST_LEN * 2) {
+            buses.push(mem_bus(
+                POSEIDON_16_COL_INDEX_INPUT_RES,
+                POSEIDON_16_COL_OUTPUT_LEFT + i,
+                i,
+            ));
+        }
+        buses
     }
 
     fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, _ending_pc: usize) -> Vec<F> {

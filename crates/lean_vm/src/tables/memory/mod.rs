@@ -23,13 +23,14 @@ impl TableT for MemoryTable {
         Table::memory()
     }
 
-    fn lookups(&self) -> Vec<LookupIntoMemory> {
-        vec![]
-    }
-
-    fn bus(&self) -> Bus {
-        // Memory's contribution to Logup is hardcoded (implicit index) — not a normal bus.
-        unreachable!("MemoryTable::bus should not be called; memory is special-cased in logup")
+    fn buses(&self) -> Vec<Bus> {
+        // Single pull bus. Selector = multiplicity column (acc); data = (value, implicit row index).
+        vec![Bus {
+            direction: BusDirection::Pull,
+            selector: BusData::Column(MEMORY_COL_ACC),
+            data: vec![BusData::Column(MEMORY_COL_VALUE), BusData::ImplicitIndex],
+            domain_sep: LOGUP_MEMORY_DOMAINSEP,
+        }]
     }
 
     fn padding_row(&self, _zero_vec_ptr: usize, _null_hash_ptr: usize, _ending_pc: usize) -> Vec<F> {

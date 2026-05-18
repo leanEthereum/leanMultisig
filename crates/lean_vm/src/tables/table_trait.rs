@@ -11,13 +11,6 @@ pub type ColIndex = usize;
 pub type CommittedStatements =
     BTreeMap<Table, Vec<(MultilinearPoint<EF>, BTreeMap<ColIndex, EF>, BTreeMap<ColIndex, EF>)>>;
 
-#[derive(Debug)]
-pub struct LookupIntoMemory {
-    pub index: ColIndex, // should be in base field columns
-    /// For (i, col_index) in values.iter().enumerate(), For j in 0..num_rows, columns_f[col_index][j] = memory[index[j] + i]
-    pub values: Vec<ColIndex>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BusDirection {
     Pull,
@@ -36,14 +29,48 @@ impl BusDirection {
 #[derive(Debug, Clone, Copy)]
 pub enum BusData {
     Column(ColIndex),
+    /// `column + constant_offset`. Useful for vector memory accesses: a single
+    /// "base index" column can be reused for chunked reads (`base+0`, `base+1`, …),
+    /// avoiding committing one address column per chunk.
+    ColumnPlusOffset(ColIndex, usize),
     Constant(usize),
+    /// The row number, interpreted as a field element. Used only on the
+    /// Memory table's pull bus, where index = row index (no committed column).
+    ImplicitIndex,
+}
+
+impl BusData {
+    /// Column index referenced by `Column` / `ColumnPlusOffset`; `None` otherwise.
+    pub fn referenced_column(&self) -> Option<ColIndex> {
+        match self {
+            BusData::Column(c) | BusData::ColumnPlusOffset(c, _) => Some(*c),
+            BusData::Constant(_) | BusData::ImplicitIndex => None,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Bus {
     pub direction: BusDirection,
-    pub selector: ColIndex,
+    /// Per-row multiplicity. Often a single column, but expressing it as a
+    /// `BusData` lets us also use constants (e.g. a memory-access bus that
+    /// always pushes one tuple per row) or column-plus-offset combinations.
+    pub selector: BusData,
     pub data: Vec<BusData>,
+    /// Logup domain separator. Buses with different separators can share a
+    /// fingerprint namespace without collisions. By convention:
+    /// - Memory access buses use [`LOGUP_MEMORY_DOMAINSEP`].
+    /// - Precompile / inter-table buses use [`LOGUP_PRECOMPILE_DOMAINSEP`].
+    pub domain_sep: usize,
+}
+
+impl Bus {
+    /// Iterate every column index referenced by this bus's selector + data (with duplicates).
+    pub fn referenced_columns(&self) -> impl Iterator<Item = ColIndex> + '_ {
+        std::iter::once(&self.selector)
+            .chain(self.data.iter())
+            .filter_map(BusData::referenced_column)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -124,8 +151,14 @@ impl<EF: ExtensionField<PF<EF>>> ExtraDataForBuses<EF> {
 pub trait TableT: Air {
     fn name(&self) -> &'static str;
     fn table(&self) -> Table;
-    fn lookups(&self) -> Vec<LookupIntoMemory>;
-    fn bus(&self) -> Bus;
+    /// All buses this table participates in. Convention:
+    /// - For AIR tables: `buses()[0]` is the precompile / inter-table bus. It is the
+    ///   *only* bus that gets folded into the AIR sumcheck (its virtual bus column
+    ///   must be emitted inside this table's [`Air::eval`]). Subsequent entries are
+    ///   memory access buses, verified through GKR + WHIR but not through AIR.
+    /// - For the Memory table: a single pull bus (selector = `acc` column,
+    ///   data = `[value, ImplicitIndex]`).
+    fn buses(&self) -> Vec<Bus>;
     fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, ending_pc: usize) -> Vec<F>;
     fn execute<M: MemoryAccess>(
         &self,
@@ -143,19 +176,5 @@ pub trait TableT: Air {
 
     fn is_execution_table(&self) -> bool {
         false
-    }
-
-    fn lookup_index_columns<'a>(&'a self, trace: &'a TableTrace) -> Vec<&'a [F]> {
-        self.lookups()
-            .iter()
-            .map(|lookup| &trace.columns[lookup.index][..])
-            .collect()
-    }
-    fn lookup_value_columns<'a>(&self, trace: &'a TableTrace) -> Vec<Vec<&'a [F]>> {
-        let mut cols = Vec::new();
-        for lookup in self.lookups() {
-            cols.push(lookup.values.iter().map(|&c| &trace.columns[c][..]).collect());
-        }
-        cols
     }
 }

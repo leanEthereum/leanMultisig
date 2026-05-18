@@ -74,14 +74,11 @@ impl TableT for Table {
     fn table(&self) -> Table {
         delegate_to_inner!(self, table)
     }
-    fn lookups(&self) -> Vec<LookupIntoMemory> {
-        delegate_to_inner!(self, lookups)
-    }
     fn is_execution_table(&self) -> bool {
         delegate_to_inner!(self, is_execution_table)
     }
-    fn bus(&self) -> Bus {
-        delegate_to_inner!(self, bus)
+    fn buses(&self) -> Vec<Bus> {
+        delegate_to_inner!(self, buses)
     }
     fn padding_row(&self, zero_vec_ptr: usize, null_hash_ptr: usize, ending_pc: usize) -> Vec<PF<EF>> {
         delegate_to_inner!(self, padding_row, zero_vec_ptr, null_hash_ptr, ending_pc)
@@ -141,7 +138,12 @@ mod tests {
 
     #[test]
     fn test_max_precompile_bus_width() {
-        let expected_max_bus_width = ALL_AIR_TABLES.iter().map(|table| table.bus().data.len()).max().unwrap();
+        // Precompile bus = buses()[0] by convention.
+        let expected_max_bus_width = ALL_AIR_TABLES
+            .iter()
+            .map(|table| table.buses()[0].data.len())
+            .max()
+            .unwrap();
         assert_eq!(MAX_PRECOMPILE_BUS_WIDTH, expected_max_bus_width);
     }
 }

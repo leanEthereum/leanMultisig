@@ -87,35 +87,40 @@ impl<const BUS: bool> TableT for ExtensionOpPrecompile<BUS> {
         Table::extension_op()
     }
 
-    fn lookups(&self) -> Vec<LookupIntoMemory> {
-        vec![
-            LookupIntoMemory {
-                index: COL_IDX_A,
-                values: (COL_VA..COL_VA + DIMENSION).collect(),
-            },
-            LookupIntoMemory {
-                index: COL_IDX_B,
-                values: (COL_VB..COL_VB + DIMENSION).collect(),
-            },
-            LookupIntoMemory {
-                index: COL_IDX_RES,
-                values: (COL_VRES..COL_VRES + DIMENSION).collect(),
-            },
-        ]
-    }
-
     #[allow(clippy::vec_init_then_push)] // https://github.com/leanEthereum/leanMultisig/issues/198
-    fn bus(&self) -> Bus {
-        let mut data = Vec::with_capacity(4);
-        data.push(BusData::Column(COL_AUX_EXTENSION_OP));
-        data.push(BusData::Column(COL_IDX_A));
-        data.push(BusData::Column(COL_IDX_B));
-        data.push(BusData::Column(COL_IDX_RES));
-        Bus {
-            direction: BusDirection::Pull,
-            selector: COL_ACTIVATION_FLAG,
-            data,
+    fn buses(&self) -> Vec<Bus> {
+        let precompile = {
+            let mut data = Vec::with_capacity(4);
+            data.push(BusData::Column(COL_AUX_EXTENSION_OP));
+            data.push(BusData::Column(COL_IDX_A));
+            data.push(BusData::Column(COL_IDX_B));
+            data.push(BusData::Column(COL_IDX_RES));
+            Bus {
+                direction: BusDirection::Pull,
+                selector: BusData::Column(COL_ACTIVATION_FLAG),
+                data,
+                domain_sep: LOGUP_PRECOMPILE_DOMAINSEP,
+            }
+        };
+        let mem_bus = |base_idx: ColIndex, value_col: ColIndex, offset: usize| Bus {
+            direction: BusDirection::Push,
+            selector: BusData::Constant(1),
+            data: vec![BusData::Column(value_col), BusData::ColumnPlusOffset(base_idx, offset)],
+            domain_sep: LOGUP_MEMORY_DOMAINSEP,
+        };
+
+        let mut buses = Vec::with_capacity(1 + 3 * DIMENSION);
+        buses.push(precompile);
+        for i in 0..DIMENSION {
+            buses.push(mem_bus(COL_IDX_A, COL_VA + i, i));
         }
+        for i in 0..DIMENSION {
+            buses.push(mem_bus(COL_IDX_B, COL_VB + i, i));
+        }
+        for i in 0..DIMENSION {
+            buses.push(mem_bus(COL_IDX_RES, COL_VRES + i, i));
+        }
+        buses
     }
 
     fn n_columns_total(&self) -> usize {
