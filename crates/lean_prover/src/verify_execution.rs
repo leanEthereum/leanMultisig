@@ -137,13 +137,29 @@ pub fn verify_execution(
         eta_power *= eta;
     }
 
-    let max_full_degree = tables_sorted.iter().map(|(t, _)| t.degree_air() + 1).max().unwrap();
+    // The memory / memory_acc / bytecode_acc claims are reduced inside the same
+    // sumcheck. Their session sums (the GKR-claimed values) contribute to the
+    // initial sum with the next eta powers.
+    let eta_power_memory = eta_power;
+    initial_sum += eta_power_memory * logup_statements.value_memory;
+    let eta_power_memory_acc = eta_power_memory * eta;
+    initial_sum += eta_power_memory_acc * logup_statements.value_memory_acc;
+    let eta_power_bytecode_acc = eta_power_memory_acc * eta;
+    initial_sum += eta_power_bytecode_acc * logup_statements.value_bytecode_acc;
 
-    let n_max = tables_sorted[0].1;
+    let max_full_degree = tables_sorted
+        .iter()
+        .map(|(t, _)| t.degree_air() + 1)
+        .max()
+        .unwrap()
+        .max(2); // MleEq sessions are degree 1 + 1 for the eq factor = 2
+
+    // Sumcheck now spans `log_memory` rounds (memory/memory_acc sessions are the
+    // largest), instead of the max AIR table height.
     let Evaluation {
         point: sumcheck_air_point,
         value: claimed_air_final_value,
-    } = sumcheck_verify(&mut verifier_state, n_max, max_full_degree, initial_sum, None)?;
+    } = sumcheck_verify(&mut verifier_state, log_memory, max_full_degree, initial_sum, None)?;
 
     let mut my_air_final_value = EF::ZERO;
     for vd in &verify_data {
@@ -173,6 +189,37 @@ pub fn verify_execution(
         committed_statements.get_mut(&vd.table).unwrap().push(claim);
     }
 
+    // Read evaluations from the prover for memory / memory_acc / bytecode_acc and
+    // add their contributions to my_air_final_value.
+    let memory_eval = verifier_state.next_extension_scalar()?;
+    let memory_acc_eval = verifier_state.next_extension_scalar()?;
+    let bytecode_acc_eval = verifier_state.next_extension_scalar()?;
+
+    let memory_natural_point = MultilinearPoint(natural_ordering_point_for_session(
+        &sumcheck_air_point.0,
+        log_memory,
+    ));
+    let bytecode_natural_point = MultilinearPoint(natural_ordering_point_for_session(
+        &sumcheck_air_point.0,
+        bytecode.log_size(),
+    ));
+
+    // log_memory == sumcheck size, so k_memory = empty product = 1.
+    let memory_eq_value = logup_statements
+        .memory_and_acc_point
+        .eq_poly_outside(&memory_natural_point);
+    my_air_final_value += eta_power_memory * memory_eq_value * memory_eval;
+    my_air_final_value += eta_power_memory_acc * memory_eq_value * memory_acc_eval;
+
+    let bytecode_eq_value = logup_statements
+        .bytecode_and_acc_point
+        .eq_poly_outside(&bytecode_natural_point);
+    let k_bytecode: EF = sumcheck_air_point.0[..log_memory - bytecode.log_size()]
+        .iter()
+        .copied()
+        .product();
+    my_air_final_value += eta_power_bytecode_acc * k_bytecode * bytecode_eq_value * bytecode_acc_eval;
+
     if my_air_final_value != claimed_air_final_value {
         return Err(ProofError::InvalidProof);
     }
@@ -184,10 +231,10 @@ pub fn verify_execution(
     let previous_statements = vec![
         SparseStatement::new(
             parsed_commitment.num_variables,
-            logup_statements.memory_and_acc_point,
+            memory_natural_point,
             vec![
-                SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_memory_acc),
+                SparseValue::new(0, memory_eval),
+                SparseValue::new(1, memory_acc_eval),
             ],
         ),
         SparseStatement::new(
@@ -197,10 +244,10 @@ pub fn verify_execution(
         ),
         SparseStatement::new(
             parsed_commitment.num_variables,
-            logup_statements.bytecode_and_acc_point,
+            bytecode_natural_point,
             vec![SparseValue::new(
                 (2 << log_memory) >> bytecode.log_size(),
-                logup_statements.value_bytecode_acc,
+                bytecode_acc_eval,
             )],
         ),
     ];

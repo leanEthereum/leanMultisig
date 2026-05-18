@@ -387,7 +387,8 @@ def continue_recursion_ordered(
     air_alpha_powers = powers_const(air_alpha, MAX_NUM_AIR_CONSTRAINTS + 1)
     fs = fs_duplex(fs)
     fs, eta = fs_sample_ef(fs)
-    eta_powers = powers_const(eta, N_TABLES)
+    # +3 for the memory / memory_acc / bytecode_acc MleEq sessions batched into the AIR sumcheck.
+    eta_powers = powers_const(eta, N_TABLES + 3)
 
     initial_sum: Mut = ZERO_VEC_PTR
     for sorted_pos in unroll(0, N_TABLES):
@@ -434,7 +435,22 @@ def continue_recursion_ordered(
         initial_table_sum = add_extension_ret(bus_final_value, logup_extra_sum)
         initial_sum = add_extension_ret(initial_sum, mul_extension_ret(eta_powers + sorted_pos * DIM, initial_table_sum))
 
-    n_max = log_n_cycles # extension table is always the biggest
+    # Memory / memory_acc / bytecode_acc MleEq sessions: their GKR-claimed values
+    # are the session sums batched into the same AIR sumcheck with eta^N_TABLES..eta^{N_TABLES+2}.
+    initial_sum = add_extension_ret(
+        initial_sum,
+        mul_extension_ret(eta_powers + N_TABLES * DIM, value_memory),
+    )
+    initial_sum = add_extension_ret(
+        initial_sum,
+        mul_extension_ret(eta_powers + (N_TABLES + 1) * DIM, value_acc),
+    )
+    initial_sum = add_extension_ret(
+        initial_sum,
+        mul_extension_ret(eta_powers + (N_TABLES + 2) * DIM, value_bytecode_acc),
+    )
+
+    n_max = log_memory  # memory is the largest session in the batched sumcheck
     # Batched AIR sumcheck:
     fs, all_challenges, batched_air_final_value = sumcheck_verify_reversed(fs, n_max, initial_sum, MAX_AIR_FULL_DEGREE)
 
@@ -481,6 +497,47 @@ def continue_recursion_ordered(
             for i in unroll(0, n_shift_columns):
                 pcs_values_shift[table_index][last_index][i].push(evals_shift + i * DIM)
 
+    # Memory / memory_acc / bytecode_acc contributions: read the three sumcheck-derived
+    # evaluations and reconstruct their contribution to the final sumcheck value.
+    fs, memory_eval = fs_receive_ef_inlined(fs, 1)
+    fs, memory_acc_eval = fs_receive_ef_inlined(fs, 1)
+    fs, bytecode_acc_eval = fs_receive_ef_inlined(fs, 1)
+
+    # Memory and memory_acc both live at the full sumcheck point (size log_memory == n_max),
+    # so the back-loaded k_t factor is the empty product = 1.
+    memory_eq_value = poly_eq_extension_dynamic_ret(memory_and_acc_point, all_challenges, log_memory)
+    check_sum = add_extension_ret(
+        check_sum,
+        mul_extension_ret(
+            eta_powers + N_TABLES * DIM,
+            mul_extension_ret(memory_eq_value, memory_eval),
+        ),
+    )
+    check_sum = add_extension_ret(
+        check_sum,
+        mul_extension_ret(
+            eta_powers + (N_TABLES + 1) * DIM,
+            mul_extension_ret(memory_eq_value, memory_acc_eval),
+        ),
+    )
+
+    # Bytecode_acc has size LOG_GUEST_BYTECODE_LEN, so k_t multiplies in the prefix
+    # `n_max - LOG_GUEST_BYTECODE_LEN` of the reversed sumcheck point.
+    bytecode_eq_value = poly_eq_extension_dynamic_ret(
+        bytecode_and_acc_point, all_challenges, LOG_GUEST_BYTECODE_LEN
+    )
+    k_bytecode = product_first_n(
+        all_challenges + LOG_GUEST_BYTECODE_LEN * DIM,
+        log_memory - LOG_GUEST_BYTECODE_LEN,
+    )
+    check_sum = add_extension_ret(
+        check_sum,
+        mul_extension_ret(
+            eta_powers + (N_TABLES + 2) * DIM,
+            mul_extension_ret(k_bytecode, mul_extension_ret(bytecode_eq_value, bytecode_acc_eval)),
+        ),
+    )
+
     # verify that the AIR-batched sumcheck is valid
     copy_5(check_sum, batched_air_final_value)
 
@@ -498,13 +555,16 @@ def continue_recursion_ordered(
     dot_product_ee_dynamic(whir_base_ood_evals, combination_randomness_powers, whir_sum, num_ood_at_commitment)
     curr_randomness: Mut = combination_randomness_powers + num_ood_at_commitment * DIM
 
-    whir_sum = add_extension_ret(mul_extension_ret(value_memory, curr_randomness), whir_sum)
+    # WHIR statements for memory / memory_acc / bytecode_acc are now anchored at the
+    # sumcheck-derived points (memory_eval/memory_acc_eval/bytecode_acc_eval) instead
+    # of the old GKR-derived ones.
+    whir_sum = add_extension_ret(mul_extension_ret(memory_eval, curr_randomness), whir_sum)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(value_acc, curr_randomness), whir_sum)
+    whir_sum = add_extension_ret(mul_extension_ret(memory_acc_eval, curr_randomness), whir_sum)
     curr_randomness += DIM
     whir_sum = add_extension_ret(mul_extension_ret(public_memory_eval, curr_randomness), whir_sum)
     curr_randomness += DIM
-    whir_sum = add_extension_ret(mul_extension_ret(value_bytecode_acc, curr_randomness), whir_sum)
+    whir_sum = add_extension_ret(mul_extension_ret(bytecode_acc_eval, curr_randomness), whir_sum)
     curr_randomness += DIM
 
     whir_sum = add_extension_ret(mul_extension_ret(embed_in_ef(STARTING_PC), curr_randomness), whir_sum)
@@ -556,9 +616,11 @@ def continue_recursion_ordered(
 
     curr_randomness = combination_randomness_powers + num_ood_at_commitment * DIM
 
+    # Memory / memory_acc statements are at the AIR sumcheck point (all_challenges)
+    # of length log_memory == n_max.
     eq_memory_and_acc_point = poly_eq_extension_dynamic_ret(
         folding_randomness_global + (stacked_n_vars - log_memory) * DIM,
-        memory_and_acc_point,
+        all_challenges,
         log_memory,
     )
     prefix_memory = multilinear_location_prefix(0, stacked_n_vars - log_memory, folding_randomness_global)
@@ -591,10 +653,12 @@ def continue_recursion_ordered(
 
     offset = two_exp(log_memory) * 2  # memory and acc_memory
 
+    # Bytecode_acc statement is at the prefix of length LOG_GUEST_BYTECODE_LEN of the
+    # reversed sumcheck point (= all_challenges).
     eq_bytecode_acc = Array(DIM)
     poly_eq_ee(
         folding_randomness_global + (stacked_n_vars - LOG_GUEST_BYTECODE_LEN) * DIM,
-        bytecode_and_acc_point,
+        all_challenges,
         eq_bytecode_acc,
         LOG_GUEST_BYTECODE_LEN,
     )

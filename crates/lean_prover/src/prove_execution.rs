@@ -206,6 +206,27 @@ pub fn prove_execution(
         sessions.push(delegate_to_inner!(table => make_session));
     }
 
+    // Memory, memory_acc and bytecode_acc claims are reduced inside the same batched
+    // sumcheck as the AIR tables: each becomes a `sum_x eq(p_i, x) · P_i(x) = value_i`
+    // session. After the sumcheck their evaluations are produced at the same sumcheck
+    // point as the AIR table columns, instead of at the GKR-derived points.
+    sessions.push(Box::new(MleEqSumcheckSession::new(
+        MleGroupRef::<EF>::Base(vec![&memory]).into(),
+        logup_statements.memory_and_acc_point.0.clone(),
+        logup_statements.value_memory,
+    )));
+    sessions.push(Box::new(MleEqSumcheckSession::new(
+        MleGroupRef::<EF>::Base(vec![&memory_acc]).into(),
+        logup_statements.memory_and_acc_point.0.clone(),
+        logup_statements.value_memory_acc,
+    )));
+    sessions.push(Box::new(MleEqSumcheckSession::new(
+        MleGroupRef::<EF>::Base(vec![&bytecode_acc]).into(),
+        logup_statements.bytecode_and_acc_point.0.clone(),
+        logup_statements.value_bytecode_acc,
+    )));
+
+    let n_air_sessions = tables_sorted.len();
     let sumcheck_air_point = info_span!("batched AIR sumcheck")
         .in_scope(|| prove_batched_air_sumcheck(&mut prover_state, &mut sessions, air_eta));
 
@@ -222,16 +243,33 @@ pub fn prove_execution(
         committed_statements.get_mut(table).unwrap().push(claim);
     }
 
+    let memory_eval = sessions[n_air_sessions].final_column_evals()[0];
+    prover_state.add_extension_scalar(memory_eval);
+    let memory_acc_eval = sessions[n_air_sessions + 1].final_column_evals()[0];
+    prover_state.add_extension_scalar(memory_acc_eval);
+    let bytecode_acc_eval = sessions[n_air_sessions + 2].final_column_evals()[0];
+    prover_state.add_extension_scalar(bytecode_acc_eval);
+
     let public_memory_random_point = MultilinearPoint(prover_state.sample_vec(log2_strict_usize(public_memory_size)));
     let public_memory_eval = (&memory[..public_memory_size]).evaluate(&public_memory_random_point);
+
+    let log_memory = log2_strict_usize(memory.len());
+    let memory_sumcheck_point = MultilinearPoint(natural_ordering_point_for_session(
+        &sumcheck_air_point.0,
+        log_memory,
+    ));
+    let bytecode_sumcheck_point = MultilinearPoint(natural_ordering_point_for_session(
+        &sumcheck_air_point.0,
+        bytecode.log_size(),
+    ));
 
     let previous_statements = vec![
         SparseStatement::new(
             stacked_pcs_witness.stacked_n_vars,
-            logup_statements.memory_and_acc_point,
+            memory_sumcheck_point,
             vec![
-                SparseValue::new(0, logup_statements.value_memory),
-                SparseValue::new(1, logup_statements.value_memory_acc),
+                SparseValue::new(0, memory_eval),
+                SparseValue::new(1, memory_acc_eval),
             ],
         ),
         SparseStatement::new(
@@ -241,10 +279,10 @@ pub fn prove_execution(
         ),
         SparseStatement::new(
             stacked_pcs_witness.stacked_n_vars,
-            logup_statements.bytecode_and_acc_point,
+            bytecode_sumcheck_point,
             vec![SparseValue::new(
                 (2 * memory.len()) >> bytecode.log_size(),
-                logup_statements.value_bytecode_acc,
+                bytecode_acc_eval,
             )],
         ),
     ];

@@ -1,6 +1,9 @@
 mod air_sumcheck;
 pub use air_sumcheck::*;
 
+mod mle_eq_sumcheck;
+pub use mle_eq_sumcheck::*;
+
 mod logup;
 pub use logup::*;
 
