@@ -277,12 +277,6 @@ class VerifierState:
             raise ProofError("InvalidGrindingWitness")
 
 
-@dataclass
-class Bytecode:
-    hash: list[Fp]
-    log_size: int
-
-
 # Multiplicative inverse of 2 in Fp (KoalaBear). Used to halve EF elements.
 _INV_TWO = Fp(pow(2, P - 2, P))
 
@@ -428,12 +422,6 @@ def eval_multilinear_coeffs(coeffs: Sequence[EF], point: Sequence[EF]) -> EF:
 
 
 @dataclass
-class SparseValue:
-    selector: int
-    value: EF
-
-
-@dataclass
 class SparseStatement:
     """A claim with a multilinear `point` over the last `len(point)` variables
     and one or more `(selector, value)` pairs indexing the leading selector
@@ -441,7 +429,7 @@ class SparseStatement:
 
     total_num_variables: int
     point: list[EF]
-    values: list[SparseValue]
+    values: list[tuple[int, EF]]   # each entry is (selector, value)
     is_next: bool = False
 
     @property
@@ -450,14 +438,14 @@ class SparseStatement:
 
     @staticmethod
     def dense(point: list[EF], value: EF) -> "SparseStatement":
-        return SparseStatement(len(point), point, [SparseValue(0, value)])
+        return SparseStatement(len(point), point, [(0, value)])
 
     @staticmethod
     def unique_value(total: int, index: int, value: EF) -> "SparseStatement":
-        return SparseStatement(total, [], [SparseValue(index, value)])
+        return SparseStatement(total, [], [(index, value)])
 
     @staticmethod
-    def new_next(total: int, point: list[EF], values: list[SparseValue]) -> "SparseStatement":
+    def new_next(total: int, point: list[EF], values: list[tuple[int, EF]]) -> "SparseStatement":
         return SparseStatement(total, point, values, is_next=True)
 
 
@@ -473,13 +461,6 @@ def whir_n_rounds_and_final_sumcheck(num_variables: int) -> tuple[int, int]:
         return 0, nv
     n = -(-(nv - MAX_NUM_VARIABLES_TO_SEND_COEFFS) // WHIR_SUBSEQUENT_FOLDING_FACTOR)
     return n, nv - n * WHIR_SUBSEQUENT_FOLDING_FACTOR
-
-
-def whir_log_inv_rate_at(start_rate: int, r: int) -> int:
-    """Initial rate, then each round adds `folding_factor − rs_reduction`."""
-    return start_rate + r * (WHIR_SUBSEQUENT_FOLDING_FACTOR - 1) + (
-        WHIR_INITIAL_FOLDING_FACTOR - RS_DOMAIN_INITIAL_REDUCTION_FACTOR if r >= 1 else 0
-    )
 
 
 def whir_log_domain_size_at(num_variables: int, start_rate: int, r: int) -> int:
@@ -502,38 +483,17 @@ def two_adic_generator(bits: int) -> Fp:
     return Fp(KB_TWO_ADIC_GENERATORS[bits])
 
 
-@dataclass(frozen=True)
-class WhirRoundConfig:
-    num_queries: int
-    ood_samples: int
-    query_pow_bits: int
-    folding_pow_bits: int
-
-
-@dataclass(frozen=True)
-class WhirConfig:
-    log_inv_rate: int
-    num_variables: int
-    commitment_ood_samples: int
-    starting_folding_pow_bits: int
-    final_queries: int
-    final_query_pow_bits: int
-    rounds: tuple[WhirRoundConfig, ...]
-
-
+# A WHIR config is a dict with: log_inv_rate, num_variables, commitment_ood_samples,
+# starting_folding_pow_bits, final_queries, final_query_pow_bits, rounds (list of
+# dicts with num_queries, ood_samples, query_pow_bits, folding_pow_bits).
 @functools.cache
-def whir_config(log_inv_rate: int, num_variables: int) -> WhirConfig:
-    """Loads the Rust-dumped JSON (float-derived query/OOD/grinding numbers).
-    Everything else is recomputed on the fly via the helpers above."""
+def whir_config(log_inv_rate: int, num_variables: int) -> dict:
+    """Look up the Rust-dumped soundness numbers for this (rate, num_variables)."""
     import json
     from pathlib import Path
-    raw = json.loads(Path(__file__).with_name(WHIR_CONFIGS_PATH).read_text())
-    for c in raw:
+    for c in json.loads(Path(__file__).with_name(WHIR_CONFIGS_PATH).read_text()):
         if (c["log_inv_rate"], c["num_variables"]) == (log_inv_rate, num_variables):
-            return WhirConfig(
-                **{k: c[k] for k in WhirConfig.__annotations__ if k != "rounds"},
-                rounds=tuple(WhirRoundConfig(**r) for r in c["rounds"]),
-            )
+            return c
     raise KeyError(
         f"No WHIR config for (log_inv_rate={log_inv_rate}, num_variables={num_variables}). "
         "Regenerate with: cargo test -p lean_prover --test dump_whir_configs"
@@ -552,13 +512,6 @@ class ParsedCommitment:
             SparseStatement.dense(expand_from_univariate(p, self.num_variables), ev)
             for p, ev in zip(self.ood_points, self.ood_answers)
         ]
-
-
-def parsed_commitment_parse(state: VerifierState, num_variables: int, ood_samples: int) -> ParsedCommitment:
-    root = state.next_base_scalars_vec(DIGEST_ELEMS)
-    ood_points = state.sample_vec(ood_samples) if ood_samples else []
-    ood_answers = state.next_extension_scalars_vec(ood_samples) if ood_samples else []
-    return ParsedCommitment(num_variables, root, ood_points, ood_answers)
 
 
 @dataclass
@@ -610,7 +563,7 @@ def combine_constraints(
     combo = [EF.one()]
     for smt in constraints:
         for v in smt.values:
-            target = target + combo[-1] * v.value
+            target = target + combo[-1] * v[1]
             combo.append(combo[-1] * gamma)
     combo.pop()
     return target, combo
@@ -618,7 +571,7 @@ def combine_constraints(
 
 def verify_stir_challenges(
     state: VerifierState,
-    cfg: WhirConfig,
+    cfg: dict,
     round_index: int,
     num_variables: int,
     folding_factor: int,
@@ -629,7 +582,7 @@ def verify_stir_challenges(
 ) -> list[SparseStatement]:
     """Read `num_queries` Merkle openings, fold each answer at
     `folding_randomness`, and emit a dense STIR constraint per query."""
-    log_domain = whir_log_domain_size_at(cfg.num_variables, cfg.log_inv_rate, round_index)
+    log_domain = whir_log_domain_size_at(cfg["num_variables"], cfg["log_inv_rate"], round_index)
     log_height = log_domain - folding_factor
     gen = two_adic_generator(log_height)
 
@@ -661,7 +614,7 @@ def verify_constraint_coeffs(constraint: SparseStatement, coeffs: list[EF]) -> b
     if any(a * a != b for a, b in zip(constraint.point, constraint.point[1:])):
         return False
     univ_eval = _eval_univariate(coeffs, alpha)
-    return all(univ_eval == v.value for v in constraint.values)
+    return all(univ_eval == v[1] for v in constraint.values)
 
 
 def eval_constraints_poly(
@@ -685,7 +638,7 @@ def eval_constraints_poly(
             for v in smt.values:
                 lagrange = EF.one()
                 for j in range(sel_n):
-                    bit = (v.selector >> (sel_n - 1 - j)) & 1
+                    bit = (v[0] >> (sel_n - 1 - j)) & 1
                     lagrange = lagrange * (pt[j] if bit else (EF.one() - pt[j]))
                 value = value + lagrange * common * randomness[i]
                 i += 1
@@ -695,14 +648,14 @@ def eval_constraints_poly(
 
 def whir_verify(
     state: VerifierState,
-    cfg: WhirConfig,
+    cfg: dict,
     parsed_commitment: ParsedCommitment,
     statement: list[SparseStatement],
 ) -> list[EF]:
     for s in statement:
         assert s.total_num_variables == parsed_commitment.num_variables
 
-    n_rounds, final_sumcheck_rounds = whir_n_rounds_and_final_sumcheck(cfg.num_variables)
+    n_rounds, final_sumcheck_rounds = whir_n_rounds_and_final_sumcheck(cfg["num_variables"])
     round_constraints: list[tuple[list[EF], list[SparseStatement]]] = []
     round_folding: list[list[EF]] = []
     target = EF.zero()
@@ -718,22 +671,27 @@ def whir_verify(
 
     # Initial: OODS + caller statement, then run the first folding sumcheck.
     step(parsed_commitment.oods_constraints() + statement,
-         whir_folding_factor_at_round(0), cfg.starting_folding_pow_bits)
+         whir_folding_factor_at_round(0), cfg["starting_folding_pow_bits"])
 
     # Per-round loop: new commitment → STIR → combine → fold sumcheck.
     prev_commitment = parsed_commitment
-    nvars_round = cfg.num_variables
+    nvars_round = cfg["num_variables"]
     for r in range(n_rounds):
-        rp = cfg.rounds[r]
+        rp = cfg["rounds"][r]
         nvars_round -= whir_folding_factor_at_round(r)
-        new_commitment = parsed_commitment_parse(state, nvars_round, rp.ood_samples)
+        nood = rp["ood_samples"]
+        new_commitment = ParsedCommitment(
+            nvars_round, state.next_base_scalars_vec(DIGEST_ELEMS),
+            state.sample_vec(nood) if nood else [],
+            state.next_extension_scalars_vec(nood) if nood else [],
+        )
         stir = verify_stir_challenges(
             state, cfg, r, nvars_round,
-            whir_folding_factor_at_round(r), rp.num_queries, rp.query_pow_bits,
+            whir_folding_factor_at_round(r), rp["num_queries"], rp["query_pow_bits"],
             prev_commitment, round_folding[-1],
         )
         step(new_commitment.oods_constraints() + stir,
-             whir_folding_factor_at_round(r + 1), rp.folding_pow_bits)
+             whir_folding_factor_at_round(r + 1), rp["folding_pow_bits"])
         prev_commitment = new_commitment
 
     # Final round: send poly in coefficient form, verify STIR queries against it.
@@ -741,7 +699,7 @@ def whir_verify(
     final_coeffs = state.next_extension_scalars_vec(1 << n_vars_final)
     final_stir = verify_stir_challenges(
         state, cfg, n_rounds, n_vars_final,
-        whir_folding_factor_at_round(n_rounds), cfg.final_queries, cfg.final_query_pow_bits,
+        whir_folding_factor_at_round(n_rounds), cfg["final_queries"], cfg["final_query_pow_bits"],
         prev_commitment, round_folding[-1],
     )
     for smt in final_stir:
@@ -781,20 +739,6 @@ def tables_from_json(obj: list[dict]) -> list[TableMeta]:
     ]
 
 
-def compute_stacked_n_vars(
-    log_memory: int,
-    log_bytecode: int,
-    table_log_heights: dict[str, int],
-    table_n_columns: dict[str, int],
-) -> int:
-    """`log₂` of the stacked polynomial length: 2·memory + bytecode-acc (padded
-    to the tallest table) + Σ per-table `n_columns × 2^log_n_rows`."""
-    max_h = max(table_log_heights.values())
-    total = (2 << log_memory) + (1 << max(log_bytecode, max_h))
-    total += sum(table_n_columns[n] << h for n, h in table_log_heights.items())
-    return log2_ceil_usize(total)
-
-
 def stacked_pcs_global_statements(
     stacked_n_vars: int,
     memory_n_vars: int,
@@ -815,10 +759,10 @@ def stacked_pcs_global_statements(
     offset = (2 << memory_n_vars) + (1 << max(bytecode_n_vars, tables_sorted[0][1]))
     col_pc = constants["col_pc"]
 
-    def values_at(d: dict[int, EF], n_vars: int) -> list[SparseValue]:
+    def values_at(d: dict[int, EF], n_vars: int) -> list[tuple[int, EF]]:
         # Rust uses BTreeMap → ascending-key iteration; Python dicts are
         # insertion-ordered, so we sort explicitly here.
-        return [SparseValue((offset >> n_vars) + i, v) for i, v in sorted(d.items())]
+        return [((offset >> n_vars) + i, v) for i, v in sorted(d.items())]
 
     for name, n_vars in tables_sorted:
         if name == "execution":
@@ -836,26 +780,6 @@ def stacked_pcs_global_statements(
         offset += tables[name].n_columns << n_vars
 
     return out
-
-
-def stacked_pcs_parse_commitment(
-    state: VerifierState,
-    log_inv_rate: int,
-    log_memory: int,
-    log_bytecode: int,
-    table_log_heights: dict[str, int],
-    table_n_columns: dict[str, int],
-) -> ParsedCommitment:
-    """Validate sizing invariants (memory ≥ execution ≥ all other tables,
-    stacked-poly fits the WHIR domain bound), then parse the commitment."""
-    exec_log = table_log_heights["execution"]
-    if log_memory < exec_log or exec_log < max(table_log_heights.values()):
-        raise ProofError("InvalidProof: memory or execution table size invariants broken")
-    stacked_n_vars = compute_stacked_n_vars(log_memory, log_bytecode, table_log_heights, table_n_columns)
-    if stacked_n_vars > BASE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate:
-        raise ProofError("InvalidProof: stacked_n_vars exceeds WHIR domain bound")
-    cfg = whir_config(log_inv_rate, stacked_n_vars)
-    return parsed_commitment_parse(state, stacked_n_vars, cfg.commitment_ood_samples)
 
 
 # Verifies `Σ nᵢ/dᵢ` via a layered sumcheck.
@@ -952,19 +876,6 @@ def eval_eq(point: Sequence[EF]) -> list[EF]:
     return out
 
 
-@dataclass
-class GenericLogupStatements:
-    memory_and_acc_point: list[EF]
-    value_memory: EF
-    value_memory_acc: EF
-    bytecode_and_acc_point: list[EF]
-    value_bytecode_acc: EF
-    bus_numerators_values: dict[str, EF]
-    bus_denominators_values: dict[str, EF]
-    gkr_point: list[EF]
-    columns_values: dict[str, dict[int, EF]]
-
-
 def verify_generic_logup(
     state: VerifierState,
     c: EF,
@@ -975,7 +886,7 @@ def verify_generic_logup(
     table_log_heights: dict[str, int],
     tables: dict[str, TableMeta],
     constants: dict,
-) -> GenericLogupStatements:
+) -> dict:
     """Run the GKR-quotient protocol and reconstruct numerator/denominator
     sums section by section (memory / bytecode / per-table). Each section
     contributes a `pref · (num_term, den_term)` pair to the running totals."""
@@ -1095,17 +1006,15 @@ def verify_generic_logup(
     if num != claim_num: raise ProofError("logup: numerators value mismatch")
     if den != claim_den: raise ProofError("logup: denominators value mismatch")
 
-    return GenericLogupStatements(
-        memory_and_acc_point=list(mem_pt),
-        value_memory=value_memory,
-        value_memory_acc=value_memory_acc,
-        bytecode_and_acc_point=list(byte_pt),
-        value_bytecode_acc=value_bytecode_acc,
-        bus_numerators_values=bus_num_vals,
-        bus_denominators_values=bus_den_vals,
-        gkr_point=list(point_gkr),
-        columns_values=columns_values,
-    )
+    return {
+        "value_memory": value_memory,
+        "value_memory_acc": value_memory_acc,
+        "value_bytecode_acc": value_bytecode_acc,
+        "bus_num": bus_num_vals,
+        "bus_den": bus_den_vals,
+        "gkr_point": list(point_gkr),
+        "columns_values": columns_values,
+    }
 
 
 class ConstraintFolder:
@@ -1488,87 +1397,9 @@ _TABLE_SPECS: dict[str, dict] = {
 }
 
 
-def _powers(x: EF, n: int) -> list[EF]:
-    """`[1, x, x², …, x^(n−1)]`."""
-    out, cur = [], EF.one()
-    for _ in range(n):
-        out.append(cur)
-        cur = cur * x
-    return out
-
-
-def verify_air_stage(
-    state: VerifierState,
-    logup: GenericLogupStatements,
-    logup_c: EF,
-    logup_alphas_eq_poly: list[EF],
-    table_log_heights: dict[str, int],
-    tables: dict[str, TableMeta],
-    public_input: Sequence[Fp],
-    log_memory: int,
-) -> tuple[dict[str, list[tuple[list[EF], dict[int, EF], dict[int, EF]]]], list[EF], EF]:
-    """Returns `(committed_statements, public_memory_random_point, public_memory_eval)`.
-    `committed_statements[name]` is a list of `(point, eq_values, next_values)`
-    triples — one per session for that table."""
-    bus_beta = state.sample()
-    state.duplex()
-    air_alpha = state.sample()
-    state.duplex()
-    eta = state.sample()
-    alpha_powers = _powers(air_alpha, max(_TABLE_SPECS[n]["n_constraints"] for n in tables) + 1)
-    tables_sorted = sort_tables_by_height(table_log_heights)
-    eta_powers = _powers(eta, len(tables_sorted))
-    extra_data = {"logup_alphas_eq_poly": logup_alphas_eq_poly, "bus_beta": bus_beta, "c": logup_c}
-
-    # Initial AIR sum: Σ η^t · (bus_num · sign + β · (bus_den − c)).
-    initial_sum = EF.zero()
-    for (name, _), eta_pow in zip(tables_sorted, eta_powers):
-        sign = -EF.one() if tables[name].bus_direction == "Pull" else EF.one()
-        bus_value = logup.bus_numerators_values[name] * sign + bus_beta * (logup.bus_denominators_values[name] - logup_c)
-        initial_sum = initial_sum + eta_pow * bus_value
-
-    max_degree_plus_one = max(_TABLE_SPECS[n]["degree"] + 1 for n, _ in tables_sorted)
-    n_max = tables_sorted[0][1]
-    sc = verify_sumcheck(state, initial_sum, n_max, max_degree_plus_one)
-
-    # Per-table: read col_evals, evaluate the AIR constraint, accumulate, build claims.
-    # Each table's committed statements start with its logup eq-values entry.
-    committed = {
-        name: [(list(from_end(logup.gkr_point, table_log_heights[name])),
-                dict(logup.columns_values[name]), {})]
-        for name in tables
-    }
-    my_air_final_value = EF.zero()
-    for (name, log_n_rows), eta_pow in zip(tables_sorted, eta_powers):
-        meta, n_shift = tables[name], _TABLE_SPECS[name]["n_shift"]
-        col_evals = state.next_extension_scalars_vec(meta.n_columns + n_shift)
-        constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers, extra_data)
-
-        # Per-table contribution = η^t · (Π unused-prefix coords) · eq · C(col_evals).
-        natural_pt = list(reversed(sc.point[-log_n_rows:])) if log_n_rows else []
-        k_t = EF.one()
-        for x in sc.point[: n_max - log_n_rows]:
-            k_t = k_t * x
-        bus_point = from_end(logup.gkr_point, log_n_rows)
-        my_air_final_value = my_air_final_value + eta_pow * k_t * eq_poly_outside(bus_point, natural_pt) * constraint_eval
-
-        # Convention: down column `j` is column `j` of the table.
-        eq_values = {i: col_evals[i] for i in range(meta.n_columns)}
-        next_values = {j: col_evals[meta.n_columns + j] for j in range(n_shift)}
-        committed[name].append((natural_pt, eq_values, next_values))
-
-    if my_air_final_value != sc.value:
-        raise ProofError("AIR sumcheck: my_air_final_value != claimed_air_final_value")
-
-    # Public memory MLE evaluation at a fresh random point.
-    public_memory = padd_with_zero_to_next_power_of_two(public_input)
-    pm_point = state.sample_vec(log2_strict_usize(len(public_memory)))
-    pm_eval = eval_multilinear_evals([EF.from_base(f) for f in public_memory], pm_point)
-    return committed, list(pm_point), pm_eval
-
-
 def verify_execution(
-    bytecode: Bytecode,
+    bytecode_hash: list[Fp],
+    bytecode_log_size: int,
     public_input: Sequence[Fp],
     proof: Proof,
     tables: Sequence[TableMeta],
@@ -1577,36 +1408,48 @@ def verify_execution(
 ) -> dict:
     state = VerifierState(proof)
     state.observe_scalars(list(public_input))
-    state.observe_scalars(poseidon16_compress(bytecode.hash, SNARK_DOMAIN_SEP))
+    state.observe_scalars(poseidon16_compress(bytecode_hash, SNARK_DOMAIN_SEP))
 
-    # Dimensions: log_inv_rate, log_memory, public_input_len, then per-table log_n_rows.
+    # --- Prologue: read & validate the verifier-side dimensions. ---
     dims = [int(x.value) for x in state.next_base_scalars_vec(3 + len(tables))]
     log_inv_rate, log_memory, public_input_len, *table_log_n_rows = dims
-
     if public_input_len != len(public_input):
         raise ProofError("InvalidProof: public_input length mismatch")
     if not MIN_WHIR_LOG_INV_RATE <= log_inv_rate <= MAX_WHIR_LOG_INV_RATE:
         raise ProofError("InvalidRate")
     if any(h < MIN_LOG_N_ROWS_PER_TABLE for h in table_log_n_rows):
         raise ProofError("InvalidProof: table too small")
-    if log_memory < max(max(table_log_n_rows, default=0), bytecode.log_size):
+    if log_memory < max(max(table_log_n_rows, default=0), bytecode_log_size):
         raise ProofError("InvalidProof: memory smaller than tables/bytecode")
     if not MIN_LOG_MEMORY_SIZE <= log_memory <= MAX_LOG_MEMORY_SIZE:
         raise ProofError("InvalidProof: log_memory out of range")
-    if bytecode.log_size < MIN_BYTECODE_LOG_SIZE:
+    if bytecode_log_size < MIN_BYTECODE_LOG_SIZE:
         raise ProofError("InvalidProof: bytecode too small")
 
     table_log_heights = {t.name: h for t, h in zip(tables, table_log_n_rows)}
-    table_n_columns   = {t.name: t.n_columns for t in tables}
-    tables_by_name    = {t.name: t for t in tables}
+    tables_by_name = {t.name: t for t in tables}
+    tables_sorted = sort_tables_by_height(table_log_heights)
 
-    parsed_commitment = stacked_pcs_parse_commitment(
-        state, log_inv_rate, log_memory, bytecode.log_size, table_log_heights, table_n_columns,
+    # --- Stacked-PCS commitment parse. ---
+    # Sizing invariants: memory ≥ execution ≥ all other tables; stacked length
+    # = 2·memory + bytecode-acc (padded to tallest table) + Σ n_cols × 2^log_n.
+    if log_memory < table_log_heights["execution"] or table_log_heights["execution"] < tables_sorted[0][1]:
+        raise ProofError("InvalidProof: memory or execution table size invariants broken")
+    total_stacked = (
+        (2 << log_memory) + (1 << max(bytecode_log_size, tables_sorted[0][1]))
+        + sum(t.n_columns << table_log_heights[t.name] for t in tables)
     )
+    stacked_n_vars = log2_ceil_usize(total_stacked)
+    if stacked_n_vars > BASE_TWO_ADICITY + WHIR_INITIAL_FOLDING_FACTOR - log_inv_rate:
+        raise ProofError("InvalidProof: stacked_n_vars exceeds WHIR domain bound")
+    cfg = whir_config(log_inv_rate, stacked_n_vars)
+    root = state.next_base_scalars_vec(DIGEST_ELEMS)
+    ood_points = state.sample_vec(cfg["commitment_ood_samples"]) if cfg["commitment_ood_samples"] else []
+    ood_answers = state.next_extension_scalars_vec(cfg["commitment_ood_samples"]) if cfg["commitment_ood_samples"] else []
+    parsed_commitment = ParsedCommitment(stacked_n_vars, root, ood_points, ood_answers)
 
-    # Logup phase.
-    logup_c = state.sample()
-    state.duplex()
+    # --- Logup phase. ---
+    logup_c = state.sample(); state.duplex()
     max_bus_width = 1 + max(constants["max_precompile_bus_width"], constants["n_instruction_columns"])
     logup_alphas = state.sample_vec(log2_ceil_usize(max_bus_width))
     logup_alphas_eq = eval_eq(logup_alphas)
@@ -1614,31 +1457,83 @@ def verify_execution(
         state, logup_c, logup_alphas, logup_alphas_eq, log_memory, bytecode_multilinear,
         table_log_heights, tables_by_name, constants,
     )
+    gkr_point = logup["gkr_point"]
 
-    # AIR phase.
-    committed, pm_point, pm_eval = verify_air_stage(
-        state, logup, logup_c, logup_alphas_eq,
-        table_log_heights, tables_by_name, public_input, log_memory,
-    )
+    # --- AIR phase: bus → batched-degree sumcheck → per-table constraint check. ---
+    bus_beta = state.sample();  state.duplex()
+    air_alpha = state.sample(); state.duplex()
+    eta = state.sample()
+    # alpha_powers = [1, α, α², …]; eta_powers = [1, η, η², …].
+    def powers(x: EF, n: int) -> list[EF]:
+        out, cur = [], EF.one()
+        for _ in range(n):
+            out.append(cur); cur = cur * x
+        return out
+    alpha_powers = powers(air_alpha, max(_TABLE_SPECS[n]["n_constraints"] for n in tables_by_name) + 1)
+    eta_powers = powers(eta, len(tables_sorted))
+    extra_data = {"logup_alphas_eq_poly": logup_alphas_eq, "bus_beta": bus_beta, "c": logup_c}
 
-    # WHIR finale: seed previous_statements with memory, public-memory, bytecode-acc.
-    stacked_n_vars = parsed_commitment.num_variables
+    # Initial AIR sum: Σ η^t · (bus_num · sign + β · (bus_den − c)).
+    initial_sum = EF.zero()
+    for (name, _), eta_pow in zip(tables_sorted, eta_powers):
+        sign = -EF.one() if tables_by_name[name].bus_direction == "Pull" else EF.one()
+        initial_sum = initial_sum + eta_pow * (
+            logup["bus_num"][name] * sign + bus_beta * (logup["bus_den"][name] - logup_c)
+        )
+    n_max = tables_sorted[0][1]
+    sc = verify_sumcheck(state, initial_sum, n_max, max(_TABLE_SPECS[n]["degree"] + 1 for n, _ in tables_sorted))
+
+    # Per-table: read col_evals, evaluate AIR, accumulate. Each table's committed
+    # statements start with its logup eq-values entry.
+    committed = {
+        name: [(list(from_end(gkr_point, table_log_heights[name])),
+                dict(logup["columns_values"][name]), {})]
+        for name in tables_by_name
+    }
+    my_air_final = EF.zero()
+    for (name, log_n_rows), eta_pow in zip(tables_sorted, eta_powers):
+        meta, n_shift = tables_by_name[name], _TABLE_SPECS[name]["n_shift"]
+        col_evals = state.next_extension_scalars_vec(meta.n_columns + n_shift)
+        constraint_eval = air_constraint_eval(meta, col_evals, alpha_powers, extra_data)
+
+        # Per-table contribution = η^t · (Π unused-prefix coords) · eq · C(col_evals).
+        natural_pt = list(reversed(sc.point[-log_n_rows:])) if log_n_rows else []
+        k_t = EF.one()
+        for x in sc.point[: n_max - log_n_rows]:
+            k_t = k_t * x
+        my_air_final = my_air_final + eta_pow * k_t * eq_poly_outside(
+            from_end(gkr_point, log_n_rows), natural_pt
+        ) * constraint_eval
+
+        # Shift column `j` is column `j` of the table (by convention).
+        eq_vals = {i: col_evals[i] for i in range(meta.n_columns)}
+        next_vals = {j: col_evals[meta.n_columns + j] for j in range(n_shift)}
+        committed[name].append((natural_pt, eq_vals, next_vals))
+    if my_air_final != sc.value:
+        raise ProofError("AIR sumcheck: claimed value mismatch")
+
+    # Public-memory MLE evaluation at a fresh random point.
+    public_memory = padd_with_zero_to_next_power_of_two(public_input)
+    pm_point = state.sample_vec(log2_strict_usize(len(public_memory)))
+    pm_eval = eval_multilinear_evals([EF.from_base(f) for f in public_memory], pm_point)
+
+    # --- WHIR finale. Seed previous_statements with memory + public-memory + bytecode-acc claims. ---
     mk = lambda point, values: SparseStatement(stacked_n_vars, list(point), values)
     previous = [
-        mk(logup.memory_and_acc_point, [
-            SparseValue(0, logup.value_memory),
-            SparseValue(1, logup.value_memory_acc),
+        mk(from_end(gkr_point, log_memory), [
+            (0, logup["value_memory"]),
+            (1, logup["value_memory_acc"]),
         ]),
-        mk(pm_point, [SparseValue(0, pm_eval)]),
-        mk(logup.bytecode_and_acc_point, [SparseValue(
-            (2 << log_memory) >> bytecode.log_size, logup.value_bytecode_acc,
-        )]),
+        mk(pm_point, [(0, pm_eval)]),
+        mk(from_end(gkr_point, bytecode_log_size), [
+            ((2 << log_memory) >> bytecode_log_size, logup["value_bytecode_acc"]),
+        ]),
     ]
     global_statements = stacked_pcs_global_statements(
-        stacked_n_vars, log_memory, bytecode.log_size, previous,
+        stacked_n_vars, log_memory, bytecode_log_size, previous,
         table_log_heights, committed, tables_by_name, constants,
     )
-    whir_verify(state, whir_config(log_inv_rate, stacked_n_vars), parsed_commitment, global_statements)
+    whir_verify(state, cfg, parsed_commitment, global_statements)
 
     return {"log_inv_rate": log_inv_rate, "log_memory": log_memory, "stacked_n_vars": stacked_n_vars}
 
@@ -1673,7 +1568,6 @@ def main() -> int:
     bytecode_multilinear: list[int] = list(arr)
 
     fp_list = lambda xs: [Fp(v) for v in xs]
-    bytecode     = Bytecode(fp_list(raw["bytecode_hash"]), raw["bytecode_log_size"])
     public_input = fp_list(raw["public_input"])
     input_data   = fp_list(raw["input_data"])
     proof = Proof(
@@ -1691,7 +1585,8 @@ def main() -> int:
 
     try:
         result = verify_execution(
-            bytecode, public_input, proof,
+            fp_list(raw["bytecode_hash"]), raw["bytecode_log_size"],
+            public_input, proof,
             tables_from_json(raw["tables"]), raw["constants"], bytecode_multilinear,
         )
     except ProofError as e:
