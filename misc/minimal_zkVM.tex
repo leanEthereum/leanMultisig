@@ -588,8 +588,26 @@ The stacked polynomial $\hat{S}$, which we commit, has $5 = \lceil \log_2(2^4 + 
 
 \subsection{Tables}\label{sec:table-sizes}
 
-The trace is split accross 3 tables: execution, poseidon, and extension.
-Each table is a 2D matrix, filled by (base) field elements, committed at the beginning of the proof.
+The execution trace is split across three \textit{tables}: \textsc{execution}, \textsc{extension}, and \textsc{poseidon}. Each table $T$ is a matrix of base-field elements, with a variable power-of-two height $2^{h_T}$, and a fixed number of columns $n_\text{column}^T = n_\text{shift}^T + n_\text{flat}^T$. Each column $\hat{\textsf{col}}^T_i$ ($i \in [0, n_\text{column}^T)$) is interpreted as a multilinear polynomial in ${h_T}$ variables.
+\subsubsection{AIR constraints}
+
+Every table $T$ has a list of $n^\text{constraints}_T$ AIR (Algebraic Intermediate Representation) constraints. Each AIR constraint $C_k^T$ ($k \in [0, n_\text{constraints}^T)$) is a multivariate polynomial in $n_\text{column}^T + n_\text{shift}^T$ variables. $C_k^T$ is respected by the table's trace if:
+$$
+\forall r \in [0, 2^{h_T}), \quad C_k(\textsf{col}^T_0(r), \ldots, \textsf{col}^T_{n_\text{column}^T-1}(r), \textsf{shift}(\textsf{col}^T_0)[r], \ldots, \textsf{shift}(\textsf{col}^T_{n_\text{shift}^T-1})[r]) = 0
+$$
+
+TODO
+
+
+\begin{itemize}
+    \item \textbf{AIR transition constraints.} A list of transition constraints (\ref{sec:air-eval}): polynomials in the current and the next row, each required to vanish on every pair of consecutive rows. Their degree is bounded by a fixed value, characteristic of the table.
+
+    \item \textbf{Bus interaction.} A \textit{direction} (\textsc{push} or \textsc{pull}), a boolean \textit{selector} column (possibly virtual), and a \textit{data tuple} of at most $4$ entries, each entry being a column or a constant. On every row where the selector equals $1$, the data tuple is pushed onto (\textsc{push}) or pulled from (\textsc{pull}) the precompile bus; on the other rows the table does not touch the bus. The bus enforces that pushes and pulls match (\ref{buses}).
+
+    \item \textbf{Memory lookups.} A (possibly empty) list of lookups into the read-only memory, each consisting of an \textit{index} column and a group of \textit{value} columns, asserting that the value columns hold the memory contents at consecutive addresses starting from the index (\ref{sec:memory-lookup}).
+\end{itemize}
+
+The three tables, together with their maximal heights:
 
 \begin{center}
 \begin{tabular}{lc}
@@ -603,7 +621,7 @@ Poseidon & $2^{21}$ \\
 \end{tabular}
 \end{center}
 
-Tables are padded to the next power of two (with a minimum of $2^{8}$ rows). These bounds are critical for soundness: they ensure that logup multiplicities cannot overflow modulo $p$.
+Heights are powers of two: each table is padded to the next power of two, with a minimum of $2^{8}$ rows. These bounds are critical for soundness: they ensure that logup multiplicities cannot overflow modulo $p$.
 
 \subsection{Arithmetic Intermediate Representation (AIR)}\label{sec:air-eval}
 
@@ -985,7 +1003,7 @@ Except with probability $n/q$, if $P(\alpha) = 0$ for a random $\alpha \in \Fq$,
 
 \end{lemma}
 
-\subsubsection{Indexed Lookup into Memory}
+\subsubsection{Indexed Lookup into Memory}\label{sec:memory-lookup}
 
 We use logup \cite{logup}, in its indexed form, to allow tables to perform lookups into the read-only memory.
 
